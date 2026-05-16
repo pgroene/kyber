@@ -15,6 +15,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
+from homeassistant.helpers.storage import Store
 
 try:
     from homeassistant.components.ai_task import async_generate_data
@@ -28,6 +29,11 @@ _LOGGER = logging.getLogger(__name__)
 
 _YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
+_CHAT_HISTORY_STORE_VERSION = 1
+_CHAT_HISTORY_STORE_KEY = f"{DOMAIN}_chat_history"
+_CHAT_HISTORY_MAX_MESSAGES = 200
+_CHAT_MESSAGE_MAX_CHARS = 4000
+_CHAT_SUMMARY_MAX_CHARS = 16000
 
 
 def _build_context(hass: HomeAssistant) -> str:
@@ -181,6 +187,45 @@ def _build_service_undo(domain: str, service: str, entity_id: str, pre_state: An
     return None
 
 
+def _sanitize_history(messages: Any) -> list[dict[str, str]]:
+    """Normalize chat history payload to a safe, bounded list."""
+    if not isinstance(messages, list):
+        return []
+    normalized: list[dict[str, str]] = []
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        role = "user" if msg.get("role") == "user" else "assistant"
+        content = str(msg.get("content", "")).strip()
+        if not content:
+            continue
+        normalized.append({"role": role, "content": content[:_CHAT_MESSAGE_MAX_CHARS]})
+    return normalized[-_CHAT_HISTORY_MAX_MESSAGES:]
+
+
+def _sanitize_summary(summary: Any) -> str:
+    """Normalize compacted summary to a bounded string."""
+    return str(summary or "").strip()[:_CHAT_SUMMARY_MAX_CHARS]
+
+
+async def _async_load_chat_store(hass: HomeAssistant) -> dict[str, Any]:
+    """Load persisted chat history store."""
+    store: Store[dict[str, Any]] = Store(hass, _CHAT_HISTORY_STORE_VERSION, _CHAT_HISTORY_STORE_KEY)
+    data = await store.async_load()
+    if not isinstance(data, dict):
+        return {"users": {}}
+    users = data.get("users")
+    if not isinstance(users, dict):
+        data["users"] = {}
+    return data
+
+
+async def _async_save_chat_store(hass: HomeAssistant, data: dict[str, Any]) -> None:
+    """Persist chat history store."""
+    store: Store[dict[str, Any]] = Store(hass, _CHAT_HISTORY_STORE_VERSION, _CHAT_HISTORY_STORE_KEY)
+    await store.async_save(data)
+
+
 class KyberView(HomeAssistantView):
     """Handle POST /api/kyber/complete."""
 
@@ -314,6 +359,72 @@ class KyberView(HomeAssistantView):
         plan_block = _extract_plan_block(response_text)
 
         return self.json({"response": response_text, "yaml_blocks": yaml_blocks, "plan": plan_block})
+
+
+class KyberHistoryView(HomeAssistantView):
+    """Handle user-scoped chat history persistence endpoints."""
+
+    url = "/api/kyber/history"
+    name = "api:kyber:history"
+    requires_auth = True
+
+    @staticmethod
+    def _user_id_from_request(request: web.Request) -> str | None:
+        """Extract the authenticated Home Assistant user id from request."""
+        ha_user = request.get("hass_user")
+        user_id = getattr(ha_user, "id", None)
+        return str(user_id) if user_id else None
+
+    async def get(self, request: web.Request) -> web.Response:
+        """Return persisted chat history for current authenticated user."""
+        hass: HomeAssistant = request.app["hass"]
+        user_id = self._user_id_from_request(request)
+        if not user_id:
+            return self.json_message("Unable to resolve authenticated user", HTTPStatus.UNAUTHORIZED)
+
+        data = await _async_load_chat_store(hass)
+        user_data = data.get("users", {}).get(user_id, {})
+        return self.json(
+            {
+                "history": _sanitize_history(user_data.get("history", [])),
+                "compacted_summary": _sanitize_summary(user_data.get("compacted_summary", "")),
+            }
+        )
+
+    async def post(self, request: web.Request) -> web.Response:
+        """Save persisted chat history for current authenticated user."""
+        hass: HomeAssistant = request.app["hass"]
+        user_id = self._user_id_from_request(request)
+        if not user_id:
+            return self.json_message("Unable to resolve authenticated user", HTTPStatus.UNAUTHORIZED)
+
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
+
+        data = await _async_load_chat_store(hass)
+        users = data.setdefault("users", {})
+        users[user_id] = {
+            "history": _sanitize_history(body.get("history", [])),
+            "compacted_summary": _sanitize_summary(body.get("compacted_summary", "")),
+        }
+        await _async_save_chat_store(hass, data)
+        return self.json({"status": "ok"})
+
+    async def delete(self, request: web.Request) -> web.Response:
+        """Clear persisted chat history for current authenticated user."""
+        hass: HomeAssistant = request.app["hass"]
+        user_id = self._user_id_from_request(request)
+        if not user_id:
+            return self.json_message("Unable to resolve authenticated user", HTTPStatus.UNAUTHORIZED)
+
+        data = await _async_load_chat_store(hass)
+        users = data.get("users", {})
+        if user_id in users:
+            users.pop(user_id, None)
+            await _async_save_chat_store(hass, data)
+        return self.json({"status": "ok"})
 
 
 class KyberExecuteView(HomeAssistantView):
@@ -626,4 +737,3 @@ class KyberSummarizeView(HomeAssistantView):
 
         summary_text: str = result.data if isinstance(result.data, str) else str(result.data)
         return self.json({"summary": summary_text.strip()})
-
