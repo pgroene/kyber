@@ -3015,4 +3015,6 @@ class KyberPanel extends HTMLElement {
   }
 }
 
-customElements.define("kyber-panel", KyberPanel);
+if (!customElements.get("kyber-panel")) {
+  customElements.define("kyber-panel", KyberPanel);
+}
