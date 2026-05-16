@@ -55,7 +55,7 @@ test.describe("Editor — context breadcrumb", () => {
     });
 
     const label = page.locator("#editor-context-label");
-    await expect(label).toContainText("⚡ Kyber > automation > Sunup");
+    await expect(label).toContainText("automation > Sunup");
     await expect(page.locator("#btn-save")).toContainText("Save automation");
     await expect(page.locator("#btn-new-dashboard")).toBeHidden();
 

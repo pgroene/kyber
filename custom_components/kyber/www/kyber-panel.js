@@ -1771,7 +1771,7 @@ class KyberPanel extends HTMLElement {
   _setEditorContextLabel(mode, label) {
     const ctxLabel = this.shadowRoot.getElementById("editor-context-label");
     if (!ctxLabel) return;
-    ctxLabel.textContent = `⚡ Kyber > ${mode} > ${label}`;
+    ctxLabel.textContent = `${mode} > ${label}`;
   }
 
   async _loadAutomation(configId) {

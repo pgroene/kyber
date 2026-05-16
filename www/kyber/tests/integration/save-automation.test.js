@@ -128,7 +128,7 @@ describe("save button label", () => {
     const btn = element.shadowRoot.getElementById("btn-save");
     expect(btn.textContent).toBe("Save automation");
     const breadcrumb = element.shadowRoot.getElementById("editor-context-label");
-    expect(breadcrumb.textContent).toBe("⚡ Kyber > automation > Sunup");
+    expect(breadcrumb.textContent).toBe("automation > Sunup");
     const newDashboardBtn = element.shadowRoot.getElementById("btn-new-dashboard");
     expect(newDashboardBtn.style.display).toBe("none");
   });
@@ -143,7 +143,7 @@ describe("save button label", () => {
     const btn = element.shadowRoot.getElementById("btn-save");
     expect(btn.textContent).toBe("Save script");
     const breadcrumb = element.shadowRoot.getElementById("editor-context-label");
-    expect(breadcrumb.textContent).toBe("⚡ Kyber > script > My Script");
+    expect(breadcrumb.textContent).toBe("script > My Script");
     const newDashboardBtn = element.shadowRoot.getElementById("btn-new-dashboard");
     expect(newDashboardBtn.style.display).toBe("none");
   });
@@ -157,7 +157,7 @@ describe("save button label", () => {
     const btn = element.shadowRoot.getElementById("btn-save");
     expect(btn.textContent).toBe("Save dashboard");
     const breadcrumb = element.shadowRoot.getElementById("editor-context-label");
-    expect(breadcrumb.textContent).toBe("⚡ Kyber > dashboard > Overview (default)");
+    expect(breadcrumb.textContent).toBe("dashboard > Overview (default)");
     const newDashboardBtn = element.shadowRoot.getElementById("btn-new-dashboard");
     expect(newDashboardBtn.style.display).toBe("inline-block");
   });
