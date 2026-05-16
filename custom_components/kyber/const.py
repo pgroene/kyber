@@ -13,7 +13,6 @@ DEFAULT_MAX_TOKENS = 2048
 MAX_ENTITY_LIST_CHARS = 8_000
 
 SYSTEM_PROMPT_TEMPLATE = """\
-/no_think
 You are an expert Home Assistant assistant. You help users chat about their smart home, \
 edit automations/scripts, and manage entities (areas, labels, names). \
 Address the user by their name when you know it.
