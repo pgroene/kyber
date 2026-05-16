@@ -807,8 +807,7 @@ class KyberPanel extends HTMLElement {
     shadow.getElementById("dashboard-select").addEventListener("change", (e) => {
       const urlPath = e.target.value === "__default__" ? null : e.target.value;
       const label = e.target.options[e.target.selectedIndex]?.textContent || "";
-      const ctx = this.shadowRoot.getElementById("editor-context-label");
-      if (ctx) ctx.textContent = label;
+      this._setEditorContextLabel("dashboard", label);
       this._loadDashboard(urlPath);
     });
 
@@ -1486,7 +1485,11 @@ class KyberPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll(".editor-controls").forEach((el) => {
       el.style.display = "block";
     });
-    this.shadowRoot.getElementById("editor-context-label").textContent = friendlyName;
+    this._setEditorContextLabel(isScript ? "script" : "automation", friendlyName);
+    const sel = this.shadowRoot.getElementById("dashboard-select");
+    if (sel) sel.style.display = "none";
+    const newDashBtn = this.shadowRoot.getElementById("btn-new-dashboard");
+    if (newDashBtn) newDashBtn.style.display = "none";
 
     this._currentAutomationId = configId;
     this._editorMode = isScript ? "script" : "automation";
@@ -1541,7 +1544,7 @@ class KyberPanel extends HTMLElement {
       el.style.display = "block";
     });
     this.shadowRoot.getElementById("btn-save").textContent = "Save dashboard";
-    this.shadowRoot.getElementById("editor-context-label").textContent = "Dashboard editor";
+    this._setEditorContextLabel("dashboard", "Dashboard editor");
     this._setStatus("Opening…");
     this.shadowRoot.getElementById("btn-save").disabled = true;
     const newDashBtn = this.shadowRoot.getElementById("btn-new-dashboard");
@@ -1581,7 +1584,7 @@ class KyberPanel extends HTMLElement {
       if (targetUrlPath) {
         sel.value = targetUrlPath;
         const ctxLabel = sel.options[sel.selectedIndex]?.textContent || targetUrlPath;
-        this.shadowRoot.getElementById("editor-context-label").textContent = ctxLabel;
+        this._setEditorContextLabel("dashboard", ctxLabel);
         await this._loadDashboard(targetUrlPath);
       } else {
         // Load the first available dashboard with actual stored config
@@ -1597,7 +1600,7 @@ class KyberPanel extends HTMLElement {
             this._dirty = false;
             this.shadowRoot.getElementById("btn-save").disabled = false;
             const dashTitle = sel.options[sel.selectedIndex]?.textContent || "";
-            this.shadowRoot.getElementById("editor-context-label").textContent = dashTitle;
+            this._setEditorContextLabel("dashboard", dashTitle);
             this._setStatus(`Editing: ${dashTitle}`);
             loaded = true;
             break;
@@ -1612,7 +1615,7 @@ class KyberPanel extends HTMLElement {
           this._setEditorContent(this._configToYaml(starter));
           this._dirty = false;
           this.shadowRoot.getElementById("btn-save").disabled = false;
-          this.shadowRoot.getElementById("editor-context-label").textContent = "Overview (default)";
+          this._setEditorContextLabel("dashboard", "Overview (default)");
           this._setStatus("No stored dashboard config yet — edit this template and save.");
         }
       }
@@ -1763,6 +1766,12 @@ class KyberPanel extends HTMLElement {
   _logChange(description) {
     const entry = { role: "assistant", content: `[CHANGE] ${description}` };
     this._chatHistory.push(entry);
+  }
+
+  _setEditorContextLabel(mode, label) {
+    const ctxLabel = this.shadowRoot.getElementById("editor-context-label");
+    if (!ctxLabel) return;
+    ctxLabel.textContent = `⚡ Kyber > ${mode} > ${label}`;
   }
 
   async _loadAutomation(configId) {
