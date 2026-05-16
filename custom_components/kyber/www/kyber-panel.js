@@ -1171,7 +1171,10 @@ class KyberPanel extends HTMLElement {
   async _switchSession(nameOrId) {
     if (!this._hass) return;
     const sessions = await this._loadSessionList();
-    const target = sessions.find((s) => s.name.toLowerCase() === nameOrId.toLowerCase() || s.id === nameOrId);
+    const num = parseInt(nameOrId, 10);
+    const target = !isNaN(num) && num >= 1 && num <= sessions.length
+      ? sessions[num - 1]
+      : sessions.find((s) => s.name.toLowerCase() === nameOrId.toLowerCase() || s.id === nameOrId);
     if (!target) {
       this._appendMessage(`Session not found: "${nameOrId}". Use \`/session list\` to see available sessions.`, "assistant");
       return;
