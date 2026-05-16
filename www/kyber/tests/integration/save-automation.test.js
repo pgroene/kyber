@@ -8,6 +8,7 @@
  *   - Shows error when parse_yaml fails
  *   - Re-enables Save button on failure
  *   - Works for scripts (uses config/script/config/ API path)
+ *   - Save button label reflects editor mode (automation / script / dashboard)
  */
 
 import { makePanel } from "../helpers.js";
@@ -95,5 +96,69 @@ describe("_saveAutomation", () => {
     element._currentAutomationId = null;
     await element._saveAutomation();
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("save button label", () => {
+  function stubEditor(element) {
+    // Pre-stub _editor so _initEditor (which uses CodeMirror) is not called
+    element._editor = {
+      state: { doc: { toString: () => "" } },
+      requestMeasure: vi.fn(),
+      dispatch: vi.fn(),
+    };
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => "",
+      json: async () => ({ config: {} }),
+    }));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("shows 'Save automation' when opening an automation", async () => {
+    const { element, hass } = makePanel({
+      states: { "automation.sunup": { attributes: { id: "sunup", friendly_name: "Sunup" } } },
+    });
+    stubEditor(element);
+    hass.callApi.mockResolvedValue({ alias: "sunup", mode: "single" });
+    await element._openEditor("automation.sunup");
+    const btn = element.shadowRoot.getElementById("btn-save");
+    expect(btn.textContent).toBe("Save automation");
+  });
+
+  it("shows 'Save script' when opening a script", async () => {
+    const { element, hass } = makePanel({
+      states: { "script.my_script": { attributes: { id: "my_script", friendly_name: "My Script" } } },
+    });
+    stubEditor(element);
+    hass.callApi.mockResolvedValue({ alias: "my script", mode: "single" });
+    await element._openEditor("script.my_script");
+    const btn = element.shadowRoot.getElementById("btn-save");
+    expect(btn.textContent).toBe("Save script");
+  });
+
+  it("shows 'Save dashboard' when opening a dashboard", async () => {
+    const { element, hass } = makePanel();
+    stubEditor(element);
+    hass.callWS = vi.fn().mockResolvedValue([]);
+    hass.callApi.mockResolvedValue({ views: [] });
+    await element._openDashboard(null);
+    const btn = element.shadowRoot.getElementById("btn-save");
+    expect(btn.textContent).toBe("Save dashboard");
+  });
+
+  it("resets label to 'Save' when editor is closed", async () => {
+    const { element, hass } = makePanel({
+      states: { "automation.sunup": { attributes: { id: "sunup", friendly_name: "Sunup" } } },
+    });
+    stubEditor(element);
+    hass.callApi.mockResolvedValue({ alias: "sunup", mode: "single" });
+    await element._openEditor("automation.sunup");
+    element._closeEditor();
+    const btn = element.shadowRoot.getElementById("btn-save");
+    expect(btn.textContent).toBe("Save");
   });
 });
