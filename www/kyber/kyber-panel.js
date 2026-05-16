@@ -465,6 +465,17 @@ const STYLES = `
 
   .editor-controls { display: none; }
 
+  .editor-context-label {
+    flex: 0 0 auto;
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--secondary-text-color, #aaa);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 220px;
+  }
+
   .editor-title {
     flex: 1;
     font-size: 14px;
@@ -713,6 +724,7 @@ class KyberPanel extends HTMLElement {
       <div class="container" id="app-container">
         <div class="toolbar">
           <h2>⚡ Kyber</h2>
+          <span class="editor-context-label editor-controls" id="editor-context-label"></span>
           <span class="editor-title editor-controls" id="editor-title">
             <select id="dashboard-select" class="dashboard-select" style="display:none"></select>
             <button class="btn-new-dashboard editor-controls" id="btn-new-dashboard" style="display:none" title="Create a new dashboard">＋ New dashboard</button>
@@ -794,6 +806,9 @@ class KyberPanel extends HTMLElement {
 
     shadow.getElementById("dashboard-select").addEventListener("change", (e) => {
       const urlPath = e.target.value === "__default__" ? null : e.target.value;
+      const label = e.target.options[e.target.selectedIndex]?.textContent || "";
+      const ctx = this.shadowRoot.getElementById("editor-context-label");
+      if (ctx) ctx.textContent = label;
       this._loadDashboard(urlPath);
     });
 
@@ -1471,7 +1486,7 @@ class KyberPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll(".editor-controls").forEach((el) => {
       el.style.display = "block";
     });
-    this.shadowRoot.getElementById("editor-title").textContent = friendlyName;
+    this.shadowRoot.getElementById("editor-context-label").textContent = friendlyName;
 
     this._currentAutomationId = configId;
     this._editorMode = isScript ? "script" : "automation";
@@ -1491,6 +1506,8 @@ class KyberPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll(".editor-controls").forEach((el) => {
       el.style.display = "";
     });
+    const ctxLabel = this.shadowRoot.getElementById("editor-context-label");
+    if (ctxLabel) ctxLabel.textContent = "";
 
     this._currentAutomationId = null;
     this._currentDashboardPath = null;
@@ -1523,6 +1540,7 @@ class KyberPanel extends HTMLElement {
       el.style.display = "block";
     });
     this.shadowRoot.getElementById("btn-save").textContent = "Save dashboard";
+    this.shadowRoot.getElementById("editor-context-label").textContent = "Dashboard editor";
     this._setStatus("Opening…");
     this.shadowRoot.getElementById("btn-save").disabled = true;
     const newDashBtn = this.shadowRoot.getElementById("btn-new-dashboard");
@@ -1561,6 +1579,8 @@ class KyberPanel extends HTMLElement {
       // If a target url_path was specified (from AI plan), load that directly
       if (targetUrlPath) {
         sel.value = targetUrlPath;
+        const ctxLabel = sel.options[sel.selectedIndex]?.textContent || targetUrlPath;
+        this.shadowRoot.getElementById("editor-context-label").textContent = ctxLabel;
         await this._loadDashboard(targetUrlPath);
       } else {
         // Load the first available dashboard with actual stored config
@@ -1575,7 +1595,9 @@ class KyberPanel extends HTMLElement {
             this._setEditorContent(this._configToYaml(config));
             this._dirty = false;
             this.shadowRoot.getElementById("btn-save").disabled = false;
-            this._setStatus(`Editing: ${sel.options[sel.selectedIndex].textContent}`);
+            const dashTitle = sel.options[sel.selectedIndex]?.textContent || "";
+            this.shadowRoot.getElementById("editor-context-label").textContent = dashTitle;
+            this._setStatus(`Editing: ${dashTitle}`);
             loaded = true;
             break;
           } catch (_e) {
@@ -1589,6 +1611,7 @@ class KyberPanel extends HTMLElement {
           this._setEditorContent(this._configToYaml(starter));
           this._dirty = false;
           this.shadowRoot.getElementById("btn-save").disabled = false;
+          this.shadowRoot.getElementById("editor-context-label").textContent = "Overview (default)";
           this._setStatus("No stored dashboard config yet — edit this template and save.");
         }
       }
