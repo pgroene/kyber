@@ -700,14 +700,19 @@ const STYLES = `
   /* ── Thinking bubble ─────────────────────────────────────────── */
   .thinking-bubble {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    gap: 6px;
     padding: 10px 14px;
     background: var(--secondary-background-color, #f5f5f5);
     border-radius: 12px;
     border-bottom-left-radius: 4px;
-    max-width: 140px;
+    max-width: 80%;
     margin: 4px 0;
+  }
+  .thinking-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
   .thinking-dots {
     display: flex;
@@ -735,6 +740,37 @@ const STYLES = `
     color: var(--secondary-text-color, #888);
     font-style: italic;
   }
+  .thinking-events {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 12px;
+    font-family: monospace;
+  }
+  .thinking-events:empty { display: none; }
+  .thinking-event {
+    color: var(--primary-text-color, #333);
+    line-height: 1.4;
+    word-break: break-word;
+  }
+  .thinking-tool-name { font-weight: 600; }
+  .thinking-tool-args {
+    color: var(--secondary-text-color, #888);
+    font-size: 11px;
+  }
+  .thinking-tool-running { color: var(--primary-color, #03a9f4); }
+  .thinking-tool-done { color: var(--success-color, #4caf50); }
+  .thinking-tool-preview {
+    margin: 4px 0 0;
+    padding: 6px 8px;
+    background: var(--code-editor-background-color, #fafafa);
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: pre-wrap;
+    max-height: 180px;
+    overflow: auto;
+  }
+  .thinking-error { color: var(--error-color, #f44336); }
 
   /* ── Session indicator ───────────────────────────────────────── */
   .session-label {
@@ -2469,6 +2505,7 @@ class KyberPanel extends HTMLElement {
     this._appendMessage(prompt, "user");
     this._setStatus("Asking AI…");
     this._showThinking();
+    const requestId = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + "-" + Math.random().toString(36).slice(2));
 
     try {
       const token = this._hass.auth.data.access_token;
@@ -2504,7 +2541,7 @@ class KyberPanel extends HTMLElement {
         } catch (_) { /* non-fatal */ }
       }
 
-      const resp = await fetch("/api/kyber/complete", {
+      const resp_promise = fetch("/api/kyber/complete", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -2516,12 +2553,20 @@ class KyberPanel extends HTMLElement {
           editor_mode: this._editorMode,
           dashboards: this._dashboardList,
           lovelace_resources: this._lovelaceResources || [],
+          request_id: requestId,
           // Send all prior messages (everything except the just-pushed current user msg),
           // capped at HISTORY_WINDOW most recent entries.
           history: this._chatHistory.slice(0, -1).slice(-this._HISTORY_WINDOW),
           compacted_summary: this._compactedSummary,
         }),
       });
+
+      // Poll progress while the main request is in flight
+      let chatDone = false;
+      this._pollProgress(requestId, () => chatDone);
+
+      const resp = await resp_promise;
+      chatDone = true;
 
       if (!resp.ok) {
         const err = await resp.text();
@@ -3032,14 +3077,107 @@ class KyberPanel extends HTMLElement {
     bubble.className = "chat-message assistant";
     bubble.innerHTML = `
       <div class="thinking-bubble">
-        <div class="thinking-dots">
-          <span></span><span></span><span></span>
+        <div class="thinking-header">
+          <div class="thinking-dots">
+            <span></span><span></span><span></span>
+          </div>
+          <span class="thinking-label">Thinking…</span>
         </div>
-        <span class="thinking-label">Thinking…</span>
+        <div class="thinking-events" id="kyber-thinking-events"></div>
       </div>
     `;
     history.appendChild(bubble);
     history.scrollTop = history.scrollHeight;
+  }
+
+  _setThinkingLabel(label) {
+    const el = this.shadowRoot?.querySelector("#kyber-thinking-bubble .thinking-label");
+    if (el) el.textContent = label;
+  }
+
+  _appendThinkingEvent(html) {
+    const events = this.shadowRoot?.getElementById("kyber-thinking-events");
+    if (!events) return;
+    const item = document.createElement("div");
+    item.className = "thinking-event";
+    item.innerHTML = html;
+    events.appendChild(item);
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (history) history.scrollTop = history.scrollHeight;
+  }
+
+  _renderProgressEvent(ev) {
+    if (!ev || !ev.type) return;
+    if (ev.type === "tool_call") {
+      const args = ev.args ? Object.entries(ev.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ") : "";
+      this._setThinkingLabel("Calling tool…");
+      this._appendThinkingEvent(
+        `<span class="thinking-tool-name">🔧 ${this._escapeHTML(ev.name || "?")}</span>` +
+        (args ? `<span class="thinking-tool-args"> (${this._escapeHTML(args)})</span>` : "") +
+        `<span class="thinking-tool-status thinking-tool-running"> …</span>`
+      );
+    } else if (ev.type === "tool_result") {
+      // Update the most recent matching tool_call event in-place
+      const events = this.shadowRoot?.getElementById("kyber-thinking-events");
+      if (events) {
+        const items = events.querySelectorAll(".thinking-event");
+        for (let i = items.length - 1; i >= 0; i--) {
+          const nameEl = items[i].querySelector(".thinking-tool-name");
+          const statusEl = items[i].querySelector(".thinking-tool-status");
+          if (nameEl && statusEl && nameEl.textContent.includes(ev.name) &&
+              statusEl.classList.contains("thinking-tool-running")) {
+            statusEl.classList.remove("thinking-tool-running");
+            statusEl.classList.add("thinking-tool-done");
+            statusEl.textContent = ` → ${ev.summary || "done"}`;
+            // Stash preview for click-to-expand
+            if (ev.preview) {
+              items[i].dataset.preview = ev.preview;
+              items[i].style.cursor = "pointer";
+              items[i].title = "Click to view raw result";
+              items[i].addEventListener("click", () => {
+                let pre = items[i].querySelector("pre.thinking-tool-preview");
+                if (pre) { pre.remove(); return; }
+                pre = document.createElement("pre");
+                pre.className = "thinking-tool-preview";
+                pre.textContent = items[i].dataset.preview;
+                items[i].appendChild(pre);
+              }, { once: false });
+            }
+            break;
+          }
+        }
+      }
+      this._setThinkingLabel("Thinking…");
+    } else if (ev.type === "thinking") {
+      this._setThinkingLabel(ev.stage === "follow_up" ? "Reasoning over results…" : "Thinking…");
+    } else if (ev.type === "error") {
+      this._appendThinkingEvent(`<span class="thinking-error">⚠️ ${this._escapeHTML(ev.message || "error")}</span>`);
+    }
+  }
+
+  _escapeHTML(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+  }
+
+  async _pollProgress(requestId, isDone) {
+    let cursor = 0;
+    while (!isDone()) {
+      try {
+        const token = this._hass.auth.data.access_token;
+        const r = await fetch(`/api/kyber/progress?id=${encodeURIComponent(requestId)}&since=${cursor}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (r.ok) {
+          const data = await r.json();
+          for (const ev of (data.events || [])) {
+            this._renderProgressEvent(ev);
+          }
+          cursor = data.next || cursor;
+          if (data.status === "done") return;
+        }
+      } catch (_) { /* non-fatal */ }
+      await new Promise((res) => setTimeout(res, 400));
+    }
   }
 
   _hideThinking() {

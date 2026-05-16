@@ -27,6 +27,39 @@ from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, SYSTEM_PROMPT_TEMPLATE
 
 _LOGGER = logging.getLogger(__name__)
 
+_PROGRESS_KEY = "kyber_progress"
+_PROGRESS_MAX_AGE = 300  # seconds — purge entries older than this on access
+_PROGRESS_MAX_ENTRIES = 64
+
+
+def _progress_emit(hass: HomeAssistant, request_id: str, event: dict) -> None:
+    """Append a progress event for a request_id (in-memory)."""
+    if not request_id:
+        return
+    import time
+    store: dict = hass.data.setdefault(_PROGRESS_KEY, {})
+    # Purge old entries (best effort, cheap)
+    now = time.time()
+    if len(store) > _PROGRESS_MAX_ENTRIES:
+        stale = [k for k, v in store.items() if now - v.get("ts", now) > _PROGRESS_MAX_AGE]
+        for k in stale:
+            store.pop(k, None)
+    entry = store.setdefault(request_id, {"events": [], "ts": now, "status": "running"})
+    entry["ts"] = now
+    entry["events"].append({**event, "t": now})
+
+
+def _progress_complete(hass: HomeAssistant, request_id: str) -> None:
+    """Mark a request as complete (kept briefly so client can fetch last events)."""
+    if not request_id:
+        return
+    import time
+    store: dict = hass.data.setdefault(_PROGRESS_KEY, {})
+    entry = store.setdefault(request_id, {"events": [], "ts": time.time(), "status": "running"})
+    entry["status"] = "done"
+    entry["ts"] = time.time()
+
+
 _YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
 # Match [TOOL_CALL: ...] tolerating O/0 confusion from small models
@@ -758,6 +791,7 @@ class KyberView(HomeAssistantView):
         history: list[dict] = body.get("history", [])
         compacted_summary: str = body.get("compacted_summary", "").strip()
         editor_mode: str = body.get("editor_mode", "automation")
+        request_id: str = str(body.get("request_id", "")).strip()
         dashboards: list[dict] = body.get("dashboards", [])
         lovelace_resources: list[str] = body.get("lovelace_resources", [])
 
@@ -871,6 +905,7 @@ class KyberView(HomeAssistantView):
         tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
         tool_log: list[dict[str, Any]] = []  # summary of tool calls for UI feedback
         response_text = ""
+        _progress_emit(hass, request_id, {"type": "thinking", "stage": "asking"})
         for _round in range(_TOOL_CALL_MAX_ROUNDS):
             loop_instructions = instructions + tool_exchange
             if len(loop_instructions) > _MAX_INSTRUCTIONS_CHARS:
@@ -885,6 +920,8 @@ class KyberView(HomeAssistantView):
                 )
             except HomeAssistantError as err:
                 _LOGGER.error("AI task failed: %s", err)
+                _progress_emit(hass, request_id, {"type": "error", "message": str(err)})
+                _progress_complete(hass, request_id)
                 return self.json_message(
                     f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
                 )
@@ -921,6 +958,11 @@ class KyberView(HomeAssistantView):
             # to continue. Truncate at ~6KB with a note.
             _MAX_TOOL_RESULT_CHARS = 6000
             for call in tool_calls:
+                _progress_emit(hass, request_id, {
+                    "type": "tool_call",
+                    "name": call.get("name", ""),
+                    "args": {k: v for k, v in call.items() if k != "name"},
+                })
                 tool_result_str = _execute_tool(hass, call)
                 tool_result_data = json.loads(tool_result_str)
                 _LOGGER.debug("Tool call %s → %s chars", call.get("name"), len(tool_result_str))
@@ -932,6 +974,16 @@ class KyberView(HomeAssistantView):
                     "name": call.get("name", ""),
                     "args": args_display,
                     "summary": summary,
+                })
+                # Build a short preview of the result for the live UI
+                preview = tool_result_str
+                if len(preview) > 400:
+                    preview = preview[:400] + "…"
+                _progress_emit(hass, request_id, {
+                    "type": "tool_result",
+                    "name": call.get("name", ""),
+                    "summary": summary,
+                    "preview": preview,
                 })
 
                 # Truncate the version sent BACK to the model (UI summary above is unaffected)
@@ -966,6 +1018,7 @@ class KyberView(HomeAssistantView):
                     f"\n[TOOL_RESULT: {json.dumps(call)}]\n{feedback_str}\n"
                 )
             tool_exchange += f"{clean_response}\n{tool_results_block}\nAssistant:"
+            _progress_emit(hass, request_id, {"type": "thinking", "stage": "follow_up"})
 
         yaml_blocks = _extract_yaml_blocks(response_text)
         plan_block = _extract_plan_block(response_text)
@@ -1188,7 +1241,34 @@ class KyberView(HomeAssistantView):
                         "They may be incorrect — ask me to search for them to get real IDs.*"
                     )
 
+        _progress_complete(hass, request_id)
         return self.json({"response": response_text, "yaml_blocks": yaml_blocks, "plan": plan_block, "context_stats": context_stats, "tool_log": tool_log})
+
+
+class KyberProgressView(HomeAssistantView):
+    """Return progress events for an in-flight chat request."""
+
+    url = "/api/kyber/progress"
+    name = "api:kyber:progress"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        request_id = request.query.get("id", "").strip()
+        since = int(request.query.get("since", "0") or 0)
+        if not request_id:
+            return self.json({"events": [], "status": "unknown", "next": 0})
+        store: dict = hass.data.get(_PROGRESS_KEY, {})
+        entry = store.get(request_id)
+        if not entry:
+            return self.json({"events": [], "status": "unknown", "next": 0})
+        events = entry.get("events", [])
+        new_events = events[since:]
+        return self.json({
+            "events": new_events,
+            "status": entry.get("status", "running"),
+            "next": len(events),
+        })
 
 
 class KyberHistoryView(HomeAssistantView):
