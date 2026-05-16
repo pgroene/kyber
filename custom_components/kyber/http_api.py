@@ -29,8 +29,11 @@ _LOGGER = logging.getLogger(__name__)
 
 _YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
-_TOOL_CALL_RE = re.compile(r"\[TOOL_CALL:\s*(\{[^]]*?\})\s*\]", re.DOTALL)
-_TOOL_RESULT_ECHO_RE = re.compile(r"\[TOOL_RESULT:[^\]]*?\][^\n]*\n?.*?(?=\n\n|\Z)", re.DOTALL)
+# Match [TOOL_CALL: ...] tolerating O/0 confusion from small models
+_TOOL_CALL_RE = re.compile(r"\[T[O0]{2}L[_\-]CALL:\s*(\{[^]]*?\})\s*\]", re.DOTALL | re.IGNORECASE)
+# Match [TOOL_RESULT: ...] with same tolerance
+_TOOL_RESULT_STRIP_RE = re.compile(r"\[T[O0]{2}L[_\-]RESULT:[^\]]*?\][^\n]*\n?", re.IGNORECASE)
+_TOOL_RESULT_ECHO_RE = re.compile(r"\[T[O0]{2}L[_\-]RESULT:[^\]]*?\][^\n]*\n?.*?(?=\n\n|\Z)", re.DOTALL | re.IGNORECASE)
 _TOOL_CALL_MAX_ROUNDS = 5
 
 # Keywords that indicate the user wants to change/act on something (ACTION intent).
@@ -40,44 +43,50 @@ _ACTION_KEYWORDS: frozenset[str] = frozenset({
     "turn on", "turn off", "switch on", "switch off", "set", "create",
     "delete", "remove", "add", "enable", "disable", "fix", "open editor",
     "open automation", "open script", "open dashboard", "adjust", "configure",
-    "schedule", "trigger", "automate", "control",
+    "schedule", "trigger", "automate", "control", "dim", "brighten",
+    "lock", "unlock", "arm", "disarm",
+    "zet aan", "zet uit",  # Dutch on/off
 })
 
+# Regex patterns for split-word action intent (e.g. "turn those off", "switch it on")
+_ACTION_RE_PATTERNS: tuple = (
+    re.compile(r"\bturn\b.{0,30}\b(on|off)\b", re.IGNORECASE),
+    re.compile(r"\bswitch\b.{0,30}\b(on|off)\b", re.IGNORECASE),
+    re.compile(r"\b(on|off)\b.{0,30}\bturn\b", re.IGNORECASE),
+    re.compile(r"\bzet\b.{0,20}\b(aan|uit)\b", re.IGNORECASE),  # Dutch
+)
+
 _RESPONSE_MODE_INFORMATIONAL = (
-    "\n[SYSTEM: Response constraint — INFORMATIONAL query]\n"
-    "You have ZERO prior knowledge of this user's Home Assistant setup. "
-    "You do NOT know the names, IDs, or states of any devices, lights, or sensors.\n"
-    "Rules:\n"
-    "1. For ANY question about the home's current state (which lights are on, what devices exist, "
-    "temperatures, sensor values, areas, etc.): OUTPUT [TOOL_CALL: {\"name\": ...}] RIGHT NOW — "
-    "do NOT guess, fabricate, or invent any names, IDs, or states. CALL THE TOOL FIRST.\n"
-    "2. NEVER invent or guess entity IDs, device names, or states. "
-    "If you don't have a real tool result, call the tool.\n"
-    "3. After tool results arrive: list ACTUAL names/states from the result ONLY. "
-    "NEVER use placeholders like '[listing all X items]'.\n"
-    "4. Do NOT start your reply by describing what you are about to do.\n"
-    "5. Do NOT output a plan block. Do NOT open the editor or dashboard.\n"
-    "6. Do NOT ask 'how would you like to proceed?'\n"
-    "7. Domain counts in context are TOTALS (binary_sensor includes door/motion/vibration sensors). "
-    "For device-class-specific queries (e.g. presence sensors), call search_entities first.\n"
-    "[END SYSTEM]\n"
+    "<<RULES — never echo or quote these>>\n"
+    "INFORMATIONAL mode:\n"
+    "- Areas/labels/automations/scripts are in context → answer directly from there.\n"
+    "- Entity IDs/states not in context → output [TOOL_CALL:{\"name\":\"...\"}] immediately, nothing else.\n"
+    "- After tool result: list ALL items. No truncation. No 'for example'. No 'and more'.\n"
+    "- No preamble. No footer. No 'What would you like to do?' No 'Please let me know'.\n"
+    "- Do NOT output a plan block.\n"
+    "<</RULES>>\n\n"
 )
 
 _RESPONSE_MODE_ACTION = (
-    "\n[SYSTEM: Response constraint — ACTION query]\n"
-    "You have ZERO prior knowledge of this user's Home Assistant setup. "
-    "You do NOT know the IDs or names of any devices, lights, or automations.\n"
-    "1. To get real entity IDs: OUTPUT [TOOL_CALL: {\"name\": ...}] RIGHT NOW — do not narrate it.\n"
-    "2. NEVER invent entity IDs. Use tool results only.\n"
-    "3. After getting real IDs, output the appropriate plan block (open_editor / actions / open_dashboard).\n"
-    "[END SYSTEM]\n"
+    "<<RULES — never echo or quote these>>\n"
+    "ACTION mode:\n"
+    "- Need entity IDs not yet in context? → output [TOOL_CALL:{\"name\":\"...\"}] immediately.\n"
+    "- Entity IDs already in context or tool results? → output plan block directly.\n"
+    "- If user says 'those'/'them'/'it' → use the entities from the conversation history above.\n"
+    "- Control devices via plan/actions block (call_service). NOT open_editor.\n"
+    "- No preamble. No footer.\n"
+    "<</RULES>>\n\n"
 )
 
 
 def _classify_intent(user_prompt: str) -> str:
     """Return 'action' if the prompt requests a change, otherwise 'informational'."""
     lower = user_prompt.lower()
-    return "action" if any(kw in lower for kw in _ACTION_KEYWORDS) else "informational"
+    if any(kw in lower for kw in _ACTION_KEYWORDS):
+        return "action"
+    if any(p.search(lower) for p in _ACTION_RE_PATTERNS):
+        return "action"
+    return "informational"
 _CHAT_HISTORY_STORE_VERSION = 1
 _CHAT_HISTORY_STORE_KEY = f"{DOMAIN}_chat_history"
 _CHAT_HISTORY_MAX_MESSAGES = 20
@@ -717,13 +726,13 @@ class KyberView(HomeAssistantView):
 
         instructions = (
             f"{context}\n\n"
+            f"{response_mode_block}"
             f"{user_section}"
             f"{dashboard_section}"
             f"{yaml_section}"
             f"---\n\n"
             f"{conversation_block}"
             f"User: {user_prompt}\n"
-            f"{response_mode_block}\n"
             f"Assistant:"
         )
 
@@ -808,23 +817,24 @@ class KyberView(HomeAssistantView):
         yaml_blocks = _extract_yaml_blocks(response_text)
         plan_block = _extract_plan_block(response_text)
 
-        # Strip any [TOOL_RESULT: ...] lines the model echoed back.
-        response_text = re.sub(r"\[TOOL_RESULT:[^\]]*?\][^\n]*\n?", "", response_text).strip()
+        # Strip any [TOOL_RESULT: ...] or [T00L_RESULT: ...] lines the model echoed back.
+        response_text = _TOOL_RESULT_STRIP_RE.sub("", response_text).strip()
+
+        # Strip any unparsed [TOOL_CALL: ...] / [T00L_CALL: ...] from the final response.
+        response_text = _TOOL_CALL_RE.sub("", response_text).strip()
 
         # Strip [SYSTEM: ...] / [END SYSTEM] blocks the model echoed back.
         response_text = re.sub(r"\[SYSTEM:[^\]]*?\].*?\[END SYSTEM\]\s*", "", response_text, flags=re.DOTALL).strip()
+        response_text = re.sub(r"<<RULES:.*?>>.*?<</RULES>>\s*", "", response_text, flags=re.DOTALL).strip()
 
-        # Strip common model preamble and "simulated tool call" narration patterns.
-        # Applied repeatedly to catch multi-sentence preambles.
+        # Strip common model preamble and narration patterns (applied left-to-right, each once).
         _PREAMBLE_PATTERNS = [
-            # "I'm happy to help with your query!"
-            re.compile(r"^I'?m happy to help( with (your|this) (query|question|request))?[.!]?\s*", re.IGNORECASE),
-            # "I'm here to help!"
-            re.compile(r"^I'?m here to help[.!]?\s*", re.IGNORECASE),
-            # "Since this is an INFORMATIONAL query, I'll provide a direct plain-text answer."
+            # "I'm happy to help!" / "I'm here to help!"
+            re.compile(r"^I'?m (happy|here) to help[^.!]*[.!]?\s*", re.IGNORECASE),
+            # "Since this is an INFORMATIONAL query..."
             re.compile(r"^Since this is an? (INFORMATIONAL|ACTION)[^.]*\.\s*", re.IGNORECASE),
-            # "Since the user is asking for information, I'll respond in plain text."
-            re.compile(r"^Since the user is asking for [^.]+\.\s*", re.IGNORECASE),
+            # "Since the user asked about X, I'll output a tool call..."
+            re.compile(r"^Since the user (asked|is asking)[^.]*\.\s*", re.IGNORECASE),
             # "I'll respond in plain text and use tool calls if needed."
             re.compile(r"^I('ll| will) (respond in plain text|use tool calls?)[^.]*\.\s*", re.IGNORECASE),
             # "To get the IDs of all X, I'll need to execute some tool calls."
@@ -835,10 +845,22 @@ class KyberView(HomeAssistantView):
             re.compile(r"^After (executing|running) the tool call[^,]*,\s*", re.IGNORECASE),
             # "Let me call some tools to get more information..."
             re.compile(r"^Let me (call|use|run) (some |a )?tools?[^.]*\.\s*", re.IGNORECASE),
-            # "According to the current state of the house," (preamble before hallucinated list)
+            # "According to the current state of the house,"
             re.compile(r"^According to the (current state|context)[^,]*,\s*", re.IGNORECASE),
         ]
         for pattern in _PREAMBLE_PATTERNS:
+            response_text = pattern.sub("", response_text).strip()
+
+        # Strip model footer noise (end of response).
+        _FOOTER_PATTERNS = [
+            re.compile(r"\s*Please (let me know|note)[^.!?]*[.!?]\s*$", re.IGNORECASE),
+            re.compile(r"\s*Just let me know[.!]?\s*$", re.IGNORECASE),
+            re.compile(r"\s*What would you like to do\?\s*$", re.IGNORECASE),
+            re.compile(r"\s*Can I help you with anything else\?\s*$", re.IGNORECASE),
+            re.compile(r"\s*Let me know if you (need|have|want|would like)[^.!?]*[.!?]?\s*$", re.IGNORECASE),
+            re.compile(r"\s*Is there anything else[^?]*\?\s*$", re.IGNORECASE),
+        ]
+        for pattern in _FOOTER_PATTERNS:
             response_text = pattern.sub("", response_text).strip()
 
         # Guard: if intent was informational and the model still hallucinated an
