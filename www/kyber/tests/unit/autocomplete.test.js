@@ -6,6 +6,8 @@
  *   - Sub-action autocomplete (/automation open <partial>) shows entity matches
  *   - Entity token autocomplete (when typing entity_id prefix)
  *   - Short token (< 2 chars) or no hass → dropdown closes
+ *   - Hovering an item updates _acIndex so Enter accepts the selection
+ *   - Moving mouse off list resets _acIndex to -1
  */
 
 import { makePanel } from "../helpers.js";
@@ -108,5 +110,61 @@ describe("_onPromptInput — entity token autocomplete", () => {
     const closeSpy = vi.spyOn(element, "_closeAc");
     element._onPromptInput({ value: "zzz_no_match", selectionStart: 12 });
     expect(closeSpy).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hover → Enter acceptance
+// ---------------------------------------------------------------------------
+describe("_buildAcList — hover updates _acIndex", () => {
+  it("hovering an item sets _acIndex to that item's index", () => {
+    const { element } = setup();
+    element._onPromptInput({ value: "turn on li", selectionStart: 10 });
+    expect(element._acItems.length).toBeGreaterThan(0);
+
+    const list = element.shadowRoot.getElementById("ac-list");
+    const items = list.querySelectorAll(".ac-item");
+    expect(items.length).toBeGreaterThan(0);
+
+    // Simulate hover on the second item (index 1) if it exists, else first
+    const targetIdx = items.length > 1 ? 1 : 0;
+    items[targetIdx].dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+
+    expect(element._acIndex).toBe(targetIdx);
+    expect(items[targetIdx].classList.contains("active")).toBe(true);
+  });
+
+  it("mousing out of the list resets _acIndex to -1", () => {
+    const { element } = setup();
+    element._onPromptInput({ value: "turn on li", selectionStart: 10 });
+
+    const list = element.shadowRoot.getElementById("ac-list");
+    const items = list.querySelectorAll(".ac-item");
+    items[0].dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    expect(element._acIndex).toBe(0);
+
+    list.dispatchEvent(new MouseEvent("mouseleave", { bubbles: false }));
+    expect(element._acIndex).toBe(-1);
+  });
+
+  it("Enter applies hovered item when _acIndex was set by hover", () => {
+    const { element } = setup();
+    const textarea = element.shadowRoot.getElementById("prompt-input");
+    textarea.value = "turn on li";
+    textarea.selectionStart = 10;
+    element._onPromptInput(textarea);
+
+    const list = element.shadowRoot.getElementById("ac-list");
+    const items = list.querySelectorAll(".ac-item");
+    const hovered = items[0];
+    hovered.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    expect(element._acIndex).toBe(0);
+
+    const expectedId = element._acItems[0].entity_id;
+    const enterEvent = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    textarea.dispatchEvent(enterEvent);
+
+    expect(textarea.value).toContain(expectedId);
+    expect(list.classList.contains("open")).toBe(false);
   });
 });

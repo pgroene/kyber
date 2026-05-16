@@ -1012,6 +1012,15 @@ class KyberPanel extends HTMLElement {
         e.preventDefault();
         this._applyAcItem(el.dataset.id, el.dataset.replaceAll === "true");
       });
+      el.addEventListener("mouseover", () => {
+        this._acIndex = parseInt(el.dataset.idx, 10);
+        this._updateAcActive();
+      });
+    });
+
+    list.addEventListener("mouseleave", () => {
+      this._acIndex = -1;
+      this._updateAcActive();
     });
 
     list.classList.add("open");
