@@ -23,7 +23,7 @@ except ImportError:  # HA < 2025.2 (test environments)
     async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
         raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
 
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, MAX_ENTITY_LIST_CHARS, SYSTEM_PROMPT_TEMPLATE
+from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, SYSTEM_PROMPT_TEMPLATE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -86,82 +86,201 @@ def _get_active_session(user_data: dict[str, Any]) -> tuple[str, dict[str, Any]]
     return sid, session
 
 
-def _build_context(hass: HomeAssistant) -> str:
-    """Build a context string listing HA entities, areas, labels, automations, and scripts."""
+def _build_home_state_by_area(
+    hass: HomeAssistant,
+    entity_reg: er.EntityRegistry,
+    area_by_id: dict[str, str],
+) -> tuple[str, dict[str, Any]]:
+    """Build a per-area home state snapshot and aggregate stats."""
+    # area_name → collected metrics
+    area_data: dict[str, dict[str, Any]] = {}
+
+    def _area(name: str) -> dict[str, Any]:
+        if name not in area_data:
+            area_data[name] = {
+                "lights_on": 0, "lights_total": 0,
+                "presence": False,
+                "temps": [],
+                "media": [],
+                "open_windows": 0, "open_doors": 0,
+            }
+        return area_data[name]
+
+    unavailable_count = 0
+    low_battery_count = 0
+    total_lights_on = 0
+
+    for state in hass.states.async_all():
+        entity_id = state.entity_id
+        domain = entity_id.split(".")[0]
+        if domain in ("automation", "script", "scene", "group", "persistent_notification",
+                      "sun", "zone", "update", "event", "schedule"):
+            continue
+
+        if state.state == "unavailable":
+            unavailable_count += 1
+            continue
+
+        # Battery alerts (any entity with a battery_level attribute < 20%)
+        batt = state.attributes.get("battery_level") or state.attributes.get("battery")
+        if batt is not None:
+            try:
+                if float(batt) < 20:
+                    low_battery_count += 1
+            except (ValueError, TypeError):
+                pass
+
+        entry = entity_reg.async_get(entity_id)
+        area_id = entry.area_id if entry else None
+        area_name = area_by_id.get(area_id or "", "") if area_id else ""
+
+        if domain == "light":
+            if area_name:
+                d = _area(area_name)
+                d["lights_total"] += 1
+                if state.state == "on":
+                    d["lights_on"] += 1
+                    total_lights_on += 1
+            elif state.state == "on":
+                total_lights_on += 1
+
+        elif domain == "binary_sensor":
+            device_class = state.attributes.get("device_class", "")
+            if device_class in ("occupancy", "presence", "motion"):
+                if state.state == "on" and area_name:
+                    _area(area_name)["presence"] = True
+            elif device_class == "window" and state.state == "on" and area_name:
+                _area(area_name)["open_windows"] += 1
+            elif device_class == "door" and state.state == "on" and area_name:
+                _area(area_name)["open_doors"] += 1
+
+        elif domain == "person" and area_name:
+            if state.state not in ("not_home", "away", "unknown"):
+                _area(area_name)["presence"] = True
+
+        elif domain == "climate" and area_name:
+            temp = state.attributes.get("current_temperature")
+            if temp is not None:
+                try:
+                    _area(area_name)["temps"].append(float(temp))
+                except (ValueError, TypeError):
+                    pass
+
+        elif domain == "sensor" and area_name:
+            if state.attributes.get("device_class") == "temperature" and state.state not in ("unknown", "unavailable"):
+                try:
+                    _area(area_name)["temps"].append(float(state.state))
+                except (ValueError, TypeError):
+                    pass
+
+        elif domain == "media_player" and area_name:
+            if state.state not in ("idle", "off", "standby", "unavailable", "unknown"):
+                friendly = state.attributes.get("friendly_name", entity_id)
+                title = state.attributes.get("media_title", "")
+                _area(area_name)["media"].append(f"{friendly}" + (f": {title}" if title else f" ({state.state})"))
+
+    # Format lines
+    lines: list[str] = []
+    for area_name in sorted(area_data.keys()):
+        d = area_data[area_name]
+        parts: list[str] = []
+        if d["lights_total"] > 0:
+            parts.append(f"💡 {d['lights_on']}/{d['lights_total']} lights on")
+        if d["presence"]:
+            parts.append("👤 occupied")
+        if d["temps"]:
+            avg_temp = sum(d["temps"]) / len(d["temps"])
+            parts.append(f"🌡 {avg_temp:.1f}°C")
+        for m in d["media"][:2]:
+            parts.append(f"📺 {m}")
+        if d["open_windows"]:
+            parts.append(f"🪟 {d['open_windows']} open")
+        if d["open_doors"]:
+            parts.append(f"🚪 {d['open_doors']} open")
+        if parts:
+            lines.append(f"  {area_name}: {' | '.join(parts)}")
+
+    alerts: list[str] = []
+    if unavailable_count:
+        alerts.append(f"{unavailable_count} unavailable")
+    if low_battery_count:
+        alerts.append(f"{low_battery_count} low battery")
+    if alerts:
+        lines.append(f"  ⚠️ Alerts: {', '.join(alerts)}")
+
+    home_state = "\n".join(lines) or "(no area state available)"
+    stats = {
+        "total_lights_on": total_lights_on,
+        "unavailable_count": unavailable_count,
+        "low_battery_count": low_battery_count,
+    }
+    return home_state, stats
+
+
+def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
+    """Build a compact context string with domain stats + area home state."""
     area_reg = ar.async_get(hass)
     entity_reg = er.async_get(hass)
     label_reg = lr.async_get(hass)
 
-    # Areas: "Living Room → living_room"
     areas = area_reg.async_list_areas()
     area_list = "\n".join(f"- {a.name} → {a.id}" for a in areas) or "(no areas)"
+    area_by_id = {a.id: a.name for a in areas}
 
-    # Labels: "outdoor | Outdoor"
     labels = label_reg.async_list_labels()
     label_list = "\n".join(f"- {lbl.label_id} | {lbl.name}" for lbl in labels) or "(no labels)"
 
-    area_by_id = {a.id: a.name for a in areas}
     automation_lines: list[str] = []
     script_lines: list[str] = []
-    entity_lines: list[str] = []
+    domain_counts: dict[str, int] = {}
 
-    for state in sorted(hass.states.async_all(), key=lambda s: s.entity_id):
-        friendly = state.attributes.get("friendly_name", state.entity_id)
+    all_states = hass.states.async_all()
+    entity_count = 0
+
+    for state in sorted(all_states, key=lambda s: s.entity_id):
+        domain = state.entity_id.split(".")[0]
         if state.entity_id.startswith("automation."):
+            friendly = state.attributes.get("friendly_name", state.entity_id)
             config_id = state.attributes.get("id", state.entity_id)
             automation_lines.append(f"- {state.entity_id} | {friendly} | config_id: {config_id}")
         elif state.entity_id.startswith("script."):
+            friendly = state.attributes.get("friendly_name", state.entity_id)
             script_lines.append(f"- {state.entity_id} | {friendly}")
         else:
-            entry = entity_reg.async_get(state.entity_id)
-            area_name = ""
-            entity_labels = ""
-            if entry:
-                if entry.area_id:
-                    area_name = area_by_id.get(entry.area_id, entry.area_id)
-                if entry.labels:
-                    entity_labels = ", ".join(sorted(entry.labels))
-            # Compact format: omit trailing empty area/labels pipes to save context space
-            if area_name or entity_labels:
-                entity_lines.append(
-                    f"- {state.entity_id} | {friendly} | {area_name} | {entity_labels}"
-                )
-            else:
-                entity_lines.append(f"- {state.entity_id} | {friendly}")
+            entity_count += 1
+            domain_counts[domain] = domain_counts.get(domain, 0) + 1
 
     automation_list = "\n".join(automation_lines) or "(no automations)"
     script_list = "\n".join(script_lines) or "(no scripts)"
-    entity_list = "\n".join(entity_lines) or "(no entities)"
 
-    if len(entity_list) > MAX_ENTITY_LIST_CHARS:
-        # Truncate by line, keeping as many entities as fit within the budget.
-        truncated: list[str] = []
-        budget = MAX_ENTITY_LIST_CHARS
-        for line in entity_lines:
-            cost = len(line) + 1  # +1 for the newline separator
-            if budget - cost < 60:  # keep room for the truncation notice
-                break
-            truncated.append(line)
-            budget -= cost
-        omitted = len(entity_lines) - len(truncated)
-        _LOGGER.warning(
-            "Kyber: entity list truncated — %d of %d entities omitted to stay within "
-            "the %d-char context budget. "
-            "Increase MAX_ENTITY_LIST_CHARS in const.py or assign fewer entities.",
-            omitted,
-            len(entity_lines),
-            MAX_ENTITY_LIST_CHARS,
-        )
-        truncated.append(f"... ({omitted} more entities not shown — context budget exceeded)")
-        entity_list = "\n".join(truncated)
+    # Domain stats: top 10 by count
+    sorted_domains = sorted(domain_counts.items(), key=lambda x: -x[1])
+    stats_parts = [f"{d}: {c}" for d, c in sorted_domains[:10]]
+    if len(sorted_domains) > 10:
+        stats_parts.append(f"… {len(sorted_domains) - 10} more domains")
+    entity_stats = f"{entity_count} total — {' | '.join(stats_parts)}"
 
-    return SYSTEM_PROMPT_TEMPLATE.format(
+    # Per-area home state
+    home_state_by_area, area_stats = _build_home_state_by_area(hass, entity_reg, area_by_id)
+
+    context_stats: dict[str, Any] = {
+        "entity_count": entity_count,
+        "automation_count": len(automation_lines),
+        "area_count": len(areas),
+        "lights_on": area_stats["total_lights_on"],
+        "unavailable_count": area_stats["unavailable_count"],
+        "low_battery_count": area_stats["low_battery_count"],
+    }
+
+    context = SYSTEM_PROMPT_TEMPLATE.format(
         area_list=area_list,
         label_list=label_list,
-        entity_list=entity_list,
+        entity_stats=entity_stats,
+        home_state_by_area=home_state_by_area,
         automation_list=automation_list,
         script_list=script_list,
     )
+    return context, context_stats
 
 
 def _extract_yaml_blocks(text: str) -> list[str]:
@@ -322,7 +441,7 @@ class KyberView(HomeAssistantView):
             bool(compacted_summary),
         )
 
-        context = _build_context(hass)
+        context, context_stats = _build_context(hass)
 
         # Dashboard list from frontend (may be empty list if fetch failed)
         dash_lines = ["- Overview (default) — url_path: (default)"]
@@ -425,7 +544,7 @@ class KyberView(HomeAssistantView):
         yaml_blocks = _extract_yaml_blocks(response_text)
         plan_block = _extract_plan_block(response_text)
 
-        return self.json({"response": response_text, "yaml_blocks": yaml_blocks, "plan": plan_block})
+        return self.json({"response": response_text, "yaml_blocks": yaml_blocks, "plan": plan_block, "context_stats": context_stats})
 
 
 class KyberHistoryView(HomeAssistantView):

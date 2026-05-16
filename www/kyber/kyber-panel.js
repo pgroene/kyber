@@ -207,6 +207,18 @@ const STYLES = `
     color: white;
   }
 
+  .chat-message.system-info {
+    align-self: center;
+    font-size: 11px;
+    color: var(--secondary-text-color, #888);
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 3px 10px;
+    max-width: 90%;
+    text-align: center;
+  }
+
   .suggestion-chips {
     display: flex;
     flex-wrap: wrap;
@@ -673,6 +685,17 @@ const STYLES = `
   }
   .session-label:empty { display: none; }
 
+  .context-badge {
+    font-size: 10px;
+    color: var(--secondary-text-color, #888);
+    background: var(--secondary-background-color, rgba(0,0,0,0.06));
+    border-radius: 10px;
+    padding: 1px 7px;
+    white-space: nowrap;
+    margin-left: 2px;
+  }
+  .context-badge:empty { display: none; }
+
   /* ── Entity autocomplete dropdown ────────────────────────────── */
   .autocomplete-list {
     position: absolute;
@@ -796,6 +819,7 @@ class KyberPanel extends HTMLElement {
             <img id="kyber-sidebar-icon" class="brand-icon" src="/local/kyber/icon.png" alt="Kyber icon">
             <span>Kyber Assistant</span>
             <span class="session-label" id="session-indicator"></span>
+            <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
             <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
           </div>
           <div class="chat-history" id="chat-history">
@@ -1089,6 +1113,7 @@ class KyberPanel extends HTMLElement {
       });
       if (resp.ok) {
         this._setStatus("History cleared");
+        this._showContextRefreshedMessage("History cleared");
       } else {
         this._setStatus(`History clear failed: HTTP ${resp.status}`, "error");
       }
@@ -1166,6 +1191,7 @@ class KyberPanel extends HTMLElement {
     this._compactedSummary = "";
     this._resetChatView();
     this._updateSessionIndicator();
+    this._showContextRefreshedMessage("New session started");
   }
 
   async _switchSession(nameOrId) {
@@ -1196,6 +1222,7 @@ class KyberPanel extends HTMLElement {
     this._compactedSummary = "";
     await this._restorePersistedHistory();
     this._appendMessage(`Switched to session: **${target.name}**`, "assistant");
+    this._showContextRefreshedMessage("Session switched");
   }
 
   async _renameSession(newName) {
@@ -2449,6 +2476,11 @@ class KyberPanel extends HTMLElement {
       this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null);
       this._setStatus("Done");
 
+      // Update context badge with live entity/automation counts
+      if (data.context_stats) {
+        this._updateContextBadge(data.context_stats);
+      }
+
       // Compact overflow messages in the background
       this._maybeCompact();
     } catch (err) {
@@ -2894,7 +2926,36 @@ class KyberPanel extends HTMLElement {
     bar.className = `status-bar ${type}`;
   }
 
-  _updateAutopilotBadge() {
+  _updateContextBadge(stats) {
+    const badge = this.shadowRoot?.getElementById("context-badge");
+    if (!badge) return;
+    const parts = [`${stats.entity_count || 0} entities`];
+    if (stats.automation_count) parts.push(`${stats.automation_count} automations`);
+    if (stats.lights_on) parts.push(`💡 ${stats.lights_on} on`);
+    badge.textContent = parts.join(" · ");
+    badge.title = [
+      `Entities: ${stats.entity_count || 0}`,
+      `Automations: ${stats.automation_count || 0}`,
+      `Areas: ${stats.area_count || 0}`,
+      stats.lights_on ? `Lights on: ${stats.lights_on}` : null,
+      stats.unavailable_count ? `⚠️ Unavailable: ${stats.unavailable_count}` : null,
+      stats.low_battery_count ? `🪫 Low battery: ${stats.low_battery_count}` : null,
+    ].filter(Boolean).join("\n");
+  }
+
+  _showContextRefreshedMessage(label = "Context refreshed") {
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (!history) return;
+    const div = document.createElement("div");
+    div.className = "chat-message system-info";
+    const badge = this.shadowRoot?.getElementById("context-badge");
+    const detail = badge?.textContent ? ` — ${badge.textContent}` : "";
+    div.textContent = `🔄 ${label}${detail}`;
+    history.appendChild(div);
+    history.scrollTop = history.scrollHeight;
+  }
+
+
     const badge = this.shadowRoot.getElementById("autopilot-badge");
     if (badge) badge.classList.toggle("active", this._autopilot);
   }

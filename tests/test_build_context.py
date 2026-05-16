@@ -4,48 +4,61 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
-from unittest.mock import patch
 
 from custom_components.kyber.http_api import _build_context
 
 
-async def test_build_context_includes_entity_with_area(hass: HomeAssistant) -> None:
-    """Entity area name should appear in the context string."""
-    area = ar.async_get(hass).async_create("Kitchen")
-    entry = er.async_get(hass).async_get_or_create("light", "test", "kitchen_light")
-    er.async_get(hass).async_update_entity(entry.entity_id, area_id=area.id)
+async def test_build_context_returns_tuple(hass: HomeAssistant) -> None:
+    """_build_context should return a (str, dict) tuple."""
+    result = _build_context(hass)
+    assert isinstance(result, tuple)
+    assert len(result) == 2
+    context, stats = result
+    assert isinstance(context, str)
+    assert isinstance(stats, dict)
 
-    # State must exist for the entity to appear in entity_lines
-    hass.states.async_set(entry.entity_id, "on", {"friendly_name": "Kitchen Light"})
 
-    context = _build_context(hass)
+async def test_build_context_stats_keys(hass: HomeAssistant) -> None:
+    """context_stats dict should contain the expected keys."""
+    _, stats = _build_context(hass)
+    assert "entity_count" in stats
+    assert "automation_count" in stats
+    assert "area_count" in stats
+    assert "lights_on" in stats
+    assert "unavailable_count" in stats
+    assert "low_battery_count" in stats
+
+
+async def test_build_context_includes_area_name(hass: HomeAssistant) -> None:
+    """Area name should appear in the context (Areas section or home state)."""
+    ar.async_get(hass).async_create("Kitchen")
+    context, stats = _build_context(hass)
     assert "Kitchen" in context
+    assert stats["area_count"] == 1
 
 
 async def test_build_context_entity_labels_included(hass: HomeAssistant) -> None:
-    """Labels assigned to an entity should appear in the context string."""
+    """Labels appear in the label registry section of the context."""
     label_reg = lr.async_get(hass)
     label_reg.async_create("outdoor")
     label_reg.async_create("security")
 
     entry = er.async_get(hass).async_get_or_create("sensor", "test", "door_sensor")
-    er.async_get(hass).async_update_entity(
-        entry.entity_id, labels={"outdoor", "security"}
-    )
+    er.async_get(hass).async_update_entity(entry.entity_id, labels={"outdoor", "security"})
     hass.states.async_set(entry.entity_id, "off", {"friendly_name": "Door Sensor"})
 
-    context = _build_context(hass)
-    # Labels appear in the label registry section (label_id | name)
+    context, _ = _build_context(hass)
     assert "outdoor" in context
     assert "security" in context
 
 
 async def test_build_context_empty_state_fallbacks(hass: HomeAssistant) -> None:
     """With nothing set, context should contain fallback placeholder strings."""
-    context = _build_context(hass)
+    context, stats = _build_context(hass)
     assert isinstance(context, str)
     assert len(context) > 0
     assert "(no areas)" in context
+    assert stats["entity_count"] == 0
 
 
 async def test_build_context_automation_includes_entity_id(hass: HomeAssistant) -> None:
@@ -55,10 +68,10 @@ async def test_build_context_automation_includes_entity_id(hass: HomeAssistant) 
         "on",
         attributes={"friendly_name": "Morning Lights", "id": "abc123"},
     )
-
-    context = _build_context(hass)
+    context, stats = _build_context(hass)
     assert "automation.morning_lights" in context
     assert "Morning Lights" in context
+    assert stats["automation_count"] == 1
 
 
 async def test_build_context_script_included(hass: HomeAssistant) -> None:
@@ -68,91 +81,55 @@ async def test_build_context_script_included(hass: HomeAssistant) -> None:
         "off",
         attributes={"friendly_name": "Good Night"},
     )
-
-    context = _build_context(hass)
+    context, _ = _build_context(hass)
     assert "script.good_night" in context
     assert "Good Night" in context
 
 
-async def test_build_context_regular_entities_listed(hass: HomeAssistant) -> None:
-    """Regular (non-automation, non-script) entities should appear in the context."""
-    hass.states.async_set(
-        "sensor.temp",
-        "22",
-        attributes={"friendly_name": "Temperature"},
-    )
+async def test_build_context_regular_entities_counted(hass: HomeAssistant) -> None:
+    """Regular entities should be counted in domain stats; entity_count reflects them."""
+    hass.states.async_set("sensor.temp", "22", {"friendly_name": "Temperature"})
+    hass.states.async_set("sensor.humidity", "55", {"friendly_name": "Humidity"})
+    hass.states.async_set("light.living_room", "on", {"friendly_name": "Living Room"})
 
-    context = _build_context(hass)
-    assert "sensor.temp" in context
-    assert "Temperature" in context
-
-
-async def test_build_context_compact_no_trailing_pipes_when_no_area_no_labels(
-    hass: HomeAssistant,
-) -> None:
-    """Entities with no area and no labels should use compact 2-field format (no trailing pipes)."""
-    hass.states.async_set(
-        "light.living_room",
-        "on",
-        {"friendly_name": "Living Room Light"},
-    )
-
-    context = _build_context(hass)
-    # The compact line should NOT end with trailing " |  | "
-    assert "light.living_room | Living Room Light |  | " not in context
-    # The line should appear in the short form
-    assert "- light.living_room | Living Room Light" in context
+    context, stats = _build_context(hass)
+    assert stats["entity_count"] == 3
+    # Domain stats appear in context
+    assert "sensor" in context
+    assert "light" in context
 
 
-async def test_build_context_full_format_when_area_and_labels(hass: HomeAssistant) -> None:
-    """Entities with both area and labels keep the full 4-field format."""
-    area = ar.async_get(hass).async_create("Bathroom")
-    label_reg = lr.async_get(hass)
-    label_reg.async_create("wet-room")
+async def test_build_context_entity_stats_line_present(hass: HomeAssistant) -> None:
+    """Context should include a domain stats line with entity counts."""
+    hass.states.async_set("light.test", "on", {"friendly_name": "Test Light"})
+    hass.states.async_set("switch.test", "off", {"friendly_name": "Test Switch"})
 
-    entry = er.async_get(hass).async_get_or_create("light", "test", "bath_light")
-    er.async_get(hass).async_update_entity(
-        entry.entity_id, area_id=area.id, labels={"wet-room"}
-    )
-    hass.states.async_set(entry.entity_id, "off", {"friendly_name": "Bath Light"})
-
-    context = _build_context(hass)
-    assert "Bathroom" in context
-    assert "wet-room" in context
-    # Full 4-field line present
-    assert f"- {entry.entity_id} | Bath Light | Bathroom | wet-room" in context
+    context, _ = _build_context(hass)
+    # Stats line: "X total — domain: N | ..."
+    assert "total" in context
+    assert "light: 1" in context
+    assert "switch: 1" in context
 
 
-async def test_build_context_entity_list_truncated_at_budget(hass: HomeAssistant) -> None:
-    """When the entity list exceeds MAX_ENTITY_LIST_CHARS, it should be truncated with a notice."""
-    # Create enough entities to exceed the budget
-    for i in range(50):
-        hass.states.async_set(
-            f"sensor.entity_{i:03d}",
-            "on",
-            {"friendly_name": f"Sensor {i:03d}"},
-        )
+async def test_build_context_home_state_by_area(hass: HomeAssistant) -> None:
+    """Lights on in an area should appear in the home state section."""
+    area = ar.async_get(hass).async_create("Living Room")
+    entry = er.async_get(hass).async_get_or_create("light", "test", "living_light")
+    er.async_get(hass).async_update_entity(entry.entity_id, area_id=area.id)
+    hass.states.async_set(entry.entity_id, "on", {"friendly_name": "Living Room Light"})
 
-    small_budget = 200  # tiny budget so truncation is certain to trigger
-    with patch("custom_components.kyber.http_api.MAX_ENTITY_LIST_CHARS", small_budget):
-        context = _build_context(hass)
-
-    assert "context budget exceeded" in context
+    context, stats = _build_context(hass)
+    assert "Living Room" in context
+    assert stats["lights_on"] == 1
 
 
-async def test_build_context_truncation_logs_warning(hass: HomeAssistant) -> None:
-    """Truncation should emit a WARNING log message."""
-    for i in range(50):
-        hass.states.async_set(
-            f"sensor.entity_{i:03d}",
-            "on",
-            {"friendly_name": f"Sensor {i:03d}"},
-        )
+async def test_build_context_lights_on_count(hass: HomeAssistant) -> None:
+    """lights_on stat should count lights with state 'on' assigned to any area."""
+    area = ar.async_get(hass).async_create("Bedroom")
+    for i, state in enumerate(["on", "on", "off"]):
+        entry = er.async_get(hass).async_get_or_create("light", "test", f"light_{i}")
+        er.async_get(hass).async_update_entity(entry.entity_id, area_id=area.id)
+        hass.states.async_set(entry.entity_id, state, {})
 
-    small_budget = 200
-    with patch("custom_components.kyber.http_api.MAX_ENTITY_LIST_CHARS", small_budget):
-        with patch("custom_components.kyber.http_api._LOGGER") as mock_logger:
-            _build_context(hass)
-            mock_logger.warning.assert_called_once()
-            warning_msg = mock_logger.warning.call_args[0][0]
-            assert "truncated" in warning_msg
+    _, stats = _build_context(hass)
+    assert stats["lights_on"] == 2

@@ -286,7 +286,7 @@ async def test_empty_prompt_returns_400(
 async def test_context_includes_entity_ids(
     hass: HomeAssistant, setup_integration, hass_client
 ) -> None:
-    """The instructions sent to async_generate_data should contain HA entity IDs."""
+    """The instructions sent to async_generate_data should contain domain stats (not raw entity IDs)."""
     hass.states.async_set("light.living_room", "on")
     hass.states.async_set("switch.bedroom_fan", "off")
 
@@ -304,8 +304,9 @@ async def test_context_includes_entity_ids(
         )
 
     assert resp.status == 200
-    assert "light.living_room" in captured["v"]
-    assert "switch.bedroom_fan" in captured["v"]
+    # New format: domain stats (e.g. "light: 1") instead of raw entity IDs
+    assert "light" in captured["v"]
+    assert "switch" in captured["v"]
 
 
 async def test_context_includes_areas(
@@ -1007,3 +1008,28 @@ async def test_automation_yaml_included_in_default_editor_mode(
 
     assert resp.status == 200
     assert "alias: Test" in captured["v"]
+
+
+async def test_response_includes_context_stats(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Response JSON should include context_stats with entity/automation counts."""
+    hass.states.async_set("light.test", "on", {"friendly_name": "Test Light"})
+    hass.states.async_set("automation.test", "on", {"friendly_name": "Test Auto", "id": "x1"})
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, return_value=_make_ai_result("ok")):
+        resp = await client.post(
+            "/api/kyber/complete",
+            json={"prompt": "hello"},
+        )
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert "context_stats" in data
+    stats = data["context_stats"]
+    assert "entity_count" in stats
+    assert "automation_count" in stats
+    assert "area_count" in stats
+    assert stats["entity_count"] >= 1
+    assert stats["automation_count"] >= 1
