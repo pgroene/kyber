@@ -19,7 +19,8 @@ from homeassistant.helpers import label_registry as lr
 try:
     from homeassistant.components.ai_task import async_generate_data
 except ImportError:  # HA < 2025.2 (test environments)
-    async_generate_data = None  # type: ignore[assignment]
+    async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
+        raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
 
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, SYSTEM_PROMPT_TEMPLATE
 
