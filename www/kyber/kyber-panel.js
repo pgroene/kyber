@@ -2956,6 +2956,7 @@ class KyberPanel extends HTMLElement {
   }
 
 
+  _updateAutopilotBadge() {
     const badge = this.shadowRoot.getElementById("autopilot-badge");
     if (badge) badge.classList.toggle("active", this._autopilot);
   }
