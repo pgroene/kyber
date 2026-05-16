@@ -76,6 +76,18 @@ const STYLES = `
     flex: 0 0 auto;
   }
 
+  .brand-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .brand-icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+  }
+
   .toolbar select {
     flex: 1;
     max-width: 400px;
@@ -128,6 +140,17 @@ const STYLES = `
     flex-direction: column;
     background: var(--panel-bg);
     overflow: hidden;
+  }
+
+  .sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--sidebar-bg);
+    font-size: 13px;
+    font-weight: 600;
   }
 
   .chat-history {
@@ -723,7 +746,10 @@ class KyberPanel extends HTMLElement {
     shadow.innerHTML += `
       <div class="container" id="app-container">
         <div class="toolbar">
-          <h2>⚡ Kyber</h2>
+          <h2 class="brand-title">
+            <img id="kyber-header-icon" class="brand-icon" src="icon.png" alt="Kyber icon">
+            <span>Kyber</span>
+          </h2>
           <span class="editor-context-label editor-controls" id="editor-context-label"></span>
           <span class="editor-title editor-controls" id="editor-title">
             <select id="dashboard-select" class="dashboard-select" style="display:none"></select>
@@ -733,6 +759,10 @@ class KyberPanel extends HTMLElement {
           <button class="btn-close-editor editor-controls" id="btn-close-editor">✕ Close editor</button>
         </div>
         <div class="chat-pane">
+          <div class="sidebar-brand">
+            <img id="kyber-sidebar-icon" class="brand-icon" src="icon.png" alt="Kyber icon">
+            <span>Kyber Assistant</span>
+          </div>
           <div class="chat-history" id="chat-history">
             <div class="chat-message assistant">Hi! Ask me anything about your smart home — I can manage entities, areas, labels, or open automations for editing.</div>
           </div>
