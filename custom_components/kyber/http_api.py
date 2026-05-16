@@ -44,22 +44,24 @@ _ACTION_KEYWORDS: frozenset[str] = frozenset({
 })
 
 _RESPONSE_MODE_INFORMATIONAL = (
-    "\n## ⚠️ Response Mode: INFORMATIONAL\n"
-    "The user is asking a question or requesting information — NOT asking to change anything.\n"
-    "You MUST respond in PLAIN TEXT only.\n"
-    "• Use tool calls if you need entity data, then answer with the facts.\n"
-    "• Do NOT output a plan block of any kind.\n"
-    "• Do NOT set open_editor or open_dashboard.\n"
-    "• Do NOT ask 'how would you like to proceed?' — just answer.\n"
+    "\n[SYSTEM: Response constraint — INFORMATIONAL query]\n"
+    "Output ONLY a direct plain-text answer. Rules:\n"
+    "1. Call tools if you need entity data, then list the ACTUAL results from the tool.\n"
+    "2. NEVER use placeholder text like '[listing all X items]' — include real names/states.\n"
+    "3. Do NOT start your reply by describing what you are about to do.\n"
+    "4. Do NOT output a plan block. Do NOT open the editor or dashboard.\n"
+    "5. Do NOT ask 'how would you like to proceed?'\n"
+    "6. Domain counts in the context are TOTALS (e.g. binary_sensor includes ALL subtypes). "
+    "For 'how many motion sensors', call list_entities_by_domain(binary_sensor) and count device_class=motion entries.\n"
+    "[END SYSTEM]\n"
 )
 
 _RESPONSE_MODE_ACTION = (
-    "\n## ⚠️ Response Mode: ACTION\n"
+    "\n[SYSTEM: Response constraint — ACTION query]\n"
     "The user wants to change, edit, or control something.\n"
-    "Use tool calls first if you need real entity IDs, then output the appropriate plan block.\n"
-    "For automation/script edits: use open_editor plan. "
-    "For entity changes: use actions plan. "
-    "For dashboard edits: use open_dashboard plan.\n"
+    "1. Call tools first if you need real entity IDs.\n"
+    "2. Then output the appropriate plan block (open_editor / actions / open_dashboard).\n"
+    "[END SYSTEM]\n"
 )
 
 
@@ -797,13 +799,26 @@ class KyberView(HomeAssistantView):
         yaml_blocks = _extract_yaml_blocks(response_text)
         plan_block = _extract_plan_block(response_text)
 
-        # Strip any [TOOL_RESULT: ...] lines the model echoed back — they are
-        # internal context injected into the prompt and must not appear in chat.
+        # Strip any [TOOL_RESULT: ...] lines the model echoed back.
         response_text = re.sub(r"\[TOOL_RESULT:[^\]]*?\][^\n]*\n?", "", response_text).strip()
 
+        # Strip [SYSTEM: ...] / [END SYSTEM] blocks the model echoed back from the
+        # response-mode constraint injection.
+        response_text = re.sub(r"\[SYSTEM:[^\]]*?\].*?\[END SYSTEM\]\s*", "", response_text, flags=re.DOTALL).strip()
+
+        # Strip common model preamble patterns where it narrates the constraint back.
+        # e.g. "The user is asking about X. I will use tools and respond in plain text."
+        _PREAMBLE_RE = re.compile(
+            r"^(I'm happy to help!?\s*)?"
+            r"(Since the user is asking for (information|a question)[^.]*\.?\s*)"
+            r"(I('ll| will) (use tools?|respond in plain text)[^.]*\.?\s*)"
+            r"(Here('s| is) my response:?\s*)?",
+            re.IGNORECASE,
+        )
+        response_text = _PREAMBLE_RE.sub("", response_text).strip()
+
         # Guard: if the intent was informational and the model still hallucinated an
-        # open_editor or open_dashboard plan, drop it — the editor should never open
-        # from a listing/question request.
+        # open_editor or open_dashboard plan, drop it.
         if intent == "informational" and plan_block and (
             plan_block.get("open_editor") or plan_block.get("open_dashboard")
         ):
