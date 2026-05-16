@@ -1177,9 +1177,15 @@ class KyberPanel extends HTMLElement {
       return;
     }
     const token = this._hass.auth.data.access_token;
-    await fetch("/api/kyber/sessions", {
+    const switchResp = await fetch("/api/kyber/sessions", {
       method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "switch", session_id: target.id }),
     });
+    if (!switchResp.ok) {
+      this._appendMessage(`Failed to switch session (HTTP ${switchResp.status})`, "assistant");
+      return;
+    }
     this._activeSessionId = target.id;
     this._activeSessionName = target.name;
     // Reload history for this session
