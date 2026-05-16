@@ -22,6 +22,8 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./tests/setup.js"],
+    // Exclude Playwright UI specs — those are run separately via `npm run test:ui`
+    exclude: ["tests/ui/**", "**/node_modules/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

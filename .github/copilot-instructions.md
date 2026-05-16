@@ -54,6 +54,42 @@ Skipping any step causes the browser to serve the old cached JS.
 
 ---
 
+## Git Workflow
+
+### Branching model
+
+```
+main
+ ├── feature/<slug>   — new features
+ ├── fix/<slug>       — bug fixes
+ └── docs/<slug>      — documentation-only changes
+```
+
+- **Never commit directly to `main`** — always use a PR
+- Branch from the latest `main`; squash-merge back when approved
+
+### Branch naming
+
+| Type | Example |
+|---|---|
+| Feature | `feature/plan-card-undo` |
+| Bug fix | `fix/execute-button-label` |
+| Docs | `docs/contributing` |
+
+### PR requirements
+
+All PRs targeting `main` require:
+- **1 approving review**
+- All 3 CI checks passing: `python-tests`, `js-tests`, `ui-tests`
+
+### Commit format
+
+`type: short description` — e.g. `feat: add undo button`, `fix: correct execute label`, `docs: branching guide`
+
+Full details in [`docs/contributing.md`](../docs/contributing.md).
+
+---
+
 ## Testing
 
 ### Python tests
@@ -74,11 +110,52 @@ The `tests/` directory is **not** live-mounted. After writing a new test file:
 docker cp tests/test_myfeature.py kyber-ha:/config/tests/test_myfeature.py
 ```
 
-### JavaScript tests
+#### UI tests (Playwright)
 
-JS tests use **Vitest + jsdom** and live in `www/kyber/tests/`.
+Playwright tests run in a real headless Chromium browser against a static HTML harness. They test the rendered panel without a Home Assistant instance.
 
-#### Run JS tests
+**Run UI tests:**
+```bash
+# In container (Alpine Linux — must use system Chromium)
+docker exec kyber-ha sh -c "cd /config/www/kyber && PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser npm run test:ui"
+
+# In CI (ubuntu-latest — Playwright downloads its own Chromium)
+npm run test:ui
+```
+
+**Test structure:**
+```
+www/kyber/tests/ui/
+  harness.html          — Loads kyber-panel.js, injects mock hass with auth token
+  helpers.js            — gotoHarness(), injectPlanCard(), injectCommandCard(), sendMessage()
+  codemirror-stub.js    — Browser ES module stub for CodeMirror (used via importmap)
+  plan-card.spec.js     — Execute/undo button flows + plan rendering
+  command-card.spec.js  — Confirm/cancel button flows
+  chat.spec.js          — Send button, AI response bubbles, plan card from AI
+```
+
+**Screenshots** are saved to `www/kyber/screenshots/` and uploaded as CI artifacts (`ui-screenshots`).
+
+**Key patterns:**
+
+- `injectPlanCard(page, { summary, actions })` — appends a plan card directly to chat history. Use `summary` (not `overview`) to match `_buildPlanCard`'s field.
+- `injectCommandCard(page, { title, detail, danger })` — builds and appends a command card. The execute button label is `▶ Execute` (not "Confirm").
+- `sendMessage(page, text)` — fills `#prompt-input` and clicks `#btn-ask`.
+- Routes are intercepted with `page.route("**/api/kyber/...")` — no real backend needed.
+- The mock `hass` in `harness.html` must include `auth: { data: { access_token: "test-token" } }` and `panels: {}`.
+
+### Verifying UI changes
+
+**When fixing a UI bug or adding a UI feature:**
+
+1. Write or update a Playwright spec in `www/kyber/tests/ui/`
+2. Run the UI tests in Docker (command above)
+3. Include a screenshot in the PR — screenshots are in `www/kyber/screenshots/` after a run
+4. The CI `ui-tests` job will upload all screenshots as the `ui-screenshots` artifact — link to it in the PR description
+
+**If a UI test fails locally but passes in CI** (or vice versa): the likely cause is Alpine vs. glibc Chromium. The `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` env var selects the system binary; CI uses Playwright's downloaded binary.
+
+
 
 ```bash
 # In container (required on Windows)
@@ -213,9 +290,10 @@ custom_components/kyber/
 www/kyber/
   kyber-panel.js    — <kyber-panel> web component (~2400 lines, single file)
   codemirror-bundle.js — CodeMirror 6 bundle (DO NOT EDIT)
-  package.json      — Vitest + jsdom devDependencies
+  package.json      — Vitest + jsdom + Playwright devDependencies
   vitest.config.js  — JS test runner config (CodeMirror mock, jsdom env)
-  tests/            — JS tests (unit/component/integration tiers)
+  playwright.config.js — Playwright config (Chromium, port 7878, screenshots)
+  tests/            — JS tests (unit/component/integration + ui tiers)
 
 docs/
   installation.md   — Setup, dev loop, version bumping

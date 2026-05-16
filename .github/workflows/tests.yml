@@ -2,12 +2,17 @@ name: Tests
 
 on:
   push:
-    branches: [main, dev]
+    branches:
+      - main
+      - "feature/**"
+      - "fix/**"
+      - "docs/**"
   pull_request:
     branches: [main]
 
 jobs:
-  test:
+  python-tests:
+    name: Python tests
     runs-on: ubuntu-latest
 
     steps:
@@ -25,3 +30,59 @@ jobs:
         run: pytest tests/ -v --tb=short
         env:
           PYTHONPATH: .
+
+  js-tests:
+    name: JS tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: www/kyber/package-lock.json
+
+      - name: Install JS dependencies
+        run: npm ci
+        working-directory: www/kyber
+
+      - name: Run JS tests
+        run: npm test
+        working-directory: www/kyber
+
+  ui-tests:
+    name: UI tests (Playwright)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: www/kyber/package-lock.json
+
+      - name: Install JS dependencies
+        run: npm ci
+        working-directory: www/kyber
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: www/kyber
+
+      - name: Run UI tests
+        run: npm run test:ui
+        working-directory: www/kyber
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-screenshots
+          path: www/kyber/screenshots/
+          retention-days: 30
