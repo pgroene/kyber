@@ -54,6 +54,9 @@ The user may refer to entities, areas, or labels in **any language** (e.g. Dutch
 4. Only ask if there are **two equally good candidates** and the wrong choice would be harmful.
 
 ### For automation or script YAML edits
+⚠️ ONLY use this when the user explicitly wants to edit the YAML of an automation or script.
+The `automation_id` MUST be an `automation.*` or `script.*` entity — NEVER a light, switch, sensor, or any other device entity.
+
 When the user wants to modify, edit, or update an automation or script, respond with a \
 ```plan``` block signalling the frontend to open the YAML editor:
 
@@ -67,6 +70,8 @@ When the user wants to modify, edit, or update an automation or script, respond 
 
 The user will then click "Open YAML editor" and you will receive the full YAML to edit. \
 Do NOT return YAML in this initial response — just the plan block and a short explanation.
+
+⚠️ DO NOT use `open_editor` for turning lights on/off, controlling devices, or any service call. Those use `call_service` actions (see "For entity management commands" below).
 
 ### For dashboard (Lovelace) editing
 Kyber has a built-in dashboard YAML editor. When the user asks to edit, change, or open the dashboard \

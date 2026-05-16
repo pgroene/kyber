@@ -802,12 +802,10 @@ class KyberView(HomeAssistantView):
         # Strip any [TOOL_RESULT: ...] lines the model echoed back.
         response_text = re.sub(r"\[TOOL_RESULT:[^\]]*?\][^\n]*\n?", "", response_text).strip()
 
-        # Strip [SYSTEM: ...] / [END SYSTEM] blocks the model echoed back from the
-        # response-mode constraint injection.
+        # Strip [SYSTEM: ...] / [END SYSTEM] blocks the model echoed back.
         response_text = re.sub(r"\[SYSTEM:[^\]]*?\].*?\[END SYSTEM\]\s*", "", response_text, flags=re.DOTALL).strip()
 
-        # Strip common model preamble patterns where it narrates the constraint back.
-        # e.g. "The user is asking about X. I will use tools and respond in plain text."
+        # Strip common model preamble patterns.
         _PREAMBLE_RE = re.compile(
             r"^(I'm happy to help!?\s*)?"
             r"(Since the user is asking for (information|a question)[^.]*\.?\s*)"
@@ -817,7 +815,7 @@ class KyberView(HomeAssistantView):
         )
         response_text = _PREAMBLE_RE.sub("", response_text).strip()
 
-        # Guard: if the intent was informational and the model still hallucinated an
+        # Guard: if intent was informational and the model still hallucinated an
         # open_editor or open_dashboard plan, drop it.
         if intent == "informational" and plan_block and (
             plan_block.get("open_editor") or plan_block.get("open_dashboard")
@@ -827,6 +825,54 @@ class KyberView(HomeAssistantView):
                 user_prompt[:80],
             )
             plan_block = None
+
+        # Rescue: if the model used open_editor with a non-automation/script entity
+        # (e.g. light.*, switch.*), convert to a call_service actions plan.
+        if plan_block and plan_block.get("open_editor"):
+            aid = plan_block.get("automation_id", "")
+            entity_domain = aid.split(".")[0] if "." in aid else ""
+            if entity_domain and entity_domain not in ("automation", "script"):
+                summary_lower = plan_block.get("summary", "").lower()
+                prompt_lower = user_prompt.lower()
+                # Infer service from summary / original prompt
+                if any(w in summary_lower or w in prompt_lower for w in ("turn off", "switch off", "zet uit", "off")):
+                    service = "turn_off"
+                    new_state = "off"
+                    current_state = "on"
+                elif any(w in summary_lower or w in prompt_lower for w in ("turn on", "switch on", "zet aan", "on")):
+                    service = "turn_on"
+                    new_state = "on"
+                    current_state = "off"
+                elif any(w in summary_lower or w in prompt_lower for w in ("toggle")):
+                    service = "toggle"
+                    new_state = "toggled"
+                    current_state = ""
+                else:
+                    service = None
+
+                if service and aid:
+                    _LOGGER.info(
+                        "Kyber: rescued open_editor plan for %s → call_service %s.%s",
+                        aid, entity_domain, service,
+                    )
+                    plan_block = {
+                        "summary": plan_block.get("summary", f"{service} {aid}"),
+                        "actions": [{
+                            "type": "call_service",
+                            "domain": entity_domain,
+                            "service": service,
+                            "entity_id": aid,
+                            "description": plan_block.get("summary", ""),
+                            "current_state": current_state,
+                            "new_state": new_state,
+                        }],
+                    }
+                else:
+                    _LOGGER.warning(
+                        "Kyber: dropping open_editor plan for non-automation entity %r (cannot infer service)",
+                        aid,
+                    )
+                    plan_block = None
 
         return self.json({"response": response_text, "yaml_blocks": yaml_blocks, "plan": plan_block, "context_stats": context_stats, "tool_log": tool_log})
 
