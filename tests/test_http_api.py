@@ -219,7 +219,7 @@ async def test_sessions_rename(
     list_resp = await client.get("/api/kyber/sessions")
     sid = (await list_resp.json())["active_session"]
 
-    rename_resp = await client.patch(
+    rename_resp = await client.put(
         "/api/kyber/sessions",
         json={"action": "rename", "session_id": sid, "name": "Evening Automation"},
     )

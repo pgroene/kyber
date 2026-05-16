@@ -1150,9 +1150,7 @@ class KyberPanel extends HTMLElement {
     }
     const token = this._hass.auth.data.access_token;
     await fetch("/api/kyber/sessions", {
-      method: "PATCH",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "switch", session_id: target.id }),
+      method: "PUT",
     });
     this._activeSessionId = target.id;
     this._activeSessionName = target.name;
@@ -1167,9 +1165,7 @@ class KyberPanel extends HTMLElement {
     if (!this._hass) return;
     const token = this._hass.auth.data.access_token;
     const resp = await fetch("/api/kyber/sessions", {
-      method: "PATCH",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "rename", name: newName }),
+      method: "PUT",
     });
     if (!resp.ok) {
       this._appendMessage(`Failed to rename session (HTTP ${resp.status})`, "assistant");

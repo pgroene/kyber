@@ -509,13 +509,16 @@ class KyberSessionsView(HomeAssistantView):
         return str(user_id) if user_id else None
 
     async def _load_user(self, hass: HomeAssistant, user_id: str) -> tuple[dict, dict]:
-        """Return (data, user_data) ensuring sessions format."""
+        """Return (data, user_data) ensuring sessions format. Persists on first creation."""
         data = await _async_load_chat_store(hass)
         users = data.setdefault("users", {})
         user_data = users.get(user_id, {})
-        user_data = _migrate_user_to_sessions(user_data) if "sessions" not in user_data else user_data
+        is_new = "sessions" not in user_data
+        user_data = _migrate_user_to_sessions(user_data) if is_new else user_data
         _get_active_session(user_data)  # ensure at least one session exists
         users[user_id] = user_data
+        if is_new:
+            await _async_save_chat_store(hass, data)
         return data, user_data
 
     async def get(self, request: web.Request) -> web.Response:
@@ -569,7 +572,7 @@ class KyberSessionsView(HomeAssistantView):
         await _async_save_chat_store(hass, data)
         return self.json({"status": "ok", "session_id": sid, "name": name})
 
-    async def patch(self, request: web.Request) -> web.Response:
+    async def put(self, request: web.Request) -> web.Response:
         """Switch active session or rename a session."""
         hass: HomeAssistant = request.app["hass"]
         user_id = self._user_id_from_request(request)
