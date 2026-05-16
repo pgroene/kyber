@@ -1822,10 +1822,10 @@ class KyberPanel extends HTMLElement {
         ? `config/script/config/${this._currentAutomationId}`
         : `config/automation/config/${this._currentAutomationId}`;
 
-      // Strip 'id' from the body — HA's config endpoint takes the id from
-      // the URL; having it in the body can trigger validation errors.
-      const configToSave = { ...config };
-      delete configToSave.id;
+      // HA's automation config POST requires the id field as a STRING in the
+      // body. YAML parses bare numbers as integers, so we must override it
+      // with _currentAutomationId (always a string).
+      const configToSave = { ...config, id: this._currentAutomationId };
 
       const saveResp = await fetch(`/api/${apiPath}`, {
         method: "POST",

@@ -71,16 +71,16 @@ describe("_saveAutomation", () => {
     expect(saveCalls[0][1].method).toBe("POST");
   });
 
-  it("strips the 'id' field from the config body before saving", async () => {
-    vi.stubGlobal("fetch", mockFetchSuccess({ alias: "my test", mode: "single", id: "my_test" }));
+  it("ensures 'id' in the config body is the string from _currentAutomationId", async () => {
+    vi.stubGlobal("fetch", mockFetchSuccess({ alias: "my test", mode: "single", id: 99999 }));
     const { element } = setupWithEditor();
     await element._saveAutomation();
     const saveCalls = fetch.mock.calls.filter(([url]) =>
       url.includes("config/automation")
     );
     const body = JSON.parse(saveCalls[0][1].body);
-    expect(body.id).toBeUndefined();
-    expect(body.alias).toBe("my test");
+    expect(body.id).toBe("my_test");
+    expect(typeof body.id).toBe("string");
   });
 
   it("uses script API path when editorMode is script", async () => {
