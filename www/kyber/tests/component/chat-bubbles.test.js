@@ -14,6 +14,19 @@
 
 import { makePanel } from "../helpers.js";
 
+describe("panel branding", () => {
+  it("renders the Kyber icon in both header and sidebar", () => {
+    const { element } = makePanel();
+    const headerIcon = element.shadowRoot.getElementById("kyber-header-icon");
+    const sidebarIcon = element.shadowRoot.getElementById("kyber-sidebar-icon");
+
+    expect(headerIcon).not.toBeNull();
+    expect(sidebarIcon).not.toBeNull();
+    expect(headerIcon.getAttribute("src")).toContain("icon.png");
+    expect(sidebarIcon.getAttribute("src")).toContain("icon.png");
+  });
+});
+
 describe("_appendMessage", () => {
   it("appends message with 'user' class", () => {
     const { element } = makePanel();
