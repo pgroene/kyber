@@ -106,7 +106,8 @@ If your PR changes any visible UI behaviour:
 
 1. Add or update a Playwright spec in `www/kyber/tests/ui/`
 2. Run `npm run test:ui` locally and verify screenshots in `www/kyber/screenshots/`
-3. Include a screenshot in the PR description (or link the `ui-screenshots` CI artifact)
+3. Check the screenshot image itself before uploading to confirm it reflects the fix (for example, verify breadcrumb text in the image)
+4. Include a screenshot in the PR description (or link the `ui-screenshots` CI artifact)
 
 ---
 
