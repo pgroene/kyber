@@ -101,20 +101,27 @@ describe("_saveDashboard", () => {
     expect(bar.textContent).not.toContain("undefined");
   });
 
-  it("shows HTTP status when HA API returns empty error body", async () => {
+  it("shows 'cannot save' when YAML is empty", async () => {
+    const { element } = setupWithEditor("my_dash", "   ");
+    await element._saveDashboard();
+    const bar = element.shadowRoot.getElementById("status-bar");
+    expect(bar.textContent).toContain("Cannot save");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("shows storage-mode hint when HA config API returns 404", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation((url) => {
       if (url.includes("parse_yaml")) {
         return Promise.resolve({
           ok: true, text: async () => '{"config":{}}', json: async () => ({ config: {} }),
         });
       }
-      return Promise.resolve({ ok: false, status: 500, text: async () => "" });
+      return Promise.resolve({ ok: false, status: 404, text: async () => "" });
     }));
     const { element } = setupWithEditor();
     await element._saveDashboard();
     const bar = element.shadowRoot.getElementById("status-bar");
-    expect(bar.textContent).toContain("Save failed");
-    expect(bar.textContent).toContain("500");
+    expect(bar.textContent).toContain("storage mode");
     expect(bar.textContent).not.toContain("undefined");
   });
 

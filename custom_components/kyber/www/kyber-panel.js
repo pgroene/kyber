@@ -1629,34 +1629,49 @@ class KyberPanel extends HTMLElement {
     this._setStatus("Loading…");
     this.shadowRoot.getElementById("btn-save").disabled = true;
     try {
+      const token = this._hass.auth.data.access_token;
       const apiPath = urlPath ? `lovelace/config?url_path=${urlPath}` : "lovelace/config";
+      const resp = await fetch(`/api/${apiPath}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       let config;
-      try {
-        config = await this._hass.callApi("GET", apiPath);
-      } catch (apiErr) {
-        // 404 → new dashboard with no stored config; show starter
+      if (resp.status === 404) {
+        // Dashboard exists as a panel but has no stored config yet (or is in yaml mode).
+        // Show a starter so the user can create initial config.
         config = { title: urlPath || "Home", views: [{ title: "Home", cards: [] }] };
-        this._setStatus(`New dashboard "${urlPath || "default"}" — edit and save to create config.`);
-        this._setEditorContent(this._configToYaml(config));
-        this._dirty = false;
-        this.shadowRoot.getElementById("btn-save").disabled = false;
-        return;
+        this._setStatus(`No stored config for "${urlPath || "default"}" — edit this starter and save.`);
+      } else if (!resp.ok) {
+        let errMsg = `HTTP ${resp.status}`;
+        try {
+          const body = await resp.text();
+          if (body) { const j = JSON.parse(body); errMsg = j.message || body; }
+        } catch (_) { /* use status */ }
+        throw new Error(errMsg);
+      } else {
+        config = await resp.json();
+        const sel = this.shadowRoot.getElementById("dashboard-select");
+        const label = sel ? sel.options[sel.selectedIndex]?.textContent : urlPath || "default";
+        this._setStatus(`Editing: ${label}`);
       }
-      const sel = this.shadowRoot.getElementById("dashboard-select");
-      const label = sel ? sel.options[sel.selectedIndex]?.textContent : urlPath || "default";
       this._setEditorContent(this._configToYaml(config));
       this._dirty = false;
       this.shadowRoot.getElementById("btn-save").disabled = false;
-      this._setStatus(`Editing: ${label}`);
     } catch (err) {
-      this._setStatus(`Error: ${err.message || String(err)}`, "error");
+      const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
+      this._setStatus(`Error loading dashboard: ${msg}`, "error");
     }
   }
 
   async _saveDashboard() {
     if (!this._hass) return;
-    const yamlText = this._editor.state.doc.toString();
+    const yamlText = this._editor.state.doc.toString().trim();
     const btn = this.shadowRoot.getElementById("btn-save");
+
+    if (!yamlText) {
+      this._setStatus("Cannot save: dashboard config is empty.", "error");
+      return;
+    }
+
     btn.disabled = true;
     this._setStatus("Saving dashboard…");
 
@@ -1669,7 +1684,12 @@ class KyberPanel extends HTMLElement {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ yaml: yamlText }),
       });
-      if (!parseResp.ok) throw new Error(`YAML parse error: ${await parseResp.text()}`);
+      if (!parseResp.ok) {
+        const errText = await parseResp.text();
+        let errMsg = errText;
+        try { errMsg = JSON.parse(errText).message || errText; } catch (_) { /* use raw */ }
+        throw new Error(`YAML parse error: ${errMsg}`);
+      }
       const { config } = await parseResp.json();
 
       // Save to the currently selected dashboard path via direct fetch.
@@ -1692,6 +1712,9 @@ class KyberPanel extends HTMLElement {
             errMsg = errJson.message || errJson.body || errBody;
           }
         } catch (_) { /* keep HTTP status as fallback */ }
+        if (saveResp.status === 404) {
+          errMsg = `Dashboard not found in HA storage. Make sure it is in storage mode (not YAML mode). Create it first with "New Dashboard" if needed.`;
+        }
         console.error("_saveDashboard: HA API error", saveResp.status, errMsg);
         throw new Error(errMsg);
       }
