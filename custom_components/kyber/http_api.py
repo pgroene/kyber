@@ -463,10 +463,26 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         if area_id:
             area_obj = area_reg.async_get_area(area_id)
             area_name = area_obj.name if area_obj else None
+        # Trim attributes: drop noisy metadata (supported_features, effect_list,
+        # supported_color_modes, etc.) that bloat the response and confuse small
+        # models. Keep only useful runtime attributes.
+        _DROP_ATTRS = {
+            "supported_features", "supported_color_modes", "effect_list",
+            "min_mireds", "max_mireds", "min_color_temp_kelvin", "max_color_temp_kelvin",
+            "hs_color", "xy_color",  # keep rgb_color, drop the redundant ones
+            "icon", "entity_picture", "device_class", "state_class",
+            "attribution", "assumed_state", "editable",
+            "fan_modes", "swing_modes", "preset_modes", "hvac_modes",
+            "source_list", "sound_mode_list",
+        }
+        attrs = {
+            k: v for k, v in state.attributes.items()
+            if k not in _DROP_ATTRS
+        }
         return json.dumps({
             "entity_id": entity_id,
             "state": state.state,
-            "attributes": dict(state.attributes),
+            "attributes": attrs,
             "area_id": area_id,
             "area_name": area_name,
         })
@@ -900,6 +916,10 @@ class KyberView(HomeAssistantView):
             # Execute tools and build result block
             clean_response = _strip_tool_calls(response_text)
             tool_results_block = ""
+            # Cap each tool result fed back to the model to keep context small.
+            # Small models (8K window) choke on huge JSON payloads and forget
+            # to continue. Truncate at ~6KB with a note.
+            _MAX_TOOL_RESULT_CHARS = 6000
             for call in tool_calls:
                 tool_result_str = _execute_tool(hass, call)
                 tool_result_data = json.loads(tool_result_str)
@@ -914,8 +934,36 @@ class KyberView(HomeAssistantView):
                     "summary": summary,
                 })
 
+                # Truncate the version sent BACK to the model (UI summary above is unaffected)
+                feedback_str = tool_result_str
+                if len(feedback_str) > _MAX_TOOL_RESULT_CHARS:
+                    if isinstance(tool_result_data, dict) and len(tool_result_data) > 1:
+                        items = list(tool_result_data.items())
+                        kept: dict = {}
+                        running = 0
+                        for k, v in items:
+                            piece = json.dumps({k: v})
+                            if running + len(piece) > _MAX_TOOL_RESULT_CHARS:
+                                break
+                            kept[k] = v
+                            running += len(piece) + 2
+                        omitted = len(items) - len(kept)
+                        feedback_str = json.dumps({
+                            "_truncated": True,
+                            "_total_items": len(items),
+                            "_returned_items": len(kept),
+                            "_note": f"{omitted} more items omitted. Use a more specific filter (state, domain, area) to narrow results.",
+                            "items": kept,
+                        })
+                    else:
+                        feedback_str = feedback_str[:_MAX_TOOL_RESULT_CHARS] + '..."[TRUNCATED]"}'
+                    _LOGGER.info(
+                        "Kyber: truncated tool result %s from %d → %d chars",
+                        call.get("name"), len(tool_result_str), len(feedback_str),
+                    )
+
                 tool_results_block += (
-                    f"\n[TOOL_RESULT: {json.dumps(call)}]\n{tool_result_str}\n"
+                    f"\n[TOOL_RESULT: {json.dumps(call)}]\n{feedback_str}\n"
                 )
             tool_exchange += f"{clean_response}\n{tool_results_block}\nAssistant:"
 
