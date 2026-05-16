@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Kyber Panel — UI Test Harness</title>
+
+  <!--
+    Import map: redirect codemirror-bundle.js to a lightweight browser stub.
+    This keeps test startup fast and avoids CodeMirror rendering issues
+    in headless Chromium.
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "./codemirror-bundle.js": "/tests/ui/codemirror-stub.js"
+    }
+  }
+  </script>
+
+  <style>
+    html, body { margin: 0; height: 100%; background: #1a1a2e; }
+    kyber-panel { display: block; height: 100vh; }
+  </style>
+</head>
+<body>
+  <kyber-panel id="panel"></kyber-panel>
+
+  <script type="module">
+    import "/kyber-panel.js";
+
+    // ---------------------------------------------------------------------------
+    // Mock hass object — mirrors the shape KyberPanel expects
+    // ---------------------------------------------------------------------------
+    const MOCK_STATES = {
+      "light.bedroom":     { entity_id: "light.bedroom",     state: "on",  attributes: { friendly_name: "Bedroom Light" } },
+      "light.living_room": { entity_id: "light.living_room", state: "off", attributes: { friendly_name: "Living Room" } },
+      "switch.fan":        { entity_id: "switch.fan",        state: "off", attributes: { friendly_name: "Fan" } },
+    };
+
+    const mockHass = {
+      states: MOCK_STATES,
+      user:   { name: "Test User" },
+      auth:   { data: { access_token: "test-token" } },
+      panels: {},
+      // HA REST API calls — intercepted by page.route() in Playwright tests
+      callApi: async (method, path, body) => {
+        const resp = await fetch(`/api/${path}`, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        if (!resp.ok) throw new Error(`callApi ${path} → ${resp.status}`);
+        return resp.json();
+      },
+      // HA WebSocket calls
+      callWS: async (msg) => {
+        if (msg.type === "lovelace/dashboards") return [];
+        if (msg.type === "lovelace/config") return { views: [] };
+        return {};
+      },
+    };
+
+    const panel = document.getElementById("panel");
+    panel.hass = mockHass;
+
+    // Expose panel instance for page.evaluate() calls in tests
+    window.__panel = panel;
+    window.__hass  = mockHass;
+  </script>
+</body>
+</html>

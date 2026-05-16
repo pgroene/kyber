@@ -7,12 +7,16 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "playwright test",
+    "test:ui:headed": "playwright test --headed"
   },
   "devDependencies": {
-    "vitest": "^2.0.0",
+    "@playwright/test": "^1.60.0",
     "@vitest/coverage-v8": "^2.0.0",
+    "happy-dom": "^15.0.0",
     "jsdom": "^26.0.0",
-    "happy-dom": "^15.0.0"
+    "serve": "^14.2.6",
+    "vitest": "^2.0.0"
   }
 }
