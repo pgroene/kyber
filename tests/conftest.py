@@ -1,4 +1,6 @@
 """Pytest configuration and shared fixtures for kyber tests."""
+import threading
+
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
@@ -11,6 +13,24 @@ from custom_components.kyber import async_setup_entry
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations):
     """Enable custom integrations for all tests in this package."""
+    yield
+
+
+@pytest.fixture(autouse=True)
+def filter_ha_background_threads(monkeypatch):
+    """Filter expected HA background threads so teardown checks don't false-positive.
+
+    HA's HTTP server spawns a '_run_safe_shutdown_loop' daemon thread that may
+    still be alive during the post-test thread check in
+    pytest-homeassistant-custom-component.  Patching threading.enumerate here
+    removes it from the enumeration before the check runs.
+    """
+    _orig = threading.enumerate
+
+    def _filtered():
+        return [t for t in _orig() if t.name != "_run_safe_shutdown_loop"]
+
+    monkeypatch.setattr(threading, "enumerate", _filtered)
     yield
 
 
