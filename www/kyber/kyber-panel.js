@@ -717,7 +717,7 @@ class KyberPanel extends HTMLElement {
             <select id="dashboard-select" class="dashboard-select" style="display:none"></select>
             <button class="btn-new-dashboard editor-controls" id="btn-new-dashboard" style="display:none" title="Create a new dashboard">＋ New dashboard</button>
           </span>
-          <button class="btn-save editor-controls" id="btn-save" disabled>Save dashboard</button>
+          <button class="btn-save editor-controls" id="btn-save" disabled>Save</button>
           <button class="btn-close-editor editor-controls" id="btn-close-editor">✕ Close editor</button>
         </div>
         <div class="chat-pane">
@@ -1475,6 +1475,7 @@ class KyberPanel extends HTMLElement {
 
     this._currentAutomationId = configId;
     this._editorMode = isScript ? "script" : "automation";
+    this.shadowRoot.getElementById("btn-save").textContent = isScript ? "Save script" : "Save automation";
     await this._loadAutomation(configId);
 
     if (this._editor) {
