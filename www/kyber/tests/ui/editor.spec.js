@@ -40,6 +40,28 @@ test.describe("Editor — context breadcrumb", () => {
     await page.screenshot({ path: "screenshots/editor-context-automation.png" });
   });
 
+  test("automation editor shows breadcrumb and hides dashboard-only controls", async ({ page }) => {
+    await page.evaluate(async () => {
+      const panel = window.__panel;
+      window.__hass.states["automation.sunup"] = {
+        entity_id: "automation.sunup",
+        attributes: { id: "sunup", friendly_name: "Sunup" },
+      };
+      panel._loadAutomation = async () => {};
+      panel._editor = {
+        requestMeasure: () => {},
+      };
+      await panel._openEditor("automation.sunup");
+    });
+
+    const label = page.locator("#editor-context-label");
+    await expect(label).toContainText("automation > Sunup");
+    await expect(page.locator("#btn-save")).toContainText("Save automation");
+    await expect(page.locator("#btn-new-dashboard")).toBeHidden();
+
+    await page.screenshot({ path: "screenshots/editor-toolbar-automation.png" });
+  });
+
   test("context label clears when editor is closed", async ({ page }) => {
     // Open editor with a label
     await page.evaluate(() => {

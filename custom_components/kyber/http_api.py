@@ -15,6 +15,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
+from homeassistant.helpers.storage import Store
 
 try:
     from homeassistant.components.ai_task import async_generate_data
@@ -22,12 +23,17 @@ except ImportError:  # HA < 2025.2 (test environments)
     async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
         raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
 
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, SYSTEM_PROMPT_TEMPLATE
+from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, MAX_ENTITY_LIST_CHARS, SYSTEM_PROMPT_TEMPLATE
 
 _LOGGER = logging.getLogger(__name__)
 
 _YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
+_CHAT_HISTORY_STORE_VERSION = 1
+_CHAT_HISTORY_STORE_KEY = f"{DOMAIN}_chat_history"
+_CHAT_HISTORY_MAX_MESSAGES = 200
+_CHAT_MESSAGE_MAX_CHARS = 4000
+_CHAT_SUMMARY_MAX_CHARS = 16000
 
 
 def _build_context(hass: HomeAssistant) -> str:
@@ -65,13 +71,39 @@ def _build_context(hass: HomeAssistant) -> str:
                     area_name = area_by_id.get(entry.area_id, entry.area_id)
                 if entry.labels:
                     entity_labels = ", ".join(sorted(entry.labels))
-            entity_lines.append(
-                f"- {state.entity_id} | {friendly} | {area_name} | {entity_labels}"
-            )
+            # Compact format: omit trailing empty area/labels pipes to save context space
+            if area_name or entity_labels:
+                entity_lines.append(
+                    f"- {state.entity_id} | {friendly} | {area_name} | {entity_labels}"
+                )
+            else:
+                entity_lines.append(f"- {state.entity_id} | {friendly}")
 
     automation_list = "\n".join(automation_lines) or "(no automations)"
     script_list = "\n".join(script_lines) or "(no scripts)"
     entity_list = "\n".join(entity_lines) or "(no entities)"
+
+    if len(entity_list) > MAX_ENTITY_LIST_CHARS:
+        # Truncate by line, keeping as many entities as fit within the budget.
+        truncated: list[str] = []
+        budget = MAX_ENTITY_LIST_CHARS
+        for line in entity_lines:
+            cost = len(line) + 1  # +1 for the newline separator
+            if budget - cost < 60:  # keep room for the truncation notice
+                break
+            truncated.append(line)
+            budget -= cost
+        omitted = len(entity_lines) - len(truncated)
+        _LOGGER.warning(
+            "Kyber: entity list truncated — %d of %d entities omitted to stay within "
+            "the %d-char context budget. "
+            "Increase MAX_ENTITY_LIST_CHARS in const.py or assign fewer entities.",
+            omitted,
+            len(entity_lines),
+            MAX_ENTITY_LIST_CHARS,
+        )
+        truncated.append(f"... ({omitted} more entities not shown — context budget exceeded)")
+        entity_list = "\n".join(truncated)
 
     return SYSTEM_PROMPT_TEMPLATE.format(
         area_list=area_list,
@@ -153,6 +185,45 @@ def _build_service_undo(domain: str, service: str, entity_id: str, pre_state: An
                     "current_state": str(old_vol), "new_state": str(old_vol),
                     "description": f"Restore {entity_id} volume to {old_vol}"}
     return None
+
+
+def _sanitize_history(messages: Any) -> list[dict[str, str]]:
+    """Normalize chat history payload to a safe, bounded list."""
+    if not isinstance(messages, list):
+        return []
+    normalized: list[dict[str, str]] = []
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        role = "user" if msg.get("role") == "user" else "assistant"
+        content = str(msg.get("content", "")).strip()
+        if not content:
+            continue
+        normalized.append({"role": role, "content": content[:_CHAT_MESSAGE_MAX_CHARS]})
+    return normalized[-_CHAT_HISTORY_MAX_MESSAGES:]
+
+
+def _sanitize_summary(summary: Any) -> str:
+    """Normalize compacted summary to a bounded string."""
+    return str(summary or "").strip()[:_CHAT_SUMMARY_MAX_CHARS]
+
+
+async def _async_load_chat_store(hass: HomeAssistant) -> dict[str, Any]:
+    """Load persisted chat history store."""
+    store: Store[dict[str, Any]] = Store(hass, _CHAT_HISTORY_STORE_VERSION, _CHAT_HISTORY_STORE_KEY)
+    data = await store.async_load()
+    if not isinstance(data, dict):
+        return {"users": {}}
+    users = data.get("users")
+    if not isinstance(users, dict):
+        data["users"] = {}
+    return data
+
+
+async def _async_save_chat_store(hass: HomeAssistant, data: dict[str, Any]) -> None:
+    """Persist chat history store."""
+    store: Store[dict[str, Any]] = Store(hass, _CHAT_HISTORY_STORE_VERSION, _CHAT_HISTORY_STORE_KEY)
+    await store.async_save(data)
 
 
 class KyberView(HomeAssistantView):
@@ -288,6 +359,72 @@ class KyberView(HomeAssistantView):
         plan_block = _extract_plan_block(response_text)
 
         return self.json({"response": response_text, "yaml_blocks": yaml_blocks, "plan": plan_block})
+
+
+class KyberHistoryView(HomeAssistantView):
+    """Handle user-scoped chat history persistence endpoints."""
+
+    url = "/api/kyber/history"
+    name = "api:kyber:history"
+    requires_auth = True
+
+    @staticmethod
+    def _user_id_from_request(request: web.Request) -> str | None:
+        """Extract the authenticated Home Assistant user id from request."""
+        ha_user = request.get("hass_user")
+        user_id = getattr(ha_user, "id", None)
+        return str(user_id) if user_id else None
+
+    async def get(self, request: web.Request) -> web.Response:
+        """Return persisted chat history for current authenticated user."""
+        hass: HomeAssistant = request.app["hass"]
+        user_id = self._user_id_from_request(request)
+        if not user_id:
+            return self.json_message("Unable to resolve authenticated user", HTTPStatus.UNAUTHORIZED)
+
+        data = await _async_load_chat_store(hass)
+        user_data = data.get("users", {}).get(user_id, {})
+        return self.json(
+            {
+                "history": _sanitize_history(user_data.get("history", [])),
+                "compacted_summary": _sanitize_summary(user_data.get("compacted_summary", "")),
+            }
+        )
+
+    async def post(self, request: web.Request) -> web.Response:
+        """Save persisted chat history for current authenticated user."""
+        hass: HomeAssistant = request.app["hass"]
+        user_id = self._user_id_from_request(request)
+        if not user_id:
+            return self.json_message("Unable to resolve authenticated user", HTTPStatus.UNAUTHORIZED)
+
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
+
+        data = await _async_load_chat_store(hass)
+        users = data.setdefault("users", {})
+        users[user_id] = {
+            "history": _sanitize_history(body.get("history", [])),
+            "compacted_summary": _sanitize_summary(body.get("compacted_summary", "")),
+        }
+        await _async_save_chat_store(hass, data)
+        return self.json({"status": "ok"})
+
+    async def delete(self, request: web.Request) -> web.Response:
+        """Clear persisted chat history for current authenticated user."""
+        hass: HomeAssistant = request.app["hass"]
+        user_id = self._user_id_from_request(request)
+        if not user_id:
+            return self.json_message("Unable to resolve authenticated user", HTTPStatus.UNAUTHORIZED)
+
+        data = await _async_load_chat_store(hass)
+        users = data.get("users", {})
+        if user_id in users:
+            users.pop(user_id, None)
+            await _async_save_chat_store(hass, data)
+        return self.json({"status": "ok"})
 
 
 class KyberExecuteView(HomeAssistantView):
@@ -600,4 +737,3 @@ class KyberSummarizeView(HomeAssistantView):
 
         summary_text: str = result.data if isinstance(result.data, str) else str(result.data)
         return self.json({"summary": summary_text.strip()})
-

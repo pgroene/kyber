@@ -46,6 +46,111 @@ async def test_unauthenticated_request_rejected(
     assert KyberSummarizeView.requires_auth is True
 
 
+async def test_chat_history_roundtrip_for_current_user(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Chat history endpoint should load, save, and return current-user history."""
+    client = await hass_client()
+
+    resp = await client.get("/api/kyber/history")
+    assert resp.status == 200
+    assert await resp.json() == {"history": [], "compacted_summary": ""}
+
+    payload = {
+        "history": [
+            {"role": "user", "content": "Turn on kitchen lights"},
+            {"role": "assistant", "content": "Done"},
+        ],
+        "compacted_summary": "User asked to turn on kitchen lights.",
+    }
+    save_resp = await client.post("/api/kyber/history", json=payload)
+    assert save_resp.status == 200
+    assert await save_resp.json() == {"status": "ok"}
+
+    reload_resp = await client.get("/api/kyber/history")
+    assert reload_resp.status == 200
+    assert await reload_resp.json() == payload
+
+
+async def test_chat_history_is_user_scoped(
+    hass: HomeAssistant,
+    setup_integration,
+    hass_client,
+    hass_read_only_access_token: str,
+) -> None:
+    """Chat history should be isolated per authenticated Home Assistant user."""
+    admin_client = await hass_client()
+    readonly_client = await hass_client(hass_read_only_access_token)
+
+    admin_payload = {
+        "history": [{"role": "user", "content": "Admin message"}],
+        "compacted_summary": "Admin summary",
+    }
+    ro_payload = {
+        "history": [{"role": "user", "content": "Readonly message"}],
+        "compacted_summary": "Readonly summary",
+    }
+
+    admin_save = await admin_client.post("/api/kyber/history", json=admin_payload)
+    assert admin_save.status == 200
+
+    ro_initial = await readonly_client.get("/api/kyber/history")
+    assert ro_initial.status == 200
+    assert await ro_initial.json() == {"history": [], "compacted_summary": ""}
+
+    ro_save = await readonly_client.post("/api/kyber/history", json=ro_payload)
+    assert ro_save.status == 200
+
+    admin_reload = await admin_client.get("/api/kyber/history")
+    assert admin_reload.status == 200
+    assert await admin_reload.json() == admin_payload
+
+    ro_reload = await readonly_client.get("/api/kyber/history")
+    assert ro_reload.status == 200
+    assert await ro_reload.json() == ro_payload
+
+
+async def test_chat_history_delete_clears_current_user_only(
+    hass: HomeAssistant,
+    setup_integration,
+    hass_client,
+    hass_read_only_access_token: str,
+) -> None:
+    """DELETE /history should clear only the current authenticated user's history."""
+    admin_client = await hass_client()
+    readonly_client = await hass_client(hass_read_only_access_token)
+
+    await admin_client.post(
+        "/api/kyber/history",
+        json={
+            "history": [{"role": "user", "content": "Admin keep"}],
+            "compacted_summary": "Admin keep summary",
+        },
+    )
+    await readonly_client.post(
+        "/api/kyber/history",
+        json={
+            "history": [{"role": "user", "content": "Readonly clear"}],
+            "compacted_summary": "Readonly clear summary",
+        },
+    )
+
+    clear_resp = await readonly_client.delete("/api/kyber/history")
+    assert clear_resp.status == 200
+    assert await clear_resp.json() == {"status": "ok"}
+
+    ro_reload = await readonly_client.get("/api/kyber/history")
+    assert ro_reload.status == 200
+    assert await ro_reload.json() == {"history": [], "compacted_summary": ""}
+
+    admin_reload = await admin_client.get("/api/kyber/history")
+    assert admin_reload.status == 200
+    assert await admin_reload.json() == {
+        "history": [{"role": "user", "content": "Admin keep"}],
+        "compacted_summary": "Admin keep summary",
+    }
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # /complete — input validation
 # ──────────────────────────────────────────────────────────────────────────────

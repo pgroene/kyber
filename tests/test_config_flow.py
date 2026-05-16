@@ -90,7 +90,7 @@ async def test_max_tokens_below_minimum_returns_form_error(hass: HomeAssistant) 
 
 
 async def test_max_tokens_above_maximum_returns_form_error(hass: HomeAssistant) -> None:
-    """Submitting max_tokens=8193 (above schema maximum of 8192) should raise InvalidData."""
+    """Submitting max_tokens=2000001 (above schema maximum of 2000000) should raise InvalidData."""
     from homeassistant.data_entry_flow import InvalidData
 
     result = await hass.config_entries.flow.async_init(
@@ -101,9 +101,31 @@ async def test_max_tokens_above_maximum_returns_form_error(hass: HomeAssistant) 
             result["flow_id"],
             user_input={
                 "ai_task_entity_id": "ai_task.ollama_ai_task",
-                "max_tokens": 8193,
+                "max_tokens": 2_000_001,
             },
         )
+
+
+async def test_creates_entry_with_large_max_tokens(hass: HomeAssistant) -> None:
+    """Submitting a large supported max_tokens value should create a config entry."""
+    entity_reg = er.async_get(hass)
+    entity_reg.async_get_or_create(
+        "ai_task", "ollama", "ollama_ai_task", suggested_object_id="ollama_ai_task"
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            "ai_task_entity_id": "ai_task.ollama_ai_task",
+            "max_tokens": 100_000,
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["max_tokens"] == 100_000
 
 
 async def test_duplicate_config_entry_aborted(hass: HomeAssistant) -> None:
@@ -121,4 +143,3 @@ async def test_duplicate_config_entry_aborted(hass: HomeAssistant) -> None:
     )
     assert result["type"] == FlowResultType.ABORT
     assert result["reason"] == "already_configured"
-

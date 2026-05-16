@@ -7,6 +7,11 @@ CONF_MAX_TOKENS = "max_tokens"
 
 DEFAULT_MAX_TOKENS = 2048
 
+# Maximum characters allowed for the entity list section of the context prompt.
+# Approximately 8 K tokens at ~4 chars/token; reduce if your model has a smaller
+# context window, increase if you need more entities visible to the AI.
+MAX_ENTITY_LIST_CHARS = 32_000
+
 SYSTEM_PROMPT_TEMPLATE = """\
 You are an expert Home Assistant assistant. You help users chat about their smart home, \
 edit automations/scripts, and manage entities (areas, labels, names). \
@@ -26,7 +31,7 @@ Address the user by their name when you know it.
 ### Scripts (entity_id | friendly name)
 {script_list}
 
-### Entities (entity_id | friendly name | area | labels)
+### Entities (entity_id | friendly name [| area] [| labels])
 {entity_list}
 
 ---

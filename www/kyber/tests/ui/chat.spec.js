@@ -84,4 +84,39 @@ test.describe("Chat — send button and AI response", () => {
 
     await page.screenshot({ path: "screenshots/chat-plan-card.png" });
   });
+
+  test("clear history button resets restored chat history", async ({ page }) => {
+    await page.route("**/api/kyber/history", async (route) => {
+      const method = route.request().method();
+      if (method === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            history: [{ role: "user", content: "persisted message" }],
+            compacted_summary: "persisted summary",
+          }),
+        });
+        return;
+      }
+      if (method === "DELETE") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ status: "ok" }),
+        });
+        return;
+      }
+      await route.fallback();
+    });
+
+    await gotoHarness(page);
+    await expect(page.locator(".chat-message.user").last()).toContainText("persisted message");
+
+    await page.locator("#btn-clear-history").click();
+    await expect(page.locator(".chat-message.user")).toHaveCount(0);
+    await expect(page.locator(".chat-message.assistant").first()).toContainText("Hi! Ask me anything about your smart home");
+
+    await page.screenshot({ path: "screenshots/chat-clear-history.png" });
+  });
 });

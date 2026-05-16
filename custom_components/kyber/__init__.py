@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.components.panel_custom import async_register_panel
 
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
-from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView
+from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     config = dict(entry.data)
 
     hass.http.register_view(KyberView(config))
+    hass.http.register_view(KyberHistoryView())
     hass.http.register_view(KyberSaveView())
     hass.http.register_view(KyberExecuteView())
     hass.http.register_view(KyberSummarizeView(config))
