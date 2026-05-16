@@ -146,11 +146,28 @@ const STYLES = `
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 12px;
+    padding: 6px 12px;
     border-bottom: 1px solid var(--border-color);
     background: var(--sidebar-bg);
     font-size: 13px;
     font-weight: 600;
+  }
+
+  .sidebar-brand .btn-clear-history {
+    margin-left: auto;
+    height: 28px;
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 500;
+    background: transparent;
+    color: var(--secondary-text-color, #aaa);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .sidebar-brand .btn-clear-history:hover {
+    background: var(--border-color);
   }
 
   .chat-history {
@@ -592,23 +609,6 @@ const STYLES = `
     cursor: not-allowed;
   }
 
-  .btn-clear-history {
-    background: transparent;
-    color: var(--secondary-text-color, #aaa);
-    align-self: flex-end;
-    height: 36px;
-    padding: 0 12px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: 600;
-  }
-
-  .btn-clear-history:hover {
-    background: var(--border-color);
-  }
-
   .status-bar {
     font-size: 12px;
     padding: 4px 16px;
@@ -796,6 +796,7 @@ class KyberPanel extends HTMLElement {
             <img id="kyber-sidebar-icon" class="brand-icon" src="icon.png" alt="Kyber icon">
             <span>Kyber Assistant</span>
             <span class="session-label" id="session-indicator"></span>
+            <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
           </div>
           <div class="chat-history" id="chat-history">
             <div class="chat-message assistant">${this._DEFAULT_GREETING}</div>
@@ -803,7 +804,6 @@ class KyberPanel extends HTMLElement {
           <div class="chat-input-area" style="position:relative;">
             <div class="autocomplete-list" id="ac-list"></div>
             <textarea id="prompt-input" placeholder="Ask me anything about your smart home… (type / for commands)" rows="3"></textarea>
-            <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
             <button class="btn-ask" id="btn-ask">Ask</button>
           </div>
         </div>
