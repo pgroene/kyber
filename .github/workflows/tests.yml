@@ -2,7 +2,11 @@ name: Tests
 
 on:
   push:
-    branches: [main, dev]
+    branches:
+      - main
+      - "feature/**"
+      - "fix/**"
+      - "docs/**"
   pull_request:
     branches: [main]
 
@@ -43,6 +47,10 @@ jobs:
 
       - name: Install JS dependencies
         run: npm ci
+        working-directory: www/kyber
+
+      - name: Run JS tests
+        run: npm test
         working-directory: www/kyber
 
   ui-tests:

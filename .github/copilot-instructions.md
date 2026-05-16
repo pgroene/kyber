@@ -54,6 +54,42 @@ Skipping any step causes the browser to serve the old cached JS.
 
 ---
 
+## Git Workflow
+
+### Branching model
+
+```
+main
+ ├── feature/<slug>   — new features
+ ├── fix/<slug>       — bug fixes
+ └── docs/<slug>      — documentation-only changes
+```
+
+- **Never commit directly to `main`** — always use a PR
+- Branch from the latest `main`; squash-merge back when approved
+
+### Branch naming
+
+| Type | Example |
+|---|---|
+| Feature | `feature/plan-card-undo` |
+| Bug fix | `fix/execute-button-label` |
+| Docs | `docs/contributing` |
+
+### PR requirements
+
+All PRs targeting `main` require:
+- **1 approving review**
+- All 3 CI checks passing: `python-tests`, `js-tests`, `ui-tests`
+
+### Commit format
+
+`type: short description` — e.g. `feat: add undo button`, `fix: correct execute label`, `docs: branching guide`
+
+Full details in [`docs/contributing.md`](../docs/contributing.md).
+
+---
+
 ## Testing
 
 ### Python tests
