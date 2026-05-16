@@ -3047,6 +3047,7 @@ class KyberPanel extends HTMLElement {
   }
 
 
+  _setEditorContent(text) {
     this._editor.dispatch({
       changes: {
         from: 0,
