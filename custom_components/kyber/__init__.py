@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -14,6 +15,8 @@ _LOGGER = logging.getLogger(__name__)
 
 type KyberConfigEntry = ConfigEntry[None]
 
+_WWW_DIR = Path(__file__).parent / "www"
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bool:
     """Set up Kyber from a config entry."""
@@ -23,6 +26,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberSaveView())
     hass.http.register_view(KyberExecuteView())
     hass.http.register_view(KyberSummarizeView(config))
+
+    # Serve frontend files from the component's www/ directory.
+    # This makes HACS installs work without manual file copying.
+    hass.http.register_static_path(
+        "/local/kyber",
+        str(_WWW_DIR),
+        cache_headers=True,
+    )
 
     try:
         await async_register_panel(

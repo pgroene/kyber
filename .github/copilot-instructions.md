@@ -44,10 +44,12 @@ Kyber is a **Home Assistant custom integration** providing an AI-powered smart h
 ### JS Version Bump Workflow
 
 ```
-1. Edit kyber-panel.js
-2. In __init__.py: increment ?vN → ?v(N+1) in module_url
-3. docker restart kyber-ha
-4. Hard-refresh browser (Ctrl+Shift+R)
+1. Edit www/kyber/kyber-panel.js  (source; Vitest tests run against this)
+2. Copy to custom_components/kyber/www/kyber-panel.js  (HACS-shipped file)
+   → cp www/kyber/kyber-panel.js custom_components/kyber/www/kyber-panel.js
+3. In __init__.py: increment ?vN → ?v(N+1) in module_url
+4. docker restart kyber-ha
+5. Hard-refresh browser (Ctrl+Shift+R)
 ```
 
 Skipping any step causes the browser to serve the old cached JS.

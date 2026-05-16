@@ -1,10 +1,31 @@
 # Kyber — Installation & Development Setup
 
+> ⚠️ **ALPHA SOFTWARE — Use at your own risk**
+>
+> Kyber is in early alpha. Not all features are working and breaking changes may occur between releases.
+> **The AI can modify your Home Assistant configuration** — automations, scripts, entities and dashboards.
+> Always review proposals before executing them.
+> **Make a full backup of your Home Assistant instance before installing or experimenting with Kyber.**
+
 Kyber is a Home Assistant custom integration that adds an AI-powered coding assistant panel to the HA sidebar, backed by a locally running Ollama model.
 
 ---
 
-## 1. Prerequisites
+## 1. Install via HACS (Recommended)
+
+1. In HACS → **Integrations** → ⋮ → **Custom repositories**
+2. Add `https://github.com/pgroene/kyber` as an **Integration**
+3. Find **Kyber** in the HACS store and click **Download**
+4. Restart Home Assistant
+5. Go to **Settings → Devices & Services → Add Integration** → search for **Kyber**
+
+Or use the quick-add button:
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=pgroene&repository=kyber&category=integration)
+
+---
+
+## 2. Prerequisites
 
 | Requirement | Notes |
 |---|---|
@@ -19,16 +40,18 @@ In HA, open **Developer Tools → States** and confirm an entity such as `ai_tas
 
 ---
 
-## 2. Manual Installation
+## 3. Manual Installation
 
 ### Copy integration files
 
 ```bash
 # From the root of this repository
 cp -r custom_components/kyber  /path/to/ha-config/custom_components/kyber
-cp -r www/kyber                /path/to/ha-config/www/kyber
 ```
 
+> The `www/kyber/` directory is **not needed** for manual installs — frontend files are bundled inside
+> `custom_components/kyber/www/` and served automatically by the integration.
+>
 > **Windows users:** replace `/path/to/ha-config` with the path shown in HA under
 > *Settings → System → General → Config directory*.
 
@@ -45,7 +68,7 @@ cp -r www/kyber                /path/to/ha-config/www/kyber
 
 ---
 
-## 3. Local Development (Docker)
+## 4. Local Development (Docker)
 
 `docker-compose.dev.yml` mounts the working-tree directly into the container so that Python changes are picked up on restart without rebuilding an image.
 
@@ -81,14 +104,21 @@ HA reloads all integrations on start. No browser action is required.
 
 The frontend panel is loaded as a versioned static asset. HA (and the browser) aggressively cache it, so **every JS change needs a cache-bust**:
 
-1. Edit the JS file(s) under `www/kyber/`.
-2. Bump the `?v=N` query string in `__init__.py` (see [Version Bumping](#4-version-bumping)).
-3. Restart the container: `docker restart kyber-ha`
-4. Hard-refresh the browser (`Ctrl+Shift+R` / `Cmd+Shift+R`).
+1. Edit `www/kyber/kyber-panel.js` (source of truth for dev + tests).
+2. Copy to `custom_components/kyber/www/kyber-panel.js` (shipped version).
+3. Bump the `?v=N` query string in `__init__.py` (see [Version Bumping](#5-version-bumping)).
+4. Restart the container: `docker restart kyber-ha`
+5. Hard-refresh the browser (`Ctrl+Shift+R` / `Cmd+Shift+R`).
+
+```bash
+# Quick sync helper
+cp www/kyber/kyber-panel.js custom_components/kyber/www/kyber-panel.js
+docker restart kyber-ha
+```
 
 ---
 
-## 4. Version Bumping
+## 5. Version Bumping
 
 The panel is registered with a versioned URL so that HA and the browser know to fetch a fresh copy:
 
@@ -111,7 +141,7 @@ Then restart the container and hard-refresh the browser. Skipping the version bu
 
 ---
 
-## 5. Running Tests
+## 6. Running Tests
 
 ### Python tests
 
