@@ -1064,7 +1064,7 @@ class KyberPanel extends HTMLElement {
     const slashAc = val.match(/^\/(\w*)$/);
     if (slashAc) {
       const partial = slashAc[1].toLowerCase();
-      const cmds = ["autopilot on", "autopilot off", "dashboard", "automation", "script", "blueprint", "area"];
+      const cmds = ["autopilot on", "autopilot off", "dashboard", "automation", "script", "blueprint", "area", "reset"];
       const matches = cmds.filter((c) => c.startsWith(partial)).map((c) => ({
         entity_id: "/" + c,
         friendly_name: "",
@@ -2067,6 +2067,19 @@ class KyberPanel extends HTMLElement {
         } else {
           this._appendMessage(`Autopilot is currently ${this._autopilot ? "ON ⚡" : "OFF"}. Use /autopilot on or /autopilot off.`, "assistant");
         }
+        return;
+      }
+      if (cmd === "reset") {
+        promptInput.value = "";
+        this._buildCommandCard({
+          icon: "🗑",
+          title: "Reset chat",
+          detail: "This will clear all messages and start a fresh conversation.",
+          danger: true,
+          onConfirm: async () => {
+            await this._clearHistory();
+          },
+        });
         return;
       }
       if (["dashboard", "automation", "script", "blueprint", "area"].includes(cmd)) {
