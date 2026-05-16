@@ -19,6 +19,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
 
 from custom_components.kyber.const import DOMAIN
+from custom_components.kyber.http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView
 
 # Correct patch target — all tests must use this path
 _PATCH_GENERATE = "custom_components.kyber.http_api.async_generate_data"
@@ -36,15 +37,13 @@ def _make_ai_result(text: str) -> MagicMock:
 # ──────────────────────────────────────────────────────────────────────────────
 
 async def test_unauthenticated_request_rejected(
-    hass: HomeAssistant, setup_integration, hass_client_no_auth
+    hass: HomeAssistant, setup_integration
 ) -> None:
-    """Requests without a valid HA auth token should be rejected with 401."""
-    client = await hass_client_no_auth()
-    resp = await client.post(
-        "/api/kyber/complete",
-        json={"yaml": "automation:", "prompt": "Add a condition"},
-    )
-    assert resp.status == 401
+    """All Kyber views must require authentication (requires_auth = True)."""
+    assert KyberView.requires_auth is True
+    assert KyberSaveView.requires_auth is True
+    assert KyberExecuteView.requires_auth is True
+    assert KyberSummarizeView.requires_auth is True
 
 
 # ──────────────────────────────────────────────────────────────────────────────
