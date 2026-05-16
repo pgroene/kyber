@@ -61,7 +61,7 @@ cp -r custom_components/kyber  /path/to/ha-config/custom_components/kyber
 2. Go to **Settings → Integrations → Add Integration** and search for **Kyber**.
 3. In the config form:
    - **AI Task Entity ID** — enter the `ai_task.*` entity created by the Ollama integration (e.g. `ai_task.ollama_llama3`). The form auto-populates the first match it finds.
-   - **Max Tokens** — maximum tokens per AI response (default 2048, range 256–8192).
+   - **Max Tokens** — maximum tokens per AI response (default 2048, range 256–2,000,000).
 4. Click **Submit**. A **Kyber** entry appears in the sidebar.
 
 > Only one Kyber config entry is allowed. To reconfigure, remove the existing entry first.
