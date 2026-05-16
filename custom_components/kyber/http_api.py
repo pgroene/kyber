@@ -29,6 +29,8 @@ _LOGGER = logging.getLogger(__name__)
 
 _YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
+_TOOL_CALL_RE = re.compile(r"\[TOOL_CALL:\s*(\{.*?\})\s*\]", re.DOTALL)
+_TOOL_CALL_MAX_ROUNDS = 5
 _CHAT_HISTORY_STORE_VERSION = 1
 _CHAT_HISTORY_STORE_KEY = f"{DOMAIN}_chat_history"
 _CHAT_HISTORY_MAX_MESSAGES = 20
@@ -283,6 +285,124 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
     return context, context_stats
 
 
+def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
+    """Execute a tool call and return the result as a JSON string."""
+    name = call.get("name", "")
+    area_reg = ar.async_get(hass)
+    entity_reg = er.async_get(hass)
+    label_reg = lr.async_get(hass)
+
+    if name == "list_entities_by_domain":
+        domain = call.get("domain", "").strip().lower()
+        if not domain:
+            return json.dumps({"error": "Missing 'domain' argument"})
+        results = {}
+        for state in sorted(hass.states.async_all(), key=lambda s: s.entity_id):
+            if state.entity_id.split(".")[0] == domain:
+                results[state.entity_id] = {
+                    "name": state.attributes.get("friendly_name", state.entity_id),
+                    "state": state.state,
+                }
+        return json.dumps(results or {"info": f"No entities found for domain '{domain}'"})
+
+    if name == "get_entity_state":
+        entity_id = call.get("entity_id", "").strip()
+        if not entity_id:
+            return json.dumps({"error": "Missing 'entity_id' argument"})
+        state = hass.states.get(entity_id)
+        if not state:
+            return json.dumps({"error": f"Entity '{entity_id}' not found"})
+        return json.dumps({
+            "entity_id": entity_id,
+            "state": state.state,
+            "attributes": dict(state.attributes),
+        })
+
+    if name == "get_area_entities":
+        area_query = call.get("area", "").strip().lower()
+        if not area_query:
+            return json.dumps({"error": "Missing 'area' argument"})
+        areas = area_reg.async_list_areas()
+        area_obj = next(
+            (a for a in areas if a.id == area_query or a.name.lower() == area_query),
+            None,
+        )
+        if not area_obj:
+            return json.dumps({"error": f"Area '{area_query}' not found"})
+        results = {}
+        for entry in entity_reg.entities.values():
+            if entry.area_id == area_obj.id:
+                state = hass.states.get(entry.entity_id)
+                results[entry.entity_id] = {
+                    "name": state.attributes.get("friendly_name", entry.entity_id) if state else entry.original_name,
+                    "state": state.state if state else "unknown",
+                    "domain": entry.entity_id.split(".")[0],
+                }
+        return json.dumps({"area": area_obj.name, "entities": results})
+
+    if name == "list_entities_by_label":
+        label_query = call.get("label", "").strip().lower()
+        if not label_query:
+            return json.dumps({"error": "Missing 'label' argument"})
+        labels = label_reg.async_list_labels()
+        label_obj = next(
+            (lbl for lbl in labels if lbl.label_id == label_query or lbl.name.lower() == label_query),
+            None,
+        )
+        if not label_obj:
+            return json.dumps({"error": f"Label '{label_query}' not found"})
+        results = {}
+        for entry in entity_reg.entities.values():
+            if label_obj.label_id in (entry.labels or set()):
+                state = hass.states.get(entry.entity_id)
+                results[entry.entity_id] = {
+                    "name": state.attributes.get("friendly_name", entry.entity_id) if state else entry.original_name,
+                    "state": state.state if state else "unknown",
+                }
+        return json.dumps({"label": label_obj.name, "entities": results})
+
+    if name == "search_entities":
+        query = call.get("query", "").strip().lower()
+        if not query:
+            return json.dumps({"error": "Missing 'query' argument"})
+        results = {}
+        for state in hass.states.async_all():
+            friendly = state.attributes.get("friendly_name", "").lower()
+            if query in state.entity_id.lower() or query in friendly:
+                results[state.entity_id] = {
+                    "name": state.attributes.get("friendly_name", state.entity_id),
+                    "state": state.state,
+                    "domain": state.entity_id.split(".")[0],
+                }
+        return json.dumps(results or {"info": f"No entities matching '{query}'"})
+
+    if name == "get_areas":
+        areas = area_reg.async_list_areas()
+        return json.dumps({a.id: a.name for a in areas})
+
+    if name == "get_labels":
+        labels = label_reg.async_list_labels()
+        return json.dumps({lbl.label_id: lbl.name for lbl in labels})
+
+    return json.dumps({"error": f"Unknown tool '{name}'"})
+
+
+def _parse_tool_calls(text: str) -> list[dict[str, Any]]:
+    """Extract all [TOOL_CALL: {...}] blocks from a response."""
+    calls = []
+    for m in _TOOL_CALL_RE.finditer(text):
+        try:
+            calls.append(json.loads(m.group(1)))
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return calls
+
+
+def _strip_tool_calls(text: str) -> str:
+    """Remove [TOOL_CALL: ...] blocks from a response string."""
+    return _TOOL_CALL_RE.sub("", text).strip()
+
+
 def _extract_yaml_blocks(text: str) -> list[str]:
     """Extract YAML code blocks from a markdown response string."""
     return [match.group(1) for match in _YAML_BLOCK_RE.finditer(text)]
@@ -527,20 +647,44 @@ class KyberView(HomeAssistantView):
 
         entity_id: str = self._config[CONF_AI_TASK_ENTITY_ID]
 
-        try:
-            result = await async_generate_data(
-                hass,
-                task_name=f"{DOMAIN}_complete",
-                entity_id=entity_id,
-                instructions=instructions,
-            )
-        except HomeAssistantError as err:
-            _LOGGER.error("AI task failed: %s", err)
-            return self.json_message(
-                f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
-            )
+        # Tool-calling loop — the AI may request live HA data via [TOOL_CALL: {...}]
+        # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
+        tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
+        response_text = ""
+        for _round in range(_TOOL_CALL_MAX_ROUNDS):
+            loop_instructions = instructions + tool_exchange
+            if len(loop_instructions) > _MAX_INSTRUCTIONS_CHARS:
+                loop_instructions = loop_instructions[:_MAX_INSTRUCTIONS_CHARS]
 
-        response_text: str = result.data if isinstance(result.data, str) else str(result.data)
+            try:
+                result = await async_generate_data(
+                    hass,
+                    task_name=f"{DOMAIN}_complete",
+                    entity_id=entity_id,
+                    instructions=loop_instructions,
+                )
+            except HomeAssistantError as err:
+                _LOGGER.error("AI task failed: %s", err)
+                return self.json_message(
+                    f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
+                )
+
+            response_text = result.data if isinstance(result.data, str) else str(result.data)
+            tool_calls = _parse_tool_calls(response_text)
+            if not tool_calls:
+                break  # no tool calls — final answer
+
+            # Execute tools and build result block
+            clean_response = _strip_tool_calls(response_text)
+            tool_results_block = ""
+            for call in tool_calls:
+                tool_result = _execute_tool(hass, call)
+                _LOGGER.debug("Tool call %s → %s chars", call.get("name"), len(tool_result))
+                tool_results_block += (
+                    f"\n[TOOL_RESULT: {json.dumps(call)}]\n{tool_result}\n"
+                )
+            tool_exchange += f"{clean_response}\n{tool_results_block}\nAssistant:"
+
         yaml_blocks = _extract_yaml_blocks(response_text)
         plan_block = _extract_plan_block(response_text)
 

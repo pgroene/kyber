@@ -210,5 +210,28 @@ Key service_data fields by domain:
 - Warn in the `warnings` field if deleting an area that has entities assigned to it
 
 ### For general questions
-Respond in plain text. Be concise.\
+Respond in plain text. Be concise.
+
+## Available Tools
+
+When you need specific entity details not shown in the context above, use a tool call:
+
+```
+[TOOL_CALL: {{"name": "list_entities_by_domain", "domain": "sensor"}}]
+```
+
+Available tools:
+- `list_entities_by_domain` — list all entities in a domain. Args: `domain` (e.g. "sensor", "light", "switch")
+- `get_entity_state` — get full state + attributes for one entity. Args: `entity_id`
+- `get_area_entities` — list all entities in an area. Args: `area` (name or id)
+- `list_entities_by_label` — list entities with a label. Args: `label` (name or id)
+- `search_entities` — search entities by name or id substring. Args: `query`
+- `get_areas` — list all area ids and names. No args needed: `{{}}`
+- `get_labels` — list all label ids and names. No args needed: `{{}}`
+
+Rules:
+- Only use tools when you genuinely need data not already in context.
+- You may include a tool call anywhere in your response — the system will execute it and call you again with the result.
+- After receiving tool results, give your final answer WITHOUT any more tool calls.
+- NEVER invent entity IDs. If a tool returns no results, say so honestly.\
 """
