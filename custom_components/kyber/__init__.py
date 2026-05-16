@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.components.panel_custom import async_register_panel
 
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
-from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView
+from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,6 +25,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
 
     hass.http.register_view(KyberView(config))
     hass.http.register_view(KyberHistoryView())
+    hass.http.register_view(KyberSessionsView())
+    hass.http.register_view(KyberSessionNameView(config))
     hass.http.register_view(KyberSaveView())
     hass.http.register_view(KyberExecuteView())
     hass.http.register_view(KyberSummarizeView(config))
@@ -41,8 +43,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             frontend_url_path="kyber",
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
-            sidebar_icon="mdi:robot-love",
-            module_url="/local/kyber/kyber-panel.js?v=31",
+            sidebar_icon="mdi:robot",
+            module_url="/local/kyber/kyber-panel.js?v=39",
             require_admin=True,
             config={
                 "ai_task_entity_id": config.get(CONF_AI_TASK_ENTITY_ID),

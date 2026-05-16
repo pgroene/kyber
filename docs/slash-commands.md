@@ -30,6 +30,13 @@ Slash commands let you control Home Assistant resources directly from the Kyber 
 | `/area delete <name>` | Delete an area |
 | `/area rename <old> to <new>` | Rename an area |
 | `/area list` | List all areas |
+| `/session new [name]` | Create a new chat session |
+| `/session list` | List all chat sessions |
+| `/session switch <name>` | Switch to a different session |
+| `/session rename <new name>` | Rename the current session |
+| `/session delete` | Delete the current session |
+| `/reset` | Clear chat and start over |
+| `/help [command]` | Show all commands or detailed help |
 
 ---
 
@@ -262,6 +269,92 @@ Areas:
 
 ---
 
+## Chat Session Commands
+
+Multiple independent conversations, each with its own history and AI context.
+
+### `/session new [name]`
+
+Creates a new chat session and switches to it. The optional name defaults to `Session <n>`.
+
+```
+/session new
+/session new Evening Setup
+```
+
+### `/session list`
+
+Displays all sessions with their message count and marks the active session.
+
+```
+/session list
+```
+
+Example output:
+```
+Chat Sessions:
+1. Session 1 (12 messages) ← active
+2. Evening Setup (3 messages)
+```
+
+### `/session switch <name>`
+
+Switches to a different session. History is loaded from persistence.
+
+```
+/session switch Evening Setup
+/session switch Session 1
+```
+
+### `/session rename <new name>`
+
+Renames the current session.
+
+```
+/session rename Morning Automations
+```
+
+### `/session delete`
+
+Shows a **danger confirm card**, then deletes the current session and switches to the previous one. A new default session is created if this was the last one.
+
+---
+
+## Help Commands
+
+### `/help`
+
+Displays a quick-reference table of all available slash commands in chat.
+
+```
+/help
+```
+
+### `/help <command>`
+
+Shows detailed documentation for a specific command group.
+
+```
+/help autopilot
+/help dashboard
+/help session
+/help reset
+```
+
+---
+
+## Reset Command
+
+### `/reset`
+
+Shows a **danger confirm card**, then clears all messages in the current session (in-memory and persisted). Useful for starting a fresh conversation without switching sessions.
+
+```
+/reset
+```
+
+---
+
 ## The Confirm Card
 
 Every command with side effects shows a **confirm card** in the chat history before taking action. This prevents accidental changes.
@@ -299,7 +392,9 @@ Every command with side effects shows a **confirm card** in the chat history bef
 Typing `/` in the chat input shows all top-level command groups:
 
 ```
-autopilot on  autopilot off  dashboard  automation  script  blueprint  area
+autopilot on  autopilot off  dashboard  automation  script  blueprint  area  session  reset  help
 ```
 
 Typing a partial command, such as `/automation open morn`, narrows suggestions to matching entity names so you can tab-complete or click to fill the full command.
+
+> 💡 **Hint:** The chat input placeholder reminds you: *type / for commands*.

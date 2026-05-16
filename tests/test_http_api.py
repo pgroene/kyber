@@ -54,7 +54,11 @@ async def test_chat_history_roundtrip_for_current_user(
 
     resp = await client.get("/api/kyber/history")
     assert resp.status == 200
-    assert await resp.json() == {"history": [], "compacted_summary": ""}
+    body = await resp.json()
+    assert body["history"] == []
+    assert body["compacted_summary"] == ""
+    assert "session_id" in body
+    assert "session_name" in body
 
     payload = {
         "history": [
@@ -69,7 +73,9 @@ async def test_chat_history_roundtrip_for_current_user(
 
     reload_resp = await client.get("/api/kyber/history")
     assert reload_resp.status == 200
-    assert await reload_resp.json() == payload
+    reload_body = await reload_resp.json()
+    assert reload_body["history"] == payload["history"]
+    assert reload_body["compacted_summary"] == payload["compacted_summary"]
 
 
 async def test_chat_history_is_user_scoped(
@@ -96,18 +102,24 @@ async def test_chat_history_is_user_scoped(
 
     ro_initial = await readonly_client.get("/api/kyber/history")
     assert ro_initial.status == 200
-    assert await ro_initial.json() == {"history": [], "compacted_summary": ""}
+    ro_initial_body = await ro_initial.json()
+    assert ro_initial_body["history"] == []
+    assert ro_initial_body["compacted_summary"] == ""
 
     ro_save = await readonly_client.post("/api/kyber/history", json=ro_payload)
     assert ro_save.status == 200
 
     admin_reload = await admin_client.get("/api/kyber/history")
     assert admin_reload.status == 200
-    assert await admin_reload.json() == admin_payload
+    admin_body = await admin_reload.json()
+    assert admin_body["history"] == admin_payload["history"]
+    assert admin_body["compacted_summary"] == admin_payload["compacted_summary"]
 
     ro_reload = await readonly_client.get("/api/kyber/history")
     assert ro_reload.status == 200
-    assert await ro_reload.json() == ro_payload
+    ro_body = await ro_reload.json()
+    assert ro_body["history"] == ro_payload["history"]
+    assert ro_body["compacted_summary"] == ro_payload["compacted_summary"]
 
 
 async def test_chat_history_delete_clears_current_user_only(
@@ -116,7 +128,7 @@ async def test_chat_history_delete_clears_current_user_only(
     hass_client,
     hass_read_only_access_token: str,
 ) -> None:
-    """DELETE /history should clear only the current authenticated user's history."""
+    """DELETE /history should clear only the current authenticated user's active session history."""
     admin_client = await hass_client()
     readonly_client = await hass_client(hass_read_only_access_token)
 
@@ -141,14 +153,108 @@ async def test_chat_history_delete_clears_current_user_only(
 
     ro_reload = await readonly_client.get("/api/kyber/history")
     assert ro_reload.status == 200
-    assert await ro_reload.json() == {"history": [], "compacted_summary": ""}
+    ro_body = await ro_reload.json()
+    assert ro_body["history"] == []
+    assert ro_body["compacted_summary"] == ""
 
     admin_reload = await admin_client.get("/api/kyber/history")
     assert admin_reload.status == 200
-    assert await admin_reload.json() == {
-        "history": [{"role": "user", "content": "Admin keep"}],
-        "compacted_summary": "Admin keep summary",
-    }
+    admin_body = await admin_reload.json()
+    assert admin_body["history"] == [{"role": "user", "content": "Admin keep"}]
+    assert admin_body["compacted_summary"] == "Admin keep summary"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /sessions — multi-session management
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_sessions_list_returns_default_session(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """GET /sessions should return at least one session for a fresh user."""
+    client = await hass_client()
+    resp = await client.get("/api/kyber/sessions")
+    assert resp.status == 200
+    body = await resp.json()
+    assert "sessions" in body
+    assert len(body["sessions"]) >= 1
+    assert "active_session" in body
+    active = next(s for s in body["sessions"] if s["active"])
+    assert active["name"]
+
+
+async def test_sessions_create_and_switch(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """POST /sessions should create a new session and switch to it."""
+    client = await hass_client()
+
+    create_resp = await client.post("/api/kyber/sessions", json={"name": "Work", "switch": True})
+    assert create_resp.status == 200
+    created = await create_resp.json()
+    assert created["status"] == "ok"
+    new_sid = created["session_id"]
+    assert created["name"] == "Work"
+
+    list_resp = await client.get("/api/kyber/sessions")
+    list_body = await list_resp.json()
+    active = next((s for s in list_body["sessions"] if s["active"]), None)
+    assert active is not None
+    assert active["id"] == new_sid
+
+    # History endpoint should now operate on the new session
+    hist_resp = await client.get("/api/kyber/history")
+    hist_body = await hist_resp.json()
+    assert hist_body["history"] == []
+    assert hist_body["session_id"] == new_sid
+
+
+async def test_sessions_rename(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """PATCH /sessions with action=rename should rename the active session."""
+    client = await hass_client()
+
+    list_resp = await client.get("/api/kyber/sessions")
+    sid = (await list_resp.json())["active_session"]
+
+    rename_resp = await client.put(
+        "/api/kyber/sessions",
+        json={"action": "rename", "session_id": sid, "name": "Evening Automation"},
+    )
+    assert rename_resp.status == 200
+    assert (await rename_resp.json())["status"] == "ok"
+
+    list_after = await client.get("/api/kyber/sessions")
+    sessions = (await list_after.json())["sessions"]
+    renamed = next(s for s in sessions if s["id"] == sid)
+    assert renamed["name"] == "Evening Automation"
+
+
+async def test_sessions_delete_switches_to_other(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """DELETE /sessions should delete the specified session and switch to another."""
+    client = await hass_client()
+
+    # Create a second session
+    create = await client.post("/api/kyber/sessions", json={"name": "Extra", "switch": False})
+    extra_sid = (await create.json())["session_id"]
+
+    # Get active session (should still be the original)
+    active_sid = (await (await client.get("/api/kyber/sessions")).json())["active_session"]
+
+    # Delete the extra session
+    del_resp = await client.delete("/api/kyber/sessions", json={"session_id": extra_sid})
+    assert del_resp.status == 200
+    del_body = await del_resp.json()
+    assert del_body["active_session"] == active_sid  # original session still active
+
+    # Only one session should remain
+    list_resp = await client.get("/api/kyber/sessions")
+    sessions = (await list_resp.json())["sessions"]
+    assert not any(s["id"] == extra_sid for s in sessions)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
