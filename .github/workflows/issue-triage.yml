@@ -1,0 +1,178 @@
+name: Issue Triage
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+  models: read
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Triage issue with AI
+        uses: actions/github-script@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const title = issue.title;
+            const body = issue.body || '';
+
+            // Skip bot-created issues to avoid loops
+            if (issue.user.type === 'Bot') return;
+
+            // Call GitHub Models API
+            const response = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
+              },
+              body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [
+                  {
+                    role: 'system',
+                    content: `You are an issue triage assistant for "Kyber", a Home Assistant custom integration that provides an AI-powered smart home chat panel.
+
+Analyze the GitHub issue and respond with a JSON object containing exactly these fields:
+- "type": one of "bug", "feature-request", "enhancement", "question", "documentation"
+- "severity": one of "critical", "high", "medium", "low"
+- "timeline": one of "short-term", "long-term"
+- "summary": one sentence explaining your classification
+
+Type guide:
+- bug: something is broken or not working as documented
+- feature-request: a request for new functionality that doesn't exist yet
+- enhancement: an improvement to existing functionality
+- question: a support question or clarification request
+- documentation: missing, incorrect, or unclear docs
+
+Severity guide:
+- critical: breaks core functionality, causes data loss, or is a security issue
+- high: significant feature broken with no workaround
+- medium: annoying issue with a workaround, or a useful new feature
+- low: minor cosmetic issue, nice-to-have, or trivial doc fix
+
+Timeline guide:
+- short-term: clear scope, addressable in a single PR, < 1 day of work
+- long-term: requires significant design, multiple PRs, or architectural changes
+
+Respond ONLY with the JSON object, no other text.`,
+                  },
+                  {
+                    role: 'user',
+                    content: `Title: ${title}\n\nBody:\n${body}`,
+                  },
+                ],
+                response_format: { type: 'json_object' },
+                temperature: 0.2,
+              }),
+            });
+
+            if (!response.ok) {
+              const errText = await response.text();
+              core.warning(`GitHub Models API error ${response.status}: ${errText}`);
+              return;
+            }
+
+            const data = await response.json();
+            let result;
+            try {
+              result = JSON.parse(data.choices[0].message.content);
+            } catch (e) {
+              core.warning(`Failed to parse AI response: ${data.choices[0].message.content}`);
+              return;
+            }
+
+            // Validate fields
+            const validTypes     = ['bug', 'feature-request', 'enhancement', 'question', 'documentation'];
+            const validSeverities = ['critical', 'high', 'medium', 'low'];
+            const validTimelines  = ['short-term', 'long-term'];
+
+            if (!validTypes.includes(result.type))         result.type     = 'question';
+            if (!validSeverities.includes(result.severity)) result.severity = 'medium';
+            if (!validTimelines.includes(result.timeline))  result.timeline = 'short-term';
+
+            // Label colour/description definitions
+            const labelDefs = {
+              'bug':                    { color: 'd73a4a', description: "Something isn't working" },
+              'feature-request':        { color: 'a2eeef', description: 'New feature or request' },
+              'enhancement':            { color: '84b6eb', description: 'Improvement to existing functionality' },
+              'question':               { color: 'd876e3', description: 'Further information is requested' },
+              'documentation':          { color: '0075ca', description: 'Improvements or additions to documentation' },
+              'severity: critical':     { color: 'b60205', description: 'Critical — core functionality broken or security issue' },
+              'severity: high':         { color: 'e11d48', description: 'High — significant breakage, no workaround' },
+              'severity: medium':       { color: 'f97316', description: 'Medium — workaround exists or useful new feature' },
+              'severity: low':          { color: 'fef3c7', description: 'Low — minor cosmetic issue or nice-to-have' },
+              'timeline: short-term':   { color: '22c55e', description: 'Short-term — addressable in a single PR' },
+              'timeline: long-term':    { color: '6366f1', description: 'Long-term — requires significant design or multiple PRs' },
+            };
+
+            const labelsToApply = [
+              result.type,
+              `severity: ${result.severity}`,
+              `timeline: ${result.timeline}`,
+            ];
+
+            // Ensure each label exists in the repo (create if missing)
+            for (const labelName of labelsToApply) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: labelName,
+                });
+              } catch (e) {
+                if (e.status === 404) {
+                  const def = labelDefs[labelName] || { color: 'ededed', description: '' };
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: labelName,
+                    color: def.color,
+                    description: def.description,
+                  });
+                }
+              }
+            }
+
+            // Apply labels to the issue
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: labelsToApply,
+            });
+
+            // Emoji maps for the comment
+            const typeEmoji     = { bug: '🐛', 'feature-request': '✨', enhancement: '⚡', question: '❓', documentation: '📝' };
+            const severityEmoji = { critical: '🔴', high: '🟠', medium: '🟡', low: '🟢' };
+            const timelineEmoji = { 'short-term': '⚡', 'long-term': '🗓️' };
+
+            const commentBody = [
+              '### 🤖 Auto-triage',
+              '',
+              '| Field | Value |',
+              '|---|---|',
+              `| **Type** | ${typeEmoji[result.type] || '📌'} \`${result.type}\` |`,
+              `| **Severity** | ${severityEmoji[result.severity] || '⚪'} \`${result.severity}\` |`,
+              `| **Timeline** | ${timelineEmoji[result.timeline] || '📅'} \`${result.timeline}\` |`,
+              '',
+              `> ${result.summary}`,
+              '',
+              '<sub>Labels applied automatically. Feel free to correct them if the classification is off.</sub>',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: commentBody,
+            });
+
+            core.info(`Triaged issue #${issue.number}: type=${result.type}, severity=${result.severity}, timeline=${result.timeline}`);
