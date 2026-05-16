@@ -30,7 +30,43 @@ _LOGGER = logging.getLogger(__name__)
 _YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _TOOL_CALL_RE = re.compile(r"\[TOOL_CALL:\s*(\{[^]]*?\})\s*\]", re.DOTALL)
+_TOOL_RESULT_ECHO_RE = re.compile(r"\[TOOL_RESULT:[^\]]*?\][^\n]*\n?.*?(?=\n\n|\Z)", re.DOTALL)
 _TOOL_CALL_MAX_ROUNDS = 5
+
+# Keywords that indicate the user wants to change/act on something (ACTION intent).
+# Anything else is INFORMATIONAL — the AI should just respond in plain text.
+_ACTION_KEYWORDS: frozenset[str] = frozenset({
+    "edit", "modify", "change", "update", "rename", "assign", "move",
+    "turn on", "turn off", "switch on", "switch off", "set", "create",
+    "delete", "remove", "add", "enable", "disable", "fix", "open editor",
+    "open automation", "open script", "open dashboard", "adjust", "configure",
+    "schedule", "trigger", "automate", "control",
+})
+
+_RESPONSE_MODE_INFORMATIONAL = (
+    "\n## ⚠️ Response Mode: INFORMATIONAL\n"
+    "The user is asking a question or requesting information — NOT asking to change anything.\n"
+    "You MUST respond in PLAIN TEXT only.\n"
+    "• Use tool calls if you need entity data, then answer with the facts.\n"
+    "• Do NOT output a plan block of any kind.\n"
+    "• Do NOT set open_editor or open_dashboard.\n"
+    "• Do NOT ask 'how would you like to proceed?' — just answer.\n"
+)
+
+_RESPONSE_MODE_ACTION = (
+    "\n## ⚠️ Response Mode: ACTION\n"
+    "The user wants to change, edit, or control something.\n"
+    "Use tool calls first if you need real entity IDs, then output the appropriate plan block.\n"
+    "For automation/script edits: use open_editor plan. "
+    "For entity changes: use actions plan. "
+    "For dashboard edits: use open_dashboard plan.\n"
+)
+
+
+def _classify_intent(user_prompt: str) -> str:
+    """Return 'action' if the prompt requests a change, otherwise 'informational'."""
+    lower = user_prompt.lower()
+    return "action" if any(kw in lower for kw in _ACTION_KEYWORDS) else "informational"
 _CHAT_HISTORY_STORE_VERSION = 1
 _CHAT_HISTORY_STORE_KEY = f"{DOMAIN}_chat_history"
 _CHAT_HISTORY_MAX_MESSAGES = 20
@@ -659,6 +695,15 @@ class KyberView(HomeAssistantView):
                     parts.append("[Recent messages]\n" + "\n".join(lines))
             conversation_block = "\n\n".join(parts) + "\n\n"
 
+        # Classify intent and inject mandatory response-mode constraint.
+        # This prevents small models from generating plan blocks (e.g. open_editor)
+        # for simple informational queries like "what lights do I have".
+        intent = _classify_intent(user_prompt)
+        response_mode_block = (
+            _RESPONSE_MODE_INFORMATIONAL if intent == "informational"
+            else _RESPONSE_MODE_ACTION
+        )
+
         instructions = (
             f"{context}\n\n"
             f"{user_section}"
@@ -667,6 +712,7 @@ class KyberView(HomeAssistantView):
             f"---\n\n"
             f"{conversation_block}"
             f"User: {user_prompt}\n"
+            f"{response_mode_block}\n"
             f"Assistant:"
         )
 
@@ -750,6 +796,22 @@ class KyberView(HomeAssistantView):
 
         yaml_blocks = _extract_yaml_blocks(response_text)
         plan_block = _extract_plan_block(response_text)
+
+        # Strip any [TOOL_RESULT: ...] lines the model echoed back — they are
+        # internal context injected into the prompt and must not appear in chat.
+        response_text = re.sub(r"\[TOOL_RESULT:[^\]]*?\][^\n]*\n?", "", response_text).strip()
+
+        # Guard: if the intent was informational and the model still hallucinated an
+        # open_editor or open_dashboard plan, drop it — the editor should never open
+        # from a listing/question request.
+        if intent == "informational" and plan_block and (
+            plan_block.get("open_editor") or plan_block.get("open_dashboard")
+        ):
+            _LOGGER.warning(
+                "Kyber: dropping spurious open_editor/open_dashboard plan for informational query: %r",
+                user_prompt[:80],
+            )
+            plan_block = None
 
         return self.json({"response": response_text, "yaml_blocks": yaml_blocks, "plan": plan_block, "context_stats": context_stats, "tool_log": tool_log})
 

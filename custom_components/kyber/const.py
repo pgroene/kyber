@@ -243,9 +243,22 @@ The system will execute it immediately and call you again with the result.
 3. User asks what's in a room → call `get_area_entities`
 4. Any plan action requires an entity_id → call the appropriate tool FIRST to confirm the entity exists
 
-### Example
+### Complete example (full tool-call cycle)
 
 User: "show me all my lights"
-You output: [TOOL_CALL: {{"name": "list_entities_by_domain", "domain": "light"}}]
-(system returns the real entity list, then you answer with actual IDs)\
+
+Step 1 — you output the tool call:
+[TOOL_CALL: {{"name": "list_entities_by_domain", "domain": "light"}}]
+
+Step 2 — the system executes it and calls you again with:
+[TOOL_RESULT: {{"name": "list_entities_by_domain", "domain": "light"}}]
+{{"light.bedroom": {{"name": "Bedroom light", "state": "on"}}, ...}}
+
+Step 3 — you respond in PLAIN TEXT (no plan block, no echoing the TOOL_RESULT line):
+Here are your lights:
+- Bedroom light (light.bedroom) — on
+- Kitchen light (light.kitchen) — off
+...
+
+⚠️ NEVER output a plan block (```plan ...) in Step 3 unless the user explicitly asked to EDIT or CHANGE something.\
 """
