@@ -697,6 +697,45 @@ const STYLES = `
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* ── Thinking bubble ─────────────────────────────────────────── */
+  .thinking-bubble {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--secondary-background-color, #f5f5f5);
+    border-radius: 12px;
+    border-bottom-left-radius: 4px;
+    max-width: 140px;
+    margin: 4px 0;
+  }
+  .thinking-dots {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+  }
+  .thinking-dots span {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--primary-color, #03a9f4);
+    opacity: 0.3;
+    animation: thinking-bounce 1.2s ease-in-out infinite;
+  }
+  .thinking-dots span:nth-child(1) { animation-delay: 0s; }
+  .thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes thinking-bounce {
+    0%, 80%, 100% { opacity: 0.2; transform: scale(0.85); }
+    40% { opacity: 1; transform: scale(1.15); }
+  }
+  .thinking-label {
+    font-size: 12px;
+    color: var(--secondary-text-color, #888);
+    font-style: italic;
+  }
+
   /* ── Session indicator ───────────────────────────────────────── */
   .session-label {
     font-size: 11px;
@@ -2429,6 +2468,7 @@ class KyberPanel extends HTMLElement {
 
     this._appendMessage(prompt, "user");
     this._setStatus("Asking AI…");
+    this._showThinking();
 
     try {
       const token = this._hass.auth.data.access_token;
@@ -2489,6 +2529,7 @@ class KyberPanel extends HTMLElement {
       }
 
       const data = await resp.json();
+      this._hideThinking();
       // Store the assistant's text reply in history
       const textOnly = data.response
         .replace(/```yaml[\s\S]*?```/gi, "")
@@ -2514,6 +2555,7 @@ class KyberPanel extends HTMLElement {
       // Compact overflow messages in the background
       this._maybeCompact();
     } catch (err) {
+      this._hideThinking();
       this._appendMessage(`Error: ${err.message}`, "error");
       this._setStatus(`AI error: ${err.message}`, "error");
     } finally {
@@ -2981,7 +3023,30 @@ class KyberPanel extends HTMLElement {
     return card;
   }
 
-  _setEditorContent(text) {
+  _showThinking() {
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (!history) return;
+    this._hideThinking(); // ensure no duplicate
+    const bubble = document.createElement("div");
+    bubble.id = "kyber-thinking-bubble";
+    bubble.className = "chat-message assistant";
+    bubble.innerHTML = `
+      <div class="thinking-bubble">
+        <div class="thinking-dots">
+          <span></span><span></span><span></span>
+        </div>
+        <span class="thinking-label">Thinking…</span>
+      </div>
+    `;
+    history.appendChild(bubble);
+    history.scrollTop = history.scrollHeight;
+  }
+
+  _hideThinking() {
+    this.shadowRoot?.getElementById("kyber-thinking-bubble")?.remove();
+  }
+
+
     this._editor.dispatch({
       changes: {
         from: 0,
