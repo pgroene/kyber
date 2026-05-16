@@ -1,6 +1,27 @@
 # Kyber — AI-Powered Smart Home Assistant for Home Assistant
 
+> ⚠️ **ALPHA SOFTWARE — Use at your own risk**
+>
+> Kyber is in early alpha. Not all features are working and breaking changes may occur between releases.
+> **The AI can modify your Home Assistant configuration** — automations, scripts, entities and dashboards.
+> Always review proposals before executing them.
+> **Make a full backup of your Home Assistant instance before installing or experimenting with Kyber.**
+
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
+
 Kyber is a local AI chat panel for Home Assistant, powered by your **Ollama** instance. Chat with your smart home, manage entities, edit automations, and build dashboards — all without leaving HA.
+
+## Install via HACS
+
+1. In HACS → **Integrations** → ⋮ → **Custom repositories**
+2. Add `https://github.com/pgroene/kyber` as an **Integration**
+3. Find **Kyber** in the HACS store and install
+4. Restart Home Assistant
+5. Go to **Settings → Devices & Services → Add Integration** → search for **Kyber**
+
+Or use the quick-add button:
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=pgroene&repository=kyber&category=integration)
 
 ## Features
 
@@ -53,4 +74,4 @@ docker compose -f docker-compose.dev.yml up
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE)
