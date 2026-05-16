@@ -1,2 +1,2 @@
-pytest-homeassistant-custom-component>=0.13.300
+pytest-homeassistant-custom-component
 pytest-asyncio
