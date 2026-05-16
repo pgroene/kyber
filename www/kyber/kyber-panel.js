@@ -1003,19 +1003,36 @@ class KyberPanel extends HTMLElement {
   async _persistHistory() {
     if (!this._hass) return;
     try {
-      await this._hass.callApi("POST", "kyber/history", {
-        history: this._sanitizeHistoryForPersistence(this._chatHistory),
-        compacted_summary: String(this._compactedSummary || "").trim(),
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch("/api/kyber/history", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          history: this._sanitizeHistoryForPersistence(this._chatHistory),
+          compacted_summary: String(this._compactedSummary || "").trim(),
+        }),
       });
-    } catch (_) {
-      // Non-fatal: panel continues if persistence fails
+      if (!resp.ok) {
+        const body = await resp.text().catch(() => "");
+        console.warn("[Kyber] _persistHistory failed:", resp.status, body);
+      }
+    } catch (err) {
+      console.warn("[Kyber] _persistHistory error:", err);
     }
   }
 
   async _restorePersistedHistory() {
     if (!this._hass) return;
     try {
-      const data = await this._hass.callApi("GET", "kyber/history");
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch("/api/kyber/history", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) {
+        console.warn("[Kyber] _restorePersistedHistory failed:", resp.status);
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
       const persistedHistory = this._sanitizeHistoryForPersistence(data?.history || []);
       const persistedSummary = String(data?.compacted_summary || "").trim();
 
@@ -1026,6 +1043,7 @@ class KyberPanel extends HTMLElement {
         this._compactedSummary = persistedSummary;
         this._resetChatView();
         this._chatHistory.forEach((msg) => this._appendMessage(msg.content, msg.role === "user" ? "user" : "assistant"));
+        console.log("[Kyber] restored", persistedHistory.length, "messages from history");
       }
       this._historyRestored = true;
     } catch (_) {
@@ -1042,8 +1060,16 @@ class KyberPanel extends HTMLElement {
     this._compactedSummary = "";
     this._resetChatView();
     try {
-      await this._hass.callApi("DELETE", "kyber/history");
-      this._setStatus("History cleared");
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch("/api/kyber/history", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (resp.ok) {
+        this._setStatus("History cleared");
+      } else {
+        this._setStatus(`History clear failed: HTTP ${resp.status}`, "error");
+      }
     } catch (err) {
       this._setStatus(`History clear failed: ${err.message || String(err)}`, "error");
     }
