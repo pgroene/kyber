@@ -592,6 +592,23 @@ const STYLES = `
     cursor: not-allowed;
   }
 
+  .btn-clear-history {
+    background: transparent;
+    color: var(--secondary-text-color, #aaa);
+    align-self: flex-end;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .btn-clear-history:hover {
+    background: var(--border-color);
+  }
+
   .status-bar {
     font-size: 12px;
     padding: 4px 16px;
@@ -712,6 +729,8 @@ class KyberPanel extends HTMLElement {
     this._dashboardList = null;
     // Cached list of custom Lovelace resource URLs — fetched lazily
     this._lovelaceResources = undefined;
+    this._historyRestored = false;
+    this._DEFAULT_GREETING = "Hi! Ask me anything about your smart home — I can manage entities, areas, labels, or open automations for editing.";
   }
 
   // HA sets this property when hass state changes
@@ -719,6 +738,8 @@ class KyberPanel extends HTMLElement {
     this._hass = hass;
     if (!this._rendered) {
       this._render();
+    } else if (!this._historyRestored) {
+      this._restorePersistedHistory();
     }
   }
 
@@ -764,11 +785,12 @@ class KyberPanel extends HTMLElement {
             <span>Kyber Assistant</span>
           </div>
           <div class="chat-history" id="chat-history">
-            <div class="chat-message assistant">Hi! Ask me anything about your smart home — I can manage entities, areas, labels, or open automations for editing.</div>
+            <div class="chat-message assistant">${this._DEFAULT_GREETING}</div>
           </div>
           <div class="chat-input-area" style="position:relative;">
             <div class="autocomplete-list" id="ac-list"></div>
             <textarea id="prompt-input" placeholder="Ask me anything about your smart home…" rows="3"></textarea>
+            <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
             <button class="btn-ask" id="btn-ask">Ask</button>
           </div>
         </div>
@@ -781,6 +803,7 @@ class KyberPanel extends HTMLElement {
     `;
 
     this._bindEvents(shadow);
+    this._restorePersistedHistory();
   }
 
   _initEditor(container) {
@@ -843,6 +866,9 @@ class KyberPanel extends HTMLElement {
 
     shadow.getElementById("btn-ask").addEventListener("click", () => {
       this._askAI();
+    });
+    shadow.getElementById("btn-clear-history").addEventListener("click", () => {
+      this._clearHistory();
     });
 
     shadow.getElementById("prompt-input").addEventListener("keydown", (e) => {
@@ -948,6 +974,79 @@ class KyberPanel extends HTMLElement {
         this._closeAc();
       }
     });
+  }
+
+  _sanitizeHistoryForPersistence(messages) {
+    if (!Array.isArray(messages)) return [];
+    return messages
+      .map((msg) => ({
+        role: msg?.role === "user" ? "user" : "assistant",
+        content: String(msg?.content || "").trim(),
+      }))
+      .filter((msg) => msg.content.length > 0)
+      .slice(-200);
+  }
+
+  _resetChatView() {
+    const history = this.shadowRoot.getElementById("chat-history");
+    if (!history) return;
+    history.innerHTML = `<div class="chat-message assistant">${this._escapeHtml(this._DEFAULT_GREETING)}</div>`;
+  }
+
+  _addChatHistory(role, content) {
+    const text = String(content || "").trim();
+    if (!text) return;
+    this._chatHistory.push({ role: role === "user" ? "user" : "assistant", content: text });
+    this._persistHistory();
+  }
+
+  async _persistHistory() {
+    if (!this._hass) return;
+    try {
+      await this._hass.callApi("POST", "kyber/history", {
+        history: this._sanitizeHistoryForPersistence(this._chatHistory),
+        compacted_summary: String(this._compactedSummary || "").trim(),
+      });
+    } catch (_) {
+      // Non-fatal: panel continues if persistence fails
+    }
+  }
+
+  async _restorePersistedHistory() {
+    if (!this._hass) return;
+    try {
+      const data = await this._hass.callApi("GET", "kyber/history");
+      const persistedHistory = this._sanitizeHistoryForPersistence(data?.history || []);
+      const persistedSummary = String(data?.compacted_summary || "").trim();
+
+      // Only apply restored data if nothing has been written in-memory yet.
+      // This avoids races with tests and with very early user interactions.
+      if (this._chatHistory.length === 0 && !this._compactedSummary) {
+        this._chatHistory = persistedHistory;
+        this._compactedSummary = persistedSummary;
+        this._resetChatView();
+        this._chatHistory.forEach((msg) => this._appendMessage(msg.content, msg.role === "user" ? "user" : "assistant"));
+      }
+      this._historyRestored = true;
+    } catch (_) {
+      // Non-fatal: start with empty in-memory history
+      this._chatHistory = [];
+      this._compactedSummary = "";
+      this._resetChatView();
+      this._historyRestored = true;
+    }
+  }
+
+  async _clearHistory() {
+    this._chatHistory = [];
+    this._compactedSummary = "";
+    this._resetChatView();
+    try {
+      await this._hass.callApi("DELETE", "kyber/history");
+      this._setStatus("History cleared");
+    } catch (err) {
+      this._setStatus(`History clear failed: ${err.message || String(err)}`, "error");
+    }
   }
 
   /** Extract the token the cursor is currently inside in a textarea. */
@@ -1714,8 +1813,8 @@ class KyberPanel extends HTMLElement {
       const label = sel ? sel.options[sel.selectedIndex]?.textContent : (path || "default");
       this._dirty = false;
       btn.disabled = false;
-      this._chatHistory.push({ role: "user", content: `I saved the "${label}" dashboard YAML.` });
-      this._chatHistory.push({ role: "assistant", content: `[CHANGE] Dashboard "${label}" saved successfully.` });
+      this._addChatHistory("user", `I saved the "${label}" dashboard YAML.`);
+      this._addChatHistory("assistant", `[CHANGE] Dashboard "${label}" saved successfully.`);
       this._setStatus(`${label} saved ✓ — reload the browser tab to see changes`, "success");
     } catch (err) {
       btn.disabled = false;
@@ -1786,6 +1885,7 @@ class KyberPanel extends HTMLElement {
       if (resp.ok) {
         const data = await resp.json();
         this._compactedSummary = data.summary || this._compactedSummary;
+        this._persistHistory();
       }
     } catch (err) {
       // Compaction failure is non-fatal — messages just stay in history
@@ -1795,7 +1895,7 @@ class KyberPanel extends HTMLElement {
 
   _logChange(description) {
     const entry = { role: "assistant", content: `[CHANGE] ${description}` };
-    this._chatHistory.push(entry);
+    this._addChatHistory(entry.role, entry.content);
   }
 
   _setEditorContextLabel(mode, label) {
@@ -1860,8 +1960,8 @@ class KyberPanel extends HTMLElement {
 
       this._dirty = false;
       const kind = isScript ? "script" : "automation";
-      this._chatHistory.push({ role: "user", content: `I saved the YAML for ${this._currentAutomationId}.` });
-      this._chatHistory.push({ role: "assistant", content: `[CHANGE] ${kind} YAML saved: ${this._currentAutomationId}` });
+      this._addChatHistory("user", `I saved the YAML for ${this._currentAutomationId}.`);
+      this._addChatHistory("assistant", `[CHANGE] ${kind} YAML saved: ${this._currentAutomationId}`);
       this._setStatus("Saved ✓", "success");
     } catch (err) {
       btn.disabled = false;
@@ -1909,7 +2009,7 @@ class KyberPanel extends HTMLElement {
     promptInput.value = "";
 
     // Add user message to history before sending
-    this._chatHistory.push({ role: "user", content: prompt });
+    this._addChatHistory("user", prompt);
 
     this._appendMessage(prompt, "user");
     this._setStatus("Asking AI…");
@@ -1979,7 +2079,7 @@ class KyberPanel extends HTMLElement {
         .replace(/```plan[\s\S]*?```/gi, "")
         .trim();
       if (textOnly) {
-        this._chatHistory.push({ role: "assistant", content: textOnly });
+        this._addChatHistory("assistant", textOnly);
       }
       this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null);
       this._setStatus("Done");
@@ -2344,14 +2444,8 @@ class KyberPanel extends HTMLElement {
             return `- ${svcLabel}${target ? " on " + target : ""}${fromTo ? ": " + fromTo : ""}${desc ? " (" + desc + ")" : ""}`;
           });
 
-          this._chatHistory.push({
-            role: "user",
-            content: `I clicked Execute on the proposal: "${plan.summary || ""}".`,
-          });
-          this._chatHistory.push({
-            role: "assistant",
-            content: `[CHANGE] The following changes were successfully applied:\n${changeLines.join("\n")}`,
-          });
+          this._addChatHistory("user", `I clicked Execute on the proposal: "${plan.summary || ""}".`);
+          this._addChatHistory("assistant", `[CHANGE] The following changes were successfully applied:\n${changeLines.join("\n")}`);
 
           // Collect undo actions from results and show Undo button
           const undoActions = ok
@@ -2378,7 +2472,7 @@ class KyberPanel extends HTMLElement {
                   undoBtn.textContent = "↩ Undone ✓";
                   resultEl.textContent = "↩ Changes undone.";
                   resultEl.className = "plan-result";
-                  this._chatHistory.push({ role: "assistant", content: `[CHANGE] Undid: ${plan.summary || "previous changes"}` });
+                  this._addChatHistory("assistant", `[CHANGE] Undid: ${plan.summary || "previous changes"}`);
                 } else {
                   undoBtn.textContent = `↩ Undo failed (${f2.length} error${f2.length > 1 ? "s" : ""})`;
                   undoBtn.disabled = false;

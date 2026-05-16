@@ -4,6 +4,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
+from unittest.mock import patch
 
 from custom_components.kyber.http_api import _build_context
 
@@ -84,3 +85,74 @@ async def test_build_context_regular_entities_listed(hass: HomeAssistant) -> Non
     context = _build_context(hass)
     assert "sensor.temp" in context
     assert "Temperature" in context
+
+
+async def test_build_context_compact_no_trailing_pipes_when_no_area_no_labels(
+    hass: HomeAssistant,
+) -> None:
+    """Entities with no area and no labels should use compact 2-field format (no trailing pipes)."""
+    hass.states.async_set(
+        "light.living_room",
+        "on",
+        {"friendly_name": "Living Room Light"},
+    )
+
+    context = _build_context(hass)
+    # The compact line should NOT end with trailing " |  | "
+    assert "light.living_room | Living Room Light |  | " not in context
+    # The line should appear in the short form
+    assert "- light.living_room | Living Room Light" in context
+
+
+async def test_build_context_full_format_when_area_and_labels(hass: HomeAssistant) -> None:
+    """Entities with both area and labels keep the full 4-field format."""
+    area = ar.async_get(hass).async_create("Bathroom")
+    label_reg = lr.async_get(hass)
+    label_reg.async_create("wet-room")
+
+    entry = er.async_get(hass).async_get_or_create("light", "test", "bath_light")
+    er.async_get(hass).async_update_entity(
+        entry.entity_id, area_id=area.id, labels={"wet-room"}
+    )
+    hass.states.async_set(entry.entity_id, "off", {"friendly_name": "Bath Light"})
+
+    context = _build_context(hass)
+    assert "Bathroom" in context
+    assert "wet-room" in context
+    # Full 4-field line present
+    assert f"- {entry.entity_id} | Bath Light | Bathroom | wet-room" in context
+
+
+async def test_build_context_entity_list_truncated_at_budget(hass: HomeAssistant) -> None:
+    """When the entity list exceeds MAX_ENTITY_LIST_CHARS, it should be truncated with a notice."""
+    # Create enough entities to exceed the budget
+    for i in range(50):
+        hass.states.async_set(
+            f"sensor.entity_{i:03d}",
+            "on",
+            {"friendly_name": f"Sensor {i:03d}"},
+        )
+
+    small_budget = 200  # tiny budget so truncation is certain to trigger
+    with patch("custom_components.kyber.http_api.MAX_ENTITY_LIST_CHARS", small_budget):
+        context = _build_context(hass)
+
+    assert "context budget exceeded" in context
+
+
+async def test_build_context_truncation_logs_warning(hass: HomeAssistant) -> None:
+    """Truncation should emit a WARNING log message."""
+    for i in range(50):
+        hass.states.async_set(
+            f"sensor.entity_{i:03d}",
+            "on",
+            {"friendly_name": f"Sensor {i:03d}"},
+        )
+
+    small_budget = 200
+    with patch("custom_components.kyber.http_api.MAX_ENTITY_LIST_CHARS", small_budget):
+        with patch("custom_components.kyber.http_api._LOGGER") as mock_logger:
+            _build_context(hass)
+            mock_logger.warning.assert_called_once()
+            warning_msg = mock_logger.warning.call_args[0][0]
+            assert "truncated" in warning_msg

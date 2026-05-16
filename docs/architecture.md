@@ -27,7 +27,7 @@ A single-file custom element registered as `<kyber-panel>` using the Shadow DOM.
 
 | Property | Type | Description |
 |---|---|---|
-| `_chatHistory` | `Array<{role, content}>` | Rolling conversation buffer sent to `/complete` |
+| `_chatHistory` | `Array<{role, content}>` | Rolling conversation buffer sent to `/complete`, persisted per-user via `/history` |
 | `_editor` | `EditorView` | CodeMirror 6 editor instance (created lazily) |
 | `_editorMode` | `"automation" \| "script" \| "dashboard"` | Controls which save path and AI instructions are used |
 | `_currentAutomationId` | `string \| null` | Config ID of the loaded automation or script |
@@ -102,6 +102,16 @@ Defines `DOMAIN`, config key constants, and `SYSTEM_PROMPT_TEMPLATE` — a large
 ## API Endpoints
 
 All endpoints require HA authentication (`requires_auth = True`).
+
+### `GET/POST/DELETE /api/kyber/history`
+
+Persists chat state in Home Assistant storage, scoped by authenticated user id.
+
+- `GET` → returns `{"history": [...], "compacted_summary": "..."}`
+- `POST` → stores `history` and `compacted_summary` for the current user
+- `DELETE` → clears stored chat state for the current user
+
+Frontend uses this endpoint on panel load (restore), after history updates (save), and from the **Clear history** button (reset).
 
 ### `POST /api/kyber/complete`
 

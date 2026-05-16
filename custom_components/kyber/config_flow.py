@@ -39,7 +39,7 @@ def _build_schema(hass: HomeAssistant) -> vol.Schema:
         {
             vol.Required(CONF_AI_TASK_ENTITY_ID, default=default_entity): str,
             vol.Optional(CONF_MAX_TOKENS, default=DEFAULT_MAX_TOKENS): vol.All(
-                int, vol.Range(min=256, max=8192)
+                int, vol.Range(min=256, max=2_000_000)
             ),
         }
     )
