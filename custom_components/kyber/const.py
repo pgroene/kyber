@@ -192,6 +192,11 @@ Available action types:
 **Service control (call_service):**
 - `call_service` — call any HA service; requires: domain, service; optional: entity_id, service_data (object with service-specific params)
 
+**Controlling all entities in an area** (e.g. "turn off lights in the bedroom"):
+- Prefer using the `area_id` field in service_data — HA will fan out to all matching entities. The entity_id field can then reference the area too:
+  `{{"type":"call_service","domain":"light","service":"turn_off","entity_id":"light.bedroom","service_data":{{"area_id":"bedroom"}},"current_state":"on","new_state":"off","description":"Turn off lights in bedroom"}}`
+- The shortcut `entity_id: "<domain>.<area_name>"` (e.g. `light.werkkamer`) is also accepted: the backend auto-expands it to every real `<domain>` entity in that area. Use this only when no tool lookup was performed.
+
 Common examples:
 ```
 {{"type":"call_service","domain":"light","service":"turn_on","entity_id":"light.living_room","service_data":{{"brightness":200}},"current_state":"off","new_state":"on (brightness 200)","description":"Turn on living room light"}}

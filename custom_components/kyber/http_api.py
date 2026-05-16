@@ -1027,10 +1027,81 @@ class KyberView(HomeAssistantView):
                     )
                     plan_block = None
 
+        # Plan auto-resolution: when a plan references an entity_id that does
+        # not exist (e.g. `light.werkkamer`) but the local part matches an area
+        # name, expand to the REAL entities in that area for the requested
+        # domain. This rescues small models that skip the area lookup tool.
+        if plan_block and isinstance(plan_block.get("actions"), list):
+            try:
+                area_reg = ar.async_get(hass)
+                entity_reg = er.async_get(hass)
+                # Build lookup: lowercase area-name → area_id
+                area_by_name: dict[str, str] = {}
+                for a in area_reg.async_list_areas():
+                    area_by_name[a.name.lower()] = a.id
+                    area_by_name[a.id.lower()] = a.id
+                # Build lookup: area_id → list of entity_ids
+                entities_by_area: dict[str, list[str]] = {}
+                for entry in entity_reg.entities.values():
+                    if entry.area_id:
+                        entities_by_area.setdefault(entry.area_id, []).append(entry.entity_id)
+
+                new_actions: list[dict] = []
+                resolved_any = False
+                for action in plan_block["actions"]:
+                    if not isinstance(action, dict):
+                        new_actions.append(action)
+                        continue
+                    eid = action.get("entity_id", "")
+                    if not eid or "." not in eid:
+                        new_actions.append(action)
+                        continue
+                    if hass.states.get(eid):
+                        new_actions.append(action)
+                        continue
+                    # Bogus entity_id — try to resolve `<domain>.<area>` → area
+                    domain, _, local = eid.partition(".")
+                    candidate = local.replace("_", " ").lower()
+                    area_id = area_by_name.get(candidate) or area_by_name.get(local.lower())
+                    if not area_id:
+                        new_actions.append(action)
+                        continue
+                    real_ids = [
+                        e for e in entities_by_area.get(area_id, [])
+                        if e.split(".")[0] == domain and hass.states.get(e)
+                    ]
+                    if not real_ids:
+                        new_actions.append(action)
+                        continue
+                    _LOGGER.info(
+                        "Kyber: resolved bogus entity %r → area %r (%d %s entities)",
+                        eid, area_id, len(real_ids), domain,
+                    )
+                    resolved_any = True
+                    for real_id in real_ids:
+                        rs = hass.states.get(real_id)
+                        new_actions.append({
+                            **action,
+                            "entity_id": real_id,
+                            "current_state": rs.state if rs else action.get("current_state", ""),
+                        })
+                if resolved_any:
+                    plan_block["actions"] = new_actions
+            except Exception as err:  # pragma: no cover - best effort
+                _LOGGER.debug("Kyber: plan auto-resolve failed: %s", err)
+
         # Detect hallucinated entity IDs: if no tool was called but the response
         # contains entity-id patterns (domain.name), check them against HA state.
         # If none match real states, append a warning so the user knows.
-        if not tool_log:
+        # Skip the warning when we already produced a plan with verified IDs
+        # (auto-resolution above will have fixed any bogus IDs).
+        plan_has_verified_ids = False
+        if plan_block and isinstance(plan_block.get("actions"), list):
+            plan_has_verified_ids = any(
+                isinstance(a, dict) and a.get("entity_id") and hass.states.get(a["entity_id"])
+                for a in plan_block["actions"]
+            )
+        if not tool_log and not plan_has_verified_ids:
             _ENTITY_ID_RE = re.compile(r"\b([a-z_]+\.[a-z0-9_]+)\b")
             candidate_ids = _ENTITY_ID_RE.findall(response_text)
             if candidate_ids:
