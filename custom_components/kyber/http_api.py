@@ -46,21 +46,26 @@ _ACTION_KEYWORDS: frozenset[str] = frozenset({
 _RESPONSE_MODE_INFORMATIONAL = (
     "\n[SYSTEM: Response constraint — INFORMATIONAL query]\n"
     "Output ONLY a direct plain-text answer. Rules:\n"
-    "1. Call tools if you need entity data, then list the ACTUAL results from the tool.\n"
-    "2. NEVER use placeholder text like '[listing all X items]' — include real names/states.\n"
-    "3. Do NOT start your reply by describing what you are about to do.\n"
-    "4. Do NOT output a plan block. Do NOT open the editor or dashboard.\n"
-    "5. Do NOT ask 'how would you like to proceed?'\n"
-    "6. Domain counts in the context are TOTALS (e.g. binary_sensor includes ALL subtypes). "
-    "For 'how many motion sensors', call list_entities_by_domain(binary_sensor) and count device_class=motion entries.\n"
+    "1. If you need entity IDs: OUTPUT [TOOL_CALL: {\"name\": ...}] RIGHT NOW and stop. "
+    "Do NOT say 'I will call a tool' or 'I'll execute a tool call' — just output the format.\n"
+    "2. NEVER invent, guess, or fabricate entity IDs. "
+    "If you don't have real IDs from a tool result, call the tool first.\n"
+    "3. After tool results arrive: list ACTUAL names/states from the result. "
+    "NEVER use placeholders like '[listing all X items]'.\n"
+    "4. Do NOT start your reply by describing what you are about to do.\n"
+    "5. Do NOT output a plan block. Do NOT open the editor or dashboard.\n"
+    "6. Do NOT ask 'how would you like to proceed?'\n"
+    "7. Domain counts in context are TOTALS (binary_sensor includes door/motion/vibration sensors). "
+    "For device-class-specific queries (e.g. presence sensors), call search_entities first.\n"
     "[END SYSTEM]\n"
 )
 
 _RESPONSE_MODE_ACTION = (
     "\n[SYSTEM: Response constraint — ACTION query]\n"
     "The user wants to change, edit, or control something.\n"
-    "1. Call tools first if you need real entity IDs.\n"
-    "2. Then output the appropriate plan block (open_editor / actions / open_dashboard).\n"
+    "1. If you need real entity IDs: OUTPUT [TOOL_CALL: {\"name\": ...}] RIGHT NOW — do not narrate it.\n"
+    "2. NEVER invent entity IDs. Use tool results only.\n"
+    "3. After getting real IDs, output the appropriate plan block (open_editor / actions / open_dashboard).\n"
     "[END SYSTEM]\n"
 )
 
@@ -805,15 +810,26 @@ class KyberView(HomeAssistantView):
         # Strip [SYSTEM: ...] / [END SYSTEM] blocks the model echoed back.
         response_text = re.sub(r"\[SYSTEM:[^\]]*?\].*?\[END SYSTEM\]\s*", "", response_text, flags=re.DOTALL).strip()
 
-        # Strip common model preamble patterns.
-        _PREAMBLE_RE = re.compile(
-            r"^(I'm happy to help!?\s*)?"
-            r"(Since the user is asking for (information|a question)[^.]*\.?\s*)"
-            r"(I('ll| will) (use tools?|respond in plain text)[^.]*\.?\s*)"
-            r"(Here('s| is) my response:?\s*)?",
-            re.IGNORECASE,
-        )
-        response_text = _PREAMBLE_RE.sub("", response_text).strip()
+        # Strip common model preamble and "simulated tool call" narration patterns.
+        # Applied repeatedly to catch multi-sentence preambles.
+        _PREAMBLE_PATTERNS = [
+            # "I'm happy to help with your query!"
+            re.compile(r"^I'?m happy to help( with (your|this) (query|question|request))?[.!]?\s*", re.IGNORECASE),
+            # "Since the user is asking for information, I'll respond in plain text."
+            re.compile(r"^Since the user is asking for [^.]+\.\s*", re.IGNORECASE),
+            # "I'll respond in plain text and use tool calls if needed."
+            re.compile(r"^I('ll| will) (respond in plain text|use tool calls?)[^.]*\.\s*", re.IGNORECASE),
+            # "To get the IDs of all X, I'll need to execute some tool calls."
+            re.compile(r"^To (get|find|retrieve)[^,]+,\s*I('ll| will) need to (execute|call|run)[^.]+\.\s*", re.IGNORECASE),
+            # "Here are the results:" / "Here's my response:"
+            re.compile(r"^Here (are the results|is my response|are the (presence|motion|light)[^:]*):?\s*", re.IGNORECASE),
+            # "After executing the tool call, I found that..."
+            re.compile(r"^After (executing|running) the tool call[^,]*,\s*", re.IGNORECASE),
+            # "Let me call some tools to get more information..."
+            re.compile(r"^Let me (call|use|run) (some |a )?tools?[^.]*\.\s*", re.IGNORECASE),
+        ]
+        for pattern in _PREAMBLE_PATTERNS:
+            response_text = pattern.sub("", response_text).strip()
 
         # Guard: if intent was informational and the model still hallucinated an
         # open_editor or open_dashboard plan, drop it.
@@ -873,6 +889,31 @@ class KyberView(HomeAssistantView):
                         aid,
                     )
                     plan_block = None
+
+        # Detect hallucinated entity IDs: if no tool was called but the response
+        # contains entity-id patterns (domain.name), check them against HA state.
+        # If none match real states, append a warning so the user knows.
+        if not tool_log:
+            _ENTITY_ID_RE = re.compile(r"\b([a-z_]+\.[a-z0-9_]+)\b")
+            candidate_ids = _ENTITY_ID_RE.findall(response_text)
+            if candidate_ids:
+                fake_ids = [
+                    eid for eid in candidate_ids
+                    if "." in eid and not hass.states.get(eid)
+                    and eid.split(".")[0] in (
+                        "light", "switch", "sensor", "binary_sensor",
+                        "climate", "cover", "media_player", "person",
+                    )
+                ]
+                if fake_ids:
+                    _LOGGER.warning(
+                        "Kyber: response may contain fabricated entity IDs (not in HA state): %s",
+                        fake_ids[:5],
+                    )
+                    response_text += (
+                        "\n\n⚠️ *Note: I couldn't verify these entity IDs against your Home Assistant. "
+                        "They may be incorrect — ask me to search for them to get real IDs.*"
+                    )
 
         return self.json({"response": response_text, "yaml_blocks": yaml_blocks, "plan": plan_block, "context_stats": context_stats, "tool_log": tool_log})
 

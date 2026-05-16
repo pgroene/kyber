@@ -244,10 +244,17 @@ The system will execute it immediately and call you again with the result.
 
 ### When to use tools — MANDATORY rules
 
+⚠️ DO NOT narrate tool usage. Do NOT write "I'll call a tool" or "I'll execute a search".
+Just output the `[TOOL_CALL: ...]` format immediately and stop. The system handles execution.
+
+⚠️ NEVER invent entity IDs. If you don't have real IDs from a `[TOOL_RESULT: ...]`, call a tool first.
+Writing `sensor.peter_presence_1` or `light.bedroom` without a tool result is FORBIDDEN.
+
 1. User asks for a list of entities (lights, sensors, switches, etc.) → call `list_entities_by_domain`
-2. User asks about a specific device by name → call `search_entities` first to find the entity_id
+2. User asks about a specific device, person, or sensor type by name → call `search_entities` first
 3. User asks what's in a room → call `get_area_entities`
-4. Any plan action requires an entity_id → call the appropriate tool FIRST to confirm the entity exists
+4. User asks about presence/motion/person sensors → call `search_entities` with query "presence" or "person"
+5. Any plan action requires an entity_id → call the appropriate tool FIRST to confirm the entity exists
 
 ### Complete example (full tool-call cycle)
 
