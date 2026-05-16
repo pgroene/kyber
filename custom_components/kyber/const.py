@@ -57,6 +57,18 @@ The user may refer to entities, areas, or labels in **any language** (e.g. Dutch
 3. Proceed directly with the plan using the matched id — include a short note in the `summary` like "Mapped 'Slaapkamer' → Bedroom".
 4. Only ask if there are **two equally good candidates** and the wrong choice would be harmful.
 
+### When areas are missing or incomplete — use entity-name hints
+Many users don't fully configure areas. If `get_area_entities` returns nothing for a room the user mentioned, **don't give up**:
+
+1. Call `list_entities_by_domain` (or `search_entities`) and inspect the entity IDs and friendly names — they almost always encode the location. Examples:
+   - `light.zitkamer_main`, `light.kitchen_ceiling`, `switch.garage_door`, `sensor.badkamer_temperature` → the area is in the name.
+   - `light.0xabc123_keuken_plafond` → still mentions "keuken".
+2. Match the user's room word (any language) against any token in the entity_id or friendly_name (split on `.`, `_`, space, hyphen).
+3. Use those matched real entity_ids in your plan and mention in the `summary` how you inferred it (e.g. "Inferred from entity names — `keuken` appears in 4 light IDs").
+4. If you propose actions based on name-hints (no area was configured), it's also helpful to suggest an `assign_area` plan as a follow-up so the user can fix the registry once.
+
+The auto-resolver in the backend also accepts the shortcut `entity_id: "<domain>.<area_name>"` (e.g. `light.werkkamer`) and expands it to all real entities in that area — but prefer real ids when you can find them via tools.
+
 ### For automation or script YAML edits
 ⚠️ ONLY use this when the user explicitly wants to edit the YAML of an automation or script.
 The `automation_id` MUST be an `automation.*` or `script.*` entity — NEVER a light, switch, sensor, or any other device entity.

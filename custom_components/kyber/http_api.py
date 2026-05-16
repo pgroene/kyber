@@ -1111,19 +1111,36 @@ class KyberView(HomeAssistantView):
                     domain, _, local = eid.partition(".")
                     candidate = local.replace("_", " ").lower()
                     area_id = area_by_name.get(candidate) or area_by_name.get(local.lower())
-                    if not area_id:
-                        new_actions.append(action)
-                        continue
-                    real_ids = [
-                        e for e in entities_by_area.get(area_id, [])
-                        if e.split(".")[0] == domain and hass.states.get(e)
-                    ]
+                    real_ids: list[str] = []
+                    if area_id:
+                        real_ids = [
+                            e for e in entities_by_area.get(area_id, [])
+                            if e.split(".")[0] == domain and hass.states.get(e)
+                        ]
+                    if not real_ids:
+                        # Fallback: name-hint matching — find entities of the
+                        # right domain whose id or friendly_name contains the
+                        # candidate token. Useful when areas aren't configured.
+                        tokens = [t for t in re.split(r"[\s_\-]+", candidate) if t]
+                        if tokens:
+                            hint_matches: list[str] = []
+                            for st in hass.states.async_all():
+                                if st.entity_id.split(".")[0] != domain:
+                                    continue
+                                hay = (
+                                    st.entity_id.lower()
+                                    + " "
+                                    + str(st.attributes.get("friendly_name", "")).lower()
+                                )
+                                if all(t in hay for t in tokens):
+                                    hint_matches.append(st.entity_id)
+                            real_ids = hint_matches
                     if not real_ids:
                         new_actions.append(action)
                         continue
                     _LOGGER.info(
-                        "Kyber: resolved bogus entity %r → area %r (%d %s entities)",
-                        eid, area_id, len(real_ids), domain,
+                        "Kyber: resolved bogus entity %r → %d real %s entities",
+                        eid, len(real_ids), domain,
                     )
                     resolved_any = True
                     for real_id in real_ids:
