@@ -9,13 +9,17 @@ from typing import Any
 
 import yaml
 from aiohttp import web
-from homeassistant.components.ai_task import async_generate_data
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
+
+try:
+    from homeassistant.components.ai_task import async_generate_data
+except ImportError:  # HA < 2025.2 (test environments)
+    async_generate_data = None  # type: ignore[assignment]
 
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, SYSTEM_PROMPT_TEMPLATE
 
