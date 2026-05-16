@@ -1761,34 +1761,49 @@ class KyberPanel extends HTMLElement {
     this._setStatus("Loading…");
     this.shadowRoot.getElementById("btn-save").disabled = true;
     try {
+      const token = this._hass.auth.data.access_token;
       const apiPath = urlPath ? `lovelace/config?url_path=${urlPath}` : "lovelace/config";
+      const resp = await fetch(`/api/${apiPath}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       let config;
-      try {
-        config = await this._hass.callApi("GET", apiPath);
-      } catch (apiErr) {
-        // 404 → new dashboard with no stored config; show starter
+      if (resp.status === 404) {
+        // Dashboard exists as a panel but has no stored config yet (or is in yaml mode).
+        // Show a starter so the user can create initial config.
         config = { title: urlPath || "Home", views: [{ title: "Home", cards: [] }] };
-        this._setStatus(`New dashboard "${urlPath || "default"}" — edit and save to create config.`);
-        this._setEditorContent(this._configToYaml(config));
-        this._dirty = false;
-        this.shadowRoot.getElementById("btn-save").disabled = false;
-        return;
+        this._setStatus(`No stored config for "${urlPath || "default"}" — edit this starter and save.`);
+      } else if (!resp.ok) {
+        let errMsg = `HTTP ${resp.status}`;
+        try {
+          const body = await resp.text();
+          if (body) { const j = JSON.parse(body); errMsg = j.message || body; }
+        } catch (_) { /* use status */ }
+        throw new Error(errMsg);
+      } else {
+        config = await resp.json();
+        const sel = this.shadowRoot.getElementById("dashboard-select");
+        const label = sel ? sel.options[sel.selectedIndex]?.textContent : urlPath || "default";
+        this._setStatus(`Editing: ${label}`);
       }
-      const sel = this.shadowRoot.getElementById("dashboard-select");
-      const label = sel ? sel.options[sel.selectedIndex]?.textContent : urlPath || "default";
       this._setEditorContent(this._configToYaml(config));
       this._dirty = false;
       this.shadowRoot.getElementById("btn-save").disabled = false;
-      this._setStatus(`Editing: ${label}`);
     } catch (err) {
-      this._setStatus(`Error: ${err.message || String(err)}`, "error");
+      const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
+      this._setStatus(`Error loading dashboard: ${msg}`, "error");
     }
   }
 
   async _saveDashboard() {
     if (!this._hass) return;
-    const yamlText = this._editor.state.doc.toString();
+    const yamlText = this._editor.state.doc.toString().trim();
     const btn = this.shadowRoot.getElementById("btn-save");
+
+    if (!yamlText) {
+      this._setStatus("Cannot save: dashboard config is empty.", "error");
+      return;
+    }
+
     btn.disabled = true;
     this._setStatus("Saving dashboard…");
 
@@ -1801,13 +1816,40 @@ class KyberPanel extends HTMLElement {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ yaml: yamlText }),
       });
-      if (!parseResp.ok) throw new Error(`YAML parse error: ${await parseResp.text()}`);
+      if (!parseResp.ok) {
+        const errText = await parseResp.text();
+        let errMsg = errText;
+        try { errMsg = JSON.parse(errText).message || errText; } catch (_) { /* use raw */ }
+        throw new Error(`YAML parse error: ${errMsg}`);
+      }
       const { config } = await parseResp.json();
 
-      // Save to the currently selected dashboard path via hass.callApi
+      // Save to the currently selected dashboard path via direct fetch.
+      // hass.callApi rejects with undefined on empty error bodies, so we
+      // use fetch directly to get a meaningful error message.
       const path = this._currentDashboardPath;
       const apiPath = path ? `lovelace/config?url_path=${path}` : "lovelace/config";
-      await this._hass.callApi("POST", apiPath, config);
+      const saveResp = await fetch(`/api/${apiPath}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(config),
+      });
+
+      if (!saveResp.ok) {
+        let errMsg = `HTTP ${saveResp.status}`;
+        try {
+          const errBody = await saveResp.text();
+          if (errBody) {
+            const errJson = JSON.parse(errBody);
+            errMsg = errJson.message || errJson.body || errBody;
+          }
+        } catch (_) { /* keep HTTP status as fallback */ }
+        if (saveResp.status === 404) {
+          errMsg = `Dashboard not found in HA storage. Make sure it is in storage mode (not YAML mode). Create it first with "New Dashboard" if needed.`;
+        }
+        console.error("_saveDashboard: HA API error", saveResp.status, errMsg);
+        throw new Error(errMsg);
+      }
 
       const sel = this.shadowRoot.getElementById("dashboard-select");
       const label = sel ? sel.options[sel.selectedIndex]?.textContent : (path || "default");
@@ -1818,7 +1860,8 @@ class KyberPanel extends HTMLElement {
       this._setStatus(`${label} saved ✓ — reload the browser tab to see changes`, "success");
     } catch (err) {
       btn.disabled = false;
-      this._setStatus(`Save failed: ${err.message || String(err)}`, "error");
+      const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
+      this._setStatus(`Save failed: ${msg}`, "error");
     }
   }
 
@@ -1919,7 +1962,8 @@ class KyberPanel extends HTMLElement {
       this.shadowRoot.getElementById("btn-save").disabled = true;
       this._setStatus(`Loaded: ${configId}`);
     } catch (err) {
-      this._setStatus(`Error loading: ${err.message}`, "error");
+      const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
+      this._setStatus(`Error loading: ${msg}`, "error");
     }
   }
 
@@ -1952,11 +1996,40 @@ class KyberPanel extends HTMLElement {
 
       const { config } = await parseResp.json();
 
-      // Step 2: Write JSON config via HA's config REST API
+      // Step 2: Write JSON config via HA's config REST API.
+      // Use fetch directly instead of hass.callApi — callApi rejects with
+      // `undefined` when the response body is empty, making the error
+      // undiagnosable. Direct fetch lets us extract a meaningful message.
       const apiPath = isScript
         ? `config/script/config/${this._currentAutomationId}`
         : `config/automation/config/${this._currentAutomationId}`;
-      await this._hass.callApi("POST", apiPath, config);
+
+      // HA's automation config POST requires the id field as a STRING in the
+      // body. YAML parses bare numbers as integers, so we must override it
+      // with _currentAutomationId (always a string).
+      const configToSave = { ...config, id: this._currentAutomationId };
+
+      const saveResp = await fetch(`/api/${apiPath}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(configToSave),
+      });
+
+      if (!saveResp.ok) {
+        let errMsg = `HTTP ${saveResp.status}`;
+        try {
+          const errBody = await saveResp.text();
+          if (errBody) {
+            const errJson = JSON.parse(errBody);
+            errMsg = errJson.message || errJson.body || errBody;
+          }
+        } catch (_) { /* keep HTTP status as fallback */ }
+        console.error("_saveAutomation: HA API error", saveResp.status, errMsg);
+        throw new Error(errMsg);
+      }
 
       this._dirty = false;
       const kind = isScript ? "script" : "automation";
@@ -1965,7 +2038,8 @@ class KyberPanel extends HTMLElement {
       this._setStatus("Saved ✓", "success");
     } catch (err) {
       btn.disabled = false;
-      this._setStatus(`Save failed: ${err.message}`, "error");
+      const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
+      this._setStatus(`Save failed: ${msg}`, "error");
     }
   }
 
