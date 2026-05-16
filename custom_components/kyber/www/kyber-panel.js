@@ -661,6 +661,18 @@ const STYLES = `
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* ── Session indicator ───────────────────────────────────────── */
+  .session-label {
+    font-size: 11px;
+    color: var(--secondary-text-color, #888);
+    opacity: 0.75;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-left: 8px;
+  }
+  .session-label:empty { display: none; }
+
   /* ── Entity autocomplete dropdown ────────────────────────────── */
   .autocomplete-list {
     position: absolute;
@@ -783,13 +795,14 @@ class KyberPanel extends HTMLElement {
           <div class="sidebar-brand">
             <img id="kyber-sidebar-icon" class="brand-icon" src="icon.png" alt="Kyber icon">
             <span>Kyber Assistant</span>
+            <span class="session-label" id="session-indicator"></span>
           </div>
           <div class="chat-history" id="chat-history">
             <div class="chat-message assistant">${this._DEFAULT_GREETING}</div>
           </div>
           <div class="chat-input-area" style="position:relative;">
             <div class="autocomplete-list" id="ac-list"></div>
-            <textarea id="prompt-input" placeholder="Ask me anything about your smart home…" rows="3"></textarea>
+            <textarea id="prompt-input" placeholder="Ask me anything about your smart home… (type / for commands)" rows="3"></textarea>
             <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
             <button class="btn-ask" id="btn-ask">Ask</button>
           </div>
@@ -1036,6 +1049,10 @@ class KyberPanel extends HTMLElement {
       const persistedHistory = this._sanitizeHistoryForPersistence(data?.history || []);
       const persistedSummary = String(data?.compacted_summary || "").trim();
 
+      // Capture session metadata
+      this._activeSessionId = data?.session_id || null;
+      this._activeSessionName = data?.session_name || "Session 1";
+
       // Only apply restored data if nothing has been written in-memory yet.
       // This avoids races with tests and with very early user interactions.
       if (this._chatHistory.length === 0 && !this._compactedSummary) {
@@ -1046,6 +1063,7 @@ class KyberPanel extends HTMLElement {
         console.log("[Kyber] restored", persistedHistory.length, "messages from history");
       }
       this._historyRestored = true;
+      this._updateSessionIndicator();
     } catch (_) {
       // Non-fatal: start with empty in-memory history
       this._chatHistory = [];
@@ -1075,6 +1093,202 @@ class KyberPanel extends HTMLElement {
     }
   }
 
+  _getActiveSession() {
+    return this._activeSessionId ? { id: this._activeSessionId, name: this._activeSessionName || "Session 1" } : null;
+  }
+
+  _updateSessionIndicator() {
+    // Show session name as a subtle subtitle under the chat header if there are multiple sessions
+    const name = this._activeSessionName || "Session 1";
+    const indicator = this.shadowRoot?.getElementById("session-indicator");
+    if (indicator) indicator.textContent = name;
+  }
+
+  async _loadSessionList() {
+    if (!this._hass) return [];
+    try {
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch("/api/kyber/sessions", { headers: { Authorization: `Bearer ${token}` } });
+      if (!resp.ok) return [];
+      const data = await resp.json();
+      this._sessions = (data.sessions || []).map((s) => ({ id: s.id, name: s.name, history: Array(s.message_count), active: s.active }));
+      return this._sessions;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async _createSession(name) {
+    if (!this._hass) return;
+    const token = this._hass.auth.data.access_token;
+    const resp = await fetch("/api/kyber/sessions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ name, switch: true }),
+    });
+    if (!resp.ok) {
+      this._appendMessage(`Failed to create session (HTTP ${resp.status})`, "assistant");
+      return;
+    }
+    const data = await resp.json();
+    this._activeSessionId = data.session_id;
+    this._activeSessionName = data.name;
+    // Clear in-memory history for the new session
+    this._chatHistory = [];
+    this._compactedSummary = "";
+    this._resetChatView();
+    this._updateSessionIndicator();
+  }
+
+  async _switchSession(nameOrId) {
+    if (!this._hass) return;
+    const sessions = await this._loadSessionList();
+    const target = sessions.find((s) => s.name.toLowerCase() === nameOrId.toLowerCase() || s.id === nameOrId);
+    if (!target) {
+      this._appendMessage(`Session not found: "${nameOrId}". Use \`/session list\` to see available sessions.`, "assistant");
+      return;
+    }
+    const token = this._hass.auth.data.access_token;
+    await fetch("/api/kyber/sessions", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "switch", session_id: target.id }),
+    });
+    this._activeSessionId = target.id;
+    this._activeSessionName = target.name;
+    // Reload history for this session
+    this._chatHistory = [];
+    this._compactedSummary = "";
+    await this._restorePersistedHistory();
+    this._appendMessage(`Switched to session: **${target.name}**`, "assistant");
+  }
+
+  async _renameSession(newName) {
+    if (!this._hass) return;
+    const token = this._hass.auth.data.access_token;
+    const resp = await fetch("/api/kyber/sessions", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "rename", name: newName }),
+    });
+    if (!resp.ok) {
+      this._appendMessage(`Failed to rename session (HTTP ${resp.status})`, "assistant");
+      return;
+    }
+    const oldName = this._activeSessionName;
+    this._activeSessionName = newName;
+    this._updateSessionIndicator();
+    this._appendMessage(`Session renamed from **${oldName}** to **${newName}**`, "assistant");
+  }
+
+  async _deleteSession(sessionId) {
+    if (!this._hass) return;
+    const token = this._hass.auth.data.access_token;
+    const resp = await fetch("/api/kyber/sessions", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+    if (!resp.ok) {
+      this._appendMessage(`Failed to delete session (HTTP ${resp.status})`, "assistant");
+      return;
+    }
+    const data = await resp.json();
+    this._activeSessionId = data.active_session;
+    this._chatHistory = [];
+    this._compactedSummary = "";
+    await this._restorePersistedHistory();
+    this._appendMessage("Session deleted. Switched to previous session.", "assistant");
+  }
+
+  _showHelp(topic) {
+    const HELP = {
+      autopilot: `**autopilot** — Toggle auto-execution of AI proposals.\n\n\`/autopilot on\` — Enable autopilot. Proposals from the AI execute automatically without confirmation.\n\`/autopilot off\` — Disable autopilot. You'll see a confirm card before any change is applied.\n\nUseful when you trust the AI and want fast iteration.`,
+      dashboard: `**dashboard** — Manage Lovelace dashboards from the chat.\n\n\`/dashboard open [name]\` — Load a dashboard into the YAML editor. Omit name for the default Overview.\n\`/dashboard close\` — Close the editor without saving.\n\`/dashboard save\` — Save current editor content back to HA.\n\`/dashboard new\` — Create a new storage-mode dashboard.\n\`/dashboard delete\` — Permanently delete the open dashboard.`,
+      automation: `**automation** — Open, edit, save, create and delete automations.\n\n\`/automation open <name>\` — Fuzzy-find and open an automation in the YAML editor.\n\`/automation close\` — Close editor without saving.\n\`/automation save\` — Save current automation YAML.\n\`/automation new\` — Open HA's automation editor in a new tab.\n\`/automation delete <name>\` — Permanently delete an automation.`,
+      script: `**script** — Same as automation commands but for scripts.\n\n\`/script open <name>\`, \`/script close\`, \`/script save\`, \`/script new\`, \`/script delete <name>\``,
+      blueprint: `**blueprint** — Open HA's Blueprint management page.\n\n\`/blueprint browse\` — Opens /config/blueprint in a new tab.`,
+      area: `**area** — Manage Home Assistant areas.\n\n\`/area new <name>\` — Create a new area.\n\`/area delete <name>\` — Delete an area (entities become unassigned).\n\`/area rename <old> to <new>\` — Rename an area.\n\`/area list\` — List all areas with their IDs.`,
+      reset: `**reset** — Clear the current chat and start over.\n\n\`/reset\` — Shows a danger confirm card. On Execute, clears all messages and persisted history for this session.`,
+      session: `**session** — Manage multiple named chat sessions. Each session has its own message history and AI context.\n\n\`/session new [name]\` — Create a new session and switch to it.\n\`/session list\` — Show all sessions with their message counts.\n\`/session switch <name>\` — Switch to a different session.\n\`/session rename <new name>\` — Rename the current session.\n\`/session delete\` — Delete the current session and switch to the previous one.`,
+      help: `**help** — Show help for Kyber slash commands.\n\n\`/help\` — List all commands with one-line descriptions.\n\`/help <command>\` — Detailed documentation for a specific command (e.g. /help automation).`,
+    };
+
+    if (topic && HELP[topic]) {
+      this._appendMessage(HELP[topic], "assistant");
+      return;
+    }
+    if (topic && !HELP[topic]) {
+      this._appendMessage(`No help found for "${topic}". Try: ${Object.keys(HELP).join(", ")}`, "assistant");
+      return;
+    }
+    // /help with no argument — show command table
+    const lines = [
+      "**Kyber Slash Commands** — type / to autocomplete\n",
+      "| Command | Description |",
+      "|---|---|",
+      "| `/autopilot on/off` | Toggle auto-execute for AI proposals |",
+      "| `/dashboard open/save/new/delete` | Manage Lovelace dashboards |",
+      "| `/automation open/save/new/delete` | Manage automations |",
+      "| `/script open/save/new/delete` | Manage scripts |",
+      "| `/blueprint browse` | Open HA blueprint page |",
+      "| `/area new/delete/rename/list` | Manage areas |",
+      "| `/session new/list/switch/rename/delete` | Manage chat sessions |",
+      "| `/reset` | Clear chat and start over |",
+      "| `/help [command]` | Show this help or help for a specific command |",
+    ];
+    this._appendMessage(lines.join("\n"), "assistant");
+  }
+
+  async _handleSessionCommand(argStr) {
+    const parts = argStr.match(/^(\w+)(?:\s+(.*))?$/i);
+    const sub = parts ? parts[1].toLowerCase() : "";
+    const rest = parts ? (parts[2] || "").trim() : "";
+
+    if (!sub || sub === "list") {
+      const sessions = this._sessions || [];
+      if (!sessions.length) {
+        this._appendMessage("No sessions yet. Use `/session new [name]` to create one.", "assistant");
+        return;
+      }
+      const lines = sessions.map((s, i) => {
+        const active = s.id === this._activeSessionId ? " ← active" : "";
+        return `${i + 1}. **${s.name}** (${s.history.length} messages)${active}`;
+      });
+      this._appendMessage("**Chat Sessions:**\n" + lines.join("\n"), "assistant");
+      return;
+    }
+    if (sub === "new") {
+      const name = rest || `Session ${(this._sessions || []).length + 1}`;
+      await this._createSession(name);
+      this._appendMessage(`Started new session: **${name}**`, "assistant");
+      return;
+    }
+    if (sub === "switch") {
+      if (!rest) { this._appendMessage("Usage: `/session switch <name>`", "assistant"); return; }
+      await this._switchSession(rest);
+      return;
+    }
+    if (sub === "rename") {
+      if (!rest) { this._appendMessage("Usage: `/session rename <new name>`", "assistant"); return; }
+      await this._renameSession(rest);
+      return;
+    }
+    if (sub === "delete") {
+      const session = this._getActiveSession();
+      if (!session) { this._appendMessage("No active session to delete.", "assistant"); return; }
+      this._buildCommandCard({
+        icon: "🗑",
+        title: `Delete session: ${session.name}`,
+        detail: `${session.history.length} messages will be lost.`,
+        danger: true,
+        onConfirm: async () => { await this._deleteSession(session.id); },
+      });
+      return;
+    }
+    this._appendMessage(`Unknown session sub-command: "${sub}". Try: new, list, switch, rename, delete`, "assistant");
+  }
+
   /** Extract the token the cursor is currently inside in a textarea. */
   _getTokenAtCursor(textarea) {
     const pos = textarea.selectionStart;
@@ -1090,7 +1304,7 @@ class KyberPanel extends HTMLElement {
     const slashAc = val.match(/^\/(\w*)$/);
     if (slashAc) {
       const partial = slashAc[1].toLowerCase();
-      const cmds = ["autopilot on", "autopilot off", "dashboard", "automation", "script", "blueprint", "area", "reset"];
+      const cmds = ["autopilot on", "autopilot off", "dashboard", "automation", "script", "blueprint", "area", "reset", "help", "session"];
       const matches = cmds.filter((c) => c.startsWith(partial)).map((c) => ({
         entity_id: "/" + c,
         friendly_name: "",
@@ -2106,6 +2320,16 @@ class KyberPanel extends HTMLElement {
             await this._clearHistory();
           },
         });
+        return;
+      }
+      if (cmd === "help") {
+        promptInput.value = "";
+        this._showHelp(argStr.trim());
+        return;
+      }
+      if (cmd === "session") {
+        promptInput.value = "";
+        this._handleSessionCommand(argStr.trim());
         return;
       }
       if (["dashboard", "automation", "script", "blueprint", "area"].includes(cmd)) {
