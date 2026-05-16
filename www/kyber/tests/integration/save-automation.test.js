@@ -3,9 +3,11 @@
  *
  * Covers:
  *   - POSTs YAML to /api/kyber/parse_yaml for server-side parsing
- *   - Uses parsed config to call hass.callApi POST to HA config endpoint
+ *   - Uses direct fetch POST to HA config endpoint (not hass.callApi)
+ *   - Strips 'id' field from config body before posting
  *   - Shows success status and saves [CHANGE] entry in chat history
  *   - Shows error when parse_yaml fails
+ *   - Shows meaningful error (not "undefined") when HA API returns error
  *   - Re-enables Save button on failure
  *   - Works for scripts (uses config/script/config/ API path)
  *   - Save button label reflects editor mode (automation / script / dashboard)
@@ -25,12 +27,28 @@ describe("_saveAutomation", () => {
     return { element, hass };
   }
 
+  /** Build a fetch mock that succeeds for both parse_yaml and the HA save API. */
+  function mockFetchSuccess(configFromParse = { alias: "my test", mode: "single" }) {
+    return vi.fn().mockImplementation((url) => {
+      if (url.includes("parse_yaml")) {
+        return Promise.resolve({
+          ok: true,
+          text: async () => JSON.stringify({ config: configFromParse }),
+          json: async () => ({ config: configFromParse }),
+        });
+      }
+      // HA config API success
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ result: "ok" }),
+        json: async () => ({ result: "ok" }),
+      });
+    });
+  }
+
   beforeEach(() => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      text: async () => "",
-      json: async () => ({ config: { alias: "my test", mode: "single" } }),
-    }));
+    vi.stubGlobal("fetch", mockFetchSuccess());
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -42,26 +60,39 @@ describe("_saveAutomation", () => {
     expect(body.yaml).toContain("alias: my test");
   });
 
-  it("calls hass.callApi POST with the parsed config", async () => {
-    const { element, hass } = setupWithEditor();
+  it("POSTs to the HA automation config API path via fetch", async () => {
+    const { element } = setupWithEditor();
     await element._saveAutomation();
-    expect(hass.callApi).toHaveBeenCalledWith(
-      "POST",
-      "config/automation/config/my_test",
-      { alias: "my test", mode: "single" }
+    const saveCalls = fetch.mock.calls.filter(([url]) =>
+      url.includes("config/automation/config")
     );
+    expect(saveCalls).toHaveLength(1);
+    expect(saveCalls[0][0]).toContain("config/automation/config/my_test");
+    expect(saveCalls[0][1].method).toBe("POST");
+  });
+
+  it("strips the 'id' field from the config body before saving", async () => {
+    vi.stubGlobal("fetch", mockFetchSuccess({ alias: "my test", mode: "single", id: "my_test" }));
+    const { element } = setupWithEditor();
+    await element._saveAutomation();
+    const saveCalls = fetch.mock.calls.filter(([url]) =>
+      url.includes("config/automation")
+    );
+    const body = JSON.parse(saveCalls[0][1].body);
+    expect(body.id).toBeUndefined();
+    expect(body.alias).toBe("my test");
   });
 
   it("uses script API path when editorMode is script", async () => {
-    const { element, hass } = setupWithEditor();
+    const { element } = setupWithEditor();
     element._editorMode = "script";
     element._currentAutomationId = "my_script";
     await element._saveAutomation();
-    expect(hass.callApi).toHaveBeenCalledWith(
-      "POST",
-      "config/script/config/my_script",
-      expect.any(Object)
+    const saveCalls = fetch.mock.calls.filter(([url]) =>
+      url.includes("config/script/config")
     );
+    expect(saveCalls).toHaveLength(1);
+    expect(saveCalls[0][0]).toContain("config/script/config/my_script");
   });
 
   it("adds [CHANGE] entry to chat history after success", async () => {
@@ -82,7 +113,7 @@ describe("_saveAutomation", () => {
   });
 
   it("shows error status and re-enables button on parse_yaml failure", async () => {
-    fetch.mockResolvedValue({ ok: false, text: async () => "Invalid YAML" });
+    fetch.mockResolvedValue({ ok: false, status: 400, text: async () => "Invalid YAML" });
     const { element } = setupWithEditor("invalid: [unclosed");
     await element._saveAutomation();
     const bar = element.shadowRoot.getElementById("status-bar");
@@ -91,12 +122,45 @@ describe("_saveAutomation", () => {
     expect(saveBtn.disabled).toBe(false);
   });
 
-  it("shows non-undefined error text when callApi throws a non-Error value", async () => {
-    const { element, hass } = setupWithEditor();
-    hass.callApi.mockRejectedValue("Write failed");
+  it("shows HTTP error message when HA config API returns non-2xx", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url) => {
+      if (url.includes("parse_yaml")) {
+        return Promise.resolve({
+          ok: true,
+          text: async () => JSON.stringify({ config: { alias: "test" } }),
+          json: async () => ({ config: { alias: "test" } }),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 400,
+        text: async () => JSON.stringify({ message: "Invalid automation config" }),
+      });
+    }));
+    const { element } = setupWithEditor();
     await element._saveAutomation();
     const bar = element.shadowRoot.getElementById("status-bar");
-    expect(bar.textContent).toContain("Save failed: Write failed");
+    expect(bar.textContent).toContain("Save failed");
+    expect(bar.textContent).toContain("Invalid automation config");
+    expect(bar.textContent).not.toContain("undefined");
+  });
+
+  it("shows HTTP status when HA config API returns empty error body", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url) => {
+      if (url.includes("parse_yaml")) {
+        return Promise.resolve({
+          ok: true,
+          text: async () => JSON.stringify({ config: { alias: "test" } }),
+          json: async () => ({ config: { alias: "test" } }),
+        });
+      }
+      return Promise.resolve({ ok: false, status: 500, text: async () => "" });
+    }));
+    const { element } = setupWithEditor();
+    await element._saveAutomation();
+    const bar = element.shadowRoot.getElementById("status-bar");
+    expect(bar.textContent).toContain("Save failed");
+    expect(bar.textContent).toContain("500");
     expect(bar.textContent).not.toContain("undefined");
   });
 

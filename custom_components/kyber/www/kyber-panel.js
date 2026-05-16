@@ -1780,7 +1780,8 @@ class KyberPanel extends HTMLElement {
       this.shadowRoot.getElementById("btn-save").disabled = true;
       this._setStatus(`Loaded: ${configId}`);
     } catch (err) {
-      this._setStatus(`Error loading: ${err.message}`, "error");
+      const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
+      this._setStatus(`Error loading: ${msg}`, "error");
     }
   }
 
@@ -1813,11 +1814,40 @@ class KyberPanel extends HTMLElement {
 
       const { config } = await parseResp.json();
 
-      // Step 2: Write JSON config via HA's config REST API
+      // Step 2: Write JSON config via HA's config REST API.
+      // Use fetch directly instead of hass.callApi — callApi rejects with
+      // `undefined` when the response body is empty, making the error
+      // undiagnosable. Direct fetch lets us extract a meaningful message.
       const apiPath = isScript
         ? `config/script/config/${this._currentAutomationId}`
         : `config/automation/config/${this._currentAutomationId}`;
-      await this._hass.callApi("POST", apiPath, config);
+
+      // Strip 'id' from the body — HA's config endpoint takes the id from
+      // the URL; having it in the body can trigger validation errors.
+      const configToSave = { ...config };
+      delete configToSave.id;
+
+      const saveResp = await fetch(`/api/${apiPath}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(configToSave),
+      });
+
+      if (!saveResp.ok) {
+        let errMsg = `HTTP ${saveResp.status}`;
+        try {
+          const errBody = await saveResp.text();
+          if (errBody) {
+            const errJson = JSON.parse(errBody);
+            errMsg = errJson.message || errJson.body || errBody;
+          }
+        } catch (_) { /* keep HTTP status as fallback */ }
+        console.error("_saveAutomation: HA API error", saveResp.status, errMsg);
+        throw new Error(errMsg);
+      }
 
       this._dirty = false;
       const kind = isScript ? "script" : "automation";
@@ -1826,7 +1856,8 @@ class KyberPanel extends HTMLElement {
       this._setStatus("Saved ✓", "success");
     } catch (err) {
       btn.disabled = false;
-      this._setStatus(`Save failed: ${err?.message || String(err)}`, "error");
+      const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
+      this._setStatus(`Save failed: ${msg}`, "error");
     }
   }
 
