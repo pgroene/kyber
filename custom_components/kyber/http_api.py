@@ -45,12 +45,15 @@ _ACTION_KEYWORDS: frozenset[str] = frozenset({
 
 _RESPONSE_MODE_INFORMATIONAL = (
     "\n[SYSTEM: Response constraint — INFORMATIONAL query]\n"
-    "Output ONLY a direct plain-text answer. Rules:\n"
-    "1. If you need entity IDs: OUTPUT [TOOL_CALL: {\"name\": ...}] RIGHT NOW and stop. "
-    "Do NOT say 'I will call a tool' or 'I'll execute a tool call' — just output the format.\n"
-    "2. NEVER invent, guess, or fabricate entity IDs. "
-    "If you don't have real IDs from a tool result, call the tool first.\n"
-    "3. After tool results arrive: list ACTUAL names/states from the result. "
+    "You have ZERO prior knowledge of this user's Home Assistant setup. "
+    "You do NOT know the names, IDs, or states of any devices, lights, or sensors.\n"
+    "Rules:\n"
+    "1. For ANY question about the home's current state (which lights are on, what devices exist, "
+    "temperatures, sensor values, areas, etc.): OUTPUT [TOOL_CALL: {\"name\": ...}] RIGHT NOW — "
+    "do NOT guess, fabricate, or invent any names, IDs, or states. CALL THE TOOL FIRST.\n"
+    "2. NEVER invent or guess entity IDs, device names, or states. "
+    "If you don't have a real tool result, call the tool.\n"
+    "3. After tool results arrive: list ACTUAL names/states from the result ONLY. "
     "NEVER use placeholders like '[listing all X items]'.\n"
     "4. Do NOT start your reply by describing what you are about to do.\n"
     "5. Do NOT output a plan block. Do NOT open the editor or dashboard.\n"
@@ -62,8 +65,9 @@ _RESPONSE_MODE_INFORMATIONAL = (
 
 _RESPONSE_MODE_ACTION = (
     "\n[SYSTEM: Response constraint — ACTION query]\n"
-    "The user wants to change, edit, or control something.\n"
-    "1. If you need real entity IDs: OUTPUT [TOOL_CALL: {\"name\": ...}] RIGHT NOW — do not narrate it.\n"
+    "You have ZERO prior knowledge of this user's Home Assistant setup. "
+    "You do NOT know the IDs or names of any devices, lights, or automations.\n"
+    "1. To get real entity IDs: OUTPUT [TOOL_CALL: {\"name\": ...}] RIGHT NOW — do not narrate it.\n"
     "2. NEVER invent entity IDs. Use tool results only.\n"
     "3. After getting real IDs, output the appropriate plan block (open_editor / actions / open_dashboard).\n"
     "[END SYSTEM]\n"
@@ -815,6 +819,10 @@ class KyberView(HomeAssistantView):
         _PREAMBLE_PATTERNS = [
             # "I'm happy to help with your query!"
             re.compile(r"^I'?m happy to help( with (your|this) (query|question|request))?[.!]?\s*", re.IGNORECASE),
+            # "I'm here to help!"
+            re.compile(r"^I'?m here to help[.!]?\s*", re.IGNORECASE),
+            # "Since this is an INFORMATIONAL query, I'll provide a direct plain-text answer."
+            re.compile(r"^Since this is an? (INFORMATIONAL|ACTION)[^.]*\.\s*", re.IGNORECASE),
             # "Since the user is asking for information, I'll respond in plain text."
             re.compile(r"^Since the user is asking for [^.]+\.\s*", re.IGNORECASE),
             # "I'll respond in plain text and use tool calls if needed."
@@ -827,6 +835,8 @@ class KyberView(HomeAssistantView):
             re.compile(r"^After (executing|running) the tool call[^,]*,\s*", re.IGNORECASE),
             # "Let me call some tools to get more information..."
             re.compile(r"^Let me (call|use|run) (some |a )?tools?[^.]*\.\s*", re.IGNORECASE),
+            # "According to the current state of the house," (preamble before hallucinated list)
+            re.compile(r"^According to the (current state|context)[^,]*,\s*", re.IGNORECASE),
         ]
         for pattern in _PREAMBLE_PATTERNS:
             response_text = pattern.sub("", response_text).strip()
