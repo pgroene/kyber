@@ -4,6 +4,19 @@ Kyber embeds a full-featured YAML editor directly in the Home Assistant sidebar 
 
 ---
 
+### Editor context breadcrumb
+
+When the editor is open, the toolbar shows the current automation/dashboard name next to **⚡ Kyber** as a secondary label:
+
+```
+⚡ Kyber  Morning Lights
+⚡ Kyber  Overview (default)
+```
+
+This gives a quick visual confirmation of which file is being edited. The label updates automatically when you switch dashboards via the dropdown.
+
+---
+
 ## Automation / Script Editor
 
 ### Opening the editor
