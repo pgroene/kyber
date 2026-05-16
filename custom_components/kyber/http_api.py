@@ -22,7 +22,7 @@ except ImportError:  # HA < 2025.2 (test environments)
     async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
         raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
 
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, SYSTEM_PROMPT_TEMPLATE
+from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, MAX_ENTITY_LIST_CHARS, SYSTEM_PROMPT_TEMPLATE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,13 +65,39 @@ def _build_context(hass: HomeAssistant) -> str:
                     area_name = area_by_id.get(entry.area_id, entry.area_id)
                 if entry.labels:
                     entity_labels = ", ".join(sorted(entry.labels))
-            entity_lines.append(
-                f"- {state.entity_id} | {friendly} | {area_name} | {entity_labels}"
-            )
+            # Compact format: omit trailing empty area/labels pipes to save context space
+            if area_name or entity_labels:
+                entity_lines.append(
+                    f"- {state.entity_id} | {friendly} | {area_name} | {entity_labels}"
+                )
+            else:
+                entity_lines.append(f"- {state.entity_id} | {friendly}")
 
     automation_list = "\n".join(automation_lines) or "(no automations)"
     script_list = "\n".join(script_lines) or "(no scripts)"
     entity_list = "\n".join(entity_lines) or "(no entities)"
+
+    if len(entity_list) > MAX_ENTITY_LIST_CHARS:
+        # Truncate by line, keeping as many entities as fit within the budget.
+        truncated: list[str] = []
+        budget = MAX_ENTITY_LIST_CHARS
+        for line in entity_lines:
+            cost = len(line) + 1  # +1 for the newline separator
+            if budget - cost < 60:  # keep room for the truncation notice
+                break
+            truncated.append(line)
+            budget -= cost
+        omitted = len(entity_lines) - len(truncated)
+        _LOGGER.warning(
+            "Kyber: entity list truncated — %d of %d entities omitted to stay within "
+            "the %d-char context budget. "
+            "Increase MAX_ENTITY_LIST_CHARS in const.py or assign fewer entities.",
+            omitted,
+            len(entity_lines),
+            MAX_ENTITY_LIST_CHARS,
+        )
+        truncated.append(f"... ({omitted} more entities not shown — context budget exceeded)")
+        entity_list = "\n".join(truncated)
 
     return SYSTEM_PROMPT_TEMPLATE.format(
         area_list=area_list,
