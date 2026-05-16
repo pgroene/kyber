@@ -780,7 +780,7 @@ class KyberPanel extends HTMLElement {
       <div class="container" id="app-container">
         <div class="toolbar">
           <h2 class="brand-title">
-            <img id="kyber-header-icon" class="brand-icon" src="icon.png" alt="Kyber icon">
+            <img id="kyber-header-icon" class="brand-icon" src="/local/kyber/icon.png" alt="Kyber icon">
             <span>Kyber</span>
           </h2>
           <span class="editor-context-label editor-controls" id="editor-context-label"></span>
@@ -793,7 +793,7 @@ class KyberPanel extends HTMLElement {
         </div>
         <div class="chat-pane">
           <div class="sidebar-brand">
-            <img id="kyber-sidebar-icon" class="brand-icon" src="icon.png" alt="Kyber icon">
+            <img id="kyber-sidebar-icon" class="brand-icon" src="/local/kyber/icon.png" alt="Kyber icon">
             <span>Kyber Assistant</span>
             <span class="session-label" id="session-indicator"></span>
             <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
