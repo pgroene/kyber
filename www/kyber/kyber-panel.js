@@ -219,6 +219,30 @@ const STYLES = `
     text-align: center;
   }
 
+  .tool-log {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-self: flex-start;
+    margin: 2px 0 4px 0;
+  }
+
+  .tool-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--secondary-text-color, #888);
+    background: var(--secondary-background-color, #2c2c2e);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 2px 8px;
+    white-space: nowrap;
+  }
+
+  .tool-pill .tool-icon { opacity: 0.7; }
+  .tool-pill .tool-name { font-weight: 600; color: var(--accent, #03a9f4); }
+
   .suggestion-chips {
     display: flex;
     flex-wrap: wrap;
@@ -2474,6 +2498,12 @@ class KyberPanel extends HTMLElement {
         this._addChatHistory("assistant", textOnly);
       }
       this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null);
+
+      // Show tool call feedback pills above the response
+      if (data.tool_log && data.tool_log.length > 0) {
+        this._showToolLog(data.tool_log);
+      }
+
       this._setStatus("Done");
 
       // Update context badge with live entity/automation counts
@@ -2971,6 +3001,35 @@ class KyberPanel extends HTMLElement {
       bar.textContent = message;
     }
     bar.className = `status-bar ${type}`;
+  }
+
+  _showToolLog(toolLog) {
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (!history || !toolLog || toolLog.length === 0) return;
+    const toolIcons = {
+      list_entities_by_domain: "🔍",
+      get_entity_state: "📡",
+      get_area_entities: "🏠",
+      list_entities_by_label: "🏷",
+      search_entities: "🔎",
+      get_areas: "🗺",
+      get_labels: "🏷",
+    };
+    const container = document.createElement("div");
+    container.className = "tool-log";
+    toolLog.forEach((entry) => {
+      const icon = toolIcons[entry.name] || "🔧";
+      const argsStr = Object.entries(entry.args || {})
+        .map(([k, v]) => `${k}="${v}"`)
+        .join(", ");
+      const pill = document.createElement("span");
+      pill.className = "tool-pill";
+      pill.title = argsStr ? `${entry.name}(${argsStr})` : entry.name;
+      pill.innerHTML = `<span class="tool-icon">${icon}</span><span class="tool-name">${this._escapeHtml(entry.name)}</span><span>→ ${this._escapeHtml(entry.summary)}</span>`;
+      container.appendChild(pill);
+    });
+    history.appendChild(container);
+    history.scrollTop = history.scrollHeight;
   }
 
   _updateContextBadge(stats) {

@@ -285,6 +285,39 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
     return context, context_stats
 
 
+def _tool_result_summary(call: dict[str, Any], result: Any) -> str:
+    """Build a short human-readable summary of a tool call result for the UI."""
+    name = call.get("name", "")
+    if isinstance(result, dict) and "error" in result:
+        return f"error: {result['error']}"
+    if name == "list_entities_by_domain":
+        count = len(result) if isinstance(result, dict) else 0
+        domain = call.get("domain", "?")
+        return f"{count} {domain} entities"
+    if name == "get_entity_state":
+        eid = call.get("entity_id", "?")
+        state = result.get("state", "?") if isinstance(result, dict) else "?"
+        return f"{eid} = {state}"
+    if name == "get_area_entities":
+        area = result.get("area", call.get("area", "?")) if isinstance(result, dict) else "?"
+        count = len(result.get("entities", {})) if isinstance(result, dict) else 0
+        return f"{count} entities in {area}"
+    if name == "list_entities_by_label":
+        label = result.get("label", call.get("label", "?")) if isinstance(result, dict) else "?"
+        count = len(result.get("entities", {})) if isinstance(result, dict) else 0
+        return f"{count} entities with label '{label}'"
+    if name == "search_entities":
+        count = len(result) if isinstance(result, dict) else 0
+        return f"{count} matches for '{call.get('query', '?')}'"
+    if name == "get_areas":
+        count = len(result) if isinstance(result, dict) else 0
+        return f"{count} areas"
+    if name == "get_labels":
+        count = len(result) if isinstance(result, dict) else 0
+        return f"{count} labels"
+    return "done"
+
+
 def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
     """Execute a tool call and return the result as a JSON string."""
     name = call.get("name", "")
@@ -650,6 +683,7 @@ class KyberView(HomeAssistantView):
         # Tool-calling loop — the AI may request live HA data via [TOOL_CALL: {...}]
         # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
         tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
+        tool_log: list[dict[str, Any]] = []  # summary of tool calls for UI feedback
         response_text = ""
         for _round in range(_TOOL_CALL_MAX_ROUNDS):
             loop_instructions = instructions + tool_exchange
@@ -696,17 +730,28 @@ class KyberView(HomeAssistantView):
             clean_response = _strip_tool_calls(response_text)
             tool_results_block = ""
             for call in tool_calls:
-                tool_result = _execute_tool(hass, call)
-                _LOGGER.debug("Tool call %s → %s chars", call.get("name"), len(tool_result))
+                tool_result_str = _execute_tool(hass, call)
+                tool_result_data = json.loads(tool_result_str)
+                _LOGGER.debug("Tool call %s → %s chars", call.get("name"), len(tool_result_str))
+
+                # Build a short human-readable summary for the UI
+                summary = _tool_result_summary(call, tool_result_data)
+                args_display = {k: v for k, v in call.items() if k != "name"}
+                tool_log.append({
+                    "name": call.get("name", ""),
+                    "args": args_display,
+                    "summary": summary,
+                })
+
                 tool_results_block += (
-                    f"\n[TOOL_RESULT: {json.dumps(call)}]\n{tool_result}\n"
+                    f"\n[TOOL_RESULT: {json.dumps(call)}]\n{tool_result_str}\n"
                 )
             tool_exchange += f"{clean_response}\n{tool_results_block}\nAssistant:"
 
         yaml_blocks = _extract_yaml_blocks(response_text)
         plan_block = _extract_plan_block(response_text)
 
-        return self.json({"response": response_text, "yaml_blocks": yaml_blocks, "plan": plan_block, "context_stats": context_stats})
+        return self.json({"response": response_text, "yaml_blocks": yaml_blocks, "plan": plan_block, "context_stats": context_stats, "tool_log": tool_log})
 
 
 class KyberHistoryView(HomeAssistantView):
