@@ -1672,10 +1672,29 @@ class KyberPanel extends HTMLElement {
       if (!parseResp.ok) throw new Error(`YAML parse error: ${await parseResp.text()}`);
       const { config } = await parseResp.json();
 
-      // Save to the currently selected dashboard path via hass.callApi
+      // Save to the currently selected dashboard path via direct fetch.
+      // hass.callApi rejects with undefined on empty error bodies, so we
+      // use fetch directly to get a meaningful error message.
       const path = this._currentDashboardPath;
       const apiPath = path ? `lovelace/config?url_path=${path}` : "lovelace/config";
-      await this._hass.callApi("POST", apiPath, config);
+      const saveResp = await fetch(`/api/${apiPath}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(config),
+      });
+
+      if (!saveResp.ok) {
+        let errMsg = `HTTP ${saveResp.status}`;
+        try {
+          const errBody = await saveResp.text();
+          if (errBody) {
+            const errJson = JSON.parse(errBody);
+            errMsg = errJson.message || errJson.body || errBody;
+          }
+        } catch (_) { /* keep HTTP status as fallback */ }
+        console.error("_saveDashboard: HA API error", saveResp.status, errMsg);
+        throw new Error(errMsg);
+      }
 
       const sel = this.shadowRoot.getElementById("dashboard-select");
       const label = sel ? sel.options[sel.selectedIndex]?.textContent : (path || "default");
@@ -1686,7 +1705,8 @@ class KyberPanel extends HTMLElement {
       this._setStatus(`${label} saved ✓ — reload the browser tab to see changes`, "success");
     } catch (err) {
       btn.disabled = false;
-      this._setStatus(`Save failed: ${err.message || String(err)}`, "error");
+      const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
+      this._setStatus(`Save failed: ${msg}`, "error");
     }
   }
 
