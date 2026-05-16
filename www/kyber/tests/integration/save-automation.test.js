@@ -91,6 +91,15 @@ describe("_saveAutomation", () => {
     expect(saveBtn.disabled).toBe(false);
   });
 
+  it("shows non-undefined error text when callApi throws a non-Error value", async () => {
+    const { element, hass } = setupWithEditor();
+    hass.callApi.mockRejectedValue("Write failed");
+    await element._saveAutomation();
+    const bar = element.shadowRoot.getElementById("status-bar");
+    expect(bar.textContent).toContain("Save failed: Write failed");
+    expect(bar.textContent).not.toContain("undefined");
+  });
+
   it("does nothing when currentAutomationId is null", async () => {
     const { element } = setupWithEditor();
     element._currentAutomationId = null;

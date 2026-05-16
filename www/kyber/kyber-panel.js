@@ -1826,7 +1826,7 @@ class KyberPanel extends HTMLElement {
       this._setStatus("Saved ✓", "success");
     } catch (err) {
       btn.disabled = false;
-      this._setStatus(`Save failed: ${err.message}`, "error");
+      this._setStatus(`Save failed: ${err?.message || String(err)}`, "error");
     }
   }
 
