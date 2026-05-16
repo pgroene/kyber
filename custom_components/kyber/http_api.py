@@ -29,7 +29,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
-_TOOL_CALL_RE = re.compile(r"\[TOOL_CALL:\s*(\{.*?\})\s*\]", re.DOTALL)
+_TOOL_CALL_RE = re.compile(r"\[TOOL_CALL:\s*(\{[^]]*?\})\s*\]", re.DOTALL)
 _TOOL_CALL_MAX_ROUNDS = 5
 _CHAT_HISTORY_STORE_VERSION = 1
 _CHAT_HISTORY_STORE_KEY = f"{DOMAIN}_chat_history"
