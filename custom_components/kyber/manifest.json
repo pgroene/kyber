@@ -1,0 +1,11 @@
+{
+  "domain": "kyber",
+  "name": "Kyber",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": ["ollama", "ai_task"],
+  "documentation": "https://github.com/home-assistant/github-copilot-integration",
+  "iot_class": "local_polling",
+  "requirements": [],
+  "version": "0.1.0"
+}

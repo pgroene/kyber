@@ -1,0 +1,799 @@
+﻿"""Functional tests for the Kyber HTTP API views.
+
+Covers all four endpoints:
+  - POST /api/kyber/complete
+  - POST /api/kyber/execute
+  - POST /api/kyber/parse_yaml   (→ tests/test_parse_yaml.py)
+  - POST /api/kyber/summarize    (→ tests/test_summarize.py)
+
+Helper functions (_extract_yaml_blocks, _extract_plan_block, _build_service_undo)
+are tested in tests/test_helpers.py.
+"""
+from unittest.mock import MagicMock, patch
+
+import pytest
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import label_registry as lr
+
+from custom_components.kyber.const import DOMAIN
+
+# Correct patch target — all tests must use this path
+_PATCH_GENERATE = "custom_components.kyber.http_api.async_generate_data"
+
+
+def _make_ai_result(text: str) -> MagicMock:
+    """Create a mock async_generate_data result with .data = text."""
+    r = MagicMock()
+    r.data = text
+    return r
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /complete — authentication
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def test_unauthenticated_request_rejected(
+    hass: HomeAssistant, setup_integration, hass_client_no_auth
+) -> None:
+    """Requests without a valid HA auth token should be rejected with 401."""
+    client = await hass_client_no_auth()
+    resp = await client.post(
+        "/api/kyber/complete",
+        json={"yaml": "automation:", "prompt": "Add a condition"},
+    )
+    assert resp.status == 401
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /complete — input validation
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def test_missing_prompt_returns_400(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """POST /api/kyber/complete without a 'prompt' field should return 400."""
+    client = await hass_client()
+    resp = await client.post("/api/kyber/complete", json={"yaml": "automation:"})
+    assert resp.status == 400
+
+
+async def test_empty_prompt_returns_400(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """POST /api/kyber/complete with an empty prompt string should return 400."""
+    client = await hass_client()
+    resp = await client.post("/api/kyber/complete", json={"prompt": "   "})
+    assert resp.status == 400
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /complete — context building
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def test_context_includes_entity_ids(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """The instructions sent to async_generate_data should contain HA entity IDs."""
+    hass.states.async_set("light.living_room", "on")
+    hass.states.async_set("switch.bedroom_fan", "off")
+
+    captured = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        captured["v"] = instructions
+        return _make_ai_result("```yaml\nautomation:\n  alias: test\n```")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=fake):
+        resp = await client.post(
+            "/api/kyber/complete",
+            json={"yaml": "automation:", "prompt": "Add a condition"},
+        )
+
+    assert resp.status == 200
+    assert "light.living_room" in captured["v"]
+    assert "switch.bedroom_fan" in captured["v"]
+
+
+async def test_context_includes_areas(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """The instructions should contain area names from the area registry."""
+    area_reg = ar.async_get(hass)
+    area_reg.async_create("Living Room")
+    area_reg.async_create("Bedroom")
+
+    captured = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        captured["v"] = instructions
+        return _make_ai_result("```yaml\nautomation:\n  alias: test\n```")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=fake):
+        resp = await client.post(
+            "/api/kyber/complete",
+            json={"yaml": "automation:", "prompt": "Add a condition"},
+        )
+
+    assert resp.status == 200
+    assert "Living Room" in captured["v"]
+    assert "Bedroom" in captured["v"]
+
+
+async def test_context_includes_labels(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """The instructions should contain label names from the label registry."""
+    label_reg = lr.async_get(hass)
+    label_reg.async_create("Outdoor")
+    label_reg.async_create("Security")
+
+    captured = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        captured["v"] = instructions
+        return _make_ai_result("```yaml\nautomation:\n  alias: test\n```")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=fake):
+        resp = await client.post("/api/kyber/complete", json={"prompt": "help"})
+
+    assert resp.status == 200
+    instr = captured["v"]
+    assert "Outdoor" in instr or "outdoor" in instr.lower()
+    assert "Security" in instr or "security" in instr.lower()
+
+
+async def test_context_includes_automations(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """The instructions should include automation entity IDs and their friendly names."""
+    hass.states.async_set(
+        "automation.morning_lights", "on",
+        attributes={"friendly_name": "Morning Lights"},
+    )
+
+    captured = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        captured["v"] = instructions
+        return _make_ai_result("ok")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=fake):
+        resp = await client.post("/api/kyber/complete", json={"prompt": "list automations"})
+
+    assert resp.status == 200
+    assert "automation.morning_lights" in captured["v"]
+    assert "Morning Lights" in captured["v"]
+
+
+async def test_context_includes_scripts(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """The instructions should include script entity IDs and their friendly names."""
+    hass.states.async_set(
+        "script.welcome_home", "off",
+        attributes={"friendly_name": "Welcome Home"},
+    )
+
+    captured = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        captured["v"] = instructions
+        return _make_ai_result("ok")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=fake):
+        resp = await client.post("/api/kyber/complete", json={"prompt": "list scripts"})
+
+    assert resp.status == 200
+    assert "script.welcome_home" in captured["v"]
+    assert "Welcome Home" in captured["v"]
+
+
+async def test_dashboards_included_in_context(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """The instructions should list dashboards provided by the frontend."""
+    captured = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        captured["v"] = instructions
+        return _make_ai_result("ok")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=fake):
+        resp = await client.post(
+            "/api/kyber/complete",
+            json={
+                "prompt": "what dashboards do I have?",
+                "dashboards": [
+                    {"title": "Home", "url_path": "home", "mode": "storage"},
+                    {"title": "Energy", "url_path": "energy", "mode": "storage"},
+                ],
+            },
+        )
+
+    assert resp.status == 200
+    instr = captured["v"]
+    assert "home" in instr
+    assert "energy" in instr or "Energy" in instr
+
+
+async def test_history_and_summary_included_in_context(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Conversation history and compacted_summary should appear in the instructions."""
+    captured = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        captured["v"] = instructions
+        return _make_ai_result("ok")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=fake):
+        resp = await client.post(
+            "/api/kyber/complete",
+            json={
+                "prompt": "continue",
+                "compacted_summary": "User asked about lights.",
+                "history": [
+                    {"role": "user", "content": "Turn off lights"},
+                    {"role": "assistant", "content": "Done."},
+                ],
+            },
+        )
+
+    assert resp.status == 200
+    instr = captured["v"]
+    assert "User asked about lights" in instr
+    assert "Turn off lights" in instr
+    assert "Done." in instr
+
+
+async def test_dashboard_editor_mode_injects_yaml_section(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """When editor_mode=dashboard the instructions must include the dashboard YAML section."""
+    captured = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        captured["v"] = instructions
+        return _make_ai_result("```yaml\ntitle: Home\n```")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=fake):
+        resp = await client.post(
+            "/api/kyber/complete",
+            json={
+                "prompt": "add a clock card",
+                "editor_mode": "dashboard",
+                "yaml": "title: My Dashboard\nviews: []",
+            },
+        )
+
+    assert resp.status == 200
+    instr = captured["v"]
+    assert "DASHBOARD EDITOR" in instr.upper() or "dashboard" in instr.lower()
+    assert "title: My Dashboard" in instr
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /complete — AI entity and response parsing
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def test_ai_task_called_with_correct_entity(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """async_generate_data should be called with the configured ai_task_entity_id."""
+    called_with = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        called_with["entity_id"] = entity_id
+        return _make_ai_result("```yaml\nautomation:\n  alias: test\n```")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=fake):
+        await client.post("/api/kyber/complete", json={"prompt": "help"})
+
+    assert called_with["entity_id"] == "ai_task.ollama_ai_task"
+
+
+async def test_yaml_blocks_extracted(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Response should parse ```yaml``` blocks from the AI response text."""
+    ai_response = (
+        "Sure!\n"
+        "```yaml\n"
+        "automation:\n"
+        "  alias: My Automation\n"
+        "  trigger: []\n"
+        "```\n"
+        "That's it."
+    )
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=lambda *a, **kw: _make_ai_result(ai_response)):
+        resp = await client.post("/api/kyber/complete", json={"prompt": "help"})
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["response"] == ai_response
+    assert len(data["yaml_blocks"]) == 1
+    assert "alias: My Automation" in data["yaml_blocks"][0]
+
+
+async def test_plan_block_extracted(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Response should parse the ```plan``` JSON block and return it as 'plan'."""
+    plan_json = '{"overview": "Rename lights", "actions": [{"type": "rename_entity", "entity_id": "light.desk", "name": "Desk Light"}]}'
+    ai_response = f"Here is my plan:\n```plan\n{plan_json}\n```"
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=lambda *a, **kw: _make_ai_result(ai_response)):
+        resp = await client.post("/api/kyber/complete", json={"prompt": "rename desk light"})
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["plan"] is not None
+    assert data["plan"]["overview"] == "Rename lights"
+    assert data["plan"]["actions"][0]["type"] == "rename_entity"
+
+
+async def test_no_plan_block_returns_null_plan(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """When the AI response contains no plan block, 'plan' should be null."""
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=lambda *a, **kw: _make_ai_result("Just a text answer.")):
+        resp = await client.post("/api/kyber/complete", json={"prompt": "hello"})
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["plan"] is None
+
+
+async def test_ai_task_failure_returns_503(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """When async_generate_data raises HomeAssistantError, return 503."""
+    async def failing(*a, **kw):
+        raise HomeAssistantError("Ollama is not available")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=failing):
+        resp = await client.post("/api/kyber/complete", json={"prompt": "help"})
+
+    assert resp.status == 503
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /execute — validation
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def test_execute_empty_actions_returns_400(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """POST /api/kyber/execute with empty actions list should return 400."""
+    client = await hass_client()
+    resp = await client.post("/api/kyber/execute", json={"actions": []})
+    assert resp.status == 400
+
+
+async def test_execute_unauthenticated_returns_401(
+    hass: HomeAssistant, setup_integration, hass_client_no_auth
+) -> None:
+    """Unauthenticated /execute requests should return 401."""
+    client = await hass_client_no_auth()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{"type": "rename_entity", "entity_id": "light.x", "name": "X"}]},
+    )
+    assert resp.status == 401
+
+
+async def test_execute_unknown_entity_returns_error(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Execute should return an error result for entities not in the registry."""
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{"type": "assign_label", "entity_id": "light.nonexistent", "label_id": "outdoor"}]},
+    )
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["results"][0]["status"] == "error"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /execute — label actions
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def test_execute_assign_label(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Execute endpoint should assign a label to an entity and return undo_action."""
+    entity_reg = er.async_get(hass)
+    label_reg = lr.async_get(hass)
+    entry = entity_reg.async_get_or_create("light", "test", "lamp_1", suggested_object_id="lamp_1")
+    label_reg.async_create("outdoor")
+
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{"type": "assign_label", "entity_id": entry.entity_id, "label_id": "outdoor"}]},
+    )
+
+    assert resp.status == 200
+    data = await resp.json()
+    result = data["results"][0]
+    assert result["status"] == "ok"
+    assert result["undo_action"]["type"] == "remove_label"
+    updated = entity_reg.async_get(entry.entity_id)
+    assert "outdoor" in updated.labels
+
+
+async def test_execute_remove_label(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Execute endpoint should remove a label from an entity and return undo_action."""
+    entity_reg = er.async_get(hass)
+    label_reg = lr.async_get(hass)
+    label_reg.async_create("outdoor")
+    entry = entity_reg.async_get_or_create("light", "test", "lamp_2", suggested_object_id="lamp_2")
+    entity_reg.async_update_entity(entry.entity_id, labels={"outdoor"})
+
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{"type": "remove_label", "entity_id": entry.entity_id, "label_id": "outdoor"}]},
+    )
+
+    assert resp.status == 200
+    data = await resp.json()
+    result = data["results"][0]
+    assert result["status"] == "ok"
+    assert result["undo_action"]["type"] == "assign_label"
+    updated = entity_reg.async_get(entry.entity_id)
+    assert "outdoor" not in updated.labels
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /execute — entity actions
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def test_execute_rename_entity(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Execute rename_entity should update entity name and return undo_action."""
+    entity_reg = er.async_get(hass)
+    entry = entity_reg.async_get_or_create("light", "test", "desk", suggested_object_id="desk")
+
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{"type": "rename_entity", "entity_id": entry.entity_id, "name": "Desk Light"}]},
+    )
+
+    assert resp.status == 200
+    data = await resp.json()
+    result = data["results"][0]
+    assert result["status"] == "ok"
+    assert result["undo_action"]["type"] == "rename_entity"
+    updated = entity_reg.async_get(entry.entity_id)
+    assert updated.name == "Desk Light"
+
+
+async def test_execute_assign_area(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Execute assign_area should move entity to the area and return undo_action."""
+    entity_reg = er.async_get(hass)
+    area_reg = ar.async_get(hass)
+    area = area_reg.async_create("Office")
+    entry = entity_reg.async_get_or_create("light", "test", "desk2", suggested_object_id="desk2")
+
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{"type": "assign_area", "entity_id": entry.entity_id, "area_id": area.id}]},
+    )
+
+    assert resp.status == 200
+    data = await resp.json()
+    result = data["results"][0]
+    assert result["status"] == "ok"
+    assert result["undo_action"]["type"] == "assign_area"
+    updated = entity_reg.async_get(entry.entity_id)
+    assert updated.area_id == area.id
+
+
+async def test_execute_assign_area_nonexistent_returns_error(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """assign_area with a non-existent area_id should return an error result."""
+    entity_reg = er.async_get(hass)
+    entry = entity_reg.async_get_or_create("light", "test", "desk3", suggested_object_id="desk3")
+
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{"type": "assign_area", "entity_id": entry.entity_id, "area_id": "no_such_area"}]},
+    )
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["results"][0]["status"] == "error"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /execute — area management actions
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def test_execute_create_area(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Execute create_area should create the area and return a delete undo_action."""
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{"type": "create_area", "name": "Garage"}]},
+    )
+
+    assert resp.status == 200
+    data = await resp.json()
+    result = data["results"][0]
+    assert result["status"] == "ok"
+    assert result["name"] == "Garage"
+    assert result["undo_action"]["type"] == "delete_area"
+
+    area_reg = ar.async_get(hass)
+    assert area_reg.async_get_area(result["area_id"]) is not None
+
+
+async def test_execute_create_area_missing_name_returns_error(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """create_area without a name should return an error result."""
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{"type": "create_area", "name": ""}]},
+    )
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["results"][0]["status"] == "error"
+
+
+async def test_execute_rename_area(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Execute rename_area should rename the area and return undo_action with old name."""
+    area_reg = ar.async_get(hass)
+    area = area_reg.async_create("Old Name")
+
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{"type": "rename_area", "area_id": area.id, "name": "New Name"}]},
+    )
+
+    assert resp.status == 200
+    data = await resp.json()
+    result = data["results"][0]
+    assert result["status"] == "ok"
+    assert result["undo_action"]["type"] == "rename_area"
+    assert result["undo_action"]["name"] == "Old Name"
+
+    updated = area_reg.async_get_area(area.id)
+    assert updated.name == "New Name"
+
+
+async def test_execute_delete_area(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Execute delete_area should remove the area and return create undo_action."""
+    area_reg = ar.async_get(hass)
+    area = area_reg.async_create("Basement")
+
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{"type": "delete_area", "area_id": area.id}]},
+    )
+
+    assert resp.status == 200
+    data = await resp.json()
+    result = data["results"][0]
+    assert result["status"] == "ok"
+    assert result["undo_action"]["type"] == "create_area"
+    assert result["undo_action"]["name"] == "Basement"
+
+    assert area_reg.async_get_area(area.id) is None
+
+
+async def test_execute_delete_area_nonexistent_returns_error(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """delete_area with a non-existent area_id should return an error result."""
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{"type": "delete_area", "area_id": "no_such_area"}]},
+    )
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["results"][0]["status"] == "error"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /execute — call_service action
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def test_execute_call_service(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Execute call_service should call the HA service and return ok status."""
+    service_calls = []
+
+    async def fake_service(call):
+        service_calls.append(call)
+
+    hass.services.async_register("light", "turn_on", fake_service)
+    hass.states.async_set("light.kitchen", "off")
+
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{
+            "type": "call_service",
+            "domain": "light",
+            "service": "turn_on",
+            "entity_id": "light.kitchen",
+        }]},
+    )
+
+    assert resp.status == 200
+    data = await resp.json()
+    result = data["results"][0]
+    assert result["status"] == "ok"
+    assert len(service_calls) == 1
+
+
+async def test_execute_call_service_turn_off_returns_undo(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """call_service for turn_off on a light that was on should return an undo (turn_on)."""
+    service_calls = []
+
+    async def fake_service(call):
+        service_calls.append(call)
+
+    hass.services.async_register("light", "turn_off", fake_service)
+    hass.states.async_set("light.kitchen", "on", attributes={"brightness": 200})
+
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{
+            "type": "call_service",
+            "domain": "light",
+            "service": "turn_off",
+            "entity_id": "light.kitchen",
+        }]},
+    )
+
+    assert resp.status == 200
+    data = await resp.json()
+    result = data["results"][0]
+    assert result["status"] == "ok"
+    assert "undo_action" in result
+    assert result["undo_action"]["service"] == "turn_on"
+
+
+async def test_execute_call_service_missing_domain_returns_error(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """call_service without domain/service fields should return an error result."""
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"actions": [{"type": "call_service", "entity_id": "light.desk"}]},
+    )
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["results"][0]["status"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# /complete - context injection gaps
+# ---------------------------------------------------------------------------
+
+async def test_lovelace_resources_included_in_context(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Lovelace resource URLs provided by the frontend should appear in the instructions."""
+    captured = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        captured["v"] = instructions
+        return _make_ai_result("ok")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=fake):
+        resp = await client.post(
+            "/api/kyber/complete",
+            json={
+                "prompt": "help",
+                "lovelace_resources": [
+                    "/hacsfiles/mini-graph-card/mini-graph-card-bundle.js",
+                    "/hacsfiles/mushroom/mushroom.js",
+                ],
+            },
+        )
+
+    assert resp.status == 200
+    instr = captured["v"]
+    assert "mini-graph-card" in instr or "hacsfiles" in instr
+
+
+async def test_script_editor_mode_injects_yaml_section(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """editor_mode=script should inject the YAML but NOT the dashboard override section."""
+    captured = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        captured["v"] = instructions
+        return _make_ai_result("ok")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=fake):
+        resp = await client.post(
+            "/api/kyber/complete",
+            json={
+                "prompt": "add step",
+                "editor_mode": "script",
+                "yaml": "alias: My Script\nsequence: []",
+            },
+        )
+
+    assert resp.status == 200
+    instr = captured["v"]
+    assert "alias: My Script" in instr
+    assert "The user is actively editing the dashboard" not in instr
+
+
+async def test_automation_yaml_included_in_default_editor_mode(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """YAML should be injected when no editor_mode is specified (defaults to automation)."""
+    captured = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        captured["v"] = instructions
+        return _make_ai_result("ok")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=fake):
+        resp = await client.post(
+            "/api/kyber/complete",
+            json={
+                "prompt": "add trigger",
+                "yaml": "alias: Test\ntrigger: []",
+            },
+        )
+
+    assert resp.status == 200
+    assert "alias: Test" in captured["v"]

@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kyber",
+        "description": "Configure AI-powered automation editor. Select the AI task entity provided by your Ollama (or other AI) integration.",
+        "data": {
+          "ai_task_entity_id": "AI Task Entity",
+          "max_tokens": "Max Tokens"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "The selected AI task entity was not found. Make sure your Ollama integration is set up and the entity exists.",
+      "cannot_connect": "Could not reach the AI provider. Check your integration configuration."
+    },
+    "abort": {
+      "already_configured": "Kyber is already configured."
+    }
+  }
+}

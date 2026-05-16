@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.venv-py312/
+*.egg-info/
+
+# Node / Frontend
+www/kyber/node_modules/
+www/copilot-assist/
+
+# Test artefacts
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Editor
+.vscode/
+*.swp
+
+# HA persistent state (dev volume)
+ha-config/

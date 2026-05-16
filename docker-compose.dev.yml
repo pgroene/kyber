@@ -1,0 +1,22 @@
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: kyber-ha
+    volumes:
+      # Live-mount the integration and frontend directly into HA config
+      - ./custom_components:/config/custom_components
+      - ./www:/config/www
+      # Persistent HA config (database, users, automations.yaml, etc.)
+      - ha-config:/config
+    ports:
+      - "8123:8123"
+    environment:
+      - TZ=Europe/Amsterdam
+    extra_hosts:
+      # Allows the HA container to reach Ollama running on the host machine
+      # Configure the HA Ollama integration to use http://host.docker.internal:11434
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  ha-config:

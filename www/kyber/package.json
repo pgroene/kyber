@@ -1,0 +1,18 @@
+{
+  "name": "kyber-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Kyber Home Assistant panel frontend",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0",
+    "@vitest/coverage-v8": "^2.0.0",
+    "jsdom": "^26.0.0",
+    "happy-dom": "^15.0.0"
+  }
+}
