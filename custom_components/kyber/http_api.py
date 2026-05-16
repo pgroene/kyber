@@ -905,12 +905,16 @@ class KyberView(HomeAssistantView):
         tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
         tool_log: list[dict[str, Any]] = []  # summary of tool calls for UI feedback
         response_text = ""
-        _progress_emit(hass, request_id, {"type": "thinking", "stage": "asking"})
+        _progress_emit(hass, request_id, {"type": "info", "message": f"Built context: {context_stats.get('entity_count', 0)} entities, {context_stats.get('area_count', 0)} areas"})
         for _round in range(_TOOL_CALL_MAX_ROUNDS):
             loop_instructions = instructions + tool_exchange
             if len(loop_instructions) > _MAX_INSTRUCTIONS_CHARS:
                 loop_instructions = loop_instructions[:_MAX_INSTRUCTIONS_CHARS]
 
+            _progress_emit(hass, request_id, {
+                "type": "info",
+                "message": f"Asking AI (round {_round + 1})…",
+            })
             try:
                 result = await async_generate_data(
                     hass,

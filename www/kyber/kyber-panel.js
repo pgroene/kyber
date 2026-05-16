@@ -760,6 +760,10 @@ const STYLES = `
   }
   .thinking-tool-running { color: var(--primary-color, #03a9f4); }
   .thinking-tool-done { color: var(--success-color, #4caf50); }
+  .thinking-info {
+    color: var(--secondary-text-color, #888);
+    font-style: italic;
+  }
   .thinking-tool-preview {
     margin: 4px 0 0;
     padding: 6px 8px;
@@ -2563,7 +2567,10 @@ class KyberPanel extends HTMLElement {
 
       // Poll progress while the main request is in flight
       let chatDone = false;
-      this._pollProgress(requestId, () => chatDone);
+      this._pollProgress(requestId, () => chatDone).catch((err) => {
+        console.error("[kyber] poll progress crashed", err);
+      });
+      console.debug("[kyber] started progress polling for", requestId);
 
       const resp = await resp_promise;
       chatDone = true;
@@ -3108,7 +3115,11 @@ class KyberPanel extends HTMLElement {
 
   _renderProgressEvent(ev) {
     if (!ev || !ev.type) return;
-    if (ev.type === "tool_call") {
+    if (ev.type === "info") {
+      this._appendThinkingEvent(
+        `<span class="thinking-info">ℹ️ ${this._escapeHTML(ev.message || "")}</span>`
+      );
+    } else if (ev.type === "tool_call") {
       const args = ev.args ? Object.entries(ev.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ") : "";
       this._setThinkingLabel("Calling tool…");
       this._appendThinkingEvent(
@@ -3129,7 +3140,6 @@ class KyberPanel extends HTMLElement {
             statusEl.classList.remove("thinking-tool-running");
             statusEl.classList.add("thinking-tool-done");
             statusEl.textContent = ` → ${ev.summary || "done"}`;
-            // Stash preview for click-to-expand
             if (ev.preview) {
               items[i].dataset.preview = ev.preview;
               items[i].style.cursor = "pointer";
@@ -3141,7 +3151,7 @@ class KyberPanel extends HTMLElement {
                 pre.className = "thinking-tool-preview";
                 pre.textContent = items[i].dataset.preview;
                 items[i].appendChild(pre);
-              }, { once: false });
+              });
             }
             break;
           }
@@ -3161,6 +3171,7 @@ class KyberPanel extends HTMLElement {
 
   async _pollProgress(requestId, isDone) {
     let cursor = 0;
+    let polls = 0;
     while (!isDone()) {
       try {
         const token = this._hass.auth.data.access_token;
@@ -3169,15 +3180,25 @@ class KyberPanel extends HTMLElement {
         });
         if (r.ok) {
           const data = await r.json();
+          polls += 1;
+          if (data.events && data.events.length) {
+            console.debug("[kyber] progress", data.events.length, "new events, status:", data.status);
+          }
           for (const ev of (data.events || [])) {
-            this._renderProgressEvent(ev);
+            try { this._renderProgressEvent(ev); }
+            catch (err) { console.error("[kyber] render progress event failed", err, ev); }
           }
           cursor = data.next || cursor;
           if (data.status === "done") return;
+        } else {
+          console.warn("[kyber] progress fetch HTTP", r.status);
         }
-      } catch (_) { /* non-fatal */ }
-      await new Promise((res) => setTimeout(res, 400));
+      } catch (err) {
+        console.warn("[kyber] progress poll error", err);
+      }
+      await new Promise((res) => setTimeout(res, 200));
     }
+    console.debug("[kyber] progress polling stopped after", polls, "polls");
   }
 
   _hideThinking() {
