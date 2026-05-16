@@ -46,6 +46,8 @@ _ACTION_KEYWORDS: frozenset[str] = frozenset({
     "schedule", "trigger", "automate", "control", "dim", "brighten",
     "lock", "unlock", "arm", "disarm",
     "zet aan", "zet uit",  # Dutch on/off
+    "organise", "organize", "order my", "sort my", "clean up", "tidy",
+    "propose", "suggest changes", "suggest a plan",
 })
 
 # Regex patterns for split-word action intent (e.g. "turn those off", "switch it on")
@@ -61,7 +63,9 @@ _RESPONSE_MODE_INFORMATIONAL = (
     "INFORMATIONAL mode:\n"
     "- Areas/labels/automations/scripts are in context → answer directly from there.\n"
     "- Entity IDs/states not in context → output [TOOL_CALL:{\"name\":\"...\"}] immediately, nothing else.\n"
-    "- After tool result: list ALL items. No truncation. No 'for example'. No 'and more'.\n"
+    "- If question is about a SPECIFIC state (e.g. 'lights that are on', 'open doors'), ADD a \"state\" filter to the tool call (e.g. \"state\":\"on\"). This returns only matching items — list ALL of them.\n"
+    "- After tool result: list EVERY SINGLE item from the result. If result has 83 items, output 83 bullets. NEVER stop at 5/10/20. NEVER write '...' or 'and more'.\n"
+    "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels.\n"
     "- No preamble. No footer. No 'What would you like to do?' No 'Please let me know'.\n"
     "- Do NOT output a plan block.\n"
     "<</RULES>>\n\n"
@@ -73,7 +77,9 @@ _RESPONSE_MODE_ACTION = (
     "- Need entity IDs not yet in context? → output [TOOL_CALL:{\"name\":\"...\"}] immediately.\n"
     "- Entity IDs already in context or tool results? → output plan block directly.\n"
     "- If user says 'those'/'them'/'it' → use the entities from the conversation history above.\n"
-    "- Control devices via plan/actions block (call_service). NOT open_editor.\n"
+    "- Control devices via plan/actions block (call_service). Editing areas/labels/names uses assign_area/rename_entity/assign_label actions. NOT open_editor.\n"
+    "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels.\n"
+    "- For 'fix/organise/order my entities': call list_entities_without_area, then propose a plan with assign_area actions.\n"
     "- No preamble. No footer.\n"
     "<</RULES>>\n\n"
 )
@@ -374,6 +380,18 @@ def _tool_result_summary(call: dict[str, Any], result: Any) -> str:
     return "done"
 
 
+def _state_matches(state_obj: Any, state_filter: str | list | None) -> bool:
+    """Return True if the entity's state matches the filter (str, list, or None)."""
+    if state_filter is None or state_filter == "":
+        return True
+    if state_obj is None:
+        return False
+    actual = state_obj.state if hasattr(state_obj, "state") else str(state_obj)
+    if isinstance(state_filter, list):
+        return actual in [str(s) for s in state_filter]
+    return actual == str(state_filter)
+
+
 def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
     """Execute a tool call and return the result as a JSON string."""
     name = call.get("name", "")
@@ -381,18 +399,56 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
     entity_reg = er.async_get(hass)
     label_reg = lr.async_get(hass)
 
+    # Tool name aliases — small models often invent close-but-wrong tool names.
+    _ALIASES = {
+        "list_entities_by_area": "get_area_entities",
+        "list_area_entities": "get_area_entities",
+        "get_entities_by_area": "get_area_entities",
+        "get_entities_in_area": "get_area_entities",
+        "list_entities": "list_entities_by_domain",
+        "list_domain_entities": "list_entities_by_domain",
+        "get_state": "get_entity_state",
+        "entity_state": "get_entity_state",
+        "search": "search_entities",
+        "find_entities": "search_entities",
+        "list_areas": "get_areas",
+        "list_labels": "get_labels",
+        "get_entities_by_label": "list_entities_by_label",
+    }
+    if name in _ALIASES:
+        _LOGGER.info("Kyber: tool alias %s → %s", name, _ALIASES[name])
+        name = _ALIASES[name]
+        call = {**call, "name": name}
+
+    # Also map common argument-key aliases
+    if name == "get_area_entities" and "area" not in call:
+        for alt in ("area_id", "area_name"):
+            if alt in call:
+                call = {**call, "area": call[alt]}
+                break
+
+    state_filter = call.get("state")
+
     if name == "list_entities_by_domain":
         domain = call.get("domain", "").strip().lower()
         if not domain:
             return json.dumps({"error": "Missing 'domain' argument"})
         results = {}
         for state in sorted(hass.states.async_all(), key=lambda s: s.entity_id):
-            if state.entity_id.split(".")[0] == domain:
-                results[state.entity_id] = {
-                    "name": state.attributes.get("friendly_name", state.entity_id),
-                    "state": state.state,
-                }
-        return json.dumps(results or {"info": f"No entities found for domain '{domain}'"})
+            if state.entity_id.split(".")[0] != domain:
+                continue
+            if not _state_matches(state, state_filter):
+                continue
+            results[state.entity_id] = {
+                "name": state.attributes.get("friendly_name", state.entity_id),
+                "state": state.state,
+            }
+        if not results:
+            msg = f"No entities found for domain '{domain}'"
+            if state_filter:
+                msg += f" with state={state_filter!r}"
+            return json.dumps({"info": msg})
+        return json.dumps(results)
 
     if name == "get_entity_state":
         entity_id = call.get("entity_id", "").strip()
@@ -401,10 +457,18 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         state = hass.states.get(entity_id)
         if not state:
             return json.dumps({"error": f"Entity '{entity_id}' not found"})
+        entry = entity_reg.async_get(entity_id)
+        area_id = entry.area_id if entry else None
+        area_name = None
+        if area_id:
+            area_obj = area_reg.async_get_area(area_id)
+            area_name = area_obj.name if area_obj else None
         return json.dumps({
             "entity_id": entity_id,
             "state": state.state,
             "attributes": dict(state.attributes),
+            "area_id": area_id,
+            "area_name": area_name,
         })
 
     if name == "get_area_entities":
@@ -418,15 +482,21 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         )
         if not area_obj:
             return json.dumps({"error": f"Area '{area_query}' not found"})
+        domain_filter = call.get("domain", "").strip().lower()
         results = {}
         for entry in entity_reg.entities.values():
-            if entry.area_id == area_obj.id:
-                state = hass.states.get(entry.entity_id)
-                results[entry.entity_id] = {
-                    "name": state.attributes.get("friendly_name", entry.entity_id) if state else entry.original_name,
-                    "state": state.state if state else "unknown",
-                    "domain": entry.entity_id.split(".")[0],
-                }
+            if entry.area_id != area_obj.id:
+                continue
+            if domain_filter and entry.entity_id.split(".")[0] != domain_filter:
+                continue
+            state = hass.states.get(entry.entity_id)
+            if not _state_matches(state, state_filter):
+                continue
+            results[entry.entity_id] = {
+                "name": state.attributes.get("friendly_name", entry.entity_id) if state else entry.original_name,
+                "state": state.state if state else "unknown",
+                "domain": entry.entity_id.split(".")[0],
+            }
         return json.dumps({"area": area_obj.name, "entities": results})
 
     if name == "list_entities_by_label":
@@ -442,12 +512,15 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             return json.dumps({"error": f"Label '{label_query}' not found"})
         results = {}
         for entry in entity_reg.entities.values():
-            if label_obj.label_id in (entry.labels or set()):
-                state = hass.states.get(entry.entity_id)
-                results[entry.entity_id] = {
-                    "name": state.attributes.get("friendly_name", entry.entity_id) if state else entry.original_name,
-                    "state": state.state if state else "unknown",
-                }
+            if label_obj.label_id not in (entry.labels or set()):
+                continue
+            state = hass.states.get(entry.entity_id)
+            if not _state_matches(state, state_filter):
+                continue
+            results[entry.entity_id] = {
+                "name": state.attributes.get("friendly_name", entry.entity_id) if state else entry.original_name,
+                "state": state.state if state else "unknown",
+            }
         return json.dumps({"label": label_obj.name, "entities": results})
 
     if name == "search_entities":
@@ -457,13 +530,35 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         results = {}
         for state in hass.states.async_all():
             friendly = state.attributes.get("friendly_name", "").lower()
-            if query in state.entity_id.lower() or query in friendly:
-                results[state.entity_id] = {
-                    "name": state.attributes.get("friendly_name", state.entity_id),
-                    "state": state.state,
-                    "domain": state.entity_id.split(".")[0],
-                }
+            if not (query in state.entity_id.lower() or query in friendly):
+                continue
+            if not _state_matches(state, state_filter):
+                continue
+            results[state.entity_id] = {
+                "name": state.attributes.get("friendly_name", state.entity_id),
+                "state": state.state,
+                "domain": state.entity_id.split(".")[0],
+            }
         return json.dumps(results or {"info": f"No entities matching '{query}'"})
+
+    if name == "list_entities_without_area":
+        domain_filter = call.get("domain", "").strip().lower()
+        results = {}
+        for entry in entity_reg.entities.values():
+            if entry.area_id is not None:
+                continue
+            if domain_filter and entry.entity_id.split(".")[0] != domain_filter:
+                continue
+            state = hass.states.get(entry.entity_id)
+            if not _state_matches(state, state_filter):
+                continue
+            results[entry.entity_id] = {
+                "name": (state.attributes.get("friendly_name", entry.entity_id)
+                         if state else entry.original_name or entry.entity_id),
+                "state": state.state if state else "unknown",
+                "domain": entry.entity_id.split(".")[0],
+            }
+        return json.dumps(results or {"info": "All entities have an area assigned"})
 
     if name == "get_areas":
         areas = area_reg.async_list_areas()
@@ -473,7 +568,16 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         labels = label_reg.async_list_labels()
         return json.dumps({lbl.label_id: lbl.name for lbl in labels})
 
-    return json.dumps({"error": f"Unknown tool '{name}'"})
+    valid_tools = [
+        "list_entities_by_domain", "get_entity_state", "get_area_entities",
+        "list_entities_by_label", "search_entities", "list_entities_without_area",
+        "get_areas", "get_labels",
+    ]
+    return json.dumps({
+        "error": f"Unknown tool '{name}'",
+        "valid_tools": valid_tools,
+        "hint": "Retry with one of the valid tool names listed above.",
+    })
 
 
 def _parse_tool_calls(text: str) -> list[dict[str, Any]]:
@@ -779,6 +883,7 @@ class KyberView(HomeAssistantView):
                     _TOOL_CALL_TYPES = {
                         "list_entities_by_domain", "get_entity_state", "get_area_entities",
                         "list_entities_by_label", "search_entities", "get_areas", "get_labels",
+                        "list_entities_without_area",
                     }
                     tool_calls = [
                         {**a, "name": a["type"]}
