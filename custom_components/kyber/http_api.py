@@ -654,6 +654,85 @@ def _find_session_by_name(sessions: dict[str, Any], name: str) -> str | None:
     return None
 
 
+class KyberSessionNameView(HomeAssistantView):
+    """Generate an AI session title from recent messages and optionally save it."""
+
+    url = "/api/kyber/sessions/name"
+    name = "api:kyber:sessions:name"
+    requires_auth = True
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        self._config = config
+
+    @staticmethod
+    def _user_id_from_request(request: web.Request) -> str | None:
+        ha_user = request.get("hass_user")
+        user_id = getattr(ha_user, "id", None)
+        return str(user_id) if user_id else None
+
+    async def post(self, request: web.Request) -> web.Response:
+        """Generate a short title for the current session and save it."""
+        hass: HomeAssistant = request.app["hass"]
+        user_id = self._user_id_from_request(request)
+        if not user_id:
+            return self.json_message("Unable to resolve authenticated user", HTTPStatus.UNAUTHORIZED)
+
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
+
+        messages: list[dict] = body.get("messages", [])
+        if not messages:
+            return self.json_message("No messages provided", HTTPStatus.BAD_REQUEST)
+
+        # Build a compact transcript for the naming prompt (last 10 messages max)
+        snippet_lines = []
+        for msg in messages[-10:]:
+            role = "User" if msg.get("role") == "user" else "Assistant"
+            content = str(msg.get("content", "")).strip()[:200]
+            if content:
+                snippet_lines.append(f"{role}: {content}")
+        transcript = "\n".join(snippet_lines)
+
+        instructions = (
+            "You are a helpful assistant. Based on the conversation below, "
+            "generate a very short title (3–6 words, no punctuation at the end) "
+            "that captures the main topic. Reply with ONLY the title — no quotes, "
+            "no explanation, nothing else.\n\n"
+            f"Conversation:\n{transcript}\n\nTitle:"
+        )
+
+        entity_id: str = self._config[CONF_AI_TASK_ENTITY_ID]
+        try:
+            result = await async_generate_data(
+                hass,
+                task_name=f"{DOMAIN}_session_name",
+                entity_id=entity_id,
+                instructions=instructions,
+            )
+        except HomeAssistantError as err:
+            _LOGGER.warning("Session naming AI call failed: %s", err)
+            return self.json_message(f"AI error: {err}", HTTPStatus.SERVICE_UNAVAILABLE)
+
+        raw: str = result.data if isinstance(result.data, str) else str(result.data)
+        # Take only the first line, strip quotes/punctuation
+        name = raw.strip().splitlines()[0].strip().strip('"\'').strip(".,;:!?")
+        name = name[:_SESSION_NAME_MAX_CHARS] or "Session"
+
+        # Save the new name to the active session
+        data = await _async_load_chat_store(hass)
+        users = data.setdefault("users", {})
+        user_data = users.get(user_id, {})
+        user_data = _migrate_user_to_sessions(user_data) if "sessions" not in user_data else user_data
+        sid, session = _get_active_session(user_data)
+        session["name"] = name
+        users[user_id] = user_data
+        await _async_save_chat_store(hass, data)
+
+        return self.json({"name": name, "session_id": sid})
+
+
 class KyberExecuteView(HomeAssistantView):
     """Handle POST /api/kyber/execute — applies entity registry actions."""
 
