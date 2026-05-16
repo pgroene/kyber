@@ -31,9 +31,11 @@ _YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _CHAT_HISTORY_STORE_VERSION = 1
 _CHAT_HISTORY_STORE_KEY = f"{DOMAIN}_chat_history"
-_CHAT_HISTORY_MAX_MESSAGES = 200
-_CHAT_MESSAGE_MAX_CHARS = 4000
-_CHAT_SUMMARY_MAX_CHARS = 16000
+_CHAT_HISTORY_MAX_MESSAGES = 20
+_CHAT_MESSAGE_MAX_CHARS = 1500
+_CHAT_SUMMARY_MAX_CHARS = 2000
+# Hard cap on total instructions to avoid exceeding Ollama's context window (~8K tokens ≈ 32K chars)
+_MAX_INSTRUCTIONS_CHARS = 32_000
 _SESSIONS_MAX = 20
 _SESSION_NAME_MAX_CHARS = 80
 
@@ -395,6 +397,14 @@ class KyberView(HomeAssistantView):
             f"User: {user_prompt}\n"
             f"Assistant:"
         )
+
+        if len(instructions) > _MAX_INSTRUCTIONS_CHARS:
+            _LOGGER.warning(
+                "Kyber: instructions truncated from %d to %d chars to fit context window.",
+                len(instructions),
+                _MAX_INSTRUCTIONS_CHARS,
+            )
+            instructions = instructions[:_MAX_INSTRUCTIONS_CHARS]
 
         entity_id: str = self._config[CONF_AI_TASK_ENTITY_ID]
 
