@@ -28,7 +28,7 @@ def filter_ha_background_threads(monkeypatch):
     _orig = threading.enumerate
 
     def _filtered():
-        return [t for t in _orig() if t.name != "_run_safe_shutdown_loop"]
+        return [t for t in _orig() if "_run_safe_shutdown_loop" not in t.name]
 
     monkeypatch.setattr(threading, "enumerate", _filtered)
     yield
@@ -53,4 +53,3 @@ async def setup_integration(hass: HomeAssistant, mock_config_entry: MockConfigEn
     await async_setup_component(hass, "http", {})
     await async_setup_entry(hass, mock_config_entry)
     yield mock_config_entry
-

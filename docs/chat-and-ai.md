@@ -150,6 +150,16 @@ An **⚡ AUTOPILOT ON** badge pulses orange in the status bar whenever autopilot
 
 Every message you send and every AI reply is kept in a rolling **chat history** that is forwarded to the AI with each new request. This allows multi-turn conversations where the AI remembers what was said earlier.
 
+Kyber now persists this chat history (including the compacted summary) in Home Assistant storage, scoped to the currently logged-in user. This means chat context survives browser refreshes and Home Assistant restarts.
+
+### Clear history
+
+Use the **Clear history** button in the chat toolbar to reset the current user's conversation state. This clears:
+
+- the visible chat messages in the panel
+- in-memory `_chatHistory`
+- persisted history and compacted summary in HA storage for that user
+
 ### History window
 
 | Parameter | Default |
