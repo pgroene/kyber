@@ -2643,7 +2643,17 @@ class KyberPanel extends HTMLElement {
           setTimeout(() => card.querySelector(".btn-open-editor")?.click(), 300);
         }
       } else if (plan.actions && plan.actions.length > 0) {
-        history.appendChild(this._buildPlanCard(plan));
+        const READ_TOOL_TYPES = new Set([
+          "list_entities_by_domain", "get_entity_state", "get_area_entities",
+          "list_entities_by_label", "search_entities", "get_areas", "get_labels",
+        ]);
+        const allToolCalls = plan.actions.every((a) => READ_TOOL_TYPES.has(a.type));
+        if (allToolCalls) {
+          // Auto-execute read-only tool calls without showing proposal card
+          this._autoExecuteToolPlan(plan, promptInput);
+        } else {
+          history.appendChild(this._buildPlanCard(plan));
+        }
       }
     }
 
@@ -2709,6 +2719,43 @@ class KyberPanel extends HTMLElement {
     });
 
     return card;
+  }
+
+  /** Auto-execute read-only tool calls (no user approval needed) and display results. */
+  async _autoExecuteToolPlan(plan, _originalPrompt) {
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (!history) return;
+
+    const spinner = document.createElement("div");
+    spinner.className = "chat-message assistant";
+    spinner.textContent = `🔍 Fetching data…`;
+    history.appendChild(spinner);
+    history.scrollTop = history.scrollHeight;
+
+    try {
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch("/api/kyber/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ actions: plan.actions }),
+      });
+      const data = await resp.json();
+      const results = data.results || [];
+      spinner.remove();
+
+      // Display the tool results as formatted assistant messages
+      results.forEach((r) => {
+        const msg = document.createElement("div");
+        msg.className = "chat-message assistant";
+        const toolData = r.tool_result || r;
+        const formatted = JSON.stringify(toolData, null, 2);
+        msg.textContent = `📋 ${r.type}:\n${formatted}`;
+        history.appendChild(msg);
+      });
+      history.scrollTop = history.scrollHeight;
+    } catch (err) {
+      spinner.textContent = `⚠ Tool fetch failed: ${err.message}`;
+    }
   }
 
   _buildPlanCard(plan) {

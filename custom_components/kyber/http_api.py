@@ -671,6 +671,24 @@ class KyberView(HomeAssistantView):
 
             response_text = result.data if isinstance(result.data, str) else str(result.data)
             tool_calls = _parse_tool_calls(response_text)
+
+            # Also handle plan blocks where the AI put tool calls inside actions
+            if not tool_calls:
+                plan_for_tools = _extract_plan_block(response_text)
+                if plan_for_tools and plan_for_tools.get("actions"):
+                    _TOOL_CALL_TYPES = {
+                        "list_entities_by_domain", "get_entity_state", "get_area_entities",
+                        "list_entities_by_label", "search_entities", "get_areas", "get_labels",
+                    }
+                    tool_calls = [
+                        {**a, "name": a["type"]}
+                        for a in plan_for_tools["actions"]
+                        if a.get("type") in _TOOL_CALL_TYPES
+                    ]
+                    if tool_calls:
+                        # Strip the plan block from response so it never reaches the frontend
+                        response_text = _PLAN_BLOCK_RE.sub("", response_text).strip()
+
             if not tool_calls:
                 break  # no tool calls — final answer
 
@@ -1032,8 +1050,24 @@ class KyberExecuteView(HomeAssistantView):
 
         results: list[dict] = []
 
+        # Read-only tool call types — execute transparently without entity_id
+        _READ_TOOL_TYPES = {
+            "list_entities_by_domain", "get_entity_state", "get_area_entities",
+            "list_entities_by_label", "search_entities", "get_areas", "get_labels",
+        }
+
         for action in actions:
             action_type: str = action.get("type", "")
+
+            # ── Read-only tool calls (no approval needed) ──────────────────
+            if action_type in _READ_TOOL_TYPES:
+                call = {**action, "name": action_type}
+                tool_result = _execute_tool(hass, call)
+                results.append({
+                    "status": "ok", "type": action_type,
+                    "tool_result": json.loads(tool_result),
+                })
+                continue
 
             # ── Area management actions (no entity_id needed) ──────────────
             if action_type == "create_area":
