@@ -1270,7 +1270,7 @@ class KyberPanel extends HTMLElement {
     const rest = parts ? (parts[2] || "").trim() : "";
 
     if (!sub || sub === "list") {
-      const sessions = this._sessions || [];
+      const sessions = await this._loadSessionList();
       if (!sessions.length) {
         this._appendMessage("No sessions yet. Use `/session new [name]` to create one.", "assistant");
         return;
