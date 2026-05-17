@@ -26,6 +26,7 @@ except ImportError:  # HA < 2025.2 (test environments)
 
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, SYSTEM_PROMPT_TEMPLATE, AUTOMATION_EDITOR_GUIDANCE, LOVELACE_CARDS_REFERENCE
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
+from .language_hints import detect_language, get_hints_for_language, language_display_name
 from .analyzer import analyze_automations as _analyze_automations
 from .source import (
     read_automations as _src_read_automations,
@@ -182,6 +183,35 @@ _MAX_INSTRUCTIONS_CHARS = 32_000
 # is then appended within the remaining space, keeping total ≤ _MAX_INSTRUCTIONS_CHARS.
 _KNOWLEDGE_BUDGET = 2_000
 _BASE_INSTRUCTIONS_CHARS = _MAX_INSTRUCTIONS_CHARS - _KNOWLEDGE_BUDGET  # 30 000
+
+
+async def _auto_record_search_alias(kstore: Any, query: str, entity_ids: list[str]) -> None:
+    """Silently save a search query → entity mapping as a knowledge alias.
+
+    Called fire-and-forget after search_entities returns 1–3 results so future
+    turns can recall the mapping without searching again.  Skips if an identical
+    fact (same subject) already exists.
+    """
+    try:
+        await kstore.async_load()
+        query_lower = query.lower()
+        # Skip if already recorded: any fact with matching subject
+        existing = await kstore.async_semantic_search(query_lower, min_score=0.95)
+        for e in existing:
+            if e.get("category") == "entity_alias" and e.get("subject", "").lower() == query_lower:
+                return
+        entity_str = ", ".join(entity_ids)
+        await kstore.async_add(
+            "entity_alias",
+            f"When user searches for '{query}', the matching entit{'y is' if len(entity_ids) == 1 else 'ies are'}: {entity_str}",
+            subject=query_lower,
+            tags=query_lower.split() + entity_ids,
+            source="search_alias_auto",
+            confidence=0.7,
+        )
+        _LOGGER.debug("Kyber: auto-saved search alias '%s' → %s", query, entity_str)
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("Kyber: auto-record search alias failed (non-critical): %s", err)
 
 
 class KyberView(HomeAssistantView):
@@ -394,6 +424,38 @@ class KyberView(HomeAssistantView):
             instructions = instructions + "\n" + "\n".join(kn_lines) + "\n"
             await kstore.async_record_hit([e["id"] for e in relevant_knowledge])
 
+        # Inject language-specific vocabulary hints when the user writes in a
+        # non-English language.  These are stored as knowledge entries with
+        # category="language_hint" and are retrieved deterministically by tag
+        # (not by TF-IDF score) so they are always complete and consistent.
+        _detected_lang = detect_language(user_prompt)
+        if _detected_lang != "en":
+            _lang_hints = await kstore.async_get_by_tag(
+                _detected_lang, category="language_hint"
+            )
+            if _lang_hints:
+                _lang_name = language_display_name(_detected_lang)
+                _LOGGER.info(
+                    "Kyber: detected language '%s' (%s) — injecting %d vocabulary hints",
+                    _detected_lang, _lang_name, len(_lang_hints),
+                )
+                _progress_emit(hass, request_id, {
+                    "type": "info",
+                    "message": f"Detected language: {_lang_name} — injecting vocabulary hints",
+                })
+                lang_lines = [
+                    "",
+                    f"## Language hints ({_lang_name})",
+                    "The user is writing in "
+                    + _lang_name
+                    + ". Use the vocabulary below to map their words to HA domains, "
+                    "service calls, and entity types. These hints are helpers — always "
+                    "confirm entity IDs with tool calls; never guess them.",
+                ]
+                for hint_entry in _lang_hints:
+                    lang_lines.append(f"- {hint_entry.get('content', '')}")
+                instructions = instructions + "\n" + "\n".join(lang_lines) + "\n"
+
         # Tool-calling loop — the AI may request live HA data via [TOOL_CALL: {...}]
         # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
         tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
@@ -533,6 +595,21 @@ class KyberView(HomeAssistantView):
                 except json.JSONDecodeError:
                     tool_result_data = {"error": "invalid_json", "raw": tool_result_str[:200]}
                 _LOGGER.debug("Tool call %s → %s chars", call.get("name"), len(tool_result_str))
+
+                # Auto-record entity aliases: when search_entities returns 1–3 primary
+                # entities, silently save the query→entity mapping so future turns don't
+                # need to search again.
+                if call.get("name") == "search_entities" and isinstance(tool_result_data, dict):
+                    _primary_eids = [
+                        k for k in tool_result_data
+                        if isinstance(k, str) and "." in k and not k.startswith("_")
+                    ]
+                    if 1 <= len(_primary_eids) <= 3:
+                        _q = (call.get("query") or ", ".join(call.get("queries") or [])).strip()
+                        if _q:
+                            asyncio.ensure_future(
+                                _auto_record_search_alias(kstore, _q, _primary_eids)
+                            )
 
                 # Build a short human-readable summary for the UI
                 summary = _tool_result_summary(call, tool_result_data)

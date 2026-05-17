@@ -324,7 +324,7 @@ export const AIMixin = (Base) => class extends Base {
       if (textOnly) {
         this._addChatHistory("assistant", textOnly);
       }
-      this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null, data.learned_fact || null);
+      this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null, data.learned_fact || null, data.clarify || null);
 
       // Per-turn metadata is captured for the Debug tab ("Last turn") instead
       // of being attached to the chat message. The chat panel stays clean;
@@ -534,8 +534,49 @@ export const AIMixin = (Base) => class extends Base {
     history.scrollTop = history.scrollHeight;
   }
 
-  _appendAIResponse(fullText, yamlBlocks, plan, learnedFact = null) {
+  _appendAIResponse(fullText, yamlBlocks, plan, learnedFact = null, clarify = null) {
     const history = this.shadowRoot.getElementById("chat-history");
+
+    // Render clarify block: question + option buttons.
+    // Shown INSTEAD of (or before) prose when the AI emits a clarify block.
+    if (clarify && clarify.question) {
+      const clarifyCard = document.createElement("div");
+      clarifyCard.className = "chat-message assistant clarify-card";
+
+      if (clarify.context) {
+        const ctx = document.createElement("p");
+        ctx.className = "clarify-context";
+        ctx.textContent = clarify.context;
+        clarifyCard.appendChild(ctx);
+      }
+
+      const q = document.createElement("p");
+      q.className = "clarify-question";
+      q.textContent = clarify.question;
+      clarifyCard.appendChild(q);
+
+      if (Array.isArray(clarify.options) && clarify.options.length > 0) {
+        const chipRow = document.createElement("div");
+        chipRow.className = "suggestion-chips";
+        clarify.options.forEach((label) => {
+          const btn = document.createElement("button");
+          btn.className = "suggestion-chip";
+          btn.textContent = label;
+          btn.addEventListener("click", () => {
+            const input = this.shadowRoot.getElementById("prompt-input");
+            if (input) input.value = label;
+            clarifyCard.remove();
+            this._askAI();
+          });
+          chipRow.appendChild(btn);
+        });
+        clarifyCard.appendChild(chipRow);
+      }
+
+      history.appendChild(clarifyCard);
+      history.scrollTop = history.scrollHeight;
+      return; // clarify card replaces the normal prose rendering
+    }
 
     // Show the text portion (strip yaml/plan blocks for cleaner display)
     const textOnly = fullText
