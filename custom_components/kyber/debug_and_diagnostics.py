@@ -74,7 +74,8 @@ def _debug_attach_log_capture(request_id: str) -> tuple[list[dict], _KyberTurnLo
         handler = _KyberTurnLogHandler(sink)
         logging.getLogger().addHandler(handler)
         return sink, handler
-    except Exception:  # noqa: BLE001
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("Kyber: failed to attach per-turn log capture: %s", err)
         return None, None
 
 
@@ -83,8 +84,8 @@ def _debug_detach_log_capture(handler: _KyberTurnLogHandler | None) -> None:
         return
     try:
         logging.getLogger().removeHandler(handler)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("Kyber: failed to detach per-turn log capture: %s", err)
 
 
 def _debug_record_turn(
@@ -251,7 +252,8 @@ class KyberDebugBundleView(HomeAssistantView):
             here = os.path.dirname(__file__)
             with open(os.path.join(here, "manifest.json"), "r", encoding="utf-8") as f:
                 return _json.load(f).get("version", "unknown")
-        except Exception:  # noqa: BLE001
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Kyber: failed to read manifest.json version: %s", err)
             return "unknown"
 
     async def get(self, request: web.Request) -> web.Response:
@@ -356,7 +358,8 @@ class KyberBugReportView(HomeAssistantView):
         hass: HomeAssistant = request.app["hass"]
         try:
             body = await request.json()
-        except Exception:
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Kyber: failed to parse bug report request body: %s", err)
             return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
 
         rid = (body.get("request_id") or "").strip()
@@ -452,8 +455,8 @@ class KyberBugReportView(HomeAssistantView):
                             {"number": i["number"], "title": i["title"], "url": i["html_url"], "state": i["state"]}
                             for i in data.get("items", [])[:3]
                         ]
-        except Exception:
-            pass
+        except Exception as err:  # noqa: BLE001 — GitHub search is best-effort
+            _LOGGER.debug("Kyber: similar-issue search failed (non-critical): %s", err)
 
         return self.json({"title": title, "body": body_md, "similar_issues": similar, "bundle_available": snap is not None})
 

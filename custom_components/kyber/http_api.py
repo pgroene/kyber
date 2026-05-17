@@ -59,7 +59,7 @@ from .intent_and_context import (
     _classify_intent,
     _build_home_state_by_area, _build_context,
 )
-from .tool_execution import _tool_result_summary, _state_matches, _execute_tool, _async_execute_tool, _ASYNC_TOOLS, TOOL_ALIASES
+from .tool_execution import _tool_result_summary, _state_matches, _execute_tool, _async_execute_tool, _ASYNC_TOOLS, TOOL_ALIASES, resolve_tool_call
 from .session_and_storage import (
     _CHAT_HISTORY_STORE_VERSION, _CHAT_HISTORY_STORE_KEY,
     _CHAT_HISTORY_MAX_MESSAGES, _CHAT_MESSAGE_MAX_CHARS, _CHAT_SUMMARY_MAX_CHARS,
@@ -264,6 +264,10 @@ class KyberView(HomeAssistantView):
         compacted_summary: str = body.get("compacted_summary", "").strip()
         editor_mode: str = body.get("editor_mode", "automation")
         request_id: str = str(body.get("request_id", "")).strip()
+        # Sanitize to safe alphanumeric + hyphen/underscore only.
+        # request_id is used as a dict key and appears in debug filenames,
+        # so we must prevent path-traversal and injection payloads.
+        request_id = re.sub(r"[^a-zA-Z0-9_\-]", "", request_id)[:64]
         if not request_id:
             import uuid as _uuid
             request_id = _uuid.uuid4().hex[:12]
@@ -540,7 +544,14 @@ class KyberView(HomeAssistantView):
                     f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
                 )
 
-            response_text = result.data if isinstance(result.data, str) else str(result.data)
+            response_text = result.data if isinstance(result.data, str) else (
+                str(result.data) if result.data is not None else ""
+            )
+            if not isinstance(result.data, str):
+                _LOGGER.warning(
+                    "Kyber: AI result.data is not str (type=%s); coerced to string",
+                    type(result.data).__name__,
+                )
             tool_calls = _parse_tool_calls(response_text)
 
             # Also handle plan blocks where the AI put tool calls inside actions
@@ -600,9 +611,7 @@ class KyberView(HomeAssistantView):
                 if sig in executed_calls_cache:
                     return sig, call, executed_calls_cache[sig]
                 # Resolve aliases before deciding sync vs async path
-                raw_name = call.get("name", "")
-                if raw_name in TOOL_ALIASES:
-                    call = {**call, "name": TOOL_ALIASES[raw_name]}
+                call = resolve_tool_call(call)
                 if call.get("name") in _ASYNC_TOOLS:
                     result = await _async_execute_tool(hass, call)
                 else:
@@ -785,7 +794,7 @@ class KyberView(HomeAssistantView):
                         synth_text = (
                             synth_result.data
                             if isinstance(synth_result.data, str)
-                            else str(synth_result.data)
+                            else (str(synth_result.data) if synth_result.data is not None else "")
                         )
                         synth_text = _strip_tool_calls(synth_text).strip()
                         if synth_text:
