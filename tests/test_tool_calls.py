@@ -184,3 +184,236 @@ class TestStripToolCalls:
     def test_no_calls_unchanged(self):
         text = "No tool calls here."
         assert _strip_tool_calls(text) == text
+
+
+# ── All format variants (TDD — parser must support every model output style) ──
+
+class TestParseToolCallFormats:
+    """Every format variant a model might emit. All must parse identically."""
+
+    def _one(self, text: str) -> dict:
+        calls = _parse_tool_calls(text)
+        assert len(calls) == 1, f"Expected 1 call, got {len(calls)} from: {text!r}"
+        return calls[0]
+
+    # ── Already supported ──────────────────────────────────────────────────────
+
+    def test_standard_brackets(self):
+        c = self._one('[TOOL_CALL: {"name": "get_areas"}]')
+        assert c["name"] == "get_areas"
+
+    def test_dash_separator(self):
+        c = self._one('[TOOL-CALL: {"name": "get_areas"}]')
+        assert c["name"] == "get_areas"
+
+    def test_o0_confusion(self):
+        c = self._one('[T00L_CALL: {"name": "get_areas"}]')
+        assert c["name"] == "get_areas"
+
+    # ── Markdown heading variants ──────────────────────────────────────────────
+
+    def test_double_hash_heading(self):
+        """## TOOL_CALL: {...} — seen in real debug zip from second model."""
+        c = self._one('## TOOL_CALL: {"name": "search_entities", "query": "tv"}')
+        assert c["name"] == "search_entities"
+        assert c["query"] == "tv"
+
+    def test_single_hash_heading(self):
+        c = self._one('# TOOL_CALL: {"name": "get_areas"}')
+        assert c["name"] == "get_areas"
+
+    def test_triple_hash_heading(self):
+        c = self._one('### TOOL_CALL: {"name": "get_areas"}')
+        assert c["name"] == "get_areas"
+
+    def test_hash_heading_with_args(self):
+        c = self._one(
+            '## TOOL_CALL: {"name": "get_entity_state",'
+            ' "entity_id": "light.lamp", "fields": ["state", "brightness"]}'
+        )
+        assert c["entity_id"] == "light.lamp"
+        assert c["fields"] == ["state", "brightness"]
+
+    def test_hash_heading_nested_json(self):
+        c = self._one(
+            '## TOOL_CALL: {"name": "call_service", "domain": "light",'
+            ' "service_data": {"brightness": 255}}'
+        )
+        assert c["service_data"]["brightness"] == 255
+
+    # ── Bold / emphasis variants ───────────────────────────────────────────────
+
+    def test_bold_double_star(self):
+        """**TOOL_CALL**: {...}"""
+        c = self._one('**TOOL_CALL**: {"name": "get_areas"}')
+        assert c["name"] == "get_areas"
+
+    def test_bold_colon_inside(self):
+        """**TOOL_CALL:** {...} — colon inside the bold span."""
+        c = self._one('**TOOL_CALL:** {"name": "get_areas"}')
+        assert c["name"] == "get_areas"
+
+    def test_bold_single_star(self):
+        """*TOOL_CALL*: {...}"""
+        c = self._one('*TOOL_CALL*: {"name": "get_areas"}')
+        assert c["name"] == "get_areas"
+
+    # ── Bare / no-decoration variants ─────────────────────────────────────────
+
+    def test_bare_no_brackets(self):
+        """TOOL_CALL: {...} — uppercase, no surrounding characters."""
+        c = self._one('TOOL_CALL: {"name": "get_areas"}')
+        assert c["name"] == "get_areas"
+
+    def test_bare_no_space_after_colon(self):
+        """TOOL_CALL:{...}"""
+        c = self._one('TOOL_CALL:{"name": "get_areas"}')
+        assert c["name"] == "get_areas"
+
+    def test_bare_lowercase(self):
+        """tool_call: {...}"""
+        c = self._one('tool_call: {"name": "get_areas"}')
+        assert c["name"] == "get_areas"
+
+    def test_bare_mixed_case(self):
+        """Tool_Call: {...}"""
+        c = self._one('Tool_Call: {"name": "get_areas"}')
+        assert c["name"] == "get_areas"
+
+    # ── Bracket / punctuation variants ────────────────────────────────────────
+
+    def test_space_separator(self):
+        """[TOOL CALL: {...}] — space instead of underscore."""
+        c = self._one('[TOOL CALL: {"name": "get_areas"}]')
+        assert c["name"] == "get_areas"
+
+    def test_lowercase_bracketed(self):
+        """[tool_call: {...}]"""
+        c = self._one('[tool_call: {"name": "get_areas"}]')
+        assert c["name"] == "get_areas"
+
+    def test_missing_closing_bracket(self):
+        """[TOOL_CALL: {...} — no closing ]"""
+        c = self._one('[TOOL_CALL: {"name": "get_areas"}')
+        assert c["name"] == "get_areas"
+
+    # ── XML / tag variants ────────────────────────────────────────────────────
+
+    def test_xml_tag_with_underscore(self):
+        """<tool_call>{"name": "get_areas"}</tool_call>"""
+        c = self._one('<tool_call>{"name": "get_areas"}</tool_call>')
+        assert c["name"] == "get_areas"
+
+    def test_xml_tag_no_underscore(self):
+        """<toolcall>{"name": "get_areas"}</toolcall>"""
+        c = self._one('<toolcall>{"name": "get_areas"}</toolcall>')
+        assert c["name"] == "get_areas"
+
+    def test_xml_tag_hyphen(self):
+        """<tool-call>{"name": "get_areas"}</tool-call>"""
+        c = self._one('<tool-call>{"name": "get_areas"}</tool-call>')
+        assert c["name"] == "get_areas"
+
+    def test_xml_tag_with_newline(self):
+        """<tool_call>\\n{...}\\n</tool_call> — body on its own line."""
+        c = self._one('<tool_call>\n{"name": "get_areas"}\n</tool_call>')
+        assert c["name"] == "get_areas"
+
+    # ── Multiple calls in mixed formats ───────────────────────────────────────
+
+    def test_mixed_formats_both_parsed(self):
+        text = (
+            '[TOOL_CALL: {"name": "get_areas"}]\n'
+            '## TOOL_CALL: {"name": "search_entities", "query": "tv"}\n'
+        )
+        calls = _parse_tool_calls(text)
+        assert len(calls) == 2
+        assert calls[0]["name"] == "get_areas"
+        assert calls[1]["name"] == "search_entities"
+
+    def test_hash_and_xml_both_parsed(self):
+        text = (
+            '# TOOL_CALL: {"name": "get_areas"}\n'
+            '<tool_call>{"name": "get_entity_state", "entity_id": "sun"}</tool_call>\n'
+        )
+        calls = _parse_tool_calls(text)
+        assert len(calls) == 2
+
+    # ── Inline in prose ───────────────────────────────────────────────────────
+
+    def test_inline_in_prose_hash(self):
+        text = 'Let me check.\n## TOOL_CALL: {"name": "get_areas"}\nResults follow.'
+        calls = _parse_tool_calls(text)
+        assert len(calls) == 1
+        assert calls[0]["name"] == "get_areas"
+
+    def test_inline_in_prose_bare(self):
+        text = 'I will call TOOL_CALL: {"name": "get_areas"} now.'
+        calls = _parse_tool_calls(text)
+        assert len(calls) == 1
+
+
+# ── Strip all format variants ─────────────────────────────────────────────────
+
+class TestStripToolCallFormats:
+    """_strip_tool_calls must erase ALL format variants, preserving surrounding text."""
+
+    def test_strips_standard(self):
+        assert _strip_tool_calls('[TOOL_CALL: {"name": "get_areas"}]') == ""
+
+    def test_strips_double_hash(self):
+        result = _strip_tool_calls('## TOOL_CALL: {"name": "get_areas"}')
+        assert "TOOL_CALL" not in result.upper()
+
+    def test_strips_single_hash(self):
+        result = _strip_tool_calls('# TOOL_CALL: {"name": "get_areas"}')
+        assert "TOOL_CALL" not in result.upper()
+
+    def test_strips_bold(self):
+        result = _strip_tool_calls('**TOOL_CALL**: {"name": "get_areas"}')
+        assert "TOOL_CALL" not in result.upper()
+
+    def test_strips_bare_uppercase(self):
+        result = _strip_tool_calls('TOOL_CALL: {"name": "get_areas"}')
+        assert "TOOL_CALL" not in result.upper()
+
+    def test_strips_bare_lowercase(self):
+        result = _strip_tool_calls('tool_call: {"name": "get_areas"}')
+        assert "tool_call" not in result.lower()
+
+    def test_strips_xml(self):
+        result = _strip_tool_calls('<tool_call>{"name": "get_areas"}</tool_call>')
+        assert "tool_call" not in result.lower()
+
+    def test_strips_space_separator(self):
+        result = _strip_tool_calls('[TOOL CALL: {"name": "get_areas"}]')
+        assert "TOOL_CALL" not in result.upper()
+        assert "TOOL CALL" not in result.upper()
+
+    def test_strips_preserves_surrounding_text(self):
+        text = 'Before\n## TOOL_CALL: {"name": "get_areas"}\nAfter'
+        result = _strip_tool_calls(text)
+        assert "TOOL_CALL" not in result.upper()
+        assert "Before" in result
+        assert "After" in result
+
+    def test_strips_multiple_mixed_formats(self):
+        text = (
+            'Some intro text.\n'
+            '[TOOL_CALL: {"name": "get_areas"}]\n'
+            'Middle text.\n'
+            '## TOOL_CALL: {"name": "search_entities", "query": "tv"}\n'
+            'End text.'
+        )
+        result = _strip_tool_calls(text)
+        assert "TOOL_CALL" not in result.upper()
+        assert "Some intro text" in result
+        assert "Middle text" in result
+        assert "End text" in result
+
+    def test_strips_xml_preserves_text(self):
+        text = 'Searching...\n<tool_call>{"name": "get_areas"}</tool_call>\nDone.'
+        result = _strip_tool_calls(text)
+        assert "tool_call" not in result.lower()
+        assert "Searching" in result
+        assert "Done" in result

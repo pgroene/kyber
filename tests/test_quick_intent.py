@@ -1,4 +1,4 @@
-"""Tests for _try_quick_intent in http_api.py.
+"""Tests for _try_quick_intent and _classify_intent in intent_and_context.py.
 
 These tests exercise the regex-only intent parser without needing HA. We
 import a tiny shim that only loads the regex + helper.
@@ -24,6 +24,19 @@ def _load_helpers():
     snippet = "from typing import Any\n" + snippet
     exec(snippet, ns)
     return ns
+
+
+def _load_classify():
+    """Extract _classify_intent and its deps from intent_and_context.py."""
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "custom_components" / "kyber" / "intent_and_context.py").read_text(encoding="utf-8")
+    src = src.replace("\r\n", "\n")
+    start = src.index("_ACTION_KEYWORDS")
+    end = src.index("\n\n\n", src.index("def _classify_intent"))
+    snippet = "from __future__ import annotations\nimport re\nfrozenset = frozenset\n" + src[start:end]
+    ns: dict = {"re": re, "frozenset": frozenset}
+    exec(snippet, ns)
+    return ns["_classify_intent"]
 
 
 def test_quick_intent_matches_basic_create():
@@ -105,3 +118,76 @@ def test_quick_intent_make_area_variant():
     assert out["shortcut"] == "quick_create_area"
     assert out["plan"]["actions"][0]["name"] == "tuin"
     assert out["intent"] == "action"
+
+
+# ── _classify_intent tests ────────────────────────────────────────────────────
+
+class TestClassifyIntent:
+    """_classify_intent must return 'action' for commands, 'informational' for questions."""
+
+    def _classify(self, prompt: str) -> str:
+        return _load_classify()(prompt)
+
+    # ── English action phrases ─────────────────────────────────────────────────
+
+    def test_turn_on_english(self):
+        assert self._classify("turn on the kitchen lights") == "action"
+
+    def test_turn_off_english(self):
+        assert self._classify("turn off all lights") == "action"
+
+    def test_set_english(self):
+        assert self._classify("set the thermostat to 21") == "action"
+
+    def test_dim_english(self):
+        assert self._classify("dim the living room") == "action"
+
+    # ── Dutch action phrases ───────────────────────────────────────────────────
+
+    def test_zet_aan_dutch(self):
+        assert self._classify("zet de werkkamer lichten aan") == "action"
+
+    def test_zet_uit_dutch(self):
+        assert self._classify("zet het licht in de keuken uit") == "action"
+
+    def test_aan_doen_regression(self):
+        """Regression: 'kan je nu de werkkamer muziek aan doen' was misclassified as informational."""
+        assert self._classify("kan je nu de werkkamer muziek aan doen") == "action"
+
+    def test_uit_doen_dutch(self):
+        assert self._classify("kan je de muziek uit doen") == "action"
+
+    def test_doe_aan_dutch(self):
+        assert self._classify("doe het licht aan") == "action"
+
+    def test_doe_uit_dutch(self):
+        assert self._classify("doe de TV uit") == "action"
+
+    def test_aanzetten_one_word(self):
+        assert self._classify("muziek aanzetten") == "action"
+
+    def test_uitzetten_one_word(self):
+        assert self._classify("lichten uitzetten") == "action"
+
+    def test_muziek_aan_doen_short(self):
+        assert self._classify("muziek aan doen") == "action"
+
+    def test_kan_je_music_aan(self):
+        assert self._classify("kan je de muziek aan doen in de woonkamer") == "action"
+
+    # ── Informational phrases ──────────────────────────────────────────────────
+
+    def test_what_lights_informational(self):
+        assert self._classify("what lights do I have?") == "informational"
+
+    def test_welke_lampen_informational(self):
+        assert self._classify("welke lampen heb ik?") == "informational"
+
+    def test_show_areas_informational(self):
+        assert self._classify("show me all areas") == "informational"
+
+    def test_empty_informational(self):
+        assert self._classify("") == "informational"
+
+    def test_status_query_informational(self):
+        assert self._classify("is the front door open?") == "informational"

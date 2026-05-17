@@ -24,8 +24,18 @@ except ImportError:  # HA < 2025.2 (test environments)
     async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
         raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
 
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, SYSTEM_PROMPT_TEMPLATE, AUTOMATION_EDITOR_GUIDANCE, LOVELACE_CARDS_REFERENCE
+from .const import (
+    AUTOMATION_EDITOR_GUIDANCE,
+    CONF_AI_TASK_ENTITY_ID,
+    DOMAIN,
+    KNOWLEDGE_BUDGET_CHARS,
+    LOVELACE_CARDS_REFERENCE,
+    MAX_INSTRUCTIONS_CHARS,
+    MAX_TOOL_RESULT_CHARS,
+    SYSTEM_PROMPT_TEMPLATE,
+)
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
+from .language_hints import detect_language, get_hints_for_language, language_display_name
 from .analyzer import analyze_automations as _analyze_automations
 from .source import (
     read_automations as _src_read_automations,
@@ -35,7 +45,7 @@ from .source import (
 )
 from . import deep_analyzer as _deep
 from .response_processing import (
-    _YAML_BLOCK_RE, _PLAN_BLOCK_RE, _CLARIFY_BLOCK_RE, _TOOL_CALL_RE,
+    _YAML_BLOCK_RE, _PLAN_BLOCK_RE, _CLARIFY_BLOCK_RE,
     _TOOL_RESULT_STRIP_RE, _TOOL_RESULT_ECHO_RE, _TOOL_CALL_MAX_ROUNDS,
     _BARE_FENCE_RE, _ACTION_TYPE_RE, _AUTOMATION_EDIT_RE,
     _parse_tool_calls, _strip_tool_calls, _extract_yaml_blocks, _extract_plan_block,
@@ -77,33 +87,12 @@ from .knowledge_integration import (
     KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView,
 )
 from .api_utilities import (
-    _PROGRESS_KEY, _PROGRESS_MAX_AGE, _PROGRESS_MAX_ENTRIES,
+    _PROGRESS_KEY,
     _progress_emit, _progress_complete,
     KyberProgressView, KyberSaveView, _SUMMARIZE_SYSTEM_PROMPT, KyberSummarizeView,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-_DEBUG_MODE_KEY = "kyber_debug_mode"
-_DEBUG_MODE_DEFAULT = True
-
-
-def _get_debug_mode(hass: HomeAssistant) -> bool:
-    val = hass.data.get(_DEBUG_MODE_KEY)
-    if val is None:
-        return _DEBUG_MODE_DEFAULT
-    return bool(val)
-
-
-# Debug snapshot keys — in-memory only, purged on HA restart.
-_DEBUG_LAST_TURN_KEY = "kyber_debug_last_turn"
-_DEBUG_SNAPSHOTS_KEY = "kyber_debug_snapshots"  # request_id -> snapshot ring buffer
-_DEBUG_SNAPSHOTS_MAX = 50
-_DEBUG_TOOL_HISTORY_KEY = "kyber_debug_tool_history"
-_DEBUG_TOOL_HISTORY_MAX = 20
-_DEBUG_LOG_CAPTURE_KEY = "kyber_debug_log_capture"  # request_id -> list[dict]
-_DEBUG_LOG_CAPTURE_MAX_PER_TURN = 500
-
 
 def _sanitize_prompt_value(text: str) -> str:
     """Sanitize a user-supplied string before embedding it in the system prompt.
@@ -125,10 +114,43 @@ def _sanitize_prompt_value(text: str) -> str:
 _SYNTHESIS_INSTRUCTIONS = (
     "\n\n[SYSTEM: You already have all the data you need from the tool results "
     "shown above. Answer the user's question directly in plain text now. "
+    "IMPORTANT: If the tool results were empty or returned 0 entities/results, "
+    "do NOT invent entity names, states, or make up answers — honestly say you "
+    "couldn't find the information and suggest trying a more specific search. "
     "Do NOT output any [TOOL_CALL:] blocks — only a prose answer. "
     "List EVERY item from the results; do not truncate with '...' or 'and X more'.]\n"
     "Assistant:"
 )
+
+
+def _build_loop_redirect(tool_calls_filtered: list[tuple[str, dict]]) -> str | None:
+    """Build a system hint to redirect the model when it repeated tool calls.
+
+    Returns a string to append to the tool_exchange, or None if no targeted
+    redirect is available (fall through to synthesis in that case).
+    """
+    for _, call in tool_calls_filtered:
+        name = call.get("name", "")
+        if name == "get_area_entities":
+            area = call.get("area", "")
+            return (
+                f"\n[SYSTEM: get_area_entities(area='{area}') returned 0 entities — "
+                f"same empty result as the previous round. "
+                f"Do NOT call get_area_entities again. "
+                f"Follow the fallback rules: call search_entities(query='{area}') "
+                f"to find entities whose entity_id or friendly name contains this room word. "
+                f"If that also returns nothing, call search_knowledge(query='{area}').]\n"
+                f"Assistant:"
+            )
+        if name == "search_entities":
+            q = call.get("query") or ", ".join(call.get("queries") or [])
+            return (
+                f"\n[SYSTEM: search_entities for '{q}' returned the same result as the "
+                f"previous round. Try a different approach: broaden the search term, "
+                f"try search_knowledge(query='{q}'), or use list_entities_by_domain.]\n"
+                f"Assistant:"
+            )
+    return None
 
 
 # Regex that detects correction turns: user is clarifying a name mismatch.
@@ -176,12 +198,42 @@ _RESPONSE_MODE_ACTION = (
 )
 
 # Hard cap on total instructions to avoid exceeding Ollama's context window (~8K tokens ≈ 32K chars)
-_MAX_INSTRUCTIONS_CHARS = 32_000
+_MAX_INSTRUCTIONS_CHARS = MAX_INSTRUCTIONS_CHARS
 # Reserve budget for knowledge facts so they survive the loop's re-truncation.
 # Base prompt is capped at (_MAX_INSTRUCTIONS_CHARS - _KNOWLEDGE_BUDGET); knowledge
 # is then appended within the remaining space, keeping total ≤ _MAX_INSTRUCTIONS_CHARS.
-_KNOWLEDGE_BUDGET = 2_000
+_KNOWLEDGE_BUDGET = KNOWLEDGE_BUDGET_CHARS
 _BASE_INSTRUCTIONS_CHARS = _MAX_INSTRUCTIONS_CHARS - _KNOWLEDGE_BUDGET  # 30 000
+_MAX_TOOL_RESULT_CHARS = MAX_TOOL_RESULT_CHARS
+
+
+async def _auto_record_search_alias(kstore: Any, query: str, entity_ids: list[str]) -> None:
+    """Silently save a search query → entity mapping as a knowledge alias.
+
+    Called fire-and-forget after search_entities returns 1–3 results so future
+    turns can recall the mapping without searching again.  Skips if an identical
+    fact (same subject) already exists.
+    """
+    try:
+        await kstore.async_load()
+        query_lower = query.lower()
+        # Skip if already recorded: any fact with matching subject
+        existing = await kstore.async_semantic_search(query_lower, min_score=0.95)
+        for e in existing:
+            if e.get("category") == "entity_alias" and e.get("subject", "").lower() == query_lower:
+                return
+        entity_str = ", ".join(entity_ids)
+        await kstore.async_add(
+            "entity_alias",
+            f"When user searches for '{query}', the matching entit{'y is' if len(entity_ids) == 1 else 'ies are'}: {entity_str}",
+            subject=query_lower,
+            tags=query_lower.split() + entity_ids,
+            source="search_alias_auto",
+            confidence=0.7,
+        )
+        _LOGGER.debug("Kyber: auto-saved search alias '%s' → %s", query, entity_str)
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("Kyber: auto-record search alias failed (non-critical): %s", err)
 
 
 class KyberView(HomeAssistantView):
@@ -348,13 +400,25 @@ class KyberView(HomeAssistantView):
             # Drop low-relevance facts that add noise without helping.
             # Always keep entity_alias / area_alias regardless of score since
             # they answer "what is 'the TV'?" type questions definitively.
+            # IMPORTANT: do NOT fall back to "show top-2 regardless" —
+            # injecting low-score irrelevant facts confuses the model into
+            # hallucinating entity IDs from unrelated context.
             _MIN_KNOWLEDGE_SCORE = 0.45
+            _ABS_FLOOR_SCORE = 0.15  # hard floor: never inject below this
             filtered_knowledge = [
                 e for e in relevant_knowledge
                 if float(e.get("_score") or 0) >= _MIN_KNOWLEDGE_SCORE
                 or e.get("category") in ("entity_alias", "area_alias")
             ]
-            relevant_knowledge = filtered_knowledge or relevant_knowledge[:2]  # always show at least top-2
+            # If nothing passed the soft threshold, only keep facts above the
+            # absolute floor (never show completely irrelevant facts).
+            if not filtered_knowledge:
+                filtered_knowledge = [
+                    e for e in relevant_knowledge
+                    if float(e.get("_score") or 0) >= _ABS_FLOOR_SCORE
+                    or e.get("category") in ("entity_alias", "area_alias")
+                ]
+            relevant_knowledge = filtered_knowledge  # empty = inject nothing
 
             # Report which facts were selected so the user can see them in
             # the live progress card AND in the debug snapshot.
@@ -394,12 +458,46 @@ class KyberView(HomeAssistantView):
             instructions = instructions + "\n" + "\n".join(kn_lines) + "\n"
             await kstore.async_record_hit([e["id"] for e in relevant_knowledge])
 
+        # Inject language-specific vocabulary hints when the user writes in a
+        # non-English language.  These are stored as knowledge entries with
+        # category="language_hint" and are retrieved deterministically by tag
+        # (not by TF-IDF score) so they are always complete and consistent.
+        _detected_lang = detect_language(user_prompt)
+        if _detected_lang != "en":
+            _lang_hints = await kstore.async_get_by_tag(
+                _detected_lang, category="language_hint"
+            )
+            if _lang_hints:
+                _lang_name = language_display_name(_detected_lang)
+                _LOGGER.info(
+                    "Kyber: detected language '%s' (%s) — injecting %d vocabulary hints",
+                    _detected_lang, _lang_name, len(_lang_hints),
+                )
+                _progress_emit(hass, request_id, {
+                    "type": "info",
+                    "message": f"Detected language: {_lang_name} — injecting vocabulary hints",
+                })
+                lang_lines = [
+                    "",
+                    f"## Language hints ({_lang_name})",
+                    "The user is writing in "
+                    + _lang_name
+                    + ". Use the vocabulary below to map their words to HA domains, "
+                    "service calls, and entity types. These hints are helpers — always "
+                    "confirm entity IDs with tool calls; never guess them.",
+                ]
+                for hint_entry in _lang_hints:
+                    lang_lines.append(f"- {hint_entry.get('content', '')}")
+                instructions = instructions + "\n" + "\n".join(lang_lines) + "\n"
+
         # Tool-calling loop — the AI may request live HA data via [TOOL_CALL: {...}]
         # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
         tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
         tool_log: list[dict[str, Any]] = []  # summary of tool calls for UI feedback
         executed_calls_cache: dict[str, str] = {}  # signature → result str (dedup across rounds)
         response_text = ""
+        _loop_redirect_given = False  # allow one redirect hint before falling back to synthesis
+        _auto_plan_rescued = False    # set when call_service tool call is auto-converted to plan
         _progress_emit(hass, request_id, {"type": "info", "message": f"Built context: {context_stats.get('entity_count', 0)} entities, {context_stats.get('area_count', 0)} areas"})
 
         # ── Quick-intent shortcut — skip the AI for trivially parseable requests
@@ -486,7 +584,6 @@ class KyberView(HomeAssistantView):
             # Cap each tool result fed back to the model to keep context small.
             # Small models (8K window) choke on huge JSON payloads and forget
             # to continue. Truncate at ~6KB with a note.
-            _MAX_TOOL_RESULT_CHARS = 6000
             new_call_count = 0
 
             # Emit tool_call progress events upfront, then execute uncached calls
@@ -533,6 +630,65 @@ class KyberView(HomeAssistantView):
                 except json.JSONDecodeError:
                     tool_result_data = {"error": "invalid_json", "raw": tool_result_str[:200]}
                 _LOGGER.debug("Tool call %s → %s chars", call.get("name"), len(tool_result_str))
+
+                # Auto-plan rescue: when call_service was used as a tool and the
+                # backend auto-built a plan, inject it as the final response now.
+                if isinstance(tool_result_data, dict) and tool_result_data.get("_auto_plan"):
+                    plan_json = tool_result_data.get("_plan_json", "")
+                    if plan_json:
+                        _LOGGER.info("Kyber: auto-converting call_service tool call to plan block")
+                        response_text = f"```plan\n{plan_json}\n```"
+                        intent = "action"  # ensure informational guard doesn't strip it
+                        _auto_plan_rescued = True
+                        break  # exit tool-results inner loop
+
+                # Auto-record entity aliases: when search_entities returns 1–3 primary
+                # entities, silently save the query→entity mapping so future turns don't
+                # need to search again.
+                if call.get("name") == "search_entities" and isinstance(tool_result_data, dict):
+                    _primary_eids = [
+                        k for k in tool_result_data
+                        if isinstance(k, str) and "." in k and not k.startswith("_")
+                    ]
+                    if 1 <= len(_primary_eids) <= 3:
+                        _q = (call.get("query") or ", ".join(call.get("queries") or [])).strip()
+                        if _q:
+                            asyncio.ensure_future(
+                                _auto_record_search_alias(kstore, _q, _primary_eids)
+                            )
+
+                # Also record aliases from get_entity_state: when entity_id words
+                # overlap with the user prompt we know the user was asking about that
+                # entity — save the mapping so next time we don't need to search.
+                if (
+                    call.get("name") == "get_entity_state"
+                    and isinstance(tool_result_data, dict)
+                    and "error" not in tool_result_data
+                ):
+                    _eid = call.get("entity_id", "")
+                    if _eid and "." in _eid:
+                        # Extract meaningful words from the entity_id (ignore domain prefix)
+                        _eid_words = set(re.split(r"[._]", _eid.split(".", 1)[-1].lower()))
+                        _eid_words.discard("")
+                        # Build the prompt search space: current prompt + last history message
+                        _prompt_words = set(re.split(r"\W+", user_prompt.lower()))
+                        _last_hist = ""
+                        if history:
+                            _last_hist = str(history[-1].get("content", "")).lower()
+                        _hist_words = set(re.split(r"\W+", _last_hist))
+                        _all_context_words = _prompt_words | _hist_words
+                        # Require at least one meaningful entity word (>3 chars) in context
+                        _overlap = {
+                            w for w in _eid_words
+                            if len(w) > 3 and w in _all_context_words
+                        }
+                        if _overlap:
+                            # Build a natural alias from the overlapping context words
+                            _alias_words = sorted(_overlap, key=lambda w: -len(w))
+                            _alias_q = " ".join(_alias_words[:3])
+                            asyncio.ensure_future(
+                                _auto_record_search_alias(kstore, _alias_q, [_eid])
+                            )
 
                 # Build a short human-readable summary for the UI
                 summary = _tool_result_summary(call, tool_result_data)
@@ -587,8 +743,25 @@ class KyberView(HomeAssistantView):
             tool_exchange += f"{clean_response}\n{tool_results_block}\nAssistant:"
             _progress_emit(hass, request_id, {"type": "thinking", "stage": "follow_up"})
 
+            # Auto-plan rescue already set response_text — exit the round loop.
+            if _auto_plan_rescued:
+                break
+
             # Stop early if model is looping (every call was a duplicate)
             if new_call_count == 0:
+                # First time: try a targeted redirect hint so the model can
+                # try a different tool before we fall back to synthesis.
+                if not _loop_redirect_given:
+                    redirect = _build_loop_redirect(tool_calls_filtered)
+                    if redirect is not None:
+                        _loop_redirect_given = True
+                        tool_exchange += redirect
+                        _progress_emit(hass, request_id, {
+                            "type": "info",
+                            "message": "Redirecting — trying alternative search approach.",
+                        })
+                        continue  # one more AI round with the redirect hint
+
                 _LOGGER.info("Kyber: all tool calls in round were duplicates; stopping loop")
                 _progress_emit(hass, request_id, {
                     "type": "info",
@@ -644,10 +817,9 @@ class KyberView(HomeAssistantView):
         if clarify_block:
             response_text = _CLARIFY_BLOCK_RE.sub("", response_text).strip()
 
-        # Remove plan block from the displayed response text — the frontend renders the
-        # plan card separately.  Covers both ```plan``` fences AND bare ## Plan\n{...}.
-        if plan_block:
-            response_text = _strip_plan_block(response_text)
+        # NOTE: plan block is stripped from response_text AFTER the informational guard
+        # (see below) so that a mis-classified query that produces only a plan doesn't
+        # result in an empty response.
 
         # Strip any [TOOL_RESULT: ...] or [T00L_RESULT: ...] lines the model echoed back.
         response_text = _TOOL_RESULT_STRIP_RE.sub("", response_text).strip()
@@ -659,8 +831,8 @@ class KyberView(HomeAssistantView):
             flags=re.IGNORECASE,
         ).strip()
 
-        # Strip any unparsed [TOOL_CALL: ...] / [T00L_CALL: ...] from the final response.
-        response_text = _TOOL_CALL_RE.sub("", response_text).strip()
+        # Strip any unparsed tool calls in any format from the final response.
+        response_text = _strip_tool_calls(response_text)
 
         # Strip "User: ..." and "Assistant:" turn echoes (anywhere, not just at start)
         response_text = re.sub(r"^\s*User:\s.*?(?=\n\n|\Z)", "", response_text, flags=re.DOTALL).strip()
@@ -752,6 +924,12 @@ class KyberView(HomeAssistantView):
                     [a.get("type") for a in actions],
                 )
                 plan_block = None
+
+        # Remove plan block from displayed response — do this AFTER the informational
+        # guard so that a dropped plan doesn't leave response_text empty (the raw plan
+        # JSON stays in the text, which is better than a blank response).
+        if plan_block:
+            response_text = _strip_plan_block(response_text)
 
         # Rescue: if the model used open_editor with a non-automation/script entity
         # (e.g. light.*, switch.*), convert to a call_service actions plan.

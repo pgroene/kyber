@@ -5,66 +5,145 @@ import json
 import re
 from typing import Any
 
+from .const import TOOL_CALL_MAX_ROUNDS
+
 _YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
 # Bare ## Plan\n{...} blocks emitted by models that skip the backtick fences
 _BARE_PLAN_RE = re.compile(r"^#{1,3}\s*Plan\s*\n(\{[\s\S]*?\n\})\s*(?=\n|$)", re.MULTILINE)
 _CLARIFY_BLOCK_RE = re.compile(r"```clarify\s*([\s\S]+?)\s*```", re.IGNORECASE)
-# Match [TOOL_CALL: ...] tolerating O/0 confusion from small models.
-# Used for stripping — parsing uses bracket-balanced extraction instead (see _parse_tool_calls).
-_TOOL_CALL_RE = re.compile(
-    r"\[T[O0]{2}L[_\-]CALL:\s*(\{.*?\})\}?\s*(?:\]|(?=\n|\Z))",
-    re.DOTALL | re.IGNORECASE,
+# Matches the start of a tool-call block in any format a model might emit:
+#   [TOOL_CALL: {...}]         standard brackets
+#   [TOOL-CALL: {...}]         dash separator
+#   [T00L_CALL: {...}]         O/0 confusion
+#   ## TOOL_CALL: {...}        markdown heading (1–3 #)
+#   **TOOL_CALL**: {...}       bold / **TOOL_CALL:** {...}
+#   *TOOL_CALL*: {...}         italic
+#   TOOL_CALL: {...}           bare (no decoration)
+#   tool_call: {...}           lowercase
+#   <tool_call>...</tool_call> XML tag
+# The lookahead (?=\{) ensures we only match when a JSON body follows.
+_TOOL_CALL_PREFIX_RE = re.compile(
+    r"(?:"
+    # XML opening tags: <tool_call>, <toolcall>, <tool-call>
+    r"<tool[_\-]?call>\s*"
+    r"|"
+    # All keyword variants (decorated or bare)
+    r"(?:#{1,3}[\t ]*|\[[\t ]*|\*{1,2})?"   # optional prefix: ###  [  **
+    r"T[O0]{2}L[_\- ]?CALL"                  # TOOL_CALL core (O/0 + sep variants)
+    r"(?:\*+)?:?(?:\*+)?"                    # optional closing stars / colon
+    r"[\t ]*"                                # optional trailing horizontal whitespace
+    r")"
+    r"(?=\{)",
+    re.IGNORECASE,
 )
-# Bracket-balanced prefix: match "[TOOL_CALL: " followed by an opening brace.
-_TOOL_CALL_PREFIX_RE = re.compile(r"\[T[O0]{2}L[_\-]CALL:\s*(?=\{)", re.IGNORECASE)
+# Matches closing XML tool-call tag or bracket (used in _strip_tool_calls)
+_TOOL_CALL_CLOSE_RE = re.compile(r"\s*(?:\]|</tool[_\-]?call>)\s*", re.IGNORECASE)
+
 # Match [TOOL_RESULT: ...] with same tolerance
 _TOOL_RESULT_STRIP_RE = re.compile(r"\[T[O0]{2}L[_\-]RESULT:[^\]]*?\][^\n]*\n?", re.IGNORECASE)
 _TOOL_RESULT_ECHO_RE = re.compile(r"\[T[O0]{2}L[_\-]RESULT:[^\]]*?\][^\n]*\n?.*?(?=\n\n|\Z)", re.DOTALL | re.IGNORECASE)
-_TOOL_CALL_MAX_ROUNDS = 5
+_TOOL_CALL_MAX_ROUNDS = TOOL_CALL_MAX_ROUNDS
+
+
+def _find_json_end(text: str, start: int) -> int:
+    """Starting at `start` (the opening `{`), return the index just after the
+    matching closing `}`.  Returns `start` on failure (unmatched brace)."""
+    depth = 0
+    i = start
+    in_str = False
+    escaped = False
+    while i < len(text):
+        ch = text[i]
+        if escaped:
+            escaped = False
+        elif ch == "\\" and in_str:
+            escaped = True
+        elif ch == '"':
+            in_str = not in_str
+        elif not in_str:
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return i + 1
+        i += 1
+    return start  # unmatched brace
 
 
 def _parse_tool_calls(text: str) -> list[dict[str, Any]]:
-    """Extract all [TOOL_CALL: {...}] blocks from a response.
+    """Extract all tool-call JSON blocks from a response.
 
-    Uses bracket-depth counting so nested JSON objects (e.g. ``service_data``)
-    are parsed correctly — the old single-regex approach stopped at the first
-    ``}`` inside a nested object and produced invalid JSON.
+    Supports every format variant a model might emit:
+      [TOOL_CALL: {...}]         standard
+      [TOOL-CALL: {...}]         dash separator
+      [T00L_CALL: {...}]         O/0 confusion
+      ## TOOL_CALL: {...}        markdown heading
+      **TOOL_CALL**: {...}       bold
+      TOOL_CALL: {...}           bare
+      tool_call: {...}           lowercase
+      <tool_call>...</tool_call> XML
+    Uses bracket-depth counting so nested JSON (e.g. service_data) is parsed correctly.
     """
     calls = []
     for m in _TOOL_CALL_PREFIX_RE.finditer(text):
-        start = m.end()  # position of the opening {
-        depth = 0
-        i = start
-        in_str = False
-        escaped = False
-        while i < len(text):
-            ch = text[i]
-            if escaped:
-                escaped = False
-            elif ch == "\\" and in_str:
-                escaped = True
-            elif ch == '"':
-                in_str = not in_str
-            elif not in_str:
-                if ch == "{":
-                    depth += 1
-                elif ch == "}":
-                    depth -= 1
-                    if depth == 0:
-                        json_str = text[start : i + 1]
-                        try:
-                            calls.append(json.loads(json_str))
-                        except (json.JSONDecodeError, ValueError):
-                            pass
-                        break
-            i += 1
+        end = _find_json_end(text, m.end())
+        if end == m.end():
+            continue
+        try:
+            calls.append(json.loads(text[m.end():end]))
+        except (json.JSONDecodeError, ValueError):
+            pass
     return calls
 
 
 def _strip_tool_calls(text: str) -> str:
-    """Remove [TOOL_CALL: ...] blocks from a response string."""
-    return _TOOL_CALL_RE.sub("", text).strip()
+    """Remove all tool-call blocks (any format) from a response string."""
+    spans: list[tuple[int, int]] = []
+    for m in _TOOL_CALL_PREFIX_RE.finditer(text):
+        # Back up to start of line unless real text precedes the match
+        line_start = text.rfind("\n", 0, m.start())
+        span_start = (line_start + 1) if line_start >= 0 else 0
+        prefix_before = text[span_start:m.start()]
+        if not re.match(r"^[\s#*\[\]<>]*$", prefix_before):
+            span_start = m.start()
+
+        json_end = _find_json_end(text, m.end())
+        if json_end == m.end():
+            continue
+
+        span_end = json_end
+        # Consume optional closing ] or </tool_call> (with surrounding whitespace)
+        close = re.match(r"\s*(?:\]|</tool[_\-]?call>)\s*", text[span_end:], re.IGNORECASE)
+        if close:
+            span_end += close.end()
+        # Eat one trailing newline
+        if span_end < len(text) and text[span_end] == "\n":
+            span_end += 1
+
+        spans.append((span_start, span_end))
+
+    if not spans:
+        return text.strip()
+
+    # Sort and merge overlapping spans
+    spans.sort()
+    merged: list[list[int]] = [list(spans[0])]
+    for s, e in spans[1:]:
+        if s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+
+    parts: list[str] = []
+    prev = 0
+    for s, e in merged:
+        parts.append(text[prev:s])
+        prev = e
+    parts.append(text[prev:])
+    return "".join(parts).strip()
+
 
 
 def _extract_yaml_blocks(text: str) -> list[str]:
@@ -206,10 +285,15 @@ def _strip_role_echo_prefix(text: str) -> str:
 
 
 _BRIGHTNESS_INTENT_RE = re.compile(
-    r"\b(?:to\s+)?(?:max(?:imum)?|full(?:\s+brightness)?|brightest|100\s*%)\b",
+    r"\b(?:to\s+)?(?:max(?:imum)?|full(?:\s+brightness)?|brightest|100\s*%"
+    r"|maximaal|volledig|helemaal\s+aan|vol(?:\s+aan)?|zo\s+fel\s+mogelijk)\b",
     re.IGNORECASE,
 )
-_DIM_INTENT_RE = re.compile(r"\b(?:dim(?:med)?|low(?:est)?|min(?:imum)?|10\s*%)\b", re.IGNORECASE)
+_DIM_INTENT_RE = re.compile(
+    r"\b(?:dim(?:med)?|low(?:est)?|min(?:imum)?|10\s*%"
+    r"|gedimd|zwak(?:ste)?|minimaal|zo\s+laag\s+mogelijk)\b",
+    re.IGNORECASE,
+)
 
 
 def _augment_brightness_intent(plan: dict | None, prompt: str) -> dict | None:

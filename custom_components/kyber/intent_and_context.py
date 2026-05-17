@@ -100,6 +100,12 @@ _ACTION_KEYWORDS: frozenset[str] = frozenset({
     "zet aan", "zet uit",  # Dutch on/off
     "organise", "organize", "order my", "sort my", "clean up", "tidy",
     "propose", "suggest changes", "suggest a plan",
+    # Media / device control
+    "stop", "pause", "resume", "play", "mute", "unmute", "skip", "next",
+    "volume", "restart", "reboot", "activate", "deactivate",
+    # Confirmation words — user is approving a pending action
+    "yes", "ok", "sure", "go ahead", "do it", "confirm", "execute", "proceed",
+    "ja", "ja doe maar", "doe maar", "prima", "goed",  # Dutch confirmations
 })
 
 # Regex patterns for split-word action intent (e.g. "turn those off", "switch it on")
@@ -107,24 +113,36 @@ _ACTION_RE_PATTERNS: tuple = (
     re.compile(r"\bturn\b.{0,30}\b(on|off)\b", re.IGNORECASE),
     re.compile(r"\bswitch\b.{0,30}\b(on|off)\b", re.IGNORECASE),
     re.compile(r"\b(on|off)\b.{0,30}\bturn\b", re.IGNORECASE),
-    re.compile(r"\bzet\b.{0,20}\b(aan|uit)\b", re.IGNORECASE),  # Dutch
+    re.compile(r"\bzet\b.{0,20}\b(aan|uit)\b", re.IGNORECASE),   # Dutch: zet ... aan/uit
+    re.compile(r"\b(aan|uit)\s*doen\b", re.IGNORECASE),           # Dutch: aan/uit doen  ("muziek aan doen")
+    re.compile(r"\bdoe\b.{0,30}\b(aan|uit)\b", re.IGNORECASE),    # Dutch: doe ... aan/uit
+    re.compile(r"\b(aan|uit)zetten\b", re.IGNORECASE),             # Dutch: aanzetten / uitzetten (one word)
+    re.compile(r"\bzet\b.{0,30}\b(aan|uit)\b", re.IGNORECASE),    # Dutch: zet X aan (already covered by keyword but also split)
 )
 
 
 def _classify_intent(user_prompt: str) -> str:
     """Return 'action' if the prompt requests a change, otherwise 'informational'."""
     lower = user_prompt.lower()
-    if any(kw in lower for kw in _ACTION_KEYWORDS):
-        return "action"
+    for kw in _ACTION_KEYWORDS:
+        if " " in kw:
+            # Multi-word phrase: plain substring match is fine
+            if kw in lower:
+                return "action"
+        else:
+            # Single word: require word boundary to avoid false positives
+            # (e.g. "play" must not match "playing", "stop" not "stopping")
+            if re.search(r"\b" + re.escape(kw) + r"\b", lower):
+                return "action"
     if any(p.search(lower) for p in _ACTION_RE_PATTERNS):
         return "action"
     return "informational"
 
 
 def _build_home_state_by_area(
-    hass: HomeAssistant,
     entity_reg: er.EntityRegistry,
     area_by_id: dict[str, str],
+    all_states: list,
 ) -> tuple[str, dict[str, Any]]:
     """Build a per-area home state snapshot and aggregate stats."""
     # area_name → collected metrics
@@ -145,7 +163,7 @@ def _build_home_state_by_area(
     low_battery_count = 0
     total_lights_on = 0
 
-    for state in hass.states.async_all():
+    for state in all_states:
         entity_id = state.entity_id
         domain = entity_id.split(".")[0]
         if domain in ("automation", "script", "scene", "group", "persistent_notification",
@@ -294,7 +312,7 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
         entity_stats += f" ({', '.join(stats_parts)})"
 
     # Per-area home state
-    home_state_by_area, area_stats = _build_home_state_by_area(hass, entity_reg, area_by_id)
+    home_state_by_area, area_stats = _build_home_state_by_area(entity_reg, area_by_id, all_states)
     notable_state_block = ""
     if home_state_by_area != "(no area state available)":
         notable_state_block = f"\n### Current Home State (notable only)\n{home_state_by_area}\n"

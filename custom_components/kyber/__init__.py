@@ -23,6 +23,7 @@ from .const import (
 )
 from .analyzer import analyze_automations as _analyze_automations
 from . import deep_analyzer as _deep
+from .knowledge import get_knowledge_store
 from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView
 
 _LOGGER = logging.getLogger(__name__)
@@ -154,6 +155,101 @@ async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -
     )
 
 
+async def _async_explore_integrations(hass: HomeAssistant) -> None:
+    """Background task: explore all loaded integrations and store knowledge facts.
+
+    Waits a short grace period so HA finishes loading other integrations before
+    we scan the entity registry. Idempotent — skips already-explored ones.
+    """
+    import asyncio
+    from homeassistant.helpers import entity_registry as er
+    from .knowledge import get_knowledge_store
+    from .integration_explorer import async_startup_explore_all
+
+    await asyncio.sleep(15)  # let HA finish loading other integrations
+    try:
+        kstore = get_knowledge_store(hass)
+        entity_reg = er.async_get(hass)
+        count = await async_startup_explore_all(hass, kstore, entity_reg)
+        _LOGGER.info("Kyber: integration explorer stored facts for %d integrations", count)
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Kyber: integration explorer failed: %s", err)
+
+
+async def _async_seed_language_hints(hass: HomeAssistant) -> None:
+    """Seed language-vocabulary hints into the knowledge store.
+
+    Idempotent: compares the stored version number against
+    ``LANG_HINTS_VERSION`` and only re-seeds when the version is higher.
+    This lets us update hints by bumping the version constant.
+    """
+    from .language_hints import LANGUAGE_HINTS, LANG_HINTS_VERSION, LangHintEntry
+    from .knowledge import get_knowledge_store
+
+    kstore = get_knowledge_store(hass)
+    await kstore.async_load()
+
+    _VERSION_SUBJECT = "_lang_hints_version"
+
+    # Find existing version marker
+    existing_version = 0
+    version_entry_id: str | None = None
+    for e in kstore._entries.values():
+        if e.get("subject") == _VERSION_SUBJECT and e.get("source") == "language_builtin":
+            try:
+                existing_version = int(e.get("content", "0"))
+            except (ValueError, TypeError):
+                existing_version = 0
+            version_entry_id = e["id"]
+            break
+
+    if existing_version >= LANG_HINTS_VERSION:
+        _LOGGER.debug("Kyber: language hints already at v%d — skipping seed", LANG_HINTS_VERSION)
+        return
+
+    # Purge stale language_hint entries from a previous version
+    if existing_version > 0:
+        stale = [
+            eid for eid, e in list(kstore._entries.items())
+            if e.get("source") == "language_builtin" and e.get("category") == "language_hint"
+        ]
+        for eid in stale:
+            del kstore._entries[eid]
+        if version_entry_id:
+            kstore._entries.pop(version_entry_id, None)
+        _LOGGER.info("Kyber: purged %d stale language hint entries (v%d → v%d)",
+                     len(stale), existing_version, LANG_HINTS_VERSION)
+
+    # Seed all language hints
+    total = 0
+    for lang_code, lang_data in LANGUAGE_HINTS.items():
+        for hint in lang_data["hints"]:
+            await kstore.async_add(
+                "language_hint",
+                hint.content,
+                subject=hint.subject,
+                tags=[lang_code, "language_hint", lang_data["name"].lower()],
+                source="language_builtin",
+                confidence=1.0,
+            )
+            total += 1
+
+    # Store version marker
+    await kstore.async_add(
+        "general",
+        str(LANG_HINTS_VERSION),
+        subject=_VERSION_SUBJECT,
+        source="language_builtin",
+        confidence=1.0,
+    )
+    _LOGGER.info(
+        "Kyber: seeded %d language hint entries (v%d) for: %s",
+        total,
+        LANG_HINTS_VERSION,
+        ", ".join(LANGUAGE_HINTS),
+    )
+
+
 def _resolve_debug_enabled(entry: ConfigEntry) -> bool:
     """Resolve effective debug-views setting for an entry.
 
@@ -217,7 +313,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
             sidebar_icon="mdi:robot",
-            module_url="/local/kyber/kyber-panel.js?v=91",
+            module_url="/local/kyber/kyber-panel.js?v=94",
         )
     except Exception:  # noqa: BLE001
         _LOGGER.debug("Panel registration skipped (test environment)")
@@ -232,7 +328,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
                 webcomponent_name="kyber-panel",
                 sidebar_title="Kyber Debug",
                 sidebar_icon="mdi:bug",
-                module_url="/local/kyber/kyber-panel.js?v=91",
+                module_url="/local/kyber/kyber-panel.js?v=94",
                 config={"mode": "debug"},
             )
         except Exception:  # noqa: BLE001
@@ -241,6 +337,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     # Always schedule the initial learning task; the function itself guards
     # against re-running via CONF_INITIAL_LEARNING_DONE.
     hass.async_create_task(_async_run_initial_learning(hass, entry))
+
+    # Seed language vocabulary hints into the knowledge store (idempotent).
+    hass.async_create_task(_async_seed_language_hints(hass))
+
+    # Explore all loaded integrations and store capability knowledge facts.
+    # Runs in the background after startup so it doesn't block the UI.
+    # Idempotent: skips integrations that already have auto-discovered facts.
+    hass.async_create_task(_async_explore_integrations(hass))
 
     entry.async_on_unload(entry.add_update_listener(_update_listener))
 

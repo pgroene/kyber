@@ -12,6 +12,7 @@ from homeassistant.helpers import label_registry as lr
 
 from .knowledge import get_store as get_knowledge_store
 from .analyzer import analyze_automations as _analyze_automations
+from .domain_docs import get_domain_docs as _get_domain_docs
 from .source import (
     read_automations as _src_read_automations,
     read_scripts as _src_read_scripts,
@@ -108,6 +109,11 @@ def _tool_result_summary(call: dict[str, Any], result: Any) -> str:
     if name == "get_labels":
         count = len(result) if isinstance(result, dict) else 0
         return f"{count} labels"
+    if name == "explore_integration":
+        integration = call.get("integration", "?")
+        count = result.get("entity_count", 0) if isinstance(result, dict) else 0
+        facts = result.get("facts_stored", 0) if isinstance(result, dict) else 0
+        return f"explored '{integration}': {count} entities, {facts} facts stored"
     if name == "list_integrations":
         count = result.get("count", 0) if isinstance(result, dict) else 0
         return f"{count} integrations"
@@ -121,6 +127,9 @@ def _tool_result_summary(call: dict[str, Any], result: Any) -> str:
         if isinstance(result, dict) and "response" in result:
             snippet = " — " + str(result["response"])[:80]
         return f"ai_task response from {entity_id}{snippet}"
+    if name == "get_domain_docs":
+        domain = call.get("domain", "?")
+        return f"domain docs for '{domain}'"
     return "done"
 
 
@@ -656,6 +665,19 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             return json.dumps({"info": f"No entities found for integration '{integration}'"})
         return json.dumps({"integration": integration, "entities": results, "count": len(results)})
 
+    # ── Domain action reference (on-demand) ──────────────────────────────────
+    # Returns a compact service/parameter reference for a specific domain so
+    # the AI can emit correct plan actions without guessing argument names.
+    if name == "get_domain_docs":
+        domain_arg = str(call.get("domain", "")).strip().lower()
+        if not domain_arg:
+            from .domain_docs import _AVAILABLE_DOMAINS
+            return json.dumps({
+                "error": "Missing 'domain' argument",
+                "available_domains": _AVAILABLE_DOMAINS,
+            })
+        return json.dumps({"domain": domain_arg, "docs": _get_domain_docs(domain_arg)})
+
     # call_service / assign_area / etc. are ACTIONS that belong in a plan
     # block, not [TOOL_CALL:]s. If the model tries to use them as a tool,
     # return a guidance error so it stops and emits a plan instead.
@@ -666,6 +688,35 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "add_knowledge", "update_knowledge", "delete_knowledge",
     }
     if name in _ACTION_AS_TOOL:
+        # For call_service specifically: if the model supplied enough args,
+        # auto-build a plan block so the frontend can execute it directly.
+        # This rescues small models that have the right intent but use the
+        # wrong output format (tool call instead of plan block).
+        if name == "call_service":
+            domain = call.get("domain", "")
+            service = call.get("service", "")
+            entity_id = call.get("entity_id", "")
+            service_data = call.get("service_data") or {}
+            if domain and service:
+                action: dict = {
+                    "type": "call_service",
+                    "domain": domain,
+                    "service": service,
+                    "description": f"{service.replace('_', ' ').title()} {entity_id or domain}",
+                }
+                if entity_id:
+                    action["entity_id"] = entity_id
+                if service_data:
+                    action["service_data"] = service_data
+                plan = {
+                    "summary": f"{service.replace('_', ' ').title()} {entity_id or domain}",
+                    "actions": [action],
+                }
+                return json.dumps({
+                    "_auto_plan": True,
+                    "_plan_json": json.dumps(plan),
+                    "guidance": "Auto-converted to plan block — return it to the user.",
+                })
         return json.dumps({
             "error": f"'{name}' is NOT a tool — it is an ACTION.",
             "guidance": (
@@ -683,8 +734,9 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "list_automations", "get_automation",
         "list_scripts", "get_script",
         "list_blueprints", "get_blueprint",
-        "list_integrations", "get_integration_entities",
+        "list_integrations", "get_integration_entities", "explore_integration",
         "run_ai_task",
+        "get_domain_docs",
     ]
     # If the bogus "tool" name looks like a word from a user request (e.g.
     # they typed "create an area outside" and the model called tool
@@ -707,7 +759,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
 
 # Async tools — tools that require awaiting (e.g. ai_task calls).
 # Called directly from _run_one_tool in http_api.py without going through executor.
-_ASYNC_TOOLS = {"run_ai_task"}
+_ASYNC_TOOLS = {"run_ai_task", "explore_integration"}
 
 
 async def _async_execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
@@ -748,5 +800,33 @@ async def _async_execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             return json.dumps({"entity_id": entity_id, "response": text})
         except Exception as exc:  # pylint: disable=broad-except
             return json.dumps({"error": str(exc)})
+
+    if name == "explore_integration":
+        from .integration_explorer import async_explore_integration as _explore
+        from homeassistant.helpers import entity_registry as er
+        platform = str(call.get("integration") or call.get("platform") or "").strip()
+        if not platform:
+            return json.dumps({"error": "Missing 'integration' argument — pass the platform name from list_integrations result"})
+        entity_reg = er.async_get(hass)
+        entities = []
+        for entry in entity_reg.entities.values():
+            if entry.platform == platform:
+                state = hass.states.get(entry.entity_id)
+                entities.append({
+                    "entity_id": entry.entity_id,
+                    "name": (state.attributes.get("friendly_name") if state else None) or entry.entity_id,
+                    "unit_of_measurement": (state.attributes.get("unit_of_measurement") if state else "") or "",
+                })
+        if not entities:
+            return json.dumps({"info": f"No entities found for integration '{platform}' — check the name with list_integrations first"})
+        kstore = get_knowledge_store(hass)
+        facts = await _explore(hass, kstore, platform, entities)
+        return json.dumps({
+            "integration": platform,
+            "entity_count": len(entities),
+            "facts_stored": len(facts),
+            "summary": facts[0] if facts else "",
+            "all_facts": facts,
+        })
 
     return json.dumps({"error": f"Unknown async tool '{name}'"})
