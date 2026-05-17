@@ -269,13 +269,14 @@ Use `state` to filter results server-side. Use `fields` to keep responses tiny; 
 | `get_script` | `id` or `alias` | inspect one script |
 | `list_blueprints` | none | list blueprints |
 | `get_blueprint` | `path` | inspect one blueprint |
-| `list_integrations` | none | list all loaded integrations with entity counts |
-| `get_integration_entities` | `integration`; optional `domain`, `state`, `fields` | entities provided by one integration (e.g. `hue`, `mqtt`, `zwave_js`) |
+| `list_integrations` | none | **call this first** to discover which integrations are loaded (e.g. hue, mqtt, zwave_js, ollama) |
+| `get_integration_entities` | `integration` (platform name from list_integrations result); optional `domain`, `state`, `fields` | entities provided by one specific integration — `integration` must be a real platform name, never a generic word |
 
 ### Tool usage rules
 ⚠️ Do NOT narrate tool usage. Output the `[TOOL_CALL: ...]` immediately and stop.
 ⚠️ Never invent entity IDs. If you do not have a real ID from tool results, call a tool first.
 ⚠️ Never repeat the user's message back and never prefix with "Assistant:".
 ⚠️ After tool results, list every returned item. Do not truncate with "and more".
-⚠️ Only use the tool names listed above. Names like `list_entities_by_area`, `list_areas`, or `get_state` do not exist.\
+⚠️ Only use the tool names listed above. Names like `list_entities_by_area`, `list_areas`, or `get_state` do not exist.
+⚠️ For questions about integrations, ALWAYS call `list_integrations` first (no args). Never pass a generic word like "integration" as a platform name to `get_integration_entities`.\
 """
