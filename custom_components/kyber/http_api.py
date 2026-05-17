@@ -24,7 +24,7 @@ except ImportError:  # HA < 2025.2 (test environments)
     async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
         raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
 
-from .const import CONF_AI_TASK_ENTITY_ID, CONF_USER_NAME, DOMAIN, SYSTEM_PROMPT_TEMPLATE
+from .const import CONF_AI_TASK_ENTITY_ID, CONF_USER_NAME, DOMAIN, SYSTEM_PROMPT_TEMPLATE, AUTOMATION_EDITOR_GUIDANCE, LOVELACE_CARDS_REFERENCE
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
 from .analyzer import analyze_automations as _analyze_automations
 from .source import (
@@ -1189,6 +1189,18 @@ def _extract_plan_block(text: str) -> dict | None:
 _BARE_FENCE_RE = re.compile(r"```(?!plan|clarify|yaml|json)([a-z]*)\n([\s\S]+?)\n```", re.IGNORECASE)
 _ACTION_TYPE_RE = re.compile(r'"type"\s*:\s*"(call_service|assign_area|rename_entity|create_\w+|update_\w+|delete_\w+|add_knowledge|update_knowledge|delete_knowledge|open_dashboard|open_editor)"')
 
+# Detect user intent to edit an automation/script YAML — used to lazy-load editor guidance.
+_AUTOMATION_EDIT_RE = re.compile(
+    r'(?:'
+    r'(?:edit|modify|update|change|bewerk|aanpas|aanpassen|wijzig|open|pas\s+aan)'
+    r'.{0,80}(?:automat|script|flow)'
+    r'|'
+    r'(?:automat|script|flow).{0,80}'
+    r'(?:edit|modify|update|change|bewerk|aanpas|aanpassen|wijzig|open|pas\s+aan)'
+    r')',
+    re.I | re.S,
+)
+
 
 def _rewrap_bare_action_fences(text: str) -> str:
     """Find bare ``` fences that contain a single JSON action object and
@@ -1719,8 +1731,18 @@ class KyberView(HomeAssistantView):
             else _RESPONSE_MODE_ACTION
         )
 
+        # Lazy-load sections: inject only when relevant to save prompt budget.
+        automation_guidance = (
+            AUTOMATION_EDITOR_GUIDANCE
+            if user_yaml.strip() or _AUTOMATION_EDIT_RE.search(user_prompt)
+            else ""
+        )
+        lovelace_ref = LOVELACE_CARDS_REFERENCE if editor_mode == "dashboard" else ""
+
         instructions = (
             f"{context}\n\n"
+            f"{automation_guidance}"
+            f"{lovelace_ref}"
             f"{response_mode_block}"
             f"{user_section}"
             f"{dashboard_section}"
