@@ -1307,6 +1307,7 @@ class KyberView(HomeAssistantView):
         lovelace_resources: list[str] = body.get("lovelace_resources", [])
 
         if not user_prompt:
+            _debug_detach_log_capture(_debug_log_handler)
             return self.json_message("Missing 'prompt' field", HTTPStatus.BAD_REQUEST)
 
         _LOGGER.debug(
@@ -1415,7 +1416,7 @@ class KyberView(HomeAssistantView):
         kstore = get_knowledge_store(hass)
         await kstore.async_load()
         try:
-            relevant_knowledge = await kstore.async_pick_relevant(prompt, max_entries=8)
+            relevant_knowledge = await kstore.async_pick_relevant(user_prompt, max_entries=8)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber: knowledge lookup failed: %s", err)
             relevant_knowledge = []

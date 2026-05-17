@@ -413,34 +413,27 @@ const STYLES = `
     border-radius: 4px;
   }
 
-  /* Rating widget on assistant messages */
-  .kyber-debug-bundle {
-    position: absolute; top: 4px; right: 6px;
-    background: transparent; border: 1px solid var(--divider-color, #444);
-    color: var(--secondary-text-color, #888); font-size: 10px;
-    padding: 1px 6px; border-radius: 3px; cursor: pointer; opacity: 0;
-    transition: opacity 0.15s;
+  /* Per-turn feedback banner (Debug → Last turn) */
+  .dbg-turn-feedback {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 10px 12px; margin-bottom: 12px;
+    background: var(--card-background-color, rgba(255,255,255,0.04));
+    border: 1px solid var(--divider-color); border-radius: 6px;
+    font-size: 12px;
   }
-  .chat-message.assistant { position: relative; }
-  .chat-message.assistant:hover .kyber-debug-bundle { opacity: 0.85; }
-  .kyber-debug-bundle:hover { opacity: 1 !important; color: var(--primary-color); border-color: var(--primary-color); }
-  .kyber-rating {
-    margin-top: 8px;
-    padding-top: 6px;
-    border-top: 1px dashed rgba(255,255,255,0.1);
-    display: flex; gap: 6px; align-items: center;
-    font-size: 11px; color: var(--secondary-text-color, #aaa);
-  }
-  .kyber-rating .rating-btn {
-    background: transparent; border: 1px solid var(--divider-color, #444);
-    color: inherit; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+  .dbg-turn-feedback .tf-label { font-weight: 600; }
+  .dbg-turn-feedback .tf-btn {
+    background: transparent; border: 1px solid var(--divider-color);
+    color: inherit; cursor: pointer; padding: 4px 10px; border-radius: 4px;
     font-size: 14px; line-height: 1;
   }
-  .kyber-rating .rating-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); }
-  .kyber-rating .rating-btn:disabled { opacity: 0.4; cursor: default; }
-  .kyber-rating .rating-auto { color: var(--warning-color, #ff9800); font-size: 10px; }
-  .kyber-rating .rating-ok { color: var(--success-color, #4caf50); }
-  .kyber-rating .rating-flag { color: var(--warning-color, #ff9800); }
+  .dbg-turn-feedback .tf-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); }
+  .dbg-turn-feedback .tf-btn:disabled { opacity: 0.4; cursor: default; }
+  .dbg-turn-feedback .tf-btn.tf-bundle { font-size: 12px; margin-left: auto; }
+  .dbg-turn-feedback .tf-auto { color: var(--warning-color, #ff9800); font-size: 11px; }
+  .dbg-turn-feedback .tf-status { color: var(--secondary-text-color, #aaa); font-size: 11px; }
+  .dbg-turn-feedback .tf-status.ok { color: var(--success-color, #4caf50); }
+  .dbg-turn-feedback .tf-status.flag { color: var(--warning-color, #ff9800); }
 
   /* Knowledge panel */
   .kyber-knowledge-panel { font-size: 12px; }
@@ -1658,25 +1651,6 @@ class KyberPanel extends HTMLElement {
   // ────────────────────────────────────────────────────────────────────
   // Knowledge / memory panel
   // ────────────────────────────────────────────────────────────────────
-  _attachDebugBundleButton(requestId) {
-    if (!this._debugEnabled) return;
-    const history = this.shadowRoot.getElementById("chat-history");
-    if (!history || !requestId) return;
-    const messages = history.querySelectorAll(".chat-message.assistant");
-    const last = messages[messages.length - 1];
-    if (!last || last.querySelector(".kyber-debug-bundle")) return;
-    const btn = document.createElement("button");
-    btn.className = "kyber-debug-bundle";
-    btn.title = "Download debug bundle for this turn — share with Kyber maintainer";
-    btn.textContent = "⬇ debug";
-    btn.setAttribute("data-request-id", requestId);
-    btn.addEventListener("click", (ev) => {
-      ev.preventDefault();
-      this._downloadDebugBundle(requestId, btn);
-    });
-    last.appendChild(btn);
-  }
-
   async _downloadDebugBundle(requestId, btn) {
     const token = this._hass.auth.data.access_token;
     const orig = btn ? btn.textContent : "";
@@ -1702,47 +1676,28 @@ class KyberPanel extends HTMLElement {
     }
   }
 
-  _attachRatingWidget(knowledgeIds, autoRating) {
-    const history = this.shadowRoot.getElementById("chat-history");
-    if (!history) return;
-    // Find last assistant message
-    const messages = history.querySelectorAll(".chat-message.assistant");
-    const last = messages[messages.length - 1];
-    if (!last || last.querySelector(".kyber-rating")) return;
-    const autoNote = autoRating
-      ? `<span class="rating-auto" title="Auto-flagged because the response looked uncertain">⚠ auto-rated ${autoRating}/5</span>`
-      : "";
-    const widget = document.createElement("div");
-    widget.className = "kyber-rating";
-    widget.innerHTML = `
-      <span class="rating-label">Was this answer helpful?</span>
-      <button class="rating-btn rating-up" title="Helpful — boost related memory">👍</button>
-      <button class="rating-btn rating-down" title="Not helpful — flag related memory for review">👎</button>
-      ${autoNote}
-      <span class="rating-status"></span>
-    `;
-    last.appendChild(widget);
-    const status = widget.querySelector(".rating-status");
-    const send = async (rating) => {
-      widget.querySelectorAll(".rating-btn").forEach((b) => (b.disabled = true));
-      try {
-        const token = this._hass.auth.data.access_token;
-        const resp = await fetch("/api/kyber/knowledge/feedback", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ rating, knowledge_ids: knowledgeIds, auto: false }),
-        });
-        const data = await resp.json();
+  async _submitTurnFeedback(rating, knowledgeIds, btnsRoot) {
+    const status = btnsRoot.querySelector(".tf-status");
+    btnsRoot.querySelectorAll(".tf-btn-rate").forEach((b) => (b.disabled = true));
+    try {
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch("/api/kyber/knowledge/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ rating, knowledge_ids: knowledgeIds || [], auto: false }),
+      });
+      const data = await resp.json();
+      if (status) {
         status.textContent = rating >= 4
-          ? `✓ thanks (boosted ${data.count || 0} entries)`
-          : `📝 flagged ${data.count || 0} entries for review`;
-        status.classList.add(rating >= 4 ? "rating-ok" : "rating-flag");
-      } catch (err) {
-        status.textContent = `feedback failed: ${err.message}`;
+          ? `✓ thanks — boosted ${data.count || 0} fact(s)`
+          : `📝 flagged ${data.count || 0} fact(s) for review`;
+        status.classList.add(rating >= 4 ? "ok" : "flag");
       }
-    };
-    widget.querySelector(".rating-up").addEventListener("click", () => send(5));
-    widget.querySelector(".rating-down").addEventListener("click", () => send(2));
+      // Refresh the picked-knowledge list so stars/needs_review badges update
+      setTimeout(() => this._renderDebugTab("last_turn"), 600);
+    } catch (err) {
+      if (status) status.textContent = `feedback failed: ${err.message}`;
+    }
   }
 
   async _handleKnowledgeCommand(argStr) {
@@ -2219,7 +2174,22 @@ class KyberPanel extends HTMLElement {
         <td>${t.ms ?? ""}</td>
       </tr>`).join("");
     const ts = snap.ts ? new Date(snap.ts * 1000).toLocaleTimeString() : "—";
+    const knowledgeIds = (picked || []).map((p) => p.id).filter(Boolean);
+    const hasKnowledge = knowledgeIds.length > 0;
+    const autoNote = snap.auto_rating
+      ? `<span class="tf-auto" title="Auto-flagged because the response looked uncertain">⚠ auto-rated ${snap.auto_rating}/5</span>`
+      : "";
+    const feedbackBar = `
+      <div class="dbg-turn-feedback" id="dbg-turn-feedback" data-request-id="${this._escapeHtml(snap.request_id || "")}">
+        <span class="tf-label">How was this turn?</span>
+        <button class="tf-btn tf-btn-rate tf-up" title="Helpful — boost related memory" ${hasKnowledge ? "" : "disabled"}>👍 helpful</button>
+        <button class="tf-btn tf-btn-rate tf-down" title="Not helpful — flag related memory for review" ${hasKnowledge ? "" : "disabled"}>👎 not helpful</button>
+        ${autoNote}
+        <span class="tf-status"></span>
+        <button class="tf-btn tf-bundle" title="Download a zip with the full snapshot + logs of this turn" ${snap.request_id ? "" : "disabled"}>⬇ download bundle</button>
+      </div>`;
     body.innerHTML = `
+      ${feedbackBar}
       <div class="debug-stats">
         <strong>Turn at ${ts}</strong> · ${snap.elapsed_ms ?? "?"} ms · intent: <code>${this._escapeHtml(snap.intent || "?")}</code>
         · prompt: ${snap.char_count?.toLocaleString() ?? "?"} chars (~${snap.approx_tokens?.toLocaleString() ?? "?"} tokens)
@@ -2246,6 +2216,15 @@ class KyberPanel extends HTMLElement {
         <pre class="dbg-pre">${this._escapeHtml(snap.response_text || "")}</pre>
       </details>
     `;
+    // Wire turn-feedback banner buttons
+    const bar = body.querySelector("#dbg-turn-feedback");
+    if (bar) {
+      const reqId = bar.getAttribute("data-request-id");
+      bar.querySelector(".tf-up")?.addEventListener("click", () => this._submitTurnFeedback(5, knowledgeIds, bar));
+      bar.querySelector(".tf-down")?.addEventListener("click", () => this._submitTurnFeedback(2, knowledgeIds, bar));
+      const dl = bar.querySelector(".tf-bundle");
+      if (dl && reqId) dl.addEventListener("click", () => this._downloadDebugBundle(reqId, dl));
+    }
     if (picked.length > 0) {
       const list = body.querySelector("#dbg-picked-list");
       // Fetch full entries so we get tags + feedback log for rendering
@@ -3567,16 +3546,16 @@ class KyberPanel extends HTMLElement {
       }
       this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null);
 
-      // Attach a per-turn debug-bundle download button to the latest assistant msg.
-      if (data.request_id) {
-        this._attachDebugBundleButton(data.request_id);
-      }
-
-      // Attach rating widget if any knowledge entries were used to ground this response
-      if (data.knowledge_used && data.knowledge_used.length > 0) {
-        this._attachRatingWidget(data.knowledge_used, data.auto_rating || null);
-      }
-      // Auto-refresh debug 'Last turn' pane if open
+      // Per-turn metadata is captured for the Debug tab ("Last turn") instead
+      // of being attached to the chat message. The chat panel stays clean;
+      // all feedback / debug-bundle UI lives in /kyber-debug.
+      this._lastTurnMeta = {
+        request_id: data.request_id || null,
+        knowledge_used: data.knowledge_used || [],
+        auto_rating: data.auto_rating || null,
+        ts: Date.now(),
+      };
+      // Auto-refresh debug 'Last turn' pane if it is currently open
       const debugPane = this.shadowRoot.getElementById("debug-pane");
       if (debugPane && !debugPane.hasAttribute("hidden") && this._debugTab === "last_turn") {
         this._renderDebugTab("last_turn");
