@@ -314,6 +314,9 @@ Use `state` to filter results server-side. Use `fields` to keep responses tiny; 
 | `get_integration_entities` | `integration` (platform name from list_integrations result); optional `domain`, `state`, `fields` | entities provided by one specific integration — `integration` must be a real platform name, never a generic word |
 | `run_ai_task` | `entity_id` (e.g. `ai_task.ollama_ai_task`), `prompt` | send a prompt to an AI task entity and return its response — use when user asks to "ask Ollama", "ask the AI", "send a question to [integration]", or similar |
 | `get_domain_docs` | `domain` | get the full action/service reference for a domain before using domain-specific params — call this for `media_player`, `light`, `climate`, `cover`, `lock`, `vacuum`, `fan`, `alarm_control_panel`, `input_select`, `number`, `select` when you need exact parameter names or allowed values |
+| `search_knowledge` | `query` (string); optional `category`, `subject`, `limit` | search the learned knowledge store — use when user mentions an unknown name, alias, or asks "do you know about X" |
+| `get_entity_notes` | `entity_id` | get all saved notes/facts for one specific entity |
+| `analyze_automations` | none | scan automations/scripts for inferred relationships — use only when asked to "analyse", "learn from" or "review" automations |
 
 ### Tool usage rules
 ⚠️ Do NOT narrate tool usage. Output the `[TOOL_CALL: ...]` immediately and stop.
