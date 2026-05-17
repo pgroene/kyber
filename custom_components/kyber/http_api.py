@@ -131,6 +131,17 @@ def _build_loop_redirect(tool_calls_filtered: list[tuple[str, dict]]) -> str | N
     """
     for _, call in tool_calls_filtered:
         name = call.get("name", "")
+        if name == "list_integrations":
+            return (
+                "\n[SYSTEM: You already called list_integrations and have the full integration list. "
+                "Do NOT call list_integrations again. "
+                "Look at the integration names and sample_entities in the result above to find "
+                "the one relevant to the user's question. "
+                "Then call get_integration_entities(integration='<exact_platform_name>') to get "
+                "the actual entity IDs and current values. "
+                "If no integration matches, answer from what you already know.]\n"
+                "Assistant:"
+            )
         if name == "get_area_entities":
             area = call.get("area", "")
             return (
@@ -179,7 +190,10 @@ _RESPONSE_MODE_INFORMATIONAL = (
     "- If question is about a SPECIFIC state (e.g. 'lights that are on', 'open doors'), ADD a \"state\" filter to the tool call (e.g. \"state\":\"on\"). This returns only matching items — list ALL of them.\n"
     "- After tool result: list EVERY SINGLE item from the result. If result has 83 items, output 83 bullets. NEVER stop at 5/10/20. NEVER write '...' or 'and more'.\n"
     "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, list_integrations, get_integration_entities.\n"
-    "- For questions about integration-specific data (energy prices, weather, solar/inverter, P1 meter, etc.): call list_integrations first, then get_integration_entities with the matching integration name.\n"
+    "- For questions about integration-specific data (energy prices, weather, solar/inverter, P1 meter, etc.): "
+    "call list_integrations ONCE, scan the result for a matching platform name and sample_entities, "
+    "then IMMEDIATELY call get_integration_entities(integration='<platform_name>'). "
+    "Do NOT call list_integrations more than once.\n"
     "- No preamble. No footer. No 'What would you like to do?' No 'Please let me know'.\n"
     "- Do NOT output a plan block.\n"
     "<</RULES>>\n\n"
