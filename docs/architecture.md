@@ -21,7 +21,7 @@ A single-file custom element registered as `<kyber-panel>` using the Shadow DOM.
 ### Dependencies
 
 - **CodeMirror 6** — bundled separately in `codemirror-bundle.js`. Provides the YAML editor with syntax highlighting, folding, bracket matching, and autocompletion.
-- **HA built-ins** — accesses `this.hass` (injected by HA) for `hass.callApi`, `hass.panels`, and state data.
+- **HA built-ins** — accesses `this.hass` (injected by HA) for `hass.callApi`, `hass.callWS`, `hass.panels`, and state data, and uses authenticated `fetch` calls to Kyber backend endpoints.
 
 ### Key State Properties
 
@@ -72,7 +72,7 @@ Renders a structured action card from the JSON plan object. Displays a summary, 
 
 Entry point for the integration. `async_setup_entry` is called by HA when the config entry is loaded. It:
 
-1. Registers all four HTTP view classes with `hass.http.register_view`.
+1. Registers all Kyber HTTP view classes with `hass.http.register_view` (chat, execution, parsing, summarization, history/sessions, progress, knowledge, and debug routes).
 2. Registers the `<kyber-panel>` custom panel in the HA sidebar via `async_register_panel`.
 3. Passes `ai_task_entity_id` (from the config entry) to views that need to call the LLM.
 
@@ -103,131 +103,27 @@ Defines `DOMAIN`, config key constants, and `SYSTEM_PROMPT_TEMPLATE` — a large
 
 All endpoints require HA authentication (`requires_auth = True`).
 
-### `GET/POST/DELETE /api/kyber/history`
+### Endpoint inventory (current source)
 
-Persists chat state in Home Assistant storage, scoped by authenticated user id.
-
-- `GET` → returns `{"history": [...], "compacted_summary": "..."}`
-- `POST` → stores `history` and `compacted_summary` for the current user
-- `DELETE` → clears stored chat state for the current user
-
-Frontend uses this endpoint on panel load (restore), after history updates (save), and from the **Clear history** button (reset).
-
-### `POST /api/kyber/complete`
-
-Proxies an AI completion request to the configured `ai_task` entity (Ollama).
-
-**Request body**
-
-```json
-{
-  "prompt": "Turn on the living room lights",
-  "history": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}],
-  "compacted_summary": "Earlier summary of the conversation (may be empty)",
-  "yaml": "Current editor YAML content (may be empty)",
-  "editor_mode": "automation | script | dashboard",
-  "dashboards": [{"title": "Home", "url_path": "home", "mode": "storage"}],
-  "lovelace_resources": ["/hacsfiles/mini-graph-card/mini-graph-card-bundle.js"]
-}
-```
-
-**Response**
-
-```json
-{
-  "response": "Full AI response text (may include markdown, code blocks)",
-  "yaml_blocks": ["parsed yaml string 1", "..."],
-  "plan": { ... } | null
-}
-```
-
-The backend assembles a single `instructions` string containing: the system prompt (with full HA context), user/dashboard/YAML sections, conversation history, and the current user message. This is passed to `async_generate_data` from `homeassistant.components.ai_task`.
-
----
-
-### `POST /api/kyber/execute`
-
-Applies a list of entity registry or service actions produced by an AI plan.
-
-**Request body**
-
-```json
-{
-  "actions": [
-    {"type": "call_service", "domain": "light", "service": "turn_on", "entity_id": "light.living_room", "service_data": {"brightness": 200}},
-    {"type": "assign_area", "entity_id": "light.bedroom", "area_id": "bedroom"}
-  ]
-}
-```
-
-**Supported action types**
-
-| Type | Required fields | Description |
+| Endpoint | Methods | Purpose |
 |---|---|---|
-| `call_service` | `domain`, `service` | Calls any HA service; optional `entity_id`, `service_data` |
-| `assign_area` | `entity_id`, `area_id` | Moves entity to an area via entity registry |
-| `rename_entity` | `entity_id`, `name` | Updates entity's friendly name |
-| `assign_label` | `entity_id`, `label_id` | Adds a label to an entity (creates label if missing) |
-| `remove_label` | `entity_id`, `label_id` | Removes a label from an entity |
-| `create_area` | `name` | Creates a new HA area |
-| `rename_area` | `area_id`, `name` | Renames an existing area |
-| `delete_area` | `area_id` | Deletes an area |
-
-**Response**
-
-```json
-{
-  "results": [
-    {"status": "ok", "type": "call_service", "entity_id": "light.living_room", "undo_action": { ... }},
-    {"status": "error", "entity_id": "switch.missing", "message": "Entity not found in registry"}
-  ]
-}
-```
-
-Each successful result includes an `undo_action` where reversibility is possible. For `call_service`, the pre-execution entity state is captured and used to construct the undo (e.g., restoring brightness, temperature, cover position, or volume).
-
----
-
-### `POST /api/kyber/parse_yaml`
-
-Converts a YAML string to a JSON config object. Used by the frontend before saving automation/script YAML via HA's native REST endpoints (`config/automation/config/{id}`).
-
-**Request body**
-
-```json
-{"yaml": "alias: My Automation\ntrigger: ..."}
-```
-
-**Response**
-
-```json
-{"config": {"alias": "My Automation", "trigger": "..."}}
-```
-
-Returns `400` if the YAML is invalid or not a mapping.
-
----
-
-### `POST /api/kyber/summarize`
-
-Merges overflow chat messages into a running summary string, preserving `[CHANGE]` lines that record actual HA modifications.
-
-**Request body**
-
-```json
-{
-  "previous_summary": "User asked about lights. Changed bedroom brightness to 150.",
-  "messages": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
-}
-```
-
-**Response**
-
-```json
-{"summary": "Updated merged summary text..."}
-```
-
-Falls back to plain concatenation if the AI call fails, so history is never lost.
+| `/api/kyber/complete` | `POST` | Main AI request/response pipeline (`response`, `yaml_blocks`, `plan`, metadata) |
+| `/api/kyber/execute` | `POST` | Execute plan actions (`call_service`, area/label/entity operations) and produce undo actions |
+| `/api/kyber/parse_yaml` | `POST` | Parse YAML text to JSON mapping before saving automation/script/dashboard configs |
+| `/api/kyber/summarize` | `POST` | Compact overflow chat history into `summary` while preserving change context |
+| `/api/kyber/history` | `GET`, `POST`, `DELETE` | Persist/restore/clear per-user chat history + compacted summary |
+| `/api/kyber/sessions` | `GET`, `POST`, `DELETE` | Session CRUD/switching for multi-session chat history |
+| `/api/kyber/sessions/name` | `POST` | Rename the current active session |
+| `/api/kyber/progress` | `GET` | Poll live turn progress events by `request_id` |
+| `/api/kyber/knowledge` | `GET`, `POST`, `DELETE` | List/search/create/update/delete knowledge (memory) entries |
+| `/api/kyber/knowledge/analyze` | `GET`, `POST` | Analyze home config and propose memory entries |
+| `/api/kyber/knowledge/analyze_deep` | `GET`, `POST` | Deep analysis pipeline for durable memory extraction |
+| `/api/kyber/knowledge/feedback` | `POST` | Apply user/auto ratings to memory entries |
+| `/api/kyber/debug/last_turn` | `GET` | Return the latest captured debug snapshot |
+| `/api/kyber/debug/tool_history` | `GET` | Return recent tool-call history ring buffer |
+| `/api/kyber/debug/status` | `GET` | Debug overview: memory/session/turn/tool status |
+| `/api/kyber/debug/bundle` | `GET` | Download ZIP debug bundle for a specific `request_id` |
+| `/api/kyber/debug/mode` | `GET`, `POST` | Read/update runtime UI debug-mode flag |
 
 ---
 

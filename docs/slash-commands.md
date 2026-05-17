@@ -33,8 +33,11 @@ Slash commands let you control Home Assistant resources directly from the Kyber 
 | `/session new [name]` | Create a new chat session |
 | `/session list` | List all chat sessions |
 | `/session switch <name>` | Switch to a different session |
-| `/session rename <new name>` | Rename the current session |
 | `/session delete` | Delete the current session |
+| `/knowledge` or `/memory` | Open memory panel (list entries) |
+| `/knowledge search <q>` | Search memory entries |
+| `/knowledge analyze` | Analyze home config and propose memory entries |
+| `/knowledge delete <id>` | Delete a memory entry by id |
 | `/reset` | Clear chat and start over |
 | `/help [command]` | Show all commands or detailed help |
 
@@ -306,17 +309,48 @@ Switches to a different session. History is loaded from persistence.
 /session switch Session 1
 ```
 
-### `/session rename <new name>`
-
-Renames the current session.
-
-```
-/session rename Morning Automations
-```
-
 ### `/session delete`
 
 Shows a **danger confirm card**, then deletes the current session and switches to the previous one. A new default session is created if this was the last one.
+
+---
+
+## Knowledge / Memory Commands
+
+`/memory` is an alias of `/knowledge`.
+
+### `/knowledge` (or `/memory`)
+
+Lists current memory entries and opens the interactive memory card in chat.
+
+```
+/knowledge
+/memory
+```
+
+### `/knowledge search <q>`
+
+Filters memory entries by query text.
+
+```
+/knowledge search bedroom thermostat
+```
+
+### `/knowledge analyze`
+
+Runs backend analysis and shows proposed memory facts from your current setup.
+
+```
+/knowledge analyze
+```
+
+### `/knowledge delete <id>`
+
+Deletes the specified memory entry.
+
+```
+/knowledge delete abcd1234
+```
 
 ---
 
@@ -392,7 +426,7 @@ Every command with side effects shows a **confirm card** in the chat history bef
 Typing `/` in the chat input shows all top-level command groups:
 
 ```
-autopilot on  autopilot off  dashboard  automation  script  blueprint  area  session  reset  help
+autopilot on  autopilot off  dashboard  automation  script  blueprint  area  knowledge  memory  session  reset  help
 ```
 
 Typing a partial command, such as `/automation open morn`, narrows suggestions to matching entity names so you can tab-complete or click to fill the full command.

@@ -124,17 +124,17 @@ The panel is registered with a versioned URL so that HA and the browser know to 
 
 ```python
 # custom_components/kyber/__init__.py
-module_url="/local/kyber/kyber-panel.js?v=24",
+module_url="/local/kyber/kyber-panel.js?v=62",
 ```
 
 **Every time you change a JS file**, increment the version number:
 
 ```python
 # Before
-module_url="/local/kyber/kyber-panel.js?v=24",
+module_url="/local/kyber/kyber-panel.js?v=62",
 
 # After
-module_url="/local/kyber/kyber-panel.js?v=25",
+module_url="/local/kyber/kyber-panel.js?v=63",
 ```
 
 Then restart the container and hard-refresh the browser. Skipping the version bump means the old cached file continues to be served even after the file on disk has changed.
