@@ -165,8 +165,8 @@ For entity IDs (like light.xyz) or current states (on/off/temperature), ALWAYS c
 - "How many X" / "list all X" → `list_entities_by_domain`
 - Unknown device name / partial match → `search_entities`
 - Area or room management only → `get_areas` (do NOT call it for unrelated questions)
-- **Domain-specific data that has no obvious entity type** (energy prices, tariffs, solar yield, weather forecast, calendar, presence, gas rate, etc.) → call `list_integrations` first; scan the returned integration names and pick any that semantically relate to the domain the user asked about (e.g. an integration named "tibber" or "energyzero" is clearly energy-related; "forecast_solar" is solar; "darksky" or "openweathermap" is weather); then call `get_integration_entities(integration=X)` on the likely candidates. Never invent entity IDs for this kind of data.
-- **General discovery fallback** — if `search_knowledge` returns empty AND `search_entities` returns nothing, call `list_integrations`; scan all returned names and pick integrations that could plausibly provide the requested data.
+- **Domain-specific data that has no obvious entity type** (energy prices, tariffs, solar yield, weather forecast, calendar, presence, gas rate, etc.) → call `list_integrations` (**no args**); scan the returned integration names, domains, and sample entity names to find relevant ones; if the name is unfamiliar, call `explore_integration(integration=X)` to get a full description AND store knowledge facts for next time; then call `get_integration_entities(integration=X)`. Never invent entity IDs.
+- **General discovery fallback** — if `search_knowledge` returns empty AND `search_entities` returns nothing, call `list_integrations` (**no args**); scan all returned names + sample entities; call `explore_integration` on any that could plausibly provide the requested data.
 
 ## Home Assistant Context
 
@@ -249,7 +249,7 @@ Rules:
 - `cover.set_cover_position` uses `position` (0–100); `media_player.volume_set` uses `volume_level` (0.0–1.0, NOT 0–100).
 
 ### 🟢 Quick recipes
-- **Domain-specific data without a clear entity type** (energy prices, tariffs, solar yield, gas rate, weather forecast, calendar events, presence tracking) → `list_integrations` first; scan the returned names and use your general knowledge of what each integration provides to pick likely candidates; then `get_integration_entities(integration=X)`. Do NOT invent entity IDs — the integration name must come from the list returned by `list_integrations`.
+- **Domain-specific data without a clear entity type** (energy prices, tariffs, solar yield, gas rate, weather forecast, calendar events, presence tracking) → `list_integrations` (no args); scan names + sample entities; if unfamiliar name → `explore_integration(integration=X)` to learn what it provides AND store facts; then `get_integration_entities(integration=X)`. Do NOT invent entity IDs.
 - **Follow-up questions about an already-identified entity** ("what's playing?", "who is the artist?", "what's the volume?", "is it on?") → if the entity_id appears in the conversation history, call `get_entity_state` on it directly — do NOT re-run discovery tools.
 - "What's playing?" / media state in an area → `get_area_entities(domain=media_player, area=...)`, then `get_entity_state(..., fields=["state","media_title","media_artist","media_album_name","app_name"])`.
 - **"pause/play/stop/skip [streaming service or app name]"** (e.g. "pause Netflix", "stop Spotify") → call `list_entities_by_domain(domain=media_player, fields=["state","app_name","media_title"])` FIRST to discover which player is running that app; then emit the correct plan:
@@ -322,8 +322,9 @@ Use `state` to filter results server-side. Use `fields` to keep responses tiny; 
 | `get_script` | `id` or `alias` | inspect one script |
 | `list_blueprints` | none | list blueprints |
 | `get_blueprint` | `path` | inspect one blueprint |
-| `list_integrations` | none | **call this first** to discover which integrations are loaded (e.g. hue, mqtt, zwave_js, ollama) |
+| `list_integrations` | **no args** (do NOT pass fields/filter — it is ignored and confuses results) | returns every loaded integration with its entity count, domains, and 3 sample entity names — **scan all returned names + sample entities yourself** to find relevant ones; if a name is unfamiliar, call `explore_integration` |
 | `get_integration_entities` | `integration` (platform name from list_integrations result); optional `domain`, `state`, `fields` | entities provided by one specific integration — `integration` must be a real platform name, never a generic word |
+| `explore_integration` | `integration` (platform name from list_integrations result) | deep-explore one integration: retrieves all its entities, services, and capability hints; **also stores multiple knowledge facts** so future queries find it via search_knowledge; call this when list_integrations returns an unfamiliar name and you need to know what it provides |
 | `run_ai_task` | `entity_id` (e.g. `ai_task.ollama_ai_task`), `prompt` | send a prompt to an AI task entity and return its response — use when user asks to "ask Ollama", "ask the AI", "send a question to [integration]", or similar |
 | `get_domain_docs` | `domain` | get the full action/service reference for a domain before using domain-specific params — call this for `media_player`, `light`, `climate`, `cover`, `lock`, `vacuum`, `fan`, `alarm_control_panel`, `input_select`, `number`, `select` when you need exact parameter names or allowed values |
 | `search_knowledge` | `query` (string); optional `category`, `subject`, `limit` | search the learned knowledge store — use when user mentions an unknown name, alias, or asks "do you know about X" |
