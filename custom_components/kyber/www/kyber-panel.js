@@ -335,6 +335,37 @@ const STYLES = `
     font-size: 13px;
   }
 
+  .memory-card {
+    background: rgba(103, 58, 183, 0.07);
+    border: 1px solid rgba(103, 58, 183, 0.30);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin: 6px 0;
+    font-size: 13px;
+  }
+  .memory-card-header {
+    font-weight: 600;
+    font-size: 13px;
+    color: rgb(149, 117, 205);
+    margin-bottom: 6px;
+  }
+  .memory-card-content {
+    margin-bottom: 8px;
+    line-height: 1.4;
+  }
+  .btn-remember {
+    background: linear-gradient(135deg, #673ab7, #9c27b0);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 5px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .btn-remember:hover { filter: brightness(1.15); }
+  .btn-remember:disabled { opacity: 0.5; cursor: default; filter: none; }
+
   .plan-header {
     font-weight: 600;
     font-size: 14px;
@@ -3608,7 +3639,7 @@ class KyberPanel extends HTMLElement {
       if (textOnly) {
         this._addChatHistory("assistant", textOnly);
       }
-      this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null);
+      this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null, data.learned_fact || null);
 
       // Per-turn metadata is captured for the Debug tab ("Last turn") instead
       // of being attached to the chat message. The chat panel stays clean;
@@ -3733,7 +3764,7 @@ class KyberPanel extends HTMLElement {
     history.scrollTop = history.scrollHeight;
   }
 
-  _appendAIResponse(fullText, yamlBlocks, plan) {
+  _appendAIResponse(fullText, yamlBlocks, plan, learnedFact = null) {
     const history = this.shadowRoot.getElementById("chat-history");
 
     // Show the text portion (strip yaml/plan blocks for cleaner display)
@@ -3812,6 +3843,11 @@ class KyberPanel extends HTMLElement {
           history.appendChild(this._buildPlanCard(plan));
         }
       }
+    }
+
+    // Show memory suggestion card if the backend extracted a learned fact
+    if (learnedFact) {
+      history.appendChild(this._buildMemoryCard(learnedFact));
     }
 
     // Show each YAML block with an Apply button (when editor is open)
@@ -3913,6 +3949,52 @@ class KyberPanel extends HTMLElement {
     } catch (err) {
       spinner.textContent = `⚠ Tool fetch failed: ${err.message}`;
     }
+  }
+
+  }
+
+  _buildMemoryCard(learnedFact) {
+    const action = (learnedFact.actions || [])[0] || {};
+    const userTerm = action.description?.match(/Save alias: (.+?) →/)?.[1]
+      || learnedFact.summary?.match(/'(.+?)'/)?.[1]
+      || "?";
+    const haTerm = action.subject || learnedFact.summary?.match(/→ '(.+?)'/)?.[1] || "?";
+
+    const card = document.createElement("div");
+    card.className = "memory-card";
+    card.innerHTML = `
+      <div class="memory-card-header">🧠 Suggested memory</div>
+      <div class="memory-card-content">
+        "${userTerm}" → <strong>${haTerm}</strong><br>
+        <small style="opacity:0.75">${action.content || learnedFact.summary || ""}</small>
+      </div>
+      <button class="btn-remember">💾 Remember</button>
+    `;
+
+    const btn = card.querySelector(".btn-remember");
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "Saving…";
+      try {
+        const token = this._hass?.auth?.data?.access_token;
+        const resp = await fetch("/api/kyber/plan/execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ plan: learnedFact }),
+        });
+        if (resp.ok) {
+          btn.textContent = "✅ Remembered!";
+          btn.style.background = "var(--success, #4caf50)";
+        } else {
+          btn.textContent = "⚠️ Failed";
+          btn.disabled = false;
+        }
+      } catch (err) {
+        btn.textContent = "⚠️ Error";
+        btn.disabled = false;
+      }
+    });
+    return card;
   }
 
   _buildPlanCard(plan) {
