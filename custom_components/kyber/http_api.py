@@ -41,7 +41,7 @@ from .response_processing import (
     _parse_tool_calls, _strip_tool_calls, _extract_yaml_blocks, _extract_plan_block,
     _rewrap_bare_action_fences, _NARRATION_PATTERNS, _BARE_JSON_TOOL_RESULT_RE,
     _strip_role_echo_prefix, _BRIGHTNESS_INTENT_RE, _DIM_INTENT_RE,
-    _augment_brightness_intent, _extract_clarify_block,
+    _augment_brightness_intent, _extract_clarify_block, _strip_plan_block,
 )
 from .intent_and_context import (
     _QUICK_CREATE_AREA_RE, _try_quick_intent,
@@ -632,6 +632,11 @@ class KyberView(HomeAssistantView):
         # Remove the raw clarify code block from the displayed response; UI renders it.
         if clarify_block:
             response_text = _CLARIFY_BLOCK_RE.sub("", response_text).strip()
+
+        # Remove plan block from the displayed response text — the frontend renders the
+        # plan card separately.  Covers both ```plan``` fences AND bare ## Plan\n{...}.
+        if plan_block:
+            response_text = _strip_plan_block(response_text)
 
         # Strip any [TOOL_RESULT: ...] or [T00L_RESULT: ...] lines the model echoed back.
         response_text = _TOOL_RESULT_STRIP_RE.sub("", response_text).strip()
