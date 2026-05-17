@@ -109,6 +109,11 @@ def _tool_result_summary(call: dict[str, Any], result: Any) -> str:
     if name == "get_labels":
         count = len(result) if isinstance(result, dict) else 0
         return f"{count} labels"
+    if name == "explore_integration":
+        integration = call.get("integration", "?")
+        count = result.get("entity_count", 0) if isinstance(result, dict) else 0
+        facts = result.get("facts_stored", 0) if isinstance(result, dict) else 0
+        return f"explored '{integration}': {count} entities, {facts} facts stored"
     if name == "list_integrations":
         count = result.get("count", 0) if isinstance(result, dict) else 0
         return f"{count} integrations"
@@ -729,7 +734,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "list_automations", "get_automation",
         "list_scripts", "get_script",
         "list_blueprints", "get_blueprint",
-        "list_integrations", "get_integration_entities",
+        "list_integrations", "get_integration_entities", "explore_integration",
         "run_ai_task",
         "get_domain_docs",
     ]
@@ -754,7 +759,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
 
 # Async tools — tools that require awaiting (e.g. ai_task calls).
 # Called directly from _run_one_tool in http_api.py without going through executor.
-_ASYNC_TOOLS = {"run_ai_task"}
+_ASYNC_TOOLS = {"run_ai_task", "explore_integration"}
 
 
 async def _async_execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
@@ -795,5 +800,33 @@ async def _async_execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             return json.dumps({"entity_id": entity_id, "response": text})
         except Exception as exc:  # pylint: disable=broad-except
             return json.dumps({"error": str(exc)})
+
+    if name == "explore_integration":
+        from .integration_explorer import async_explore_integration as _explore
+        from homeassistant.helpers import entity_registry as er
+        platform = str(call.get("integration") or call.get("platform") or "").strip()
+        if not platform:
+            return json.dumps({"error": "Missing 'integration' argument — pass the platform name from list_integrations result"})
+        entity_reg = er.async_get(hass)
+        entities = []
+        for entry in entity_reg.entities.values():
+            if entry.platform == platform:
+                state = hass.states.get(entry.entity_id)
+                entities.append({
+                    "entity_id": entry.entity_id,
+                    "name": (state.attributes.get("friendly_name") if state else None) or entry.entity_id,
+                    "unit_of_measurement": (state.attributes.get("unit_of_measurement") if state else "") or "",
+                })
+        if not entities:
+            return json.dumps({"info": f"No entities found for integration '{platform}' — check the name with list_integrations first"})
+        kstore = get_knowledge_store(hass)
+        facts = await _explore(hass, kstore, platform, entities)
+        return json.dumps({
+            "integration": platform,
+            "entity_count": len(entities),
+            "facts_stored": len(facts),
+            "summary": facts[0] if facts else "",
+            "all_facts": facts,
+        })
 
     return json.dumps({"error": f"Unknown async tool '{name}'"})
