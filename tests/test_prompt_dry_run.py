@@ -511,3 +511,149 @@ class TestIntentClassification:
 
     def test_who_is_at_home_informational(self):
         assert _classify_intent("who is at home?") == "informational"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Integration discovery — side-by-side: name obvious vs. name opaque
+#
+# Both scenarios represent the same user question:
+#   "wat is het laagste energie tarief morgen?" (what is the lowest tariff tomorrow?)
+#
+# The model should:
+#   1. search_knowledge  → empty
+#   2. list_integrations → returns the integration list
+#   3. pick the energy integration by scanning names (not by hardcoded list)
+#   4. get_integration_entities(integration=X) → finds price sensors
+#   5. answer
+#
+# The two scenarios differ only in what list_integrations returns:
+#   A) "tibber"    — well-known name; any LLM knows it's an energy integration
+#   B) "energyzero" — less known; should still be picked because "energy" is in name
+#
+# Both must reach stopped_at=="answer" without synthesis or redirect.
+# ═════════════════════════════════════════════════════════════════════════════
+
+class _BaseEnergyTariffScenario:
+    """Shared helpers for both energy tariff discovery scenarios."""
+
+    INTEGRATION_NAME: str  # to be defined by subclass
+    SENSOR_ENTITY_ID: str  # e.g. "sensor.tibber_current_price"
+
+    @classmethod
+    def _mock(cls) -> dict:
+        return {
+            K("search_knowledge", query="lowest energy tariff tomorrow"): {
+                "results": [],
+            },
+            K("list_integrations"): {
+                "integrations": [cls.INTEGRATION_NAME, "hue", "mobile_app"],
+            },
+            K("get_integration_entities", integration=cls.INTEGRATION_NAME): {
+                "entities": [
+                    {"entity_id": cls.SENSOR_ENTITY_ID, "state": "0.21",
+                     "attributes": {"unit_of_measurement": "EUR/kWh"}},
+                ],
+            },
+        }
+
+    @classmethod
+    def _rounds(cls) -> list[list[dict]]:
+        """Simulate the correct tool sequence the model should follow."""
+        return [
+            # Round 1: search knowledge (correct first step for any query)
+            [{"name": "search_knowledge", "query": "lowest energy tariff tomorrow"}],
+            # Round 2: knowledge returned empty → call list_integrations
+            [{"name": "list_integrations"}],
+            # Round 3: picked the energy integration from the list → get entities
+            [{"name": "get_integration_entities", "integration": cls.INTEGRATION_NAME}],
+            # Round 4: found price sensor → no more tool calls → final answer
+            [],
+        ]
+
+
+class TestEnergyTariffKnownIntegrationName(_BaseEnergyTariffScenario):
+    """Side A: list_integrations returns "tibber" — a well-known energy name.
+
+    The model should recognize "tibber" → energy integration without a hardcoded
+    lookup table. Generic instruction: 'scan names, use your knowledge of what
+    each integration provides.'
+    """
+
+    INTEGRATION_NAME = "tibber"
+    SENSOR_ENTITY_ID = "sensor.tibber_current_price"
+
+    def test_flow_reaches_answer(self):
+        sim = PromptLoopSimulator(self._mock()).run(self._rounds())
+        assert sim.stopped_at == "answer", f"Expected answer, got {sim.stopped_at}"
+
+    def test_no_synthesis_fired(self):
+        sim = PromptLoopSimulator(self._mock()).run(self._rounds())
+        assert not sim.synthesis_fired
+
+    def test_no_redirect_needed(self):
+        sim = PromptLoopSimulator(self._mock()).run(self._rounds())
+        assert sim.redirects_fired == 0
+
+    def test_list_integrations_was_called(self):
+        sim = PromptLoopSimulator(self._mock()).run(self._rounds())
+        assert "list_integrations" in sim.final_tool_results
+
+    def test_get_integration_entities_was_called(self):
+        sim = PromptLoopSimulator(self._mock()).run(self._rounds())
+        assert "get_integration_entities" in sim.final_tool_results
+
+    def test_correct_integration_used(self):
+        sim = PromptLoopSimulator(self._mock()).run(self._rounds())
+        result = sim.final_tool_results["get_integration_entities"]
+        assert any(e["entity_id"] == self.SENSOR_ENTITY_ID for e in result["entities"])
+
+    def test_four_rounds_total(self):
+        sim = PromptLoopSimulator(self._mock()).run(self._rounds())
+        # search_knowledge + list_integrations + get_integration_entities + answer
+        assert sim.rounds_executed == 4
+
+
+class TestEnergyTariffUnknownIntegrationName(_BaseEnergyTariffScenario):
+    """Side B: list_integrations returns "energyzero" — an opaque name.
+
+    Less well-known but "energy" appears in the name.  Generic instruction:
+    model must use semantic reasoning on the name itself, not a hardcoded list.
+    This is the failure mode we fixed: previously the model never tried
+    list_integrations at all, or picked nothing from the returned list.
+    """
+
+    INTEGRATION_NAME = "energyzero"
+    SENSOR_ENTITY_ID = "sensor.energyzero_current_price"
+
+    def test_flow_reaches_answer(self):
+        sim = PromptLoopSimulator(self._mock()).run(self._rounds())
+        assert sim.stopped_at == "answer", f"Expected answer, got {sim.stopped_at}"
+
+    def test_no_synthesis_fired(self):
+        sim = PromptLoopSimulator(self._mock()).run(self._rounds())
+        assert not sim.synthesis_fired
+
+    def test_no_redirect_needed(self):
+        sim = PromptLoopSimulator(self._mock()).run(self._rounds())
+        assert sim.redirects_fired == 0
+
+    def test_list_integrations_was_called(self):
+        sim = PromptLoopSimulator(self._mock()).run(self._rounds())
+        assert "list_integrations" in sim.final_tool_results
+
+    def test_get_integration_entities_was_called(self):
+        sim = PromptLoopSimulator(self._mock()).run(self._rounds())
+        assert "get_integration_entities" in sim.final_tool_results
+
+    def test_correct_integration_used(self):
+        sim = PromptLoopSimulator(self._mock()).run(self._rounds())
+        result = sim.final_tool_results["get_integration_entities"]
+        assert any(e["entity_id"] == self.SENSOR_ENTITY_ID for e in result["entities"])
+
+    def test_same_number_of_rounds_as_tibber(self):
+        """Both scenarios should follow the same tool sequence, same round count."""
+        sim_known = PromptLoopSimulator(
+            TestEnergyTariffKnownIntegrationName._mock()
+        ).run(TestEnergyTariffKnownIntegrationName._rounds())
+        sim_unknown = PromptLoopSimulator(self._mock()).run(self._rounds())
+        assert sim_known.rounds_executed == sim_unknown.rounds_executed
