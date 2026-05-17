@@ -24,7 +24,7 @@ except ImportError:  # HA < 2025.2 (test environments)
     async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
         raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
 
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, SYSTEM_PROMPT_TEMPLATE
+from .const import CONF_AI_TASK_ENTITY_ID, CONF_USER_NAME, DOMAIN, SYSTEM_PROMPT_TEMPLATE
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
 from .analyzer import analyze_automations as _analyze_automations
 from .source import (
@@ -578,7 +578,7 @@ def _build_home_state_by_area(
     return home_state, stats
 
 
-def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
+def _build_context(hass: HomeAssistant, user_name: str = "") -> tuple[str, dict[str, Any]]:
     """Build a compact context string with domain stats + area home state."""
     area_reg = ar.async_get(hass)
     entity_reg = er.async_get(hass)
@@ -650,7 +650,9 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
         "low_battery_count": area_stats["low_battery_count"],
     }
 
+    user_name_line = f"The user's name is {user_name}." if user_name and user_name.strip() else ""
     context = SYSTEM_PROMPT_TEMPLATE.format(
+        user_name_line=user_name_line,
         area_list=area_list,
         label_list=label_list,
         entity_stats=entity_stats,
@@ -1640,7 +1642,10 @@ class KyberView(HomeAssistantView):
             bool(compacted_summary),
         )
 
-        context, context_stats = _build_context(hass)
+        context, context_stats = _build_context(
+            hass,
+            user_name=self._config.get(CONF_USER_NAME, ""),
+        )
 
         # Dashboard list from frontend (may be empty list if fetch failed)
         dash_lines = ["- Overview (default) — url_path: (default)"]
