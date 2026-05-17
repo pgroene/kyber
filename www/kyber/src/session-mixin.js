@@ -191,6 +191,8 @@ export const SessionMixin = (Base) => class extends Base {
     const token = this._hass.auth.data.access_token;
     const resp = await fetch("/api/kyber/sessions", {
       method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "rename", name: newName }),
     });
     if (!resp.ok) {
       this._appendMessage(`Failed to rename session (HTTP ${resp.status})`, "assistant");

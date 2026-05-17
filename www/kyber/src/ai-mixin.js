@@ -45,7 +45,7 @@ export const AIMixin = (Base) => class extends Base {
               </label>
               <div class="bug-report-bundle-name">Bundle: <code>${this._escapeHtml(`kyber-debug-${requestId}.zip`)}</code></div>
               <label class="bug-report-checkbox">
-                <input type="checkbox" id="br-include-bundle">
+                <input type="checkbox" id="br-include-bundle" checked>
                 Include debug bundle summary (PII will be redacted)
               </label>
               <div class="bug-report-actions">
@@ -101,6 +101,9 @@ export const AIMixin = (Base) => class extends Base {
             const similarHtml = similar.length
               ? `<div class="bug-report-similar"><strong>Similar open issues:</strong><ul style="margin:4px 0 0;padding-left:18px">${similar.map(i => `<li><a href="${this._escapeAttr(i.url)}" target="_blank">#${i.number} ${this._escapeHtml(i.title)}</a> [${i.state}]</li>`).join("")}</ul></div>`
               : "";
+            const noBundleNote = data.bundle_available === false
+              ? `<div class="bug-report-bundle-name" style="color:var(--warning-color,#f90)">⚠ Debug snapshot not available — bundle data was not included. Attach the zip file manually after opening the issue.</div>`
+              : `<div class="bug-report-bundle-name" style="color:var(--success-color,#4caf50)">📎 After opening the issue on GitHub, attach the <code>${this._escapeHtml(`kyber-debug-${requestId}.zip`)}</code> file.</div>`;
 
             const encodedTitle = encodeURIComponent(data.title || "");
             const encodedBody = encodeURIComponent(data.body || "");
@@ -108,6 +111,7 @@ export const AIMixin = (Base) => class extends Base {
 
             dlg.innerHTML = `
               <h3>🐛 Review Bug Report</h3>
+              ${noBundleNote}
               ${similarHtml}
               <label class="bug-report-result-title">Title
                 <input type="text" id="br-title" value="${this._escapeAttr(data.title || "")}">
