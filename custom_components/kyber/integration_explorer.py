@@ -29,13 +29,15 @@ _SENSOR_BATCH_SIZE = 25
 # At startup, explore this many integrations (sorted by entity count desc)
 _STARTUP_EXPLORE_LIMIT = 40
 
-# Internal HA platforms that don't provide user-queryable data — skip them
+# Internal HA platforms that don't provide user-queryable data — skip them.
+# Note: template, group, input_*, utility_meter etc. are intentionally NOT
+# skipped — users create these and Kyber should be able to answer about them.
 _SKIP_PLATFORMS = frozenset({
-    "group", "template", "input_boolean", "input_number", "input_text",
-    "input_select", "input_datetime", "timer", "counter", "script",
-    "automation", "homeassistant", "persistent_notification", "zone",
-    "sun", "recorder", "history_stats", "utility_meter", "shopping_list",
-    "todo", "conversation", "stt", "tts", "wake_word", "intent_script",
+    "homeassistant", "persistent_notification", "recorder",
+    "shopping_list", "todo", "conversation",
+    "stt", "tts", "wake_word", "intent_script",
+    # automations/scripts are already injected into the main prompt context
+    "automation", "script",
 })
 
 # Domain → natural-language capability description
@@ -181,7 +183,7 @@ async def async_explore_integration(
 
 
 # Bump this when the fact format changes to force re-exploration of all integrations.
-_EXPLORER_VERSION = 2
+_EXPLORER_VERSION = 3
 
 # Tag added to all facts so we can identify and version them.
 _EXPLORER_VERSION_TAG = f"explorer-v{_EXPLORER_VERSION}"
