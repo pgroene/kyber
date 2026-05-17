@@ -76,6 +76,7 @@ _load("custom_components.kyber.const", ROOT / "custom_components" / "kyber" / "c
 _load("custom_components.kyber.knowledge", ROOT / "custom_components" / "kyber" / "knowledge.py")
 _load("custom_components.kyber.analyzer", ROOT / "custom_components" / "kyber" / "analyzer.py")
 _http_api = _load("custom_components.kyber.http_api", ROOT / "custom_components" / "kyber" / "http_api.py")
+_const = sys.modules["custom_components.kyber.const"]
 
 _extract_yaml_blocks = _http_api._extract_yaml_blocks
 _extract_plan_block = _http_api._extract_plan_block
@@ -84,6 +85,18 @@ _build_redaction_map = _http_api._build_redaction_map
 _build_redacted_bundle_summary = _http_api._build_redacted_bundle_summary
 _restore_kyber_version_in_bug_report = _http_api._restore_kyber_version_in_bug_report
 _sanitize_prompt_value = _http_api._sanitize_prompt_value
+
+
+def test_tuning_constants_are_centralized_in_const_module():
+    """Inline tuning limits should be sourced from const.py."""
+    assert _const.MAX_INSTRUCTIONS_CHARS == 32_000
+    assert _const.KNOWLEDGE_BUDGET_CHARS == 2_000
+    assert _const.MAX_TOOL_RESULT_CHARS == 6_000
+    assert _const.TOOL_CALL_MAX_ROUNDS == 5
+    assert _http_api._MAX_INSTRUCTIONS_CHARS == _const.MAX_INSTRUCTIONS_CHARS
+    assert _http_api._KNOWLEDGE_BUDGET == _const.KNOWLEDGE_BUDGET_CHARS
+    assert _http_api._MAX_TOOL_RESULT_CHARS == _const.MAX_TOOL_RESULT_CHARS
+    assert _http_api._TOOL_CALL_MAX_ROUNDS == _const.TOOL_CALL_MAX_ROUNDS
 
 # ─────────────────────────────────────────────────────────────────────────────
 # _extract_yaml_blocks
