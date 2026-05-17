@@ -2664,6 +2664,21 @@ class KyberDebugModeView(HomeAssistantView):
             return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
         enabled = bool(body.get("enabled", _DEBUG_MODE_DEFAULT))
         hass.data[_DEBUG_MODE_KEY] = enabled
+        # Also persist to the integration's options so the change survives
+        # restart and the sidebar panel registration updates accordingly.
+        # We avoid importing from .const at module top to keep the existing
+        # import surface stable for tests.
+        try:
+            from .const import CONF_ENABLE_DEBUG_VIEWS
+            entries = hass.config_entries.async_entries(DOMAIN)
+            if entries:
+                entry = entries[0]
+                current = entry.options.get(CONF_ENABLE_DEBUG_VIEWS)
+                if current != enabled:
+                    new_options = {**entry.options, CONF_ENABLE_DEBUG_VIEWS: enabled}
+                    hass.config_entries.async_update_entry(entry, options=new_options)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Failed to persist debug-mode to options: %s", err)
         return self.json({"enabled": enabled})
 
 

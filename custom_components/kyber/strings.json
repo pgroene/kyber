@@ -6,7 +6,8 @@
         "description": "Configure AI-powered smart home assistant. Select the AI task entity provided by your Ollama (or other AI) integration.",
         "data": {
           "ai_task_entity_id": "AI Task Entity",
-          "max_tokens": "Max Tokens"
+          "max_tokens": "Max Tokens",
+          "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)"
         }
       }
     },
@@ -16,6 +17,17 @@
     },
     "abort": {
       "already_configured": "Kyber is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Kyber options",
+        "description": "Toggle the debug-only views and the separate 'Kyber Debug' sidebar entry. Recommended off for everyday use.",
+        "data": {
+          "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)"
+        }
+      }
     }
   }
 }

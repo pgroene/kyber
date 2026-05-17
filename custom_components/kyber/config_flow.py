@@ -4,13 +4,20 @@ from __future__ import annotations
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
     CONF_AI_TASK_ENTITY_ID,
+    CONF_ENABLE_DEBUG_VIEWS,
     CONF_MAX_TOKENS,
+    DEFAULT_ENABLE_DEBUG_VIEWS,
     DEFAULT_MAX_TOKENS,
     DOMAIN,
 )
@@ -41,6 +48,9 @@ def _build_schema(hass: HomeAssistant) -> vol.Schema:
             vol.Optional(CONF_MAX_TOKENS, default=DEFAULT_MAX_TOKENS): vol.All(
                 int, vol.Range(min=256, max=2_000_000)
             ),
+            vol.Optional(
+                CONF_ENABLE_DEBUG_VIEWS, default=DEFAULT_ENABLE_DEBUG_VIEWS
+            ): bool,
         }
     )
 
@@ -69,6 +79,9 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
                     data={
                         CONF_AI_TASK_ENTITY_ID: entity_id,
                         CONF_MAX_TOKENS: user_input.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS),
+                        CONF_ENABLE_DEBUG_VIEWS: bool(
+                            user_input.get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)
+                        ),
                     },
                 )
 
@@ -77,3 +90,40 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=_build_schema(self.hass),
             errors=errors,
         )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Return the options flow so users can edit settings post-install."""
+        return KyberOptionsFlow(config_entry)
+
+
+class KyberOptionsFlow(OptionsFlow):
+    """Options flow for Kyber — lets the user toggle settings after install."""
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        self._config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(title="", data={
+                CONF_ENABLE_DEBUG_VIEWS: bool(user_input.get(CONF_ENABLE_DEBUG_VIEWS, False)),
+            })
+
+        # Current value: prefer options, fall back to entry.data, then default
+        current_debug = self._config_entry.options.get(
+            CONF_ENABLE_DEBUG_VIEWS,
+            self._config_entry.data.get(
+                CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS
+            ),
+        )
+
+        schema = vol.Schema({
+            vol.Optional(
+                CONF_ENABLE_DEBUG_VIEWS, default=current_debug
+            ): bool,
+        })
+
+        return self.async_show_form(step_id="init", data_schema=schema)
