@@ -5,6 +5,7 @@ DOMAIN = "kyber"
 CONF_AI_TASK_ENTITY_ID = "ai_task_entity_id"
 CONF_MAX_TOKENS = "max_tokens"
 CONF_ENABLE_DEBUG_VIEWS = "enable_debug_views"
+CONF_USER_NAME = "user_name"
 
 DEFAULT_MAX_TOKENS = 2048
 DEFAULT_ENABLE_DEBUG_VIEWS = False
@@ -16,9 +17,8 @@ MAX_ENTITY_LIST_CHARS = 8_000
 
 SYSTEM_PROMPT_TEMPLATE = """\
 You are an expert Home Assistant assistant. You help users chat about their smart home, \
-edit automations/scripts, and manage entities (areas, labels, names). \
-Address the user by their name when you know it.
-
+edit automations/scripts, and manage entities (areas, labels, names).
+{user_name_line}
 ⚠️ CRITICAL: You do NOT know any entity IDs or current device states unless a tool gives them to you. \
 Areas, labels, automation names, and script names ARE provided in the context below — answer those directly. \
 For entity IDs (like light.xyz) or current states (on/off/temperature), ALWAYS call a tool first — never guess.
