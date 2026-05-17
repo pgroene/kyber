@@ -251,15 +251,13 @@ Press `Enter` or `Tab` to insert the full entity ID at the cursor.
 
 ## Context Awareness
 
-Every AI request is sent with a rich context block built from your live Home Assistant state. The AI therefore knows:
+Every AI request is sent with a compact context block built from your live Home Assistant state. The AI therefore knows:
 
 | Context | Detail |
 |---|---|
-| **All entities** | `entity_id`, friendly name, assigned area, labels |
+| **Home summary** | Counts for areas, labels, automations, scripts, and entity domains |
 | **Areas** | Name and `area_id` for every area |
-| **Labels** | All defined labels |
-| **Automations** | entity_id, friendly name, config_id |
-| **Scripts** | entity_id, friendly name |
+| **Current home state** | Only notable per-area state (lights on, occupancy, temperature, media, alerts) |
 | **Dashboards** | Title, `url_path`, and mode for every Lovelace panel |
 | **Custom card resources** | JS resource URLs loaded via HACS or manually |
 | **Current user** | Your display name and admin/standard role |
@@ -272,6 +270,8 @@ You: Which lights are in the Kitchen area?
 You: Add a tile card for every sensor in the Bedroom to my Test dashboard
 You: What automations do I have that use the motion sensor?
 ```
+
+Kyber also injects a short “query type → first tool” router near the top of the prompt so current-state questions prefer `get_entity_state`, room questions prefer `get_area_entities`, and room-management tools such as `get_areas` are only used for area-specific requests.
 
 …and the AI can answer accurately without you copy-pasting entity IDs.
 

@@ -87,80 +87,43 @@ def _get_active_session(user_data: dict[str, Any]) -> tuple[str, dict[str, Any]]
 
 
 def _build_context(hass: HomeAssistant) -> str:
-    """Build a context string listing HA entities, areas, labels, automations, and scripts."""
+    """Build a compact context string for the legacy www HTTP API."""
     area_reg = ar.async_get(hass)
-    entity_reg = er.async_get(hass)
     label_reg = lr.async_get(hass)
 
-    # Areas: "Living Room → living_room"
     areas = area_reg.async_list_areas()
     area_list = "\n".join(f"- {a.name} → {a.id}" for a in areas) or "(no areas)"
-
-    # Labels: "outdoor | Outdoor"
     labels = label_reg.async_list_labels()
-    label_list = "\n".join(f"- {lbl.label_id} | {lbl.name}" for lbl in labels) or "(no labels)"
 
-    area_by_id = {a.id: a.name for a in areas}
-    automation_lines: list[str] = []
-    script_lines: list[str] = []
-    entity_lines: list[str] = []
+    automation_count = 0
+    script_count = 0
+    domain_counts: dict[str, int] = {}
+    entity_count = 0
 
     for state in sorted(hass.states.async_all(), key=lambda s: s.entity_id):
-        friendly = state.attributes.get("friendly_name", state.entity_id)
         if state.entity_id.startswith("automation."):
-            config_id = state.attributes.get("id", state.entity_id)
-            automation_lines.append(f"- {state.entity_id} | {friendly} | config_id: {config_id}")
+            automation_count += 1
         elif state.entity_id.startswith("script."):
-            script_lines.append(f"- {state.entity_id} | {friendly}")
+            script_count += 1
         else:
-            entry = entity_reg.async_get(state.entity_id)
-            area_name = ""
-            entity_labels = ""
-            if entry:
-                if entry.area_id:
-                    area_name = area_by_id.get(entry.area_id, entry.area_id)
-                if entry.labels:
-                    entity_labels = ", ".join(sorted(entry.labels))
-            # Compact format: omit trailing empty area/labels pipes to save context space
-            if area_name or entity_labels:
-                entity_lines.append(
-                    f"- {state.entity_id} | {friendly} | {area_name} | {entity_labels}"
-                )
-            else:
-                entity_lines.append(f"- {state.entity_id} | {friendly}")
+            entity_count += 1
+            domain = state.entity_id.split(".")[0]
+            domain_counts[domain] = domain_counts.get(domain, 0) + 1
 
-    automation_list = "\n".join(automation_lines) or "(no automations)"
-    script_list = "\n".join(script_lines) or "(no scripts)"
-    entity_list = "\n".join(entity_lines) or "(no entities)"
-
-    if len(entity_list) > MAX_ENTITY_LIST_CHARS:
-        # Truncate by line, keeping as many entities as fit within the budget.
-        truncated: list[str] = []
-        budget = MAX_ENTITY_LIST_CHARS
-        for line in entity_lines:
-            cost = len(line) + 1  # +1 for the newline separator
-            if budget - cost < 60:  # keep room for the truncation notice
-                break
-            truncated.append(line)
-            budget -= cost
-        omitted = len(entity_lines) - len(truncated)
-        _LOGGER.warning(
-            "Kyber: entity list truncated — %d of %d entities omitted to stay within "
-            "the %d-char context budget. "
-            "Increase MAX_ENTITY_LIST_CHARS in const.py or assign fewer entities.",
-            omitted,
-            len(entity_lines),
-            MAX_ENTITY_LIST_CHARS,
-        )
-        truncated.append(f"... ({omitted} more entities not shown — context budget exceeded)")
-        entity_list = "\n".join(truncated)
+    stats_parts = [f"{domain}:{count}" for domain, count in sorted(domain_counts.items(), key=lambda item: -item[1])[:10]]
+    entity_stats = f"{entity_count} entities"
+    if stats_parts:
+        entity_stats += f" ({', '.join(stats_parts)})"
+    home_summary = (
+        f"**Home:** {len(areas)} areas · {len(labels)} labels · "
+        f"{automation_count} automations · {script_count} scripts · {entity_stats}"
+    )
 
     return SYSTEM_PROMPT_TEMPLATE.format(
+        user_name_line="",
+        home_summary=home_summary,
         area_list=area_list,
-        label_list=label_list,
-        entity_list=entity_list,
-        automation_list=automation_list,
-        script_list=script_list,
+        notable_state_block="",
     )
 
 
