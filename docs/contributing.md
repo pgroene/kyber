@@ -42,7 +42,8 @@ Use lowercase kebab-case. Keep slugs short but descriptive.
 5. CI        All 3 checks must pass (python-tests, js-tests, ui-tests)
 6. Review    At least 1 approval required
 7. Merge     Squash-merge into main
-8. Clean up  Delete the feature branch after merge
+8. Tag       git checkout main && git pull origin main && git tag vX.Y.Z && git push origin vX.Y.Z
+9. Clean up  Delete the feature branch after merge
 ```
 
 ---
@@ -119,3 +120,19 @@ The `main` branch is protected:
 - PRs require **1 approving review**
 - **All 3 CI checks** must pass
 - Stale reviews are dismissed when new commits are pushed
+
+---
+
+## Release Tagging
+
+After every PR that bumps `manifest.json` version, tag the merge commit on `main`:
+
+```bash
+git checkout main
+git pull origin main
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+Tags must match the version in `manifest.json` exactly (e.g. `v0.1.66` for `"version": "0.1.66"`).
+HACS uses these tags to track available releases.
