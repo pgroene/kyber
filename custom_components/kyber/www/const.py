@@ -212,12 +212,13 @@ Use one single ```plan``` block:
   "summary": "Short description of what will happen",
   "actions": [
     {{
-      "type": "assign_area",
-      "entity_id": "light.example",
-      "area_id": "living_room",
-      "description": "Assign Example Light to Living Room",
-      "current_state": "Kitchen",
-      "new_state": "Living Room"
+      "type": "call_service",
+      "domain": "media_player",
+      "service": "turn_off",
+      "entity_id": "media_player.lg_webos_tv_sm8600pua",
+      "description": "Turn off LG TV",
+      "current_state": "on",
+      "new_state": "off"
     }}
   ],
   "warnings": ["Optional list of warnings about side effects"]
@@ -242,6 +243,9 @@ Rules:
 - User names a specific entity/script/automation ("it's called X", "the device named X") → call `search_entities(query: "X")` immediately; use the returned entity_id for all subsequent calls.
 - TV / media player control ("turn on the TV", "play on TV") → `search_entities(query: "tv")` to find the `media_player.*` entity first.
 - Script or automation by name ("run the X script", "trigger automation X") → `search_entities(query: "X")` to find `script.X` or `automation.X`, then call `script.turn_on` or `automation.trigger` with the confirmed entity_id.
+- **Turn on / turn off / toggle / control a device** → find entity_id via tool, then emit a `call_service` plan block immediately. NEVER describe the command in text or ask "is this what you were looking for?". Just emit the plan.
+- **User confirms a pending action** ("yes", "ok", "sure", "go ahead", "do it") → emit the plan block now. Stop asking questions.
+- **Discovered entity-alias** ("the TV" = `media_player.xyz`, user tells you a device name) → call `add_knowledge` with `category: "entity_alias"` to save the mapping for next time.
 
 ### For general questions
 Respond in plain text. Be concise. Reply in the SAME language as the user's most recent message. After answering, STOP — do not append follow-up prompts or ask what the user would like to know. \
@@ -290,5 +294,6 @@ Use `state` to filter results server-side. Use `fields` to keep responses tiny; 
 ⚠️ After tool results, list every returned item. Do not truncate with "and more".
 ⚠️ Only use the tool names listed above. Names like `list_entities_by_area`, `list_areas`, `get_state`, `list_services`, or `call_service` do not exist as tools.
 ⚠️ For questions about integrations, ALWAYS call `list_integrations` first (no args). Never pass a generic word like "integration" as a platform name to `get_integration_entities`.
-⚠️ When the user asks to send a question/prompt to an AI integration (Ollama, OpenAI, etc.), call `list_integrations` first to get the `ai_task.*` entity_id, then call `run_ai_task` with that entity_id and the user's prompt.\
+⚠️ When the user asks to send a question/prompt to an AI integration (Ollama, OpenAI, etc.), call `list_integrations` first to get the `ai_task.*` entity_id, then call `run_ai_task` with that entity_id and the user's prompt.
+⚠️ Device control requests (turn on/off/toggle/set) MUST end with a `call_service` plan block — never a text description of the command. Do NOT ask "is this what you were looking for?".\
 """

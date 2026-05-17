@@ -366,6 +366,91 @@ export const AIMixin = (Base) => class extends Base {
 
   // Render text with **bold** words as inline clickable adornment buttons.
   // onChoiceClick receives the label text when a button is clicked.
+  _domainIcon(domain) {
+    const icons = {
+      media_player: "📺", light: "💡", switch: "🔌", sensor: "📊",
+      binary_sensor: "⬤", climate: "🌡️", cover: "🪟", script: "⚡",
+      automation: "🤖", scene: "🎭", button: "🔘", input_boolean: "🔘",
+      lock: "🔒", camera: "📷", fan: "🌀", vacuum: "🤖", person: "👤",
+      weather: "🌤️", number: "🔢", select: "📋", remote: "🎮",
+      alarm_control_panel: "🚨", input_select: "📋", input_number: "🔢",
+      counter: "🔢", timer: "⏱️", zone: "📍", group: "👥",
+    };
+    return icons[domain] || "🔧";
+  }
+
+  _entityChip(entityId) {
+    const state = this._hass?.states?.[entityId];
+    const domain = entityId.split(".")[0];
+    const icon = this._domainIcon(domain);
+    if (!state) {
+      const span = document.createElement("span");
+      span.className = "entity-chip";
+      span.title = entityId;
+      span.innerHTML = `<span class="entity-chip-icon">${icon}</span><span class="entity-chip-name">${this._escapeHTML(entityId)}</span>`;
+      return span;
+    }
+    const name = state.attributes?.friendly_name || entityId;
+    const stateVal = state.state;
+    const span = document.createElement("span");
+    span.className = "entity-chip";
+    span.title = entityId;
+    span.innerHTML = `<span class="entity-chip-icon">${icon}</span><span class="entity-chip-name">${this._escapeHTML(name)}</span><span class="entity-chip-state">${this._escapeHTML(stateVal)}</span>`;
+    return span;
+  }
+
+  _injectEntityChips(container) {
+    // Walk text nodes in the container and replace backtick entity IDs with chips
+    const ENTITY_ID_RE = /`([a-z_]+\.[a-z0-9_]+)`/g;
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    const replacements = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      if (!ENTITY_ID_RE.test(node.textContent)) continue;
+      ENTITY_ID_RE.lastIndex = 0;
+      replacements.push(node);
+    }
+    replacements.forEach((textNode) => {
+      const frag = document.createDocumentFragment();
+      let last = 0;
+      const text = textNode.textContent;
+      ENTITY_ID_RE.lastIndex = 0;
+      let m;
+      while ((m = ENTITY_ID_RE.exec(text)) !== null) {
+        if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+        frag.appendChild(this._entityChip(m[1]));
+        last = m.index + m[0].length;
+      }
+      if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+      textNode.parentNode.replaceChild(frag, textNode);
+    });
+  }
+
+  _buildEntityResultGrid(previewJson) {
+    try {
+      const data = JSON.parse(previewJson);
+      if (!data || typeof data !== "object" || data.error || data.info) return null;
+      const entries = Object.entries(data);
+      if (!entries.length) return null;
+      const grid = document.createElement("div");
+      grid.className = "entity-result-grid";
+      entries.forEach(([entityId, info]) => {
+        const domain = entityId.split(".")[0];
+        const icon = this._domainIcon(domain);
+        const liveState = this._hass?.states?.[entityId];
+        const name = liveState?.attributes?.friendly_name || info.name || entityId.split(".")[1];
+        const stateVal = liveState?.state || info.state || "";
+        const card = document.createElement("div");
+        card.className = "entity-result-card";
+        card.innerHTML = `<div class="erc-icon">${icon}</div><div class="erc-body"><div class="erc-name">${this._escapeHTML(name)}</div><div class="erc-id">${this._escapeHTML(entityId)}</div>${stateVal ? `<div class="erc-state">${this._escapeHTML(stateVal)}</div>` : ""}</div>`;
+        grid.appendChild(card);
+      });
+      return grid;
+    } catch {
+      return null;
+    }
+  }
+
   _renderTextWithAdornments(text, onChoiceClick) {
     const frag = document.createDocumentFragment();
     // Split on **bold** markers, keeping delimiters
@@ -478,6 +563,9 @@ export const AIMixin = (Base) => class extends Base {
       } else {
         msg.textContent = textOnly;
       }
+
+      // Replace backtick entity IDs (e.g. `media_player.tv`) with rich entity chips
+      this._injectEntityChips(msg);
 
       history.appendChild(msg);
 
@@ -707,12 +795,21 @@ export const AIMixin = (Base) => class extends Base {
             statusEl.textContent = ` → ${ev.summary || "done"}`;
             if (ev.preview) {
               items[i].dataset.preview = ev.preview;
+              items[i].dataset.toolName = ev.name || "";
               items[i].style.cursor = "pointer";
-              items[i].title = "Click to view raw result";
+              items[i].title = "Click to view results";
               items[i].addEventListener("click", () => {
-                let pre = items[i].querySelector("pre.thinking-tool-preview");
-                if (pre) { pre.remove(); return; }
-                pre = document.createElement("pre");
+                let existing = items[i].querySelector(".thinking-tool-preview, .entity-result-grid");
+                if (existing) { existing.remove(); return; }
+                // For entity search tools, show rich entity grid
+                const isEntityTool = ["search_entities", "list_entities_by_domain",
+                  "get_area_entities", "list_entities_by_label", "get_integration_entities",
+                  "list_entities_without_area"].includes(items[i].dataset.toolName);
+                if (isEntityTool) {
+                  const grid = this._buildEntityResultGrid(items[i].dataset.preview);
+                  if (grid) { items[i].appendChild(grid); return; }
+                }
+                const pre = document.createElement("pre");
                 pre.className = "thinking-tool-preview";
                 pre.textContent = items[i].dataset.preview;
                 items[i].appendChild(pre);
