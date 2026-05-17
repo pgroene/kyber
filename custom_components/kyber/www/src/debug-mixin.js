@@ -74,8 +74,12 @@ export const DebugMixin = (Base) => class extends Base {
         </label>
         <button id="dbg-mem-add">➕ Add fact</button>
         <button id="dbg-mem-analyze">🔍 Analyze my home</button>
-        <button id="dbg-mem-deep-analyze" title="AI-driven deep analysis of automations/scripts/blueprints with content-hash memoization">🧬 Deep analyze</button>
+        <button id="dbg-mem-deep-analyze">🧬 Start deep analysis</button>
+        <label style="display:flex;align-items:center;gap:4px;font-size:0.85em">
+          <input type="checkbox" id="dbg-deep-force"> Re-analyze all
+        </label>
       </div>
+      <div id="dbg-deep-status" style="display:none;margin:6px 0;padding:8px 10px;border-radius:6px;background:var(--secondary-background-color,#f0f0f0);font-size:0.88em;line-height:1.6"></div>
       <div class="kn-list">${filtered.map((e) => this._renderKnowledgeRow(e, categories)).join("")}</div>
     `;
     body.querySelector("#dbg-mem-filter").addEventListener("change", (e) => {
@@ -91,34 +95,26 @@ export const DebugMixin = (Base) => class extends Base {
       this._toggleDebugPane(false);
       await this._handleKnowledgeCommand("analyze");
     });
+
+    // Deep analysis — start background job and poll for progress
     body.querySelector("#dbg-mem-deep-analyze").addEventListener("click", async () => {
-      const btn = body.querySelector("#dbg-mem-deep-analyze");
-      const orig = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = "🧬 Analyzing…";
-      try {
-        const token = this._hass.auth.data.access_token;
-        const r = await fetch("/api/kyber/knowledge/analyze_deep", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ limit: 5 }),
-        });
-        const j = await r.json();
-        if (!r.ok) {
-          alert("Deep analyze failed: " + (j.message || r.statusText));
-        } else {
-          const analyzed = (j.analyzed || []).length;
-          const newFacts = (j.analyzed || []).reduce((n, a) => n + (a.fact_ids || []).length, 0);
-          alert(`Deep analyze: ${analyzed} items processed, ${newFacts} new facts added, ${j.skipped_unchanged || 0} unchanged (skipped).`);
-        }
-      } catch (err) {
-        alert("Deep analyze error: " + err);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = orig;
-        this._renderDebugTab("memory");
+      const token = this._hass.auth.data.access_token;
+      const force = body.querySelector("#dbg-deep-force")?.checked ?? false;
+      const r = await fetch("/api/kyber/knowledge/analyze_deep", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ background: true, runs: 10, limit: 5, force }),
+      });
+      const j = await r.json();
+      if (!r.ok || (j.status !== "started" && j.status !== "already_running")) {
+        alert("Failed to start: " + (j.message || r.statusText));
+        return;
       }
+      this._startDeepAnalysisPolling(body);
     });
+
+    // Show status if a job is already running / recently finished
+    this._refreshDeepAnalysisStatus(body);
     this._wireKnowledgeRowEvents(body, filtered, categories);
   }
 
@@ -250,5 +246,81 @@ export const DebugMixin = (Base) => class extends Base {
   _getDeepLearningRuns(root) {
     const val = parseInt(root.querySelector("select")?.value ?? "1", 10);
     return Math.min(10, Math.max(1, isNaN(val) ? 1 : val));
+  }
+
+  _startDeepAnalysisPolling(body) {
+    if (this._deepPollTimer) clearInterval(this._deepPollTimer);
+    this._deepPollTimer = setInterval(async () => {
+      const alive = await this._refreshDeepAnalysisStatus(body);
+      if (!alive) {
+        clearInterval(this._deepPollTimer);
+        this._deepPollTimer = null;
+        this._renderDebugTab("memory");
+      }
+    }, 2000);
+    this._refreshDeepAnalysisStatus(body);
+  }
+
+  async _refreshDeepAnalysisStatus(body) {
+    const statusDiv = body?.querySelector?.("#dbg-deep-status");
+    const btn = body?.querySelector?.("#dbg-mem-deep-analyze");
+    if (!statusDiv) return false;
+    try {
+      const token = this._hass.auth.data.access_token;
+      const r = await fetch("/api/kyber/knowledge/analyze_deep", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) return false;
+      const data = await r.json();
+      const job = data.job || {};
+      const running = job.running === true;
+
+      if (!running && !job.started_at) {
+        statusDiv.style.display = "none";
+        if (btn) btn.disabled = false;
+        return false;
+      }
+
+      statusDiv.style.display = "block";
+      if (running) {
+        if (btn) { btn.disabled = true; btn.textContent = "🧬 Running…"; }
+        const elapsed = job.started_at ? Math.round(Date.now() / 1000 - job.started_at) : 0;
+        statusDiv.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="font-size:1.1em">🔄</span>
+            <strong>Deep analysis running</strong>
+            <span style="color:var(--secondary-text-color)">${elapsed}s</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center">
+            <div><div style="font-size:1.4em;font-weight:bold">${job.run || 0}/${job.runs || 0}</div><div style="font-size:0.8em;opacity:.7">passes</div></div>
+            <div><div style="font-size:1.4em;font-weight:bold">${job.analyzed || 0}</div><div style="font-size:0.8em;opacity:.7">analyzed</div></div>
+            <div><div style="font-size:1.4em;font-weight:bold">${job.facts || 0}</div><div style="font-size:0.8em;opacity:.7">facts stored</div></div>
+          </div>
+          ${job.current_item ? `<div style="margin-top:4px;font-size:0.8em;opacity:.6">📄 ${this._escapeHtml(job.current_item)}</div>` : ""}
+          ${job.errors ? `<div style="color:#e44;font-size:0.8em">⚠ ${job.errors} error(s)</div>` : ""}
+        `;
+        return true;
+      } else {
+        if (btn) { btn.disabled = false; btn.textContent = "🧬 Start deep analysis"; }
+        const last = job.last_result || {};
+        const dur = last.duration_s != null ? `${last.duration_s}s` : "";
+        statusDiv.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="font-size:1.1em">✅</span>
+            <strong>Last analysis complete</strong>
+            ${dur ? `<span style="color:var(--secondary-text-color)">${dur}</span>` : ""}
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center">
+            <div><div style="font-size:1.4em;font-weight:bold">${last.runs_completed || 0}</div><div style="font-size:0.8em;opacity:.7">passes</div></div>
+            <div><div style="font-size:1.4em;font-weight:bold">${last.analyzed || 0}</div><div style="font-size:0.8em;opacity:.7">analyzed</div></div>
+            <div><div style="font-size:1.4em;font-weight:bold">${last.facts || 0}</div><div style="font-size:0.8em;opacity:.7">facts stored</div></div>
+          </div>
+          ${last.errors ? `<div style="color:#e44;font-size:0.8em">⚠ ${last.errors} error(s)</div>` : ""}
+        `;
+        return false;
+      }
+    } catch (_) {
+      return false;
+    }
   }
 };
