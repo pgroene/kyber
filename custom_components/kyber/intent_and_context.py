@@ -1,0 +1,343 @@
+"""Intent classification and context building helpers extracted from http_api.py."""
+from __future__ import annotations
+
+import json
+import re
+from typing import Any
+
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import label_registry as lr
+
+from .const import SYSTEM_PROMPT_TEMPLATE
+
+
+def _sanitize_prompt_value(text: str) -> str:
+    """Sanitize a user-supplied string before embedding it in the system prompt."""
+    if not isinstance(text, str):
+        return str(text) if text is not None else ""
+    cleaned = re.sub(r"[\x00-\x1f\x7f]+", " ", text)
+    return cleaned.strip()
+
+
+_QUICK_CREATE_AREA_RE = re.compile(
+    r"^\s*(?:please\s+)?(?:can\s+you\s+)?"
+    r"(?:create|add|make|new)"
+    r"\s+(?:an?\s+|a\s+new\s+)?area"
+    r"\s+(?:called\s+|named\s+)?[\"'`]?([\w][\w\s\-]{0,50}?)[\"'`]?\s*[.!?]?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _try_quick_intent(user_prompt: str) -> dict[str, Any] | None:
+    """Detect trivially parseable single-action requests.
+
+    Returns a dict suitable for emitting as the final response, or None.
+
+    Currently handles:
+      - "create (an?) area NAME"
+      - "add area NAME"
+      - "make a new area called NAME"
+
+    Multi-line prompts (e.g. "create an area Yard\\nmake it Dutch") are
+    intentionally skipped so the AI can process the extra instructions.
+    """
+    if not user_prompt:
+        return None
+    # If the user added extra instructions on additional lines (e.g.
+    # "create an area Yard\nmake it a dutch name"), skip the shortcut so
+    # the AI loop can honour those instructions (e.g. translating the name).
+    lines = [l for l in user_prompt.split("\n") if l.strip()]
+    if len(lines) > 1:
+        return None
+    text = user_prompt.strip()
+    m = _QUICK_CREATE_AREA_RE.match(text)
+    if m:
+        name = m.group(1).strip().strip("'\"`").strip()
+        if not name:
+            return None
+        # Reject obviously non-name tokens that a casual user wouldn't intend
+        if name.lower() in {"area", "the area", "new", "one"}:
+            return None
+        # Reject names that contain newlines (should have been caught above,
+        # but guard defensively against other multi-line edge cases).
+        if "\n" in name or "\r" in name:
+            return None
+        plan = {
+            "summary": f"Create area '{name}'",
+            "actions": [{
+                "type": "create_area",
+                "name": name,
+                "current_state": "(none)",
+                "new_state": name,
+                "description": f"Create new area '{name}'",
+            }],
+        }
+        response = (
+            f"I'll create a new area called **{name}**. "
+            "Approve the plan below to apply.\n\n"
+            "```plan\n" + json.dumps(plan) + "\n```"
+        )
+        return {
+            "response_text": response,
+            "intent": "action",
+            "shortcut": "quick_create_area",
+            "plan": plan,
+        }
+    return None
+
+
+# Keywords that indicate the user wants to change/act on something (ACTION intent).
+# Anything else is INFORMATIONAL — the AI should just respond in plain text.
+_ACTION_KEYWORDS: frozenset[str] = frozenset({
+    "edit", "modify", "change", "update", "rename", "assign", "move",
+    "turn on", "turn off", "switch on", "switch off", "set", "create",
+    "delete", "remove", "add", "make", "enable", "disable", "fix", "open editor",
+    "open automation", "open script", "open dashboard", "adjust", "configure",
+    "schedule", "trigger", "automate", "dim", "brighten",
+    "lock", "unlock", "arm", "disarm",
+    "zet aan", "zet uit",  # Dutch on/off
+    "organise", "organize", "order my", "sort my", "clean up", "tidy",
+    "propose", "suggest changes", "suggest a plan",
+})
+
+# Regex patterns for split-word action intent (e.g. "turn those off", "switch it on")
+_ACTION_RE_PATTERNS: tuple = (
+    re.compile(r"\bturn\b.{0,30}\b(on|off)\b", re.IGNORECASE),
+    re.compile(r"\bswitch\b.{0,30}\b(on|off)\b", re.IGNORECASE),
+    re.compile(r"\b(on|off)\b.{0,30}\bturn\b", re.IGNORECASE),
+    re.compile(r"\bzet\b.{0,20}\b(aan|uit)\b", re.IGNORECASE),  # Dutch
+)
+
+
+def _classify_intent(user_prompt: str) -> str:
+    """Return 'action' if the prompt requests a change, otherwise 'informational'."""
+    lower = user_prompt.lower()
+    if any(kw in lower for kw in _ACTION_KEYWORDS):
+        return "action"
+    if any(p.search(lower) for p in _ACTION_RE_PATTERNS):
+        return "action"
+    return "informational"
+
+
+def _build_home_state_by_area(
+    hass: HomeAssistant,
+    entity_reg: er.EntityRegistry,
+    area_by_id: dict[str, str],
+) -> tuple[str, dict[str, Any]]:
+    """Build a per-area home state snapshot and aggregate stats."""
+    # area_name → collected metrics
+    area_data: dict[str, dict[str, Any]] = {}
+
+    def _area(name: str) -> dict[str, Any]:
+        if name not in area_data:
+            area_data[name] = {
+                "lights_on": 0, "lights_total": 0,
+                "presence": False,
+                "temps": [],
+                "media": [],
+                "open_windows": 0, "open_doors": 0,
+            }
+        return area_data[name]
+
+    unavailable_count = 0
+    low_battery_count = 0
+    total_lights_on = 0
+
+    for state in hass.states.async_all():
+        entity_id = state.entity_id
+        domain = entity_id.split(".")[0]
+        if domain in ("automation", "script", "scene", "group", "persistent_notification",
+                      "sun", "zone", "update", "event", "schedule"):
+            continue
+
+        if state.state == "unavailable":
+            unavailable_count += 1
+            continue
+
+        # Battery alerts (any entity with a battery_level attribute < 20%)
+        batt = state.attributes.get("battery_level") or state.attributes.get("battery")
+        if batt is not None:
+            try:
+                if float(batt) < 20:
+                    low_battery_count += 1
+            except (ValueError, TypeError):
+                pass
+
+        entry = entity_reg.async_get(entity_id)
+        area_id = entry.area_id if entry else None
+        area_name = area_by_id.get(area_id or "", "") if area_id else ""
+
+        if domain == "light":
+            if area_name:
+                d = _area(area_name)
+                d["lights_total"] += 1
+                if state.state == "on":
+                    d["lights_on"] += 1
+                    total_lights_on += 1
+            elif state.state == "on":
+                total_lights_on += 1
+
+        elif domain == "binary_sensor":
+            device_class = state.attributes.get("device_class", "")
+            if device_class in ("occupancy", "presence", "motion"):
+                if state.state == "on" and area_name:
+                    _area(area_name)["presence"] = True
+            elif device_class == "window" and state.state == "on" and area_name:
+                _area(area_name)["open_windows"] += 1
+            elif device_class == "door" and state.state == "on" and area_name:
+                _area(area_name)["open_doors"] += 1
+
+        elif domain == "person" and area_name:
+            if state.state not in ("not_home", "away", "unknown"):
+                _area(area_name)["presence"] = True
+
+        elif domain == "climate" and area_name:
+            temp = state.attributes.get("current_temperature")
+            if temp is not None:
+                try:
+                    _area(area_name)["temps"].append(float(temp))
+                except (ValueError, TypeError):
+                    pass
+
+        elif domain == "sensor" and area_name:
+            if state.attributes.get("device_class") == "temperature" and state.state not in ("unknown", "unavailable"):
+                try:
+                    _area(area_name)["temps"].append(float(state.state))
+                except (ValueError, TypeError):
+                    pass
+
+        elif domain == "media_player" and area_name:
+            if state.state not in ("idle", "off", "standby", "unavailable", "unknown"):
+                friendly = _sanitize_prompt_value(state.attributes.get("friendly_name", entity_id))
+                title = _sanitize_prompt_value(state.attributes.get("media_title", ""))
+                _area(area_name)["media"].append(f"{friendly}" + (f": {title}" if title else f" ({state.state})"))
+
+    # Format lines
+    lines: list[str] = []
+    for area_name in sorted(area_data.keys()):
+        d = area_data[area_name]
+        parts: list[str] = []
+        if d["lights_total"] > 0:
+            parts.append(f"💡 {d['lights_on']}/{d['lights_total']} lights on")
+        if d["presence"]:
+            parts.append("👤 occupied")
+        if d["temps"]:
+            avg_temp = sum(d["temps"]) / len(d["temps"])
+            parts.append(f"🌡 {avg_temp:.1f}°C")
+        for m in d["media"][:2]:
+            parts.append(f"📺 {m}")
+        if d["open_windows"]:
+            parts.append(f"🪟 {d['open_windows']} open")
+        if d["open_doors"]:
+            parts.append(f"🚪 {d['open_doors']} open")
+        if parts:
+            lines.append(f"  {area_name}: {' | '.join(parts)}")
+
+    alerts: list[str] = []
+    if unavailable_count:
+        alerts.append(f"{unavailable_count} unavailable")
+    if low_battery_count:
+        alerts.append(f"{low_battery_count} low battery")
+    if alerts:
+        lines.append(f"  ⚠️ Alerts: {', '.join(alerts)}")
+
+    home_state = "\n".join(lines) or "(no area state available)"
+    stats = {
+        "total_lights_on": total_lights_on,
+        "unavailable_count": unavailable_count,
+        "low_battery_count": low_battery_count,
+    }
+    return home_state, stats
+
+
+def _build_context(hass: HomeAssistant, user_name: str = "") -> tuple[str, dict[str, Any]]:
+    """Build a compact context string with domain stats + area home state."""
+    area_reg = ar.async_get(hass)
+    entity_reg = er.async_get(hass)
+    label_reg = lr.async_get(hass)
+
+    areas = area_reg.async_list_areas()
+    area_list = "\n".join(
+        f"- {_sanitize_prompt_value(a.name)} → {_sanitize_prompt_value(a.id)}"
+        for a in areas
+    ) or "(no areas)"
+    area_by_id = {a.id: _sanitize_prompt_value(a.name) for a in areas}
+
+    labels = label_reg.async_list_labels()
+    label_list = "\n".join(
+        f"- {_sanitize_prompt_value(lbl.label_id)} | {_sanitize_prompt_value(lbl.name)}"
+        for lbl in labels
+    ) or "(no labels)"
+
+    automation_lines: list[str] = []
+    script_lines: list[str] = []
+    domain_counts: dict[str, int] = {}
+
+    all_states = hass.states.async_all()
+    entity_count = 0
+
+    for state in sorted(all_states, key=lambda s: s.entity_id):
+        domain = state.entity_id.split(".")[0]
+        if state.entity_id.startswith("automation."):
+            friendly = _sanitize_prompt_value(state.attributes.get("friendly_name", state.entity_id))
+            config_id = _sanitize_prompt_value(state.attributes.get("id", state.entity_id))
+            automation_lines.append(f"- {state.entity_id} | {friendly} | config_id: {config_id}")
+        elif state.entity_id.startswith("script."):
+            friendly = _sanitize_prompt_value(state.attributes.get("friendly_name", state.entity_id))
+            script_lines.append(f"- {state.entity_id} | {friendly}")
+        else:
+            entity_count += 1
+            domain_counts[domain] = domain_counts.get(domain, 0) + 1
+
+    _AUTO_LIMIT = 50
+    _SCRIPT_LIMIT = 25
+    if len(automation_lines) > _AUTO_LIMIT:
+        automation_lines_shown = automation_lines[:_AUTO_LIMIT]
+        automation_lines_shown.append(
+            f"… and {len(automation_lines) - _AUTO_LIMIT} more (use list_automations tool to see all)"
+        )
+    else:
+        automation_lines_shown = automation_lines
+    if len(script_lines) > _SCRIPT_LIMIT:
+        script_lines_shown = script_lines[:_SCRIPT_LIMIT]
+        script_lines_shown.append(
+            f"… and {len(script_lines) - _SCRIPT_LIMIT} more (use list_scripts tool to see all)"
+        )
+    else:
+        script_lines_shown = script_lines
+
+    automation_list = "\n".join(automation_lines_shown) or "(no automations)"
+    script_list = "\n".join(script_lines_shown) or "(no scripts)"
+
+    # Domain stats: top 10 by count
+    sorted_domains = sorted(domain_counts.items(), key=lambda x: -x[1])
+    stats_parts = [f"{d}: {c}" for d, c in sorted_domains[:10]]
+    if len(sorted_domains) > 10:
+        stats_parts.append(f"… {len(sorted_domains) - 10} more domains")
+    entity_stats = f"{entity_count} total — {' | '.join(stats_parts)}"
+
+    # Per-area home state
+    home_state_by_area, area_stats = _build_home_state_by_area(hass, entity_reg, area_by_id)
+
+    context_stats: dict[str, Any] = {
+        "entity_count": entity_count,
+        "automation_count": len(automation_lines),
+        "area_count": len(areas),
+        "lights_on": area_stats["total_lights_on"],
+        "unavailable_count": area_stats["unavailable_count"],
+        "low_battery_count": area_stats["low_battery_count"],
+    }
+
+    user_name_line = f"The user's name is {_sanitize_prompt_value(user_name)}." if user_name and user_name.strip() else ""
+    context = SYSTEM_PROMPT_TEMPLATE.format(
+        user_name_line=user_name_line,
+        area_list=area_list,
+        label_list=label_list,
+        entity_stats=entity_stats,
+        home_state_by_area=home_state_by_area,
+        automation_list=automation_list,
+        script_list=script_list,
+    )
+    return context, context_stats
