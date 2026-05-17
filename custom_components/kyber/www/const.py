@@ -236,7 +236,7 @@ Rules:
 - For `rename_area` / `delete_area`, use exact area_id values from the Areas context or `get_areas`.
 - For "max"/"full"/"brightest"/"100%" brightness use `service_data: {{"brightness_pct": 100}}`; for "dim"/"low" use `{{"brightness_pct": 10}}`; for a specific percent use that value.
 - For area-wide service control, prefer `service_data.area_id`; the `entity_id: "<domain>.<area_name>"` shortcut is only for no-lookup fallbacks.
-- `cover.set_cover_position` uses `position`; `media_player.volume_set` uses `volume_level`.
+- `cover.set_cover_position` uses `position` (0–100); `media_player.volume_set` uses `volume_level` (0.0–1.0, NOT 0–100).
 
 ### 🟢 Quick recipes
 - "What's playing?" / media state in an area → `get_area_entities(domain=media_player, area=...)`, then `get_entity_state(..., fields=["state","media_title","media_artist","media_album_name","app_name"])`.
@@ -248,8 +248,14 @@ Rules:
   - "previous" → `media_player.media_previous_track`
   - "mute" → `media_player.volume_mute` with `service_data: {{"is_volume_muted": true}}`
   - "unmute" → `media_player.volume_mute` with `service_data: {{"is_volume_muted": false}}`
-  - "volume X%" → `media_player.volume_set` with `service_data: {{"volume_level": 0.X}}`
+  - "volume X%" → `media_player.volume_set` with `service_data: {{"volume_level": 0.X}}` — volume is 0.0–1.0, NOT 0–100
+  - "volume up/down" → `media_player.volume_up` / `media_player.volume_down`
+  - "shuffle on/off" → `media_player.shuffle_set` with `service_data: {{"shuffle": true/false}}`
+  - "repeat all/one/off" → `media_player.repeat_set` with `service_data: {{"repeat": "all"/"one"/"off"}}`
+  - "switch input/source to X" → `media_player.select_source` with `service_data: {{"source": "<name>"}}` — check available sources with `get_entity_state(fields=["source","source_list"])`
+  - "group players / play everywhere" → `media_player.join` with `group_members: [...]`
   - ⚠️ NEVER use `media_player.turn_off` when the user says "pause" or "stop" — these are different commands.
+- **Unsure of exact action params** (climate mode names, cover tilt, fan speeds, etc.) → call `get_domain_docs(domain=X)` FIRST to get the exact parameter reference.
 - Current-state questions ("is X on?", "what temperature?", "when does the sun rise?") → call a state tool first; never answer from memory.
 - "Create an area X" → emit a `create_area` plan immediately; do NOT call `get_areas` first.
 - "Rename area X to Y" or "delete area X" → call `get_areas` once, then emit the appropriate plan.
@@ -307,6 +313,7 @@ Use `state` to filter results server-side. Use `fields` to keep responses tiny; 
 | `list_integrations` | none | **call this first** to discover which integrations are loaded (e.g. hue, mqtt, zwave_js, ollama) |
 | `get_integration_entities` | `integration` (platform name from list_integrations result); optional `domain`, `state`, `fields` | entities provided by one specific integration — `integration` must be a real platform name, never a generic word |
 | `run_ai_task` | `entity_id` (e.g. `ai_task.ollama_ai_task`), `prompt` | send a prompt to an AI task entity and return its response — use when user asks to "ask Ollama", "ask the AI", "send a question to [integration]", or similar |
+| `get_domain_docs` | `domain` | get the full action/service reference for a domain before using domain-specific params — call this for `media_player`, `light`, `climate`, `cover`, `lock`, `vacuum`, `fan`, `alarm_control_panel`, `input_select`, `number`, `select` when you need exact parameter names or allowed values |
 
 ### Tool usage rules
 ⚠️ Do NOT narrate tool usage. Output the `[TOOL_CALL: ...]` immediately and stop.

@@ -12,6 +12,7 @@ from homeassistant.helpers import label_registry as lr
 
 from .knowledge import get_store as get_knowledge_store
 from .analyzer import analyze_automations as _analyze_automations
+from .domain_docs import get_domain_docs as _get_domain_docs
 from .source import (
     read_automations as _src_read_automations,
     read_scripts as _src_read_scripts,
@@ -121,6 +122,9 @@ def _tool_result_summary(call: dict[str, Any], result: Any) -> str:
         if isinstance(result, dict) and "response" in result:
             snippet = " — " + str(result["response"])[:80]
         return f"ai_task response from {entity_id}{snippet}"
+    if name == "get_domain_docs":
+        domain = call.get("domain", "?")
+        return f"domain docs for '{domain}'"
     return "done"
 
 
@@ -656,6 +660,19 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             return json.dumps({"info": f"No entities found for integration '{integration}'"})
         return json.dumps({"integration": integration, "entities": results, "count": len(results)})
 
+    # ── Domain action reference (on-demand) ──────────────────────────────────
+    # Returns a compact service/parameter reference for a specific domain so
+    # the AI can emit correct plan actions without guessing argument names.
+    if name == "get_domain_docs":
+        domain_arg = str(call.get("domain", "")).strip().lower()
+        if not domain_arg:
+            from .domain_docs import _AVAILABLE_DOMAINS
+            return json.dumps({
+                "error": "Missing 'domain' argument",
+                "available_domains": _AVAILABLE_DOMAINS,
+            })
+        return json.dumps({"domain": domain_arg, "docs": _get_domain_docs(domain_arg)})
+
     # call_service / assign_area / etc. are ACTIONS that belong in a plan
     # block, not [TOOL_CALL:]s. If the model tries to use them as a tool,
     # return a guidance error so it stops and emits a plan instead.
@@ -685,6 +702,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "list_blueprints", "get_blueprint",
         "list_integrations", "get_integration_entities",
         "run_ai_task",
+        "get_domain_docs",
     ]
     # If the bogus "tool" name looks like a word from a user request (e.g.
     # they typed "create an area outside" and the model called tool
