@@ -1,0 +1,749 @@
+export const AIMixin = (Base) => class extends Base {
+  async _downloadDebugBundle(requestId, btn) {
+    const token = this._hass.auth.data.access_token;
+    const orig = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "⏳ packing…"; }
+    try {
+      const resp = await fetch(`/api/kyber/debug/bundle?request_id=${encodeURIComponent(requestId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `kyber-debug-${requestId}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      if (btn) btn.textContent = "✓ downloaded";
+      setTimeout(() => { if (btn) { btn.textContent = orig; btn.disabled = false; } }, 1500);
+    } catch (err) {
+      if (btn) { btn.textContent = `⚠ ${err.message}`; btn.disabled = false; }
+    }
+  }
+
+        async _openBugReportFlow(requestId, btn) {
+          const token = this._hass.auth.data.access_token;
+          const shadow = this.shadowRoot;
+
+          // Build and mount the overlay
+          const overlay = document.createElement("div");
+          overlay.className = "bug-report-overlay";
+          overlay.innerHTML = `
+            <div class="bug-report-dialog" id="br-dialog">
+              <h3>🐛 Create Bug Report</h3>
+              <label>What did you ask Kyber?
+                <textarea id="br-asked" rows="2" placeholder="e.g. Turn on the kitchen lights"></textarea>
+              </label>
+              <label>What did you expect to happen?
+                <textarea id="br-expected" rows="2" placeholder="e.g. Kitchen lights turn on"></textarea>
+              </label>
+              <label>What actually happened?
+                <textarea id="br-happened" rows="3" placeholder="e.g. Nothing happened / wrong room / error message"></textarea>
+              </label>
+              <label class="bug-report-checkbox">
+                <input type="checkbox" id="br-include-bundle" checked>
+                Include debug bundle summary (PII will be redacted)
+              </label>
+              <div class="bug-report-actions">
+                <button class="bug-report-btn-cancel" id="br-cancel">Cancel</button>
+                <button class="bug-report-btn-submit" id="br-submit">Generate report →</button>
+              </div>
+            </div>`;
+          shadow.appendChild(overlay);
+
+          const close = () => overlay.remove();
+          overlay.querySelector("#br-cancel").addEventListener("click", close);
+          overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+          overlay.querySelector("#br-submit").addEventListener("click", async () => {
+            const asked = overlay.querySelector("#br-asked").value.trim();
+            const expected = overlay.querySelector("#br-expected").value.trim();
+            const happened = overlay.querySelector("#br-happened").value.trim();
+            const includeBundle = overlay.querySelector("#br-include-bundle").checked;
+
+            if (!asked && !happened) {
+              overlay.querySelector("#br-happened").focus();
+              return;
+            }
+
+            // Step 2: spinner
+            const dlg = overlay.querySelector("#br-dialog");
+            dlg.innerHTML = `<div class="bug-report-spinner">⏳ Generating bug report…</div>`;
+
+            let data;
+            try {
+              const resp = await fetch("/api/kyber/debug/bug-report", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ request_id: requestId, what_asked: asked, what_expected: expected, what_happened: happened, include_bundle: includeBundle }),
+              });
+              if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+              data = await resp.json();
+            } catch (err) {
+              dlg.innerHTML = `<h3>🐛 Bug Report</h3><p style="color:var(--error-color,#f44)">Failed: ${this._escapeHtml(err.message)}</p><div class="bug-report-actions"><button class="bug-report-btn-cancel" id="br-cancel2">Close</button></div>`;
+              dlg.querySelector("#br-cancel2").addEventListener("click", close);
+              return;
+            }
+
+            // Step 3: review
+            const similar = (data.similar_issues || []);
+            const similarHtml = similar.length
+              ? `<div class="bug-report-similar"><strong>Similar open issues:</strong><ul style="margin:4px 0 0;padding-left:18px">${similar.map(i => `<li><a href="${this._escapeHtml(i.url)}" target="_blank">#${i.number} ${this._escapeHtml(i.title)}</a> [${i.state}]</li>`).join("")}</ul></div>`
+              : "";
+
+            const encodedTitle = encodeURIComponent(data.title || "");
+            const encodedBody = encodeURIComponent(data.body || "");
+            const ghUrl = `https://github.com/pgroene/kyber/issues/new?title=${encodedTitle}&body=${encodedBody}`;
+
+            dlg.innerHTML = `
+              <h3>🐛 Review Bug Report</h3>
+              ${similarHtml}
+              <label class="bug-report-result-title">Title
+                <input type="text" id="br-title" value="${this._escapeHtml(data.title || "")}">
+              </label>
+              <label>Body (markdown)
+                <textarea id="br-body" rows="12">${this._escapeHtml(data.body || "")}</textarea>
+              </label>
+              <div class="bug-report-actions">
+                <button class="bug-report-btn-cancel" id="br-close">Close</button>
+                <button class="bug-report-btn-submit" id="br-copy">📋 Copy</button>
+                <button class="bug-report-btn-submit" id="br-open-gh">Open on GitHub ↗</button>
+              </div>`;
+
+            dlg.querySelector("#br-close").addEventListener("click", close);
+            dlg.querySelector("#br-copy").addEventListener("click", () => {
+              const title = dlg.querySelector("#br-title").value;
+              const body = dlg.querySelector("#br-body").value;
+              navigator.clipboard.writeText(`## ${title}\n\n${body}`).then(() => {
+                const btn2 = dlg.querySelector("#br-copy");
+                btn2.textContent = "✓ Copied!";
+                setTimeout(() => { btn2.textContent = "📋 Copy"; }, 2000);
+              });
+            });
+            dlg.querySelector("#br-open-gh").addEventListener("click", () => {
+              const t = encodeURIComponent(dlg.querySelector("#br-title").value);
+              const b = encodeURIComponent(dlg.querySelector("#br-body").value);
+              window.open(`https://github.com/pgroene/kyber/issues/new?title=${t}&body=${b}`, "_blank");
+            });
+          });
+        }
+
+  async _submitTurnFeedback(rating, knowledgeIds, btnsRoot) {
+    const status = btnsRoot.querySelector(".tf-status");
+    btnsRoot.querySelectorAll(".tf-btn-rate").forEach((b) => (b.disabled = true));
+    try {
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch("/api/kyber/knowledge/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ rating, knowledge_ids: knowledgeIds || [], auto: false }),
+      });
+      const data = await resp.json();
+      if (status) {
+        status.textContent = rating >= 4
+          ? `✓ thanks — boosted ${data.count || 0} fact(s)`
+          : `📝 flagged ${data.count || 0} fact(s) for review`;
+        status.classList.add(rating >= 4 ? "ok" : "flag");
+      }
+      // Refresh the picked-knowledge list so stars/needs_review badges update
+      setTimeout(() => this._renderDebugTab("last_turn"), 600);
+    } catch (err) {
+      if (status) status.textContent = `feedback failed: ${err.message}`;
+    }
+  }
+
+  async _askAI() {
+    const promptInput = this.shadowRoot.getElementById("prompt-input");
+    const prompt = promptInput.value.trim();
+    if (!prompt) return;
+
+    // ── Slash commands ────────────────────────────────────────────
+    const slashMatch = prompt.match(/^\/(\w+)(?:\s+(.*))?$/i);
+    if (slashMatch) {
+      const cmd = slashMatch[1].toLowerCase();
+      const argStr = (slashMatch[2] || "").trim();
+      if (cmd === "autopilot") {
+        const arg = argStr.toLowerCase();
+        promptInput.value = "";
+        if (arg === "on") {
+          this._autopilot = true;
+          this._updateAutopilotBadge();
+          this._appendMessage("⚡ Autopilot is now ON — proposals will execute automatically.", "assistant");
+        } else if (arg === "off") {
+          this._autopilot = false;
+          this._updateAutopilotBadge();
+          this._appendMessage("Autopilot is now OFF — you'll review proposals before executing.", "assistant");
+        } else {
+          this._appendMessage(`Autopilot is currently ${this._autopilot ? "ON ⚡" : "OFF"}. Use /autopilot on or /autopilot off.`, "assistant");
+        }
+        return;
+      }
+      if (cmd === "reset") {
+        promptInput.value = "";
+        this._buildCommandCard({
+          icon: "🗑",
+          title: "Reset chat",
+          detail: "This will clear all messages and start a fresh conversation.",
+          danger: true,
+          onConfirm: async () => {
+            await this._clearHistory();
+          },
+        });
+        return;
+      }
+      if (cmd === "help") {
+        promptInput.value = "";
+        this._showHelp(argStr.trim());
+        return;
+      }
+      if (cmd === "knowledge" || cmd === "memory") {
+        promptInput.value = "";
+        await this._handleKnowledgeCommand(argStr.trim());
+        return;
+      }
+      if (cmd === "session") {
+        promptInput.value = "";
+        this._handleSessionCommand(argStr.trim());
+        return;
+      }
+      if (["dashboard", "automation", "script", "blueprint", "area"].includes(cmd)) {
+        promptInput.value = "";
+        this._handleSlashCommand(cmd, argStr);
+        return;
+      }
+    }
+    // ─────────────────────────────────────────────────────────────
+
+    const yamlText = this._editor ? this._editor.state.doc.toString() : "";
+    const askBtn = this.shadowRoot.getElementById("btn-ask");
+    askBtn.disabled = true;
+    promptInput.value = "";
+
+    // Add user message to history before sending
+    this._addChatHistory("user", prompt);
+
+    this._appendMessage(prompt, "user");
+    this._setStatus("Asking AI…");
+    this._showThinking();
+    const requestId = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + "-" + Math.random().toString(36).slice(2));
+
+    try {
+      const token = this._hass.auth.data.access_token;
+
+      // Build dashboard list from hass.panels (always available, no API call needed)
+      if (this._dashboardList === null) {
+        const panels = this._hass.panels || {};
+        this._dashboardList = Object.values(panels)
+          .filter((p) => p.component_name === "lovelace" && p.url_path
+            && p.url_path !== "kyber" && p.url_path !== "lovelace")
+          .map((p) => ({
+            title: p.title || p.url_path,
+            url_path: p.url_path,
+            mode: "storage",
+          }));
+      }
+
+      // Fetch custom Lovelace resources (custom cards) once per session
+      if (this._lovelaceResources === undefined) {
+        this._lovelaceResources = [];
+        try {
+          const resResp = await fetch("/api/lovelace/resources", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (resResp.ok) {
+            const resources = await resResp.json();
+            // Extract custom card names from JS resource URLs
+            // e.g. /hacsfiles/lovelace-mushroom/mushroom.js → mushroom cards
+            this._lovelaceResources = (resources || [])
+              .filter((r) => r.type === "module" && r.url)
+              .map((r) => r.url);
+          }
+        } catch (_) { /* non-fatal */ }
+      }
+
+      const resp_promise = fetch("/api/kyber/complete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          yaml: yamlText,
+          prompt,
+          editor_mode: this._editorMode,
+          dashboards: this._dashboardList,
+          lovelace_resources: this._lovelaceResources || [],
+          request_id: requestId,
+          // Send all prior messages (everything except the just-pushed current user msg),
+          // capped at HISTORY_WINDOW most recent entries.
+          history: this._chatHistory.slice(0, -1).slice(-this._HISTORY_WINDOW),
+          compacted_summary: this._compactedSummary,
+        }),
+      });
+
+      // Poll progress while the main request is in flight
+      let chatDone = false;
+      this._pollProgress(requestId, () => chatDone).catch((err) => {
+        console.error("[kyber] poll progress crashed", err);
+      });
+      console.debug("[kyber] started progress polling for", requestId);
+
+      const resp = await resp_promise;
+      chatDone = true;
+
+      if (!resp.ok) {
+        const err = await resp.text();
+        throw new Error(`${resp.status}: ${err}`);
+      }
+
+      const data = await resp.json();
+      this._hideThinking();
+      // Store the assistant's text reply in history
+      const textOnly = data.response
+        .replace(/```yaml[\s\S]*?```/gi, "")
+        .replace(/```plan[\s\S]*?```/gi, "")
+        .trim();
+      if (textOnly) {
+        this._addChatHistory("assistant", textOnly);
+      }
+      this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null, data.learned_fact || null);
+
+      // Per-turn metadata is captured for the Debug tab ("Last turn") instead
+      // of being attached to the chat message. The chat panel stays clean;
+      // all feedback / debug-bundle UI lives in /kyber-debug.
+      this._lastTurnMeta = {
+        request_id: data.request_id || null,
+        knowledge_used: data.knowledge_used || [],
+        auto_rating: data.auto_rating || null,
+        ts: Date.now(),
+      };
+      // Auto-refresh debug 'Last turn' pane if it is currently open
+      const debugPane = this.shadowRoot.getElementById("debug-pane");
+      if (debugPane && !debugPane.hasAttribute("hidden") && this._debugTab === "last_turn") {
+        this._renderDebugTab("last_turn");
+      }
+
+      // Show tool call feedback pills above the response
+      if (data.tool_log && data.tool_log.length > 0) {
+        this._showToolLog(data.tool_log);
+      }
+
+      this._setStatus("Done");
+
+      // Update context badge with live entity/automation counts
+      if (data.context_stats) {
+        this._updateContextBadge(data.context_stats);
+      }
+
+      // Compact overflow messages in the background
+      this._maybeCompact();
+    } catch (err) {
+      this._hideThinking();
+      this._appendMessage(`Error: ${err.message}`, "error");
+      this._setStatus(`AI error: ${err.message}`, "error");
+    } finally {
+      askBtn.disabled = false;
+    }
+  }
+
+  // Render text with **bold** words as inline clickable adornment buttons.
+  // onChoiceClick receives the label text when a button is clicked.
+  _renderTextWithAdornments(text, onChoiceClick) {
+    const frag = document.createDocumentFragment();
+    // Split on **bold** markers, keeping delimiters
+    const parts = text.split(/(\*\*[^*\n]+\*\*)/g);
+    parts.forEach((part) => {
+      const boldMatch = part.match(/^\*\*([^*]+)\*\*$/);
+      if (boldMatch) {
+        const btn = document.createElement("button");
+        btn.className = "inline-choice";
+        btn.textContent = boldMatch[1];
+        btn.addEventListener("click", () => {
+          // Mark all sibling inline-choices as used so only one fires per message
+          const msg = btn.closest(".chat-message");
+          if (msg) msg.querySelectorAll(".inline-choice").forEach((b) => b.classList.add("used"));
+          onChoiceClick(boldMatch[1]);
+        });
+        frag.appendChild(btn);
+      } else {
+        frag.appendChild(document.createTextNode(part));
+      }
+    });
+    return frag;
+  }
+
+  _extractSuggestions(text) {
+    const chips = [];
+
+    // Strategy 1: **bold** action words from bullet list items
+    const bulletLines = text.match(/^[\-\*•]\s+.+$/gm) || [];
+    if (bulletLines.length >= 2) {
+      bulletLines.forEach((line) => {
+        const boldMatch = line.match(/\*\*([^*]{1,30})\*\*/);
+        if (boldMatch) {
+          const label = boldMatch[1].charAt(0).toUpperCase() + boldMatch[1].slice(1);
+          if (!chips.includes(label)) chips.push(label);
+        }
+      });
+      if (chips.length >= 2) return chips.slice(0, 6);
+
+      // No bold — extract short verb phrase from each bullet
+      chips.length = 0;
+      bulletLines.forEach((line) => {
+        const cleaned = line
+          .replace(/^[\-\*•]\s+/, "")
+          .replace(/^(or |and |also )?(do you want to |would you prefer to |would you like to |please |i can )/i, "")
+          .replace(/\?.*$/, "")
+          .trim();
+        const words = cleaned.split(/\s+/).slice(0, 3);
+        const label = words[0].charAt(0).toUpperCase() + words[0].slice(1) + (words[1] ? " " + words[1] : "");
+        if (label.length > 1 && label.length < 35 && !chips.includes(label)) chips.push(label);
+      });
+      if (chips.length >= 2) return chips.slice(0, 6);
+      chips.length = 0;
+    }
+
+    // Strategy 2: Yes/No binary confirm
+    if (/\b(yes|no)\b/i.test(text) && /confirm|proceed|sure/i.test(text)) {
+      return ["Yes", "No"];
+    }
+
+    // Strategy 3: Quoted strings, strip (e.g., ...) first
+    const strippedText = text
+      .replace(/\(e\.g\.[^)]*\)/gi, "")
+      .replace(/for example[^.,]*/gi, "")
+      .replace(/such as[^.,]*/gi, "");
+    const allQuoted = [...strippedText.matchAll(/"([^"]{1,40})"/g)].map((m) => m[1]);
+    if (allQuoted.length >= 2) {
+      allQuoted.forEach((v) => { if (!chips.includes(v)) chips.push(v); });
+      return chips.slice(0, 6);
+    }
+
+    return chips;
+  }
+
+  _appendMessage(text, type) {
+    const history = this.shadowRoot.getElementById("chat-history");
+    const msg = document.createElement("div");
+    msg.className = `chat-message ${type}`;
+    msg.textContent = text;
+    history.appendChild(msg);
+    history.scrollTop = history.scrollHeight;
+  }
+
+  _appendAIResponse(fullText, yamlBlocks, plan, learnedFact = null) {
+    const history = this.shadowRoot.getElementById("chat-history");
+
+    // Show the text portion (strip yaml/plan blocks for cleaner display)
+    const textOnly = fullText
+      .replace(/```yaml[\s\S]*?```/gi, "")
+      .replace(/```plan[\s\S]*?```/gi, "")
+      .trim();
+    if (textOnly) {
+      const msg = document.createElement("div");
+      msg.className = "chat-message assistant";
+
+      const hasBold = /\*\*[^*\n]+\*\*/.test(textOnly);
+      const isQuestion = /\?/.test(textOnly);
+
+      if (hasBold) {
+        // Render **bold** words as inline adornment buttons
+        const onChoiceClick = (label) => {
+          const input = this.shadowRoot.getElementById("prompt-input");
+          if (input) input.value = label;
+          this._askAI();
+        };
+        msg.appendChild(this._renderTextWithAdornments(textOnly, onChoiceClick));
+      } else {
+        msg.textContent = textOnly;
+      }
+
+      history.appendChild(msg);
+
+      // Fallback chips for non-bold question responses (e.g. Yes/No or quoted options)
+      if (isQuestion && !hasBold && !plan) {
+        const chips = this._extractSuggestions(textOnly);
+        if (chips.length >= 2) {
+          const chipRow = document.createElement("div");
+          chipRow.className = "suggestion-chips";
+          chips.forEach((label) => {
+            const btn = document.createElement("button");
+            btn.className = "suggestion-chip";
+            btn.textContent = label;
+            btn.addEventListener("click", () => {
+              const input = this.shadowRoot.getElementById("prompt-input");
+              if (input) input.value = label;
+              chipRow.remove();
+              this._askAI();
+            });
+            chipRow.appendChild(btn);
+          });
+          history.appendChild(chipRow);
+        }
+      }
+    }
+
+    // Handle plan blocks
+    if (plan) {
+      if (plan.open_dashboard) {
+        const card = this._buildOpenDashboardPrompt(plan);
+        history.appendChild(card);
+        if (this._autopilot) {
+          setTimeout(() => card.querySelector(".btn-open-editor")?.click(), 300);
+        }
+      } else if (plan.open_editor) {
+        const card = this._buildOpenEditorPrompt(plan);
+        history.appendChild(card);
+        if (this._autopilot) {
+          setTimeout(() => card.querySelector(".btn-open-editor")?.click(), 300);
+        }
+      } else if (plan.actions && plan.actions.length > 0) {
+        const READ_TOOL_TYPES = new Set([
+          "list_entities_by_domain", "get_entity_state", "get_area_entities",
+          "list_entities_by_label", "search_entities", "get_areas", "get_labels",
+        ]);
+        const allToolCalls = plan.actions.every((a) => READ_TOOL_TYPES.has(a.type));
+        if (allToolCalls) {
+          // Auto-execute read-only tool calls without showing proposal card
+          this._autoExecuteToolPlan(plan, promptInput);
+        } else {
+          history.appendChild(this._buildPlanCard(plan));
+        }
+      }
+    }
+
+    // Show memory suggestion card if the backend extracted a learned fact
+    if (learnedFact) {
+      history.appendChild(this._buildMemoryCard(learnedFact));
+    }
+
+    // Show each YAML block with an Apply button (when editor is open)
+    yamlBlocks.forEach((block) => {
+      const container = document.createElement("div");
+      container.className = "yaml-suggestion";
+      const label = this._editorMode === "dashboard" ? "⬆ Apply to dashboard" : "⬆ Apply to editor";
+      container.innerHTML = `
+        <pre>${this._escapeHtml(block)}</pre>
+        <button>${label}</button>
+      `;
+      const applyBtn = container.querySelector("button");
+      applyBtn.addEventListener("click", () => {
+        this._setEditorContent(block);
+        applyBtn.disabled = true;
+        applyBtn.textContent = "✓ Applied";
+        this._setStatus(this._editorMode === "dashboard"
+          ? "Dashboard YAML applied — review and Save when ready."
+          : "Suggestion applied — review and save when ready.");
+      });
+      history.appendChild(container);
+      // Autopilot: auto-apply YAML when editor is already open
+      if (this._autopilot && this.shadowRoot.getElementById("editor-container")?.classList.contains("open")) {
+        setTimeout(() => applyBtn.click(), 300);
+      }
+    });
+
+    history.scrollTop = history.scrollHeight;
+  }
+
+  _buildOpenDashboardPrompt(plan) {
+    const card = document.createElement("div");
+    card.className = "open-editor-prompt";
+    const targetLabel = plan.url_path ? ` (${plan.url_path})` : "";
+    card.innerHTML = `
+      <div class="open-editor-summary">${this._escapeHtml(plan.summary || "Edit dashboard")}</div>
+      <button class="btn-open-editor">📊 Open dashboard editor${this._escapeHtml(targetLabel)}</button>
+    `;
+    card.querySelector(".btn-open-editor").addEventListener("click", () => {
+      this._openDashboard(plan.url_path || null);
+      const btn = card.querySelector(".btn-open-editor");
+      btn.disabled = true;
+      btn.textContent = "✓ Dashboard editor opened";
+    });
+    return card;
+  }
+
+  _buildOpenEditorPrompt(plan) {
+    const card = document.createElement("div");
+    card.className = "open-editor-prompt";
+
+    card.innerHTML = `
+      <div class="open-editor-summary">${this._escapeHtml(plan.summary || "Edit automation")}</div>
+      <button class="btn-open-editor">📝 Open YAML editor</button>
+    `;
+
+    card.querySelector(".btn-open-editor").addEventListener("click", () => {
+      this._openEditor(plan.automation_id);
+      const btn = card.querySelector(".btn-open-editor");
+      btn.disabled = true;
+      btn.textContent = "✓ Editor opened";
+    });
+
+    return card;
+  }
+
+  /** Auto-execute read-only tool calls (no user approval needed) and display results. */
+  async _autoExecuteToolPlan(plan, _originalPrompt) {
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (!history) return;
+
+    const spinner = document.createElement("div");
+    spinner.className = "chat-message assistant";
+    spinner.textContent = `🔍 Fetching data…`;
+    history.appendChild(spinner);
+    history.scrollTop = history.scrollHeight;
+
+    try {
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch("/api/kyber/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ actions: plan.actions }),
+      });
+      const data = await resp.json();
+      const results = data.results || [];
+      spinner.remove();
+
+      // Display the tool results as formatted assistant messages
+      results.forEach((r) => {
+        const msg = document.createElement("div");
+        msg.className = "chat-message assistant";
+        const toolData = r.tool_result || r;
+        const formatted = JSON.stringify(toolData, null, 2);
+        msg.textContent = `📋 ${r.type}:\n${formatted}`;
+        history.appendChild(msg);
+      });
+      history.scrollTop = history.scrollHeight;
+    } catch (err) {
+      spinner.textContent = `⚠ Tool fetch failed: ${err.message}`;
+    }
+  }
+
+  _showThinking() {
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (!history) return;
+    this._hideThinking(); // ensure no duplicate
+    const bubble = document.createElement("div");
+    bubble.id = "kyber-thinking-bubble";
+    bubble.className = "chat-message assistant";
+    bubble.innerHTML = `
+      <div class="thinking-bubble">
+        <div class="thinking-header">
+          <div class="thinking-dots">
+            <span></span><span></span><span></span>
+          </div>
+          <span class="thinking-label">Thinking…</span>
+        </div>
+        <div class="thinking-events" id="kyber-thinking-events"></div>
+      </div>
+    `;
+    history.appendChild(bubble);
+    history.scrollTop = history.scrollHeight;
+  }
+
+  _setThinkingLabel(label) {
+    const el = this.shadowRoot?.querySelector("#kyber-thinking-bubble .thinking-label");
+    if (el) el.textContent = label;
+  }
+
+  _appendThinkingEvent(html) {
+    const events = this.shadowRoot?.getElementById("kyber-thinking-events");
+    if (!events) return;
+    const item = document.createElement("div");
+    item.className = "thinking-event";
+    item.innerHTML = html;
+    events.appendChild(item);
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (history) history.scrollTop = history.scrollHeight;
+  }
+
+  _renderProgressEvent(ev) {
+    if (!ev || !ev.type) return;
+    if (ev.type === "info") {
+      this._appendThinkingEvent(
+        `<span class="thinking-info">ℹ️ ${this._escapeHTML(ev.message || "")}</span>`
+      );
+    } else if (ev.type === "tool_call") {
+      const args = ev.args ? Object.entries(ev.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ") : "";
+      this._setThinkingLabel("Calling tool…");
+      this._appendThinkingEvent(
+        `<span class="thinking-tool-name">🔧 ${this._escapeHTML(ev.name || "?")}</span>` +
+        (args ? `<span class="thinking-tool-args"> (${this._escapeHTML(args)})</span>` : "") +
+        `<span class="thinking-tool-status thinking-tool-running"> …</span>`
+      );
+    } else if (ev.type === "tool_result") {
+      // Update the most recent matching tool_call event in-place
+      const events = this.shadowRoot?.getElementById("kyber-thinking-events");
+      if (events) {
+        const items = events.querySelectorAll(".thinking-event");
+        for (let i = items.length - 1; i >= 0; i--) {
+          const nameEl = items[i].querySelector(".thinking-tool-name");
+          const statusEl = items[i].querySelector(".thinking-tool-status");
+          if (nameEl && statusEl && nameEl.textContent.includes(ev.name) &&
+              statusEl.classList.contains("thinking-tool-running")) {
+            statusEl.classList.remove("thinking-tool-running");
+            statusEl.classList.add("thinking-tool-done");
+            statusEl.textContent = ` → ${ev.summary || "done"}`;
+            if (ev.preview) {
+              items[i].dataset.preview = ev.preview;
+              items[i].style.cursor = "pointer";
+              items[i].title = "Click to view raw result";
+              items[i].addEventListener("click", () => {
+                let pre = items[i].querySelector("pre.thinking-tool-preview");
+                if (pre) { pre.remove(); return; }
+                pre = document.createElement("pre");
+                pre.className = "thinking-tool-preview";
+                pre.textContent = items[i].dataset.preview;
+                items[i].appendChild(pre);
+              });
+            }
+            break;
+          }
+        }
+      }
+      this._setThinkingLabel("Thinking…");
+    } else if (ev.type === "thinking") {
+      this._setThinkingLabel(ev.stage === "follow_up" ? "Reasoning over results…" : "Thinking…");
+    } else if (ev.type === "error") {
+      this._appendThinkingEvent(`<span class="thinking-error">⚠️ ${this._escapeHTML(ev.message || "error")}</span>`);
+    }
+  }
+
+  async _pollProgress(requestId, isDone) {
+    let cursor = 0;
+    let polls = 0;
+    while (!isDone()) {
+      try {
+        const token = this._hass.auth.data.access_token;
+        const r = await fetch(`/api/kyber/progress?id=${encodeURIComponent(requestId)}&since=${cursor}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (r.ok) {
+          const data = await r.json();
+          polls += 1;
+          if (data.events && data.events.length) {
+            console.debug("[kyber] progress", data.events.length, "new events, status:", data.status);
+          }
+          for (const ev of (data.events || [])) {
+            try { this._renderProgressEvent(ev); }
+            catch (err) { console.error("[kyber] render progress event failed", err, ev); }
+          }
+          cursor = data.next || cursor;
+          if (data.status === "done") return;
+        } else {
+          console.warn("[kyber] progress fetch HTTP", r.status);
+        }
+      } catch (err) {
+        console.warn("[kyber] progress poll error", err);
+      }
+      await new Promise((res) => setTimeout(res, 200));
+    }
+    console.debug("[kyber] progress polling stopped after", polls, "polls");
+  }
+
+  _hideThinking() {
+    this.shadowRoot?.getElementById("kyber-thinking-bubble")?.remove();
+  }
+};
