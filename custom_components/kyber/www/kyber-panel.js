@@ -128,6 +128,8 @@ const STYLES = `
 
   .editor-pane.open {
     display: flex;
+    grid-column: 2;
+    grid-row: 2;
   }
 
   .editor-pane .cm-editor {
@@ -2987,6 +2989,13 @@ class KyberPanel extends HTMLElement {
     container.classList.add("editor-open");
     editorPane.classList.add("open");
 
+    // If the debug pane is visible, close it so the editor can occupy column 2.
+    const debugPaneCheck = this.shadowRoot.getElementById("debug-pane");
+    if (debugPaneCheck && !debugPaneCheck.hasAttribute("hidden")) {
+      this._debugWasVisible = true;
+      this._toggleDebugPane(false);
+    }
+
     this.shadowRoot.querySelectorAll(".editor-controls").forEach((el) => {
       el.style.display = "block";
     });
@@ -3011,6 +3020,12 @@ class KyberPanel extends HTMLElement {
     container.classList.remove("editor-open");
     const editorPane = this.shadowRoot.getElementById("editor-container");
     editorPane.classList.remove("open");
+
+    // Restore the debug pane if it was open when the editor was launched.
+    if (this._debugWasVisible) {
+      this._debugWasVisible = false;
+      this._toggleDebugPane(true);
+    }
 
     this.shadowRoot.querySelectorAll(".editor-controls").forEach((el) => {
       el.style.display = "";
@@ -3044,6 +3059,13 @@ class KyberPanel extends HTMLElement {
     const container = this.shadowRoot.getElementById("app-container");
     container.classList.add("editor-open");
     editorPane.classList.add("open");
+
+    // If the debug pane is visible, close it so the editor can occupy column 2.
+    const debugPaneCheckD = this.shadowRoot.getElementById("debug-pane");
+    if (debugPaneCheckD && !debugPaneCheckD.hasAttribute("hidden")) {
+      this._debugWasVisible = true;
+      this._toggleDebugPane(false);
+    }
 
     this.shadowRoot.querySelectorAll(".editor-controls").forEach((el) => {
       el.style.display = "block";
