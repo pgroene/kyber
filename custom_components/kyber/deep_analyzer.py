@@ -99,6 +99,37 @@ _PROMPT_LENSES: list[dict[str, str]] = [
             "'Locks are checked automatically at 22:00'."
         ),
     },
+    {
+        "title": "entity relationships & dependencies",
+        "ask": (
+            "Focus on HOW ENTITIES RELATE TO EACH OTHER and WHY they work together. "
+            "Describe the semantic relationship: which entity triggers or controls which, "
+            "what dependency exists, and what the pairing means for the home. "
+            "Examples: "
+            "'Motion sensor in hallway (binary_sensor.hallway_motion) controls hallway lights — "
+            "turning lights on when someone enters and off after 5 minutes of no motion', "
+            "'Solar inverter output (sensor.solar_power) controls hot water boiler "
+            "(switch.boiler) — boiler runs when solar production exceeds household consumption', "
+            "'Dishwasher completion sensor triggers a mobile notification to the owner'. "
+            "Name the actual entity_ids where visible in the config."
+        ),
+    },
+    {
+        "title": "automation purpose & use case",
+        "ask": (
+            "Focus on the HIGH-LEVEL PURPOSE and USE CASE of this automation. "
+            "Describe in one or two sentences what problem it solves or what convenience "
+            "it provides, as if explaining to someone who has never seen the home. "
+            "Examples: "
+            "'This automation saves energy by cutting power to the TV and standby devices "
+            "when the living room has been empty for 30 minutes', "
+            "'This script lets occupants set a custom wake-up time that adjusts the heating "
+            "and bedroom lights to ease the morning routine', "
+            "'This automation protects the home by locking all doors and arming the alarm "
+            "when the last person leaves'. "
+            "Be specific about entities and areas where the config reveals them."
+        ),
+    },
 ]
 
 
@@ -109,11 +140,35 @@ def _truncate(text: str, limit: int = _MAX_CONFIG_CHARS) -> str:
     return text[:limit] + f"\n… [truncated {len(text) - limit} chars]"
 
 
-def _build_prompt(kind: str, item: dict[str, Any], prompt_variant: int = 0) -> str:
+def _extract_entity_ids(cfg: Any) -> list[str]:
+    """Walk a config structure and extract all entity_id references."""
+    found: list[str] = []
+    if isinstance(cfg, dict):
+        for k, v in cfg.items():
+            if k in ("entity_id", "entity_ids"):
+                if isinstance(v, str):
+                    found.append(v)
+                elif isinstance(v, list):
+                    found.extend(x for x in v if isinstance(x, str))
+            else:
+                found.extend(_extract_entity_ids(v))
+    elif isinstance(cfg, list):
+        for item in cfg:
+            found.extend(_extract_entity_ids(item))
+    return found
+
+
+def _build_prompt(
+    kind: str,
+    item: dict[str, Any],
+    prompt_variant: int = 0,
+    entity_names: dict[str, str] | None = None,
+) -> str:
     """Build a focused prompt that asks the AI for durable facts.
 
     ``prompt_variant`` selects one of the analytical lenses in ``_PROMPT_LENSES``
     so that multiple passes over the same automations produce complementary facts.
+    ``entity_names`` maps entity_id → friendly_name for context enrichment.
     """
     if kind == "automation":
         ident = item.get("alias") or item.get("id") or "unnamed"
@@ -147,6 +202,22 @@ def _build_prompt(kind: str, item: dict[str, Any], prompt_variant: int = 0) -> s
     body_yaml = json.dumps(body, indent=2, ensure_ascii=False, default=str)
     body_yaml = _truncate(body_yaml)
 
+    # Build entity name context so the AI knows what entity_ids mean
+    entity_context = ""
+    if entity_names:
+        entity_ids_in_config = list(dict.fromkeys(_extract_entity_ids(body)))
+        resolved = [
+            f"  {eid} = \"{entity_names[eid]}\""
+            for eid in entity_ids_in_config
+            if eid in entity_names
+        ]
+        if resolved:
+            entity_context = (
+                "\n--- entity names ---\n"
+                + "\n".join(resolved)
+                + "\n--- end entity names ---\n"
+            )
+
     return (
         f"You are reviewing a Home Assistant {kind} called '{ident}'.\n"
         f"{lens['ask']}\n"
@@ -155,7 +226,8 @@ def _build_prompt(kind: str, item: dict[str, Any], prompt_variant: int = 0) -> s
         "Output ONLY a JSON array. Each item: {\"category\": str, "
         "\"subject\": str, \"content\": str, \"tags\": [str], "
         "\"confidence\": float 0-1}. If nothing relevant, output [].\n\n"
-        f"--- {kind} config ---\n{body_yaml}\n--- end ---\n\n"
+        f"--- {kind} config ---\n{body_yaml}\n--- end ---\n"
+        f"{entity_context}\n"
         "JSON array:"
     )
 
@@ -289,6 +361,13 @@ async def analyze_pending(
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber deep_analyzer: read_blueprints failed: %s", err)
 
+    # Build entity_id → friendly_name lookup once for the whole run
+    entity_names: dict[str, str] = {}
+    for state in hass.states.async_all():
+        friendly = state.attributes.get("friendly_name")
+        if friendly:
+            entity_names[state.entity_id] = friendly
+
     analyzed: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     skipped = 0
@@ -308,7 +387,7 @@ async def analyze_pending(
         processed += 1
 
         try:
-            prompt = _build_prompt(kind, item, prompt_variant)
+            prompt = _build_prompt(kind, item, prompt_variant, entity_names=entity_names)
             raw = await _run_ai(hass, ai_entity_id, prompt)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber deep_analyzer: AI call failed for %s:%s: %s", kind, ident, err)
