@@ -337,6 +337,32 @@ Slash commands are typed directly in the prompt box and execute without going to
 /blueprint browse           — open HA blueprint page in a new tab
 ```
 
+### Session
+
+```
+/session list              — list chat sessions
+/session new [name]        — create and switch to a new session
+/session switch <name>     — switch active session
+/session delete            — delete current session (with confirmation)
+```
+
+### Knowledge / Memory
+
+```
+/knowledge                 — list memory entries
+/memory                    — alias for /knowledge
+/knowledge search <q>      — search memory entries
+/knowledge analyze         — propose facts from your current setup
+/knowledge delete <id>     — delete a memory entry
+```
+
+### Utility
+
+```
+/help [topic]              — show command help
+/reset                     — clear current session history (with confirmation)
+```
+
 All slash commands that make changes show a **confirmation card** with an Execute and Cancel button before taking effect. Destructive operations (delete) display an additional danger warning.
 
 ---
