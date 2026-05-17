@@ -2329,6 +2329,7 @@ class KyberKnowledgeDeepAnalyzeView(HomeAssistantView):
 
 
 
+class KyberKnowledgeFeedbackView(HomeAssistantView):
     """Record user (or auto) feedback on a chat response, applied to the
     knowledge entries that were injected into that turn's context.
 
