@@ -312,6 +312,43 @@ _ACTION_RE_PATTERNS: tuple = (
     re.compile(r"\b(on|off)\b.{0,30}\bturn\b", re.IGNORECASE),
     re.compile(r"\bzet\b.{0,20}\b(aan|uit)\b", re.IGNORECASE),  # Dutch
 )
+
+# Regex that detects correction turns: user is clarifying a name mismatch.
+# Triggers the post-response learned-fact extraction pass.
+_CORRECTION_SIGNALS_RE = re.compile(
+    r"\b(it'?s\s+(called|named|known\s+as)"
+    r"|i\s+mean\b"
+    r"|the\s+(correct|right|actual|real)\s+(name|term|word)\s+is"
+    r"|use\s+\w+\s+instead"
+    r"|that'?s\s+(called|named)"
+    r"|het\s+heet"          # Dutch: "it is called"
+    r"|bedoel\s+ik"         # Dutch: "I mean"
+    r"|ik\s+bedoel"
+    r"|noem\s+(het|ik)"     # Dutch: "call it"
+    r"|is\s+genaamd"        # Dutch: "is named"
+    r"|heet\s+eigenlijk"    # Dutch: "is actually called"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Mini prompt used for the post-turn fact-extraction LLM call.
+# Kept intentionally tiny to be fast and not cost much context budget.
+_FACT_EXTRACTION_PROMPT = """\
+You are a fact extractor for a Home Assistant assistant.
+Given a user correction, extract ONE name alias mapping — what the user calls something \
+vs what it is named in Home Assistant.
+
+User said: "{user_prompt}"
+Recent conversation context:
+{context_snippet}
+
+If you can identify a clear name mismatch, output ONLY a JSON object (no extra text):
+{{"subject": "<HA name>", "user_term": "<user word>", \
+"content": "When user says '<user word>' they mean '<HA name>'.", \
+"category": "area_alias", "tags": ["<user word>", "<HA name>"]}}
+
+If there is no clear mismatch to learn, output: null
+"""
 
 _RESPONSE_MODE_INFORMATIONAL = (
     "<<RULES — never echo or quote these>>\n"
@@ -1506,6 +1543,57 @@ async def _async_save_chat_store(hass: HomeAssistant, data: dict[str, Any]) -> N
     await store.async_save(data)
 
 
+
+
+async def _try_extract_learned_fact(
+    hass: HomeAssistant,
+    entity_id: str,
+    user_prompt: str,
+    context_snippet: str,
+) -> dict[str, Any] | None:
+    """Run a mini LLM call to extract a learned name alias from a correction turn.
+
+    Returns a dict with keys subject, user_term, content, category, tags — or None.
+    Failures are silently swallowed; this is a best-effort enhancement.
+    """
+    import json as _json
+    try:
+        prompt = _FACT_EXTRACTION_PROMPT.format(
+            user_prompt=user_prompt[:200],
+            context_snippet=context_snippet[-400:],
+        )
+        result = await async_generate_data(
+            hass,
+            task_name=f"{DOMAIN}_fact_extract",
+            entity_id=entity_id,
+            instructions=prompt,
+        )
+        raw = result.data if isinstance(result.data, str) else str(result.data)
+        raw = raw.strip()
+        # Strip common model wrappers (```json ... ```, ```...```)
+        raw = re.sub(r"^```[a-z]*\s*", "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"\s*```$", "", raw, flags=re.IGNORECASE)
+        raw = raw.strip()
+        if raw.lower() == "null" or not raw.startswith("{"):
+            return None
+        data = _json.loads(raw)
+        subject = data.get("subject", "").strip()
+        user_term = data.get("user_term", "").strip()
+        content = data.get("content", "").strip()
+        if not subject or not user_term or not content:
+            return None
+        return {
+            "subject": subject,
+            "user_term": user_term,
+            "content": content,
+            "category": data.get("category", "area_alias"),
+            "tags": data.get("tags", [user_term, subject]),
+        }
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("Kyber: fact extraction failed (non-critical): %s", err)
+        return None
+
+
 class KyberView(HomeAssistantView):
     """Handle POST /api/kyber/complete."""
 
@@ -2199,6 +2287,43 @@ class KyberView(HomeAssistantView):
 
         _progress_complete(hass, request_id)
         plan_block = _annotate_plan_approval(plan_block)
+
+        # Post-turn fact extraction: if the user made a correction (e.g. "it's
+        # called keuken") and the AI didn't already propose an add_knowledge
+        # action, run a mini LLM call to extract the name alias automatically.
+        learned_fact: dict[str, Any] | None = None
+        if (
+            _CORRECTION_SIGNALS_RE.search(user_prompt)
+            and not any(
+                a.get("type") == "add_knowledge"
+                for a in (plan_block or {}).get("actions", [])
+            )
+        ):
+            _LOGGER.info("Kyber: correction signal detected — running fact extraction")
+            fact = await _try_extract_learned_fact(
+                hass,
+                entity_id,
+                user_prompt,
+                conversation_block,
+            )
+            if fact:
+                _LOGGER.info(
+                    "Kyber: extracted learned fact: %s → %s",
+                    fact.get("user_term"), fact.get("subject"),
+                )
+                learned_fact = {
+                    "summary": f"Remember: '{fact['user_term']}' → '{fact['subject']}'",
+                    "actions": [{
+                        "type": "add_knowledge",
+                        "category": fact["category"],
+                        "subject": fact["subject"],
+                        "content": fact["content"],
+                        "tags": fact["tags"],
+                        "current_state": "(not learned)",
+                        "new_state": "Remembered for next time",
+                        "description": f"Save alias: {fact['user_term']} → {fact['subject']}",
+                    }],
+                }
         # Auto-rate: detect negative cues in the response and auto-flag any
         # knowledge entries that were injected this turn. The user can
         # override via the 👍/👎 buttons on the message.
@@ -2274,6 +2399,7 @@ class KyberView(HomeAssistantView):
             "knowledge_used": knowledge_used_ids,
             "auto_rating": auto_rating,
             "request_id": request_id,
+            "learned_fact": learned_fact,
         })
 
 
