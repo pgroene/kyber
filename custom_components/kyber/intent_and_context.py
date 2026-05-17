@@ -107,7 +107,11 @@ _ACTION_RE_PATTERNS: tuple = (
     re.compile(r"\bturn\b.{0,30}\b(on|off)\b", re.IGNORECASE),
     re.compile(r"\bswitch\b.{0,30}\b(on|off)\b", re.IGNORECASE),
     re.compile(r"\b(on|off)\b.{0,30}\bturn\b", re.IGNORECASE),
-    re.compile(r"\bzet\b.{0,20}\b(aan|uit)\b", re.IGNORECASE),  # Dutch
+    re.compile(r"\bzet\b.{0,20}\b(aan|uit)\b", re.IGNORECASE),   # Dutch: zet ... aan/uit
+    re.compile(r"\b(aan|uit)\s*doen\b", re.IGNORECASE),           # Dutch: aan/uit doen  ("muziek aan doen")
+    re.compile(r"\bdoe\b.{0,30}\b(aan|uit)\b", re.IGNORECASE),    # Dutch: doe ... aan/uit
+    re.compile(r"\b(aan|uit)zetten\b", re.IGNORECASE),             # Dutch: aanzetten / uitzetten (one word)
+    re.compile(r"\bzet\b.{0,30}\b(aan|uit)\b", re.IGNORECASE),    # Dutch: zet X aan (already covered by keyword but also split)
 )
 
 

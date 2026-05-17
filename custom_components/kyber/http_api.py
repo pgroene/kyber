@@ -644,10 +644,9 @@ class KyberView(HomeAssistantView):
         if clarify_block:
             response_text = _CLARIFY_BLOCK_RE.sub("", response_text).strip()
 
-        # Remove plan block from the displayed response text — the frontend renders the
-        # plan card separately.  Covers both ```plan``` fences AND bare ## Plan\n{...}.
-        if plan_block:
-            response_text = _strip_plan_block(response_text)
+        # NOTE: plan block is stripped from response_text AFTER the informational guard
+        # (see below) so that a mis-classified query that produces only a plan doesn't
+        # result in an empty response.
 
         # Strip any [TOOL_RESULT: ...] or [T00L_RESULT: ...] lines the model echoed back.
         response_text = _TOOL_RESULT_STRIP_RE.sub("", response_text).strip()
@@ -752,6 +751,12 @@ class KyberView(HomeAssistantView):
                     [a.get("type") for a in actions],
                 )
                 plan_block = None
+
+        # Remove plan block from displayed response — do this AFTER the informational
+        # guard so that a dropped plan doesn't leave response_text empty (the raw plan
+        # JSON stays in the text, which is better than a blank response).
+        if plan_block:
+            response_text = _strip_plan_block(response_text)
 
         # Rescue: if the model used open_editor with a non-automation/script entity
         # (e.g. light.*, switch.*), convert to a call_service actions plan.
