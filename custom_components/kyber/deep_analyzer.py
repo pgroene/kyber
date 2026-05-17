@@ -188,7 +188,7 @@ async def analyze_pending(
         _LOGGER.warning("Kyber deep_analyzer: memo load failed: %s", err)
 
     # Lazy import to avoid circular dep
-    from .knowledge import get_knowledge_store
+    from .knowledge import get_store as get_knowledge_store
     kstore = get_knowledge_store(hass)
     try:
         if not kstore._loaded:
