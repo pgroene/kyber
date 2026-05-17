@@ -18,6 +18,15 @@ DEFAULT_ENABLE_DEBUG_VIEWS = False
 DEFAULT_RUN_INITIAL_ANALYZE = True
 DEFAULT_INITIAL_DEEP_LEARNING_RUNS = 10
 
+# ── Tuning constants ──────────────────────────────────────────────────────────
+# Shared limits used across backend modules:
+# - http_api.py: _MAX_INSTRUCTIONS_CHARS, _KNOWLEDGE_BUDGET, _MAX_TOOL_RESULT_CHARS
+# - response_processing.py: _TOOL_CALL_MAX_ROUNDS
+MAX_INSTRUCTIONS_CHARS = 32_000
+KNOWLEDGE_BUDGET_CHARS = 2_000
+MAX_TOOL_RESULT_CHARS = 6_000
+TOOL_CALL_MAX_ROUNDS = 5
+
 # Known model-family → typical max context window (tokens).
 # Used to pre-fill the max_tokens field in the config flow.
 MODEL_CONTEXT_SIZES: dict[str, int] = {

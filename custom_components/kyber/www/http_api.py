@@ -24,7 +24,16 @@ except ImportError:  # HA < 2025.2 (test environments)
     async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
         raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
 
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, SYSTEM_PROMPT_TEMPLATE, AUTOMATION_EDITOR_GUIDANCE, LOVELACE_CARDS_REFERENCE
+from .const import (
+    AUTOMATION_EDITOR_GUIDANCE,
+    CONF_AI_TASK_ENTITY_ID,
+    DOMAIN,
+    KNOWLEDGE_BUDGET_CHARS,
+    LOVELACE_CARDS_REFERENCE,
+    MAX_INSTRUCTIONS_CHARS,
+    MAX_TOOL_RESULT_CHARS,
+    SYSTEM_PROMPT_TEMPLATE,
+)
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
 from .language_hints import detect_language, get_hints_for_language, language_display_name
 from .analyzer import analyze_automations as _analyze_automations
@@ -210,12 +219,13 @@ _RESPONSE_MODE_ACTION = (
 )
 
 # Hard cap on total instructions to avoid exceeding Ollama's context window (~8K tokens ≈ 32K chars)
-_MAX_INSTRUCTIONS_CHARS = 32_000
+_MAX_INSTRUCTIONS_CHARS = MAX_INSTRUCTIONS_CHARS
 # Reserve budget for knowledge facts so they survive the loop's re-truncation.
 # Base prompt is capped at (_MAX_INSTRUCTIONS_CHARS - _KNOWLEDGE_BUDGET); knowledge
 # is then appended within the remaining space, keeping total ≤ _MAX_INSTRUCTIONS_CHARS.
-_KNOWLEDGE_BUDGET = 2_000
+_KNOWLEDGE_BUDGET = KNOWLEDGE_BUDGET_CHARS
 _BASE_INSTRUCTIONS_CHARS = _MAX_INSTRUCTIONS_CHARS - _KNOWLEDGE_BUDGET  # 30 000
+_MAX_TOOL_RESULT_CHARS = MAX_TOOL_RESULT_CHARS
 
 
 async def _auto_record_search_alias(kstore: Any, query: str, entity_ids: list[str]) -> None:
@@ -595,7 +605,6 @@ class KyberView(HomeAssistantView):
             # Cap each tool result fed back to the model to keep context small.
             # Small models (8K window) choke on huge JSON payloads and forget
             # to continue. Truncate at ~6KB with a note.
-            _MAX_TOOL_RESULT_CHARS = 6000
             new_call_count = 0
 
             # Emit tool_call progress events upfront, then execute uncached calls
