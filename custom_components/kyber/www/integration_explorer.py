@@ -23,8 +23,8 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Sample entity names to include per integration in facts
-_SAMPLE_COUNT = 8
+# Sensors per batch fact (split large integrations into multiple facts)
+_SENSOR_BATCH_SIZE = 25
 
 # At startup, explore this many integrations (sorted by entity count desc)
 _STARTUP_EXPLORE_LIMIT = 40
@@ -103,7 +103,7 @@ async def async_explore_integration(
             "integration_capability",
             content,
             subject=platform,
-            tags=[f"integration:{platform}", "auto-discovered"] + extra_tags,
+            tags=[f"integration:{platform}", "auto-discovered", _EXPLORER_VERSION_TAG] + extra_tags,
             source="integration_explorer",
             confidence=0.9,
         )
@@ -115,7 +115,7 @@ async def async_explore_integration(
     )
     sample_names = [
         e.get("name") or e.get("entity_id", "")
-        for e in entities[:_SAMPLE_COUNT]
+        for e in entities[:10]
         if e.get("name") or e.get("entity_id")
     ]
     summary = (
@@ -125,19 +125,30 @@ async def async_explore_integration(
     )
     await _store(summary, ["integration-summary"])
 
-    # ── Fact 2: Sensor details (most searchable — includes units + names) ─────
+    # ── Facts 2+: One fact per batch of sensors — ALL sensors covered ─────────
+    # Batching ensures no fact is truncated. Each entry includes the entity_id
+    # so the AI can call get_entity_state directly without an extra tool hop.
     if "sensor" in by_domain:
         sensors = by_domain["sensor"]
-        sensor_items = [
-            f"{e.get('name') or e.get('entity_id', '')}"
-            f"{_unit_suffix(e.get('unit_of_measurement'))}"
-            for e in sensors[:_SAMPLE_COUNT]
-        ]
-        sensor_fact = (
-            f"'{platform}' sensor entities include: {', '.join(sensor_items)}. "
-            f"Total: {len(sensors)} sensors."
-        )
-        await _store(sensor_fact, ["sensor-data"])
+        for batch_idx in range(0, len(sensors), _SENSOR_BATCH_SIZE):
+            batch = sensors[batch_idx: batch_idx + _SENSOR_BATCH_SIZE]
+            batch_num = batch_idx // _SENSOR_BATCH_SIZE + 1
+            total_batches = (len(sensors) + _SENSOR_BATCH_SIZE - 1) // _SENSOR_BATCH_SIZE
+            sensor_items = [
+                f"{e.get('name') or e.get('entity_id', '')} "
+                f"[{e.get('entity_id', '')}]"
+                f"{_unit_suffix(e.get('unit_of_measurement'))}"
+                for e in batch
+            ]
+            label = (
+                f" (part {batch_num}/{total_batches})" if total_batches > 1 else ""
+            )
+            sensor_fact = (
+                f"'{platform}' sensors{label}: {', '.join(sensor_items)}. "
+                f"Use get_entity_state(entity_id='<entity_id>') for current value, "
+                f"or get_integration_entities(integration='{platform}') for all at once."
+            )
+            await _store(sensor_fact, ["sensor-data", f"sensor-batch-{batch_num}"])
 
     # ── Fact 3: Available services / actions ──────────────────────────────────
     all_services = hass.services.async_services()
@@ -169,6 +180,13 @@ async def async_explore_integration(
     return stored_facts
 
 
+# Bump this when the fact format changes to force re-exploration of all integrations.
+_EXPLORER_VERSION = 2
+
+# Tag added to all facts so we can identify and version them.
+_EXPLORER_VERSION_TAG = f"explorer-v{_EXPLORER_VERSION}"
+
+
 async def async_startup_explore_all(
     hass: "HomeAssistant",
     kstore: "KnowledgeStore",
@@ -176,16 +194,17 @@ async def async_startup_explore_all(
 ) -> int:
     """Explore all loaded integrations at startup and populate knowledge store.
 
-    Skips integrations that already have auto-discovered facts (idempotent).
+    Skips integrations that already have up-to-date auto-discovered facts.
+    Bumping _EXPLORER_VERSION forces re-exploration of all integrations.
     Returns the number of integrations that were newly explored.
     """
     await kstore.async_load()
 
-    # Which platforms already have stored facts?
+    # Which platforms already have facts at the current explorer version?
     existing: set[str] = {
         entry.get("subject", "")
         for entry in kstore._entries.values()
-        if "auto-discovered" in (entry.get("tags") or [])
+        if _EXPLORER_VERSION_TAG in (entry.get("tags") or [])
         and entry.get("subject")
     }
 
@@ -213,7 +232,7 @@ async def async_startup_explore_all(
     explored = 0
     for platform, entities in sorted_platforms:
         if platform in existing:
-            _LOGGER.debug("Integration '%s' already in knowledge — skipping", platform)
+            _LOGGER.debug("Integration '%s' already in knowledge (v%d) — skipping", platform, _EXPLORER_VERSION)
             continue
         try:
             facts = await async_explore_integration(hass, kstore, platform, entities)
