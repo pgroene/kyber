@@ -176,6 +176,7 @@ export const AIMixin = (Base) => class extends Base {
       if (cmd === "autopilot") {
         const arg = argStr.toLowerCase();
         promptInput.value = "";
+        if (arg === "help") { this._showHelp("autopilot"); return; }
         if (arg === "on") {
           this._autopilot = true;
           this._updateAutopilotBadge();
@@ -191,6 +192,7 @@ export const AIMixin = (Base) => class extends Base {
       }
       if (cmd === "reset") {
         promptInput.value = "";
+        if (argStr.toLowerCase() === "help") { this._showHelp("reset"); return; }
         this._buildCommandCard({
           icon: "🗑",
           title: "Reset chat",
@@ -214,6 +216,7 @@ export const AIMixin = (Base) => class extends Base {
       }
       if (cmd === "session") {
         promptInput.value = "";
+        if (argStr.toLowerCase() === "help") { this._showHelp("session"); return; }
         this._handleSessionCommand(argStr.trim());
         return;
       }

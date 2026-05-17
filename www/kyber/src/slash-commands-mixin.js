@@ -1,48 +1,124 @@
+const _HELP_DATA = {
+  autopilot:  { icon: "🤖", desc: "Toggle auto-execution of AI proposals", cmds: [
+    { usage: "/autopilot on",  desc: "Execute proposals automatically — no confirmation needed" },
+    { usage: "/autopilot off", desc: "Show a confirm card before any change is applied" },
+  ]},
+  dashboard:  { icon: "📊", desc: "Manage Lovelace dashboards", cmds: [
+    { usage: "/dashboard open [name]", desc: "Load a dashboard into the YAML editor" },
+    { usage: "/dashboard close",       desc: "Close editor without saving" },
+    { usage: "/dashboard save",        desc: "Save current editor content back to HA" },
+    { usage: "/dashboard new",         desc: "Create a new storage-mode dashboard" },
+    { usage: "/dashboard delete",      desc: "Permanently delete the open dashboard" },
+  ]},
+  automation: { icon: "⚡", desc: "Manage automations", cmds: [
+    { usage: "/automation open <name>",   desc: "Fuzzy-find and open an automation in the YAML editor" },
+    { usage: "/automation close",         desc: "Close editor without saving" },
+    { usage: "/automation save",          desc: "Save current automation YAML" },
+    { usage: "/automation new",           desc: "Open HA's automation editor in a new tab" },
+    { usage: "/automation delete <name>", desc: "Permanently delete an automation" },
+  ]},
+  script:     { icon: "📜", desc: "Manage scripts", cmds: [
+    { usage: "/script open <name>",   desc: "Open a script in the YAML editor" },
+    { usage: "/script close",         desc: "Close editor without saving" },
+    { usage: "/script save",          desc: "Save current script YAML" },
+    { usage: "/script new",           desc: "Open HA's script editor in a new tab" },
+    { usage: "/script delete <name>", desc: "Permanently delete a script" },
+  ]},
+  blueprint:  { icon: "🗺", desc: "Browse HA blueprints", cmds: [
+    { usage: "/blueprint browse", desc: "Open the HA Blueprint page in a new tab" },
+  ]},
+  area:       { icon: "🏠", desc: "Manage Home Assistant areas", cmds: [
+    { usage: "/area new <name>",            desc: "Create a new area" },
+    { usage: "/area delete <name>",         desc: "Delete an area (entities become unassigned)" },
+    { usage: "/area rename <old> to <new>", desc: "Rename an area" },
+    { usage: "/area list",                  desc: "List all areas with their IDs" },
+  ]},
+  session:    { icon: "💬", desc: "Manage named chat sessions", cmds: [
+    { usage: "/session new [name]",    desc: "Create a new session and switch to it" },
+    { usage: "/session list",          desc: "Show all sessions with message counts" },
+    { usage: "/session switch <name>", desc: "Switch to a different session" },
+    { usage: "/session delete",        desc: "Delete the current session" },
+  ]},
+  memory:     { icon: "🧠", desc: "View and manage Kyber's learned memory", cmds: [
+    { usage: "/memory list",           desc: "Show all saved facts inline in the chat" },
+    { usage: "/memory search <query>", desc: "Search saved facts by keyword or category" },
+    { usage: "/memory add <text>",     desc: "Add a new fact directly from chat" },
+    { usage: "/memory delete <id>",    desc: "Delete an entry by ID" },
+    { usage: "/memory analyze",        desc: "Scan automations/scenes/scripts and propose new facts" },
+    { usage: "/memory deep",           desc: "Start deep background analysis (6-lens rotation)" },
+    { usage: "/memory stats",          desc: "Show entry counts by category and source" },
+  ]},
+  reset:      { icon: "🔄", desc: "Clear the current chat", cmds: [
+    { usage: "/reset", desc: "Shows a danger confirm card — on Execute, clears all messages and history" },
+  ]},
+  help:       { icon: "❓", desc: "Show help for Kyber slash commands", cmds: [
+    { usage: "/help",           desc: "Overview of all commands" },
+    { usage: "/help <command>", desc: "Detailed help card for a specific command" },
+  ]},
+};
+_HELP_DATA.knowledge = _HELP_DATA.memory;
+
 export const SlashMixin = (Base) => class extends Base {
   _showHelp(topic) {
-    const HELP = {
-      autopilot: `**autopilot** — Toggle auto-execution of AI proposals.\n\n\`/autopilot on\` — Enable autopilot. Proposals from the AI execute automatically without confirmation.\n\`/autopilot off\` — Disable autopilot. You'll see a confirm card before any change is applied.\n\nUseful when you trust the AI and want fast iteration.`,
-      dashboard: `**dashboard** — Manage Lovelace dashboards from the chat.\n\n\`/dashboard open [name]\` — Load a dashboard into the YAML editor. Omit name for the default Overview.\n\`/dashboard close\` — Close the editor without saving.\n\`/dashboard save\` — Save current editor content back to HA.\n\`/dashboard new\` — Create a new storage-mode dashboard.\n\`/dashboard delete\` — Permanently delete the open dashboard.`,
-      automation: `**automation** — Open, edit, save, create and delete automations.\n\n\`/automation open <name>\` — Fuzzy-find and open an automation in the YAML editor.\n\`/automation close\` — Close editor without saving.\n\`/automation save\` — Save current automation YAML.\n\`/automation new\` — Open HA's automation editor in a new tab.\n\`/automation delete <name>\` — Permanently delete an automation.`,
-      script: `**script** — Same as automation commands but for scripts.\n\n\`/script open <name>\`, \`/script close\`, \`/script save\`, \`/script new\`, \`/script delete <name>\``,
-      blueprint: `**blueprint** — Open HA's Blueprint management page.\n\n\`/blueprint browse\` — Opens /config/blueprint in a new tab.`,
-      area: `**area** — Manage Home Assistant areas.\n\n\`/area new <name>\` — Create a new area.\n\`/area delete <name>\` — Delete an area (entities become unassigned).\n\`/area rename <old> to <new>\` — Rename an area.\n\`/area list\` — List all areas with their IDs.`,
-      reset: `**reset** — Clear the current chat and start over.\n\n\`/reset\` — Shows a danger confirm card. On Execute, clears all messages and persisted history for this session.`,
-      session: `**session** — Manage multiple named chat sessions. Each session has its own message history and AI context. Session titles are automatically generated by AI every 5 messages.\n\n\`/session new [name]\` — Create a new session and switch to it.\n\`/session list\` — Show all sessions with their message counts.\n\`/session switch <name>\` — Switch to a different session.\n\`/session delete\` — Delete the current session and switch to the previous one.`,
-      help: `**help** — Show help for Kyber slash commands.\n\n\`/help\` — List all commands with one-line descriptions.\n\`/help <command>\` — Detailed documentation for a specific command (e.g. /help automation).`,
-      knowledge: `**memory / knowledge** — View and manage Kyber's learned memory about your home.\n\n\`/memory\` or \`/memory list\` — Show all saved facts inline in the chat.\n\`/memory search <query>\` — Search saved facts by keyword.\n\`/memory add <text>\` — Add a new fact directly from chat.\n\`/memory delete <id>\` — Delete an entry by id.\n\`/memory analyze\` — Scan automations/scenes/scripts and propose new knowledge entries (you approve each).\n\`/memory deep\` — Start a deep background analysis (6-lens rotation) to discover patterns.\n\`/memory stats\` — Show memory entry counts by category and source.\n\nAlso available as \`/knowledge\`.`,
-    };
+    const key = topic === "memory" ? "knowledge" : (topic || "");
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (!history) return;
 
-    if (topic && HELP[topic]) {
-      this._appendMessage(HELP[topic], "assistant");
+    if (key && _HELP_DATA[key]) {
+      const h = _HELP_DATA[key];
+      const card = document.createElement("div");
+      card.className = "chat-message assistant kyber-help-card";
+      card.innerHTML = `
+        <div class="kh-header">
+          <span class="kh-icon">${h.icon}</span>
+          <strong class="kh-title">/${topic || key}</strong>
+          <span class="kh-subtitle">${h.desc}</span>
+        </div>
+        <div class="kh-rows">
+          ${h.cmds.map((c) => `
+            <div class="kh-row" data-fill="${this._escapeAttr(c.usage)}">
+              <code class="kh-usage">${this._escapeHtml(c.usage)}</code>
+              <span class="kh-row-desc">${this._escapeHtml(c.desc)}</span>
+            </div>`).join("")}
+        </div>
+        <div class="kh-footer">Click a row to fill it into the input ↑</div>`;
+      card.querySelectorAll(".kh-row").forEach((row) => {
+        row.addEventListener("click", () => {
+          const ta = this.shadowRoot.getElementById("prompt-input");
+          if (ta) { ta.value = row.dataset.fill + " "; ta.focus(); this._onPromptInput(ta); }
+        });
+      });
+      history.appendChild(card);
+      history.scrollTop = history.scrollHeight;
       return;
     }
-    // Alias: /help memory → /help knowledge
-    if (topic === "memory") {
-      this._appendMessage(HELP.knowledge, "assistant");
+
+    if (key && !_HELP_DATA[key]) {
+      const known = Object.keys(_HELP_DATA).filter((k) => k !== "knowledge").join(", ");
+      this._appendMessage(`No help found for "${topic}". Available: ${known}`, "assistant");
       return;
     }
-    if (topic && !HELP[topic]) {
-      this._appendMessage(`No help found for "${topic}". Try: ${Object.keys(HELP).join(", ")}`, "assistant");
-      return;
-    }
-    // /help with no argument — show command table
-    const lines = [
-      "**Kyber Slash Commands** — type / to autocomplete\n",
-      "| Command | Description |",
-      "|---|---|",
-      "| `/autopilot on/off` | Toggle auto-execute for AI proposals |",
-      "| `/dashboard open/save/new/delete` | Manage Lovelace dashboards |",
-      "| `/automation open/save/new/delete` | Manage automations |",
-      "| `/script open/save/new/delete` | Manage scripts |",
-      "| `/blueprint browse` | Open HA blueprint page |",
-      "| `/area new/delete/rename/list` | Manage areas |",
-      "| `/session new/list/switch/delete` | Manage chat sessions (AI names sessions) |",
-      "| `/memory list/search/add/delete/analyze/deep/stats` | View / edit / analyze Kyber's learned memory |",
-      "| `/reset` | Clear chat and start over |",
-      "| `/help [command]` | Show this help or help for a specific command |",
-    ];
-    this._appendMessage(lines.join("\n"), "assistant");
+
+    // /help with no topic — render overview grid
+    const card = document.createElement("div");
+    card.className = "chat-message assistant kyber-help-overview";
+    const items = Object.entries(_HELP_DATA)
+      .filter(([k]) => k !== "knowledge")
+      .map(([k, h]) => `
+        <div class="kho-item" data-cmd="${k}">
+          <span class="kho-icon">${h.icon}</span>
+          <strong class="kho-name">/${k}</strong>
+          <span class="kho-desc">${h.desc}</span>
+        </div>`).join("");
+    card.innerHTML = `
+      <div class="kho-title">⌨️ Kyber Slash Commands</div>
+      <div class="kho-grid">${items}</div>
+      <div class="kho-footer">Click a command for details, or type <code>/help &lt;command&gt;</code></div>`;
+    card.querySelectorAll(".kho-item").forEach((el) => {
+      el.addEventListener("click", () => this._showHelp(el.dataset.cmd));
+    });
+    history.appendChild(card);
+    history.scrollTop = history.scrollHeight;
   }
 
   /** Extract the token the cursor is currently inside in a textarea. */
@@ -56,14 +132,14 @@ export const SlashMixin = (Base) => class extends Base {
   _onPromptInput(textarea) {
     const val = textarea.value;
 
-    // ── Slash command autocomplete ─────────────────────────────────
+    // ── Top-level slash command autocomplete (/au… /da…) ──────────────
     const slashAc = val.match(/^\/(\w*)$/);
     if (slashAc) {
       const partial = slashAc[1].toLowerCase();
       const cmds = ["autopilot on", "autopilot off", "dashboard", "automation", "script", "blueprint", "area", "knowledge", "memory", "reset", "help", "session"];
       const matches = cmds.filter((c) => c.startsWith(partial)).map((c) => ({
         entity_id: "/" + c,
-        friendly_name: "",
+        friendly_name: _HELP_DATA[c.split(" ")[0]]?.desc || "",
       }));
       if (matches.length) {
         this._acItems = matches;
@@ -74,15 +150,29 @@ export const SlashMixin = (Base) => class extends Base {
       }
     }
 
-    // ── Memory/knowledge sub-action autocomplete ─────────────────────
-    const memSub = val.match(/^\/(knowledge|memory)\s+(\w*)$/i);
-    if (memSub) {
-      const partial = (memSub[2] || "").toLowerCase();
-      const subs = ["list", "search", "add", "delete", "analyze", "deep", "stats"];
-      const matches = subs.filter((s) => s.startsWith(partial)).map((s) => ({
-        entity_id: `/${memSub[1]} ${s}`,
-        friendly_name: "",
-      }));
+    // ── Unified sub-action autocomplete for every command ─────────────
+    // Matches: /<cmd> <partial-sub>  (e.g. "/dashboard op" → "open,…")
+    const CMD_SUBS = {
+      autopilot:  ["on", "off"],
+      dashboard:  ["open", "close", "save", "new", "delete", "help"],
+      automation: ["open", "close", "save", "new", "delete", "help"],
+      script:     ["open", "close", "save", "new", "delete", "help"],
+      blueprint:  ["browse", "help"],
+      area:       ["new", "delete", "rename", "list", "help"],
+      session:    ["new", "list", "switch", "delete", "help"],
+      memory:     ["list", "search", "add", "delete", "analyze", "deep", "stats", "help"],
+      knowledge:  ["list", "search", "add", "delete", "analyze", "deep", "stats", "help"],
+      help:       ["autopilot", "dashboard", "automation", "script", "blueprint", "area", "session", "memory", "reset", "help"],
+      reset:      [],
+    };
+    const cmdSubAc = val.match(/^\/(autopilot|dashboard|automation|script|blueprint|area|session|memory|knowledge|help|reset)\s+(\w*)$/i);
+    if (cmdSubAc) {
+      const cmd = cmdSubAc[1].toLowerCase();
+      const partial = (cmdSubAc[2] || "").toLowerCase();
+      const subs = CMD_SUBS[cmd] || [];
+      const matches = subs
+        .filter((s) => s.startsWith(partial))
+        .map((s) => ({ entity_id: `/${cmd} ${s}`, friendly_name: "" }));
       if (matches.length) {
         this._acItems = matches;
         this._acToken = val;
@@ -92,7 +182,106 @@ export const SlashMixin = (Base) => class extends Base {
       }
     }
 
-    // ── Slash command sub-action autocomplete (e.g. /automation open <name>) ──
+    // ── /memory delete <id>  →  suggest fact IDs ──────────────────────
+    const memDel = val.match(/^\/(knowledge|memory)\s+delete\s+(.*)$/i);
+    if (memDel) {
+      const partial = (memDel[2] || "").toLowerCase();
+      const cmd = memDel[1];
+      this._fetchAcFacts().then((facts) => {
+        const filtered = facts
+          .filter((f) => f.id.toLowerCase().includes(partial) || f.content.toLowerCase().includes(partial))
+          .slice(0, 8)
+          .map((f) => ({
+            entity_id: `/${cmd} delete ${f.id}`,
+            badge: f.category,
+            friendly_name: f.content.slice(0, 60) + (f.content.length > 60 ? "…" : ""),
+          }));
+        if (filtered.length) {
+          this._acItems = filtered;
+          this._acToken = val;
+          this._acIndex = -1;
+          this._buildAcList(true);
+        }
+      });
+      return;
+    }
+
+    // ── /memory search <query>  →  suggest categories + tags ──────────
+    const memSearch = val.match(/^\/(knowledge|memory)\s+search\s+(.*)$/i);
+    if (memSearch) {
+      const partial = (memSearch[2] || "").toLowerCase();
+      const cmd = memSearch[1];
+      this._fetchAcFacts().then((facts) => {
+        const cats = [...new Set(facts.map((f) => f.category).filter(Boolean))];
+        const tags = [...new Set(facts.flatMap((f) => (f.tags || "").split(",").map((t) => t.trim()).filter(Boolean)))];
+        const allTerms = [
+          ...cats.map((c) => ({ term: c, type: "category" })),
+          ...tags.map((t) => ({ term: t, type: "tag" })),
+        ];
+        const filtered = allTerms
+          .filter(({ term }) => !partial || term.toLowerCase().includes(partial))
+          .slice(0, 8)
+          .map(({ term, type }) => ({
+            entity_id: `/${cmd} search ${term}`,
+            badge: type,
+            friendly_name: "",
+          }));
+        if (filtered.length) {
+          this._acItems = filtered;
+          this._acToken = val;
+          this._acIndex = -1;
+          this._buildAcList(true);
+        }
+      });
+      return;
+    }
+
+    // ── /session switch|delete <name> ─────────────────────────────────
+    const sessionArg = val.match(/^\/session\s+(switch)\s+(.*)$/i);
+    if (sessionArg) {
+      const partial = (sessionArg[2] || "").toLowerCase();
+      this._fetchAcSessions().then((sessions) => {
+        const filtered = sessions
+          .filter((s) => s.name.toLowerCase().includes(partial) || s.id.toLowerCase().includes(partial))
+          .slice(0, 8)
+          .map((s) => ({
+            entity_id: `/session switch ${s.name}`,
+            badge: s.id === this._activeSessionId ? "active" : null,
+            friendly_name: `${s.message_count} msg${s.message_count !== 1 ? "s" : ""}`,
+          }));
+        if (filtered.length) {
+          this._acItems = filtered;
+          this._acToken = val;
+          this._acIndex = -1;
+          this._buildAcList(true);
+        }
+      });
+      return;
+    }
+
+    // ── /area delete|rename <name>  →  suggest area names ─────────────
+    const areaArg = val.match(/^\/area\s+(delete|rename)\s+(.*)$/i);
+    if (areaArg) {
+      const partial = (areaArg[2] || "").toLowerCase();
+      const action = areaArg[1];
+      const areas = Object.values(this._hass.areas || {});
+      const filtered = areas
+        .filter((a) => a.name.toLowerCase().includes(partial) || (a.area_id || "").toLowerCase().includes(partial))
+        .slice(0, 8)
+        .map((a) => ({
+          entity_id: `/area ${action} ${a.name}`,
+          friendly_name: a.area_id,
+        }));
+      if (filtered.length) {
+        this._acItems = filtered;
+        this._acToken = val;
+        this._acIndex = -1;
+        this._buildAcList(true);
+        return;
+      }
+    }
+
+    // ── /automation|script|dashboard open|delete|rename <name> ────────
     const slashSub = val.match(/^\/(automation|script|dashboard|area)\s+(\w+)\s+(.*)$/i);
     if (slashSub) {
       const cmd = slashSub[1].toLowerCase();
@@ -114,7 +303,8 @@ export const SlashMixin = (Base) => class extends Base {
             .filter((p) => p.component_name === "lovelace" && p.url_path && p.url_path !== "kyber")
             .map((p) => ({ entity_id: p.url_path, friendly_name: p.title || "" }));
         } else if (cmd === "area") {
-          // No hass.areas in all versions — use textarea as-is
+          candidates = Object.values(this._hass.areas || {})
+            .map((a) => ({ entity_id: a.area_id, friendly_name: a.name }));
         }
         const filtered = candidates.filter((c) =>
           c.entity_id.toLowerCase().includes(partial) ||
@@ -159,7 +349,7 @@ export const SlashMixin = (Base) => class extends Base {
     const list = this.shadowRoot.getElementById("ac-list");
     list.innerHTML = this._acItems.map((item, i) => `
       <div class="ac-item" data-id="${item.entity_id}" data-idx="${i}" data-replace-all="${replaceAll}">
-        <span class="ac-id">${item.entity_id}</span>
+        <span class="ac-id">${item.entity_id}${item.badge ? `<span class="ac-badge">${item.badge}</span>` : ""}</span>
         ${item.friendly_name ? `<span class="ac-name">${item.friendly_name}</span>` : ""}
       </div>
     `).join("");
@@ -212,6 +402,34 @@ export const SlashMixin = (Base) => class extends Base {
     if (list) { list.classList.remove("open"); list.innerHTML = ""; }
   }
 
+  /** Fetch knowledge facts for autocomplete with 30s cache. */
+  async _fetchAcFacts() {
+    const now = Date.now();
+    if (this._acFactsCache && now - (this._acFactsCacheTs || 0) < 30000) return this._acFactsCache;
+    try {
+      const token = this._hass?.auth?.data?.access_token;
+      const resp = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+      const data = await resp.json();
+      this._acFactsCache = data.entries || [];
+      this._acFactsCacheTs = Date.now();
+      return this._acFactsCache;
+    } catch { return []; }
+  }
+
+  /** Fetch sessions for autocomplete with 15s cache. */
+  async _fetchAcSessions() {
+    const now = Date.now();
+    if (this._acSessionsCache && now - (this._acSessionsCacheTs || 0) < 15000) return this._acSessionsCache;
+    try {
+      const token = this._hass?.auth?.data?.access_token;
+      const resp = await fetch("/api/kyber/sessions", { headers: { Authorization: `Bearer ${token}` } });
+      const data = await resp.json();
+      this._acSessionsCache = data.sessions || [];
+      this._acSessionsCacheTs = Date.now();
+      return this._acSessionsCache;
+    } catch { return []; }
+  }
+
   /** Find an automation/script by partial name or entity_id. Returns state object or null. */
   _findEntity(prefix, nameArg) {
     if (!nameArg) return null;
@@ -236,8 +454,12 @@ export const SlashMixin = (Base) => class extends Base {
 
     this._appendMessage(`/${cmd} ${argStr}`, "user");
 
+    // /X help → show help card for that command
+    if (action === "help") return this._showHelp(cmd === "knowledge" ? "memory" : cmd);
+
     switch (cmd) {
-      case "dashboard": return this._cmdDashboard(action, nameArg);
+      case "help":       return this._showHelp(action || "");
+      case "dashboard":  return this._cmdDashboard(action, nameArg);
       case "automation": return this._cmdAutomation(action, nameArg);
       case "script":     return this._cmdScript(action, nameArg);
       case "blueprint":  return this._cmdBlueprint(action, nameArg);
