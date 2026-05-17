@@ -12,6 +12,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import selector
 
 from .const import (
     CONF_AI_TASK_ENTITY_ID,
@@ -32,19 +33,22 @@ def _entity_exists(hass: HomeAssistant, entity_id: str) -> bool:
     )
 
 
-def _build_schema(hass: HomeAssistant) -> vol.Schema:
-    """Build the config form schema with a sensible default entity."""
-    registry = er.async_get(hass)
-    ai_task_entities = [
-        entry.entity_id
-        for entry in registry.entities.values()
-        if entry.entity_id.startswith("ai_task.")
-    ]
-    default_entity = ai_task_entities[0] if ai_task_entities else ""
+def _build_schema(hass: HomeAssistant, default_entity: str = "") -> vol.Schema:
+    """Build the config form schema with an entity selector for ai_task entities."""
+    if not default_entity:
+        registry = er.async_get(hass)
+        ai_task_entities = [
+            entry.entity_id
+            for entry in registry.entities.values()
+            if entry.entity_id.startswith("ai_task.")
+        ]
+        default_entity = ai_task_entities[0] if ai_task_entities else ""
 
     return vol.Schema(
         {
-            vol.Required(CONF_AI_TASK_ENTITY_ID, default=default_entity): str,
+            vol.Required(CONF_AI_TASK_ENTITY_ID, default=default_entity): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="ai_task")
+            ),
             vol.Optional(CONF_MAX_TOKENS, default=DEFAULT_MAX_TOKENS): vol.All(
                 int, vol.Range(min=256, max=2_000_000)
             ),

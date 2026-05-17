@@ -7,7 +7,7 @@
 > Always review proposals before executing them.
 > **Make a full backup of your Home Assistant instance before installing or experimenting with Kyber.**
 
-Kyber is a Home Assistant custom integration that adds an AI-powered coding assistant panel to the HA sidebar, backed by a locally running Ollama model.
+Kyber is a Home Assistant custom integration that adds an AI-powered coding assistant panel to the HA sidebar, backed by any Home Assistant AI integration (Ollama, Home Assistant Cloud, OpenAI, Google, etc.).
 
 ---
 
@@ -30,13 +30,23 @@ Or use the quick-add button:
 | Requirement | Notes |
 |---|---|
 | Home Assistant **2025.1+** | Earlier versions lack the `ai_task` platform |
-| [Ollama](https://ollama.com/) running locally | Must be reachable from HA on port `11434` |
-| HA **Ollama integration** configured | Settings → Integrations → Ollama |
-| At least one **`ai_task.*` entity** | Created automatically by the Ollama integration after setup |
+| An AI integration with a **`ai_task.*` entity** | See supported providers below |
+
+### Supported AI providers
+
+Kyber works with **any** Home Assistant integration that provides an `ai_task.*` entity:
+
+| Provider | Notes |
+|---|---|
+| **[Ollama](https://www.home-assistant.io/integrations/ollama/)** | Locally-running open-source models (e.g. Llama, Mistral). Requires Ollama running on port `11434`. |
+| **[Home Assistant Cloud](https://www.home-assistant.io/integrations/cloud/)** | Nabu Casa subscription. Enables AI features under *Settings → Home Assistant Cloud → AI*. No extra software required. |
+| **[OpenAI](https://www.home-assistant.io/integrations/openai_conversation/)** | Cloud-based GPT models. Requires an OpenAI API key. |
+| **[Google Generative AI](https://www.home-assistant.io/integrations/google_generative_ai_conversation/)** | Gemini models via API key. |
+| Any other integration | Any integration that registers an entity in the `ai_task` domain. |
 
 ### Verify the ai_task entity
 
-In HA, open **Developer Tools → States** and confirm an entity such as `ai_task.ollama_*` exists before installing Kyber. The config flow will reject an entity ID that cannot be found.
+In HA, open **Developer Tools → States** and confirm an entity such as `ai_task.ollama_*` or `ai_task.home_assistant_cloud_*` exists before installing Kyber. The config flow will reject an entity ID that cannot be found.
 
 ---
 
@@ -60,7 +70,7 @@ cp -r custom_components/kyber  /path/to/ha-config/custom_components/kyber
 1. Restart Home Assistant.
 2. Go to **Settings → Integrations → Add Integration** and search for **Kyber**.
 3. In the config form:
-   - **AI Task Entity ID** — enter the `ai_task.*` entity created by the Ollama integration (e.g. `ai_task.ollama_llama3`). The form auto-populates the first match it finds.
+   - **AI Task Entity ID** — select the `ai_task.*` entity from the dropdown. The form shows all available entities. For Ollama this is typically `ai_task.ollama_llama3`; for HA Cloud it will look like `ai_task.home_assistant_cloud_*`.
    - **Max Tokens** — maximum tokens per AI response (default 2048, range 256–2,000,000).
 4. Click **Submit**. A **Kyber** entry appears in the sidebar.
 
@@ -80,7 +90,7 @@ docker compose -f docker-compose.dev.yml up -d
 
 Home Assistant will be available at **http://localhost:8123**.
 
-The Ollama integration must be pointed at `http://host.docker.internal:11434` — the `extra_hosts` entry in `docker-compose.dev.yml` resolves that hostname to the host's gateway automatically.
+If using the Ollama integration for local AI, it must be pointed at `http://host.docker.internal:11434` — the `extra_hosts` entry in `docker-compose.dev.yml` resolves that hostname to the host's gateway automatically. If using HA Cloud or another cloud AI provider, no extra configuration is needed.
 
 ### Volume layout
 

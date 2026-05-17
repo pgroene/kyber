@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Kyber",
-        "description": "Configure AI-powered smart home assistant. Select the AI task entity provided by your Ollama (or other AI) integration.",
+        "description": "Configure AI-powered smart home assistant. Select the AI task entity you want to use — this can be provided by Ollama, Home Assistant Cloud, OpenAI, Google, or any other ai_task integration.",
         "data": {
           "ai_task_entity_id": "AI Task Entity",
           "max_tokens": "Max Tokens",
@@ -12,7 +12,7 @@
       }
     },
     "error": {
-      "entity_not_found": "The selected AI task entity was not found. Make sure your Ollama integration is set up and the entity exists.",
+      "entity_not_found": "The selected AI task entity was not found. Make sure your AI integration (e.g. Ollama, Home Assistant Cloud, OpenAI) is set up and the entity exists.",
       "cannot_connect": "Could not reach the AI provider. Check your integration configuration."
     },
     "abort": {

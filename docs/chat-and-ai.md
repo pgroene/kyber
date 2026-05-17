@@ -1,6 +1,6 @@
 # Kyber — AI Chat & Smart Home Assistant
 
-The **AI Chat** panel is the core of Kyber. It gives you a conversational interface for controlling your smart home, managing entities, editing automations, and building dashboards — all powered by a local AI model via Home Assistant's AI Task integration (e.g. Ollama).
+The **AI Chat** panel is the core of Kyber. It gives you a conversational interface for controlling your smart home, managing entities, editing automations, and building dashboards — all powered by your configured AI provider via Home Assistant's AI Task integration (e.g. Ollama, Home Assistant Cloud, OpenAI, Google).
 
 ---
 

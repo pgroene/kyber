@@ -18,8 +18,7 @@ from pytest_homeassistant_custom_component.common import mock_component
 
 @pytest.fixture(autouse=True)
 def mock_dependencies(hass: HomeAssistant) -> None:
-    """Mark ollama and ai_task as already set up so the dependency chain is bypassed."""
-    mock_component(hass, "ollama")
+    """Mark ai_task as already set up so the dependency chain is bypassed."""
     mock_component(hass, "ai_task")
 
 
@@ -147,3 +146,32 @@ async def test_duplicate_config_entry_aborted(hass: HomeAssistant) -> None:
     )
     assert result["type"] == FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+async def test_creates_entry_with_cloud_entity(hass: HomeAssistant) -> None:
+    """Submitting a Home Assistant Cloud ai_task entity should create a config entry.
+
+    This verifies that Kyber works with HA Cloud AI without requiring Ollama.
+    """
+    entity_reg = er.async_get(hass)
+    entity_reg.async_get_or_create(
+        "ai_task",
+        "cloud",
+        "home_assistant_cloud_data_generation",
+        suggested_object_id="home_assistant_cloud_data_generation",
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            "ai_task_entity_id": "ai_task.home_assistant_cloud_data_generation",
+            "max_tokens": 4096,
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["ai_task_entity_id"] == "ai_task.home_assistant_cloud_data_generation"
+    assert result["data"]["max_tokens"] == 4096
