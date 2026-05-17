@@ -298,7 +298,7 @@ _ACTION_KEYWORDS: frozenset[str] = frozenset({
     "turn on", "turn off", "switch on", "switch off", "set", "create",
     "delete", "remove", "add", "make", "enable", "disable", "fix", "open editor",
     "open automation", "open script", "open dashboard", "adjust", "configure",
-    "schedule", "trigger", "automate", "control", "dim", "brighten",
+    "schedule", "trigger", "automate", "dim", "brighten",
     "lock", "unlock", "arm", "disarm",
     "zet aan", "zet uit",  # Dutch on/off
     "organise", "organize", "order my", "sort my", "clean up", "tidy",
@@ -355,6 +355,11 @@ _CHAT_MESSAGE_MAX_CHARS = 1500
 _CHAT_SUMMARY_MAX_CHARS = 2000
 # Hard cap on total instructions to avoid exceeding Ollama's context window (~8K tokens ≈ 32K chars)
 _MAX_INSTRUCTIONS_CHARS = 32_000
+# Reserve budget for knowledge facts so they survive the loop's re-truncation.
+# Base prompt is capped at (_MAX_INSTRUCTIONS_CHARS - _KNOWLEDGE_BUDGET); knowledge
+# is then appended within the remaining space, keeping total ≤ _MAX_INSTRUCTIONS_CHARS.
+_KNOWLEDGE_BUDGET = 2_000
+_BASE_INSTRUCTIONS_CHARS = _MAX_INSTRUCTIONS_CHARS - _KNOWLEDGE_BUDGET  # 30 000
 _SESSIONS_MAX = 20
 _SESSION_NAME_MAX_CHARS = 80
 
@@ -569,8 +574,25 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
             entity_count += 1
             domain_counts[domain] = domain_counts.get(domain, 0) + 1
 
-    automation_list = "\n".join(automation_lines) or "(no automations)"
-    script_list = "\n".join(script_lines) or "(no scripts)"
+    _AUTO_LIMIT = 50
+    _SCRIPT_LIMIT = 25
+    if len(automation_lines) > _AUTO_LIMIT:
+        automation_lines_shown = automation_lines[:_AUTO_LIMIT]
+        automation_lines_shown.append(
+            f"… and {len(automation_lines) - _AUTO_LIMIT} more (use list_automations tool to see all)"
+        )
+    else:
+        automation_lines_shown = automation_lines
+    if len(script_lines) > _SCRIPT_LIMIT:
+        script_lines_shown = script_lines[:_SCRIPT_LIMIT]
+        script_lines_shown.append(
+            f"… and {len(script_lines) - _SCRIPT_LIMIT} more (use list_scripts tool to see all)"
+        )
+    else:
+        script_lines_shown = script_lines
+
+    automation_list = "\n".join(automation_lines_shown) or "(no automations)"
+    script_list = "\n".join(script_lines_shown) or "(no scripts)"
 
     # Domain stats: top 10 by count
     sorted_domains = sorted(domain_counts.items(), key=lambda x: -x[1])
@@ -1616,13 +1638,13 @@ class KyberView(HomeAssistantView):
             f"Assistant:"
         )
 
-        if len(instructions) > _MAX_INSTRUCTIONS_CHARS:
+        if len(instructions) > _BASE_INSTRUCTIONS_CHARS:
             _LOGGER.warning(
                 "Kyber: instructions truncated from %d to %d chars to fit context window.",
                 len(instructions),
-                _MAX_INSTRUCTIONS_CHARS,
+                _BASE_INSTRUCTIONS_CHARS,
             )
-            instructions = instructions[:_MAX_INSTRUCTIONS_CHARS]
+            instructions = instructions[:_BASE_INSTRUCTIONS_CHARS]
 
         entity_id: str = self._config[CONF_AI_TASK_ENTITY_ID]
 

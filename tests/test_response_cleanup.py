@@ -193,3 +193,35 @@ def test_augment_brightness_intent_ignores_non_light():
     }]}
     out = _augment_brightness_intent(plan, "to max")
     assert "service_data" not in out["actions"][0]
+
+
+def test_classify_intent_informational_queries():
+    """Regression: 'control' in a query like 'what automations control X' must be informational."""
+    _classify_intent = http_api._classify_intent
+    # These should all be INFORMATIONAL — not action
+    for prompt in [
+        "what automations does control my downlights in the livingroom",
+        "what controls the downlights",
+        "which automation controls the zitkamer lights",
+        "what lights do I have",
+        "show me all automations",
+        "list my devices",
+    ]:
+        result = _classify_intent(prompt)
+        assert result == "informational", f"Expected informational for: {prompt!r}, got: {result!r}"
+
+
+def test_classify_intent_action_queries():
+    """These prompts should be classified as action."""
+    _classify_intent = http_api._classify_intent
+    for prompt in [
+        "turn on the lights",
+        "turn off the kitchen light",
+        "rename area bedroom to slaapkamer",
+        "create a new area",
+        "set brightness to 50",
+        "zet aan de lamp",
+        "zet uit alle lichten",
+    ]:
+        result = _classify_intent(prompt)
+        assert result == "action", f"Expected action for: {prompt!r}, got: {result!r}"
