@@ -45,6 +45,8 @@ MODEL_CONTEXT_SIZES: dict[str, int] = {
     "vicuna": 4096,
     "openhermes": 32768,
     "nous-hermes": 4096,
+    # Generic Ollama catch-all — most modern Ollama models support 128 k context
+    "ollama": 131072,
 }
 
 # Maximum characters allowed for the entity list section of the context prompt.

@@ -225,8 +225,8 @@ class KyberOptionsFlow(OptionsFlow):
         entity_id = _get(CONF_AI_TASK_ENTITY_ID, "")
         current_tokens = _get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)
 
-        # If still at the old default, offer the inferred value instead
-        if current_tokens == DEFAULT_MAX_TOKENS and entity_id:
+        # Always offer the inferred value when opening options — user can still override
+        if entity_id:
             inferred = _infer_max_tokens(self.hass, entity_id)
             if inferred != DEFAULT_MAX_TOKENS:
                 current_tokens = inferred
