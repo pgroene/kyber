@@ -75,7 +75,7 @@ def _tool_result_summary(call: dict[str, Any], result: Any) -> str:
         count = len(result.get("entities", {})) if isinstance(result, dict) else 0
         return f"{count} entities with label '{label}'"
     if name == "search_entities":
-        count = len(result) if isinstance(result, dict) else 0
+        count = len(result) if isinstance(result, dict) and "info" not in result else 0
         return f"{count} matches for '{call.get('query', '?')}'"
     if name == "get_areas":
         count = len(result) if isinstance(result, dict) else 0
@@ -338,10 +338,19 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         query = call.get("query", "").strip().lower()
         if not query:
             return json.dumps({"error": "Missing 'query' argument"})
+        query_words = query.split()
         results = {}
         for state in hass.states.async_all():
+            entity_lower = state.entity_id.lower()
             friendly = state.attributes.get("friendly_name", "").lower()
-            if not (query in state.entity_id.lower() or query in friendly):
+            # 1. Direct substring match
+            matched = query in entity_lower or query in friendly
+            # 2. Word-token match: all query words present in entity text
+            #    (handles brackets/punctuation in friendly names like "[LG] webOS TV")
+            if not matched:
+                target = entity_lower + " " + friendly
+                matched = all(w in target for w in query_words)
+            if not matched:
                 continue
             if not _state_matches(state, state_filter):
                 continue
