@@ -267,6 +267,17 @@ def _try_quick_intent(user_prompt: str) -> dict[str, Any] | None:
     return None
 
 
+# Appended to the tool-exchange when we need a plain-text synthesis pass
+# (model looped on tool calls and never wrote a prose answer).
+_SYNTHESIS_INSTRUCTIONS = (
+    "\n\n[SYSTEM: You already have all the data you need from the tool results "
+    "shown above. Answer the user's question directly in plain text now. "
+    "Do NOT output any [TOOL_CALL:] blocks — only a prose answer. "
+    "List EVERY item from the results; do not truncate with '...' or 'and X more'.]\n"
+    "Assistant:"
+)
+
+
 # Keywords that indicate the user wants to change/act on something (ACTION intent).
 # Anything else is INFORMATIONAL — the AI should just respond in plain text.
 _ACTION_KEYWORDS: frozenset[str] = frozenset({
@@ -1839,12 +1850,34 @@ class KyberView(HomeAssistantView):
                 _LOGGER.info("Kyber: all tool calls in round were duplicates; stopping loop")
                 _progress_emit(hass, request_id, {
                     "type": "info",
-                    "message": "Model repeated previous tool calls — stopping early.",
+                    "message": "Model repeated previous tool calls — synthesizing answer from results.",
                 })
-                # If the model never produced any prose (response_text empty after
-                # stripping the duplicate tool_call lines), fall through with a
-                # gentle error message rather than looping again — the loop has
-                # already proven itself stuck.
+                # The model looped instead of answering in prose. Do one final
+                # synthesis pass with no tool-calling instructions so it turns
+                # the collected data into a natural-language response.
+                if not _strip_tool_calls(response_text).strip() and tool_exchange:
+                    synth_prompt = instructions + tool_exchange + _SYNTHESIS_INSTRUCTIONS
+                    if len(synth_prompt) > _MAX_INSTRUCTIONS_CHARS:
+                        synth_prompt = synth_prompt[:_MAX_INSTRUCTIONS_CHARS]
+                    try:
+                        _progress_emit(hass, request_id, {"type": "thinking", "stage": "synthesize"})
+                        synth_result = await async_generate_data(
+                            hass,
+                            task_name=f"{DOMAIN}_complete",
+                            entity_id=entity_id,
+                            instructions=synth_prompt,
+                        )
+                        synth_text = (
+                            synth_result.data
+                            if isinstance(synth_result.data, str)
+                            else str(synth_result.data)
+                        )
+                        synth_text = _strip_tool_calls(synth_text).strip()
+                        if synth_text:
+                            response_text = synth_text
+                    except Exception as _synth_err:  # noqa: BLE001
+                        _LOGGER.warning("Kyber: synthesis pass failed: %s", _synth_err)
+                # Final guard: if synthesis also produced nothing, show a helpful message.
                 if not _strip_tool_calls(response_text).strip():
                     response_text = (
                         "I wasn't able to figure out the right action for that "
@@ -1948,14 +1981,24 @@ class KyberView(HomeAssistantView):
 
         # Guard: if intent was informational and the model still hallucinated an
         # open_editor or open_dashboard plan, drop it.
-        if intent == "informational" and plan_block and (
-            plan_block.get("open_editor") or plan_block.get("open_dashboard")
-        ):
-            _LOGGER.warning(
-                "Kyber: dropping spurious open_editor/open_dashboard plan for informational query: %r",
-                user_prompt[:80],
-            )
-            plan_block = None
+        # Also drop create/delete/update action plans for informational queries
+        # (e.g. "what areas do I have" should never become "create_area outside").
+        if intent == "informational" and plan_block:
+            has_editor = plan_block.get("open_editor") or plan_block.get("open_dashboard")
+            mutating_action_types = {
+                "create_area", "delete_area", "rename_entity", "assign_area",
+                "assign_label", "call_service", "update_knowledge", "add_knowledge",
+                "delete_knowledge",
+            }
+            actions = plan_block.get("actions", [])
+            has_mutating = any(a.get("type") in mutating_action_types for a in actions)
+            if has_editor or has_mutating:
+                _LOGGER.warning(
+                    "Kyber: dropping spurious action plan for informational query: %r (types: %s)",
+                    user_prompt[:80],
+                    [a.get("type") for a in actions],
+                )
+                plan_block = None
 
         # Rescue: if the model used open_editor with a non-automation/script entity
         # (e.g. light.*, switch.*), convert to a call_service actions plan.
