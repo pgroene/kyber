@@ -1,4 +1,8 @@
 """TDD tests for kyber config flow — written BEFORE implementation (RED)."""
+import pytest
+
+pytest.importorskip("pytest_homeassistant_custom_component", reason="requires pytest-homeassistant-custom-component")
+
 from unittest.mock import patch
 
 import pytest

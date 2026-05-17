@@ -4,6 +4,9 @@ Documented in docs/editor.md — the frontend uses this endpoint to convert
 editor YAML to JSON before saving via HA's own config REST endpoints.
 """
 import pytest
+
+pytest.importorskip("pytest_homeassistant_custom_component", reason="requires pytest-homeassistant-custom-component")
+
 from homeassistant.core import HomeAssistant
 
 
