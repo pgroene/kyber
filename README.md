@@ -32,8 +32,9 @@ Or use the quick-add button:
 - 📊 **Dashboard Editor** — edit Lovelace dashboards as YAML, create new dashboards
 - 🔧 **Slash Commands** — `/dashboard`, `/automation`, `/script`, `/blueprint`, `/area`
 - 🔒 **100% Local** — all AI inference runs on your own Ollama instance
-- 🐞 **Debug tab** — inspect everything Kyber knows: memory entries, the expanded system prompt of the last turn, which knowledge entries it picked (with similarity scores), tool calls, and per-entry ratings + inline "refine with a hint" action
+- 🐞 **Debug tab** — inspect everything Kyber knows: memory entries, the expanded system prompt of the last turn, which knowledge entries it picked (with similarity scores), tool calls, and per-entry ratings + inline "refine with a hint" action. Lives in its own **Kyber Debug** sidebar entry so the chat panel stays clean.
 - 📦 **Debug bundle download** — every assistant message has a `⬇ debug` button (visible on hover) that exports a ZIP with the user prompt, the full expanded system prompt the model actually saw, picked memory entries, tool log, progress events, captured `kyber.*` logs and the response — perfect for filing a precise issue
+- 🧠 **Hybrid memory retrieval** — knowledge entries are indexed with an in-memory TF-IDF embedding; each turn picks the top facts via cosine similarity blended with keyword overlap. Selected facts are streamed to the live progress card so you can see what Kyber recalled. See [docs/pipeline.md](docs/pipeline.md) for the full request lifecycle.
 
 ## Quick Start
 
@@ -55,6 +56,7 @@ docker compose -f docker-compose.dev.yml up
 | [docs/chat-and-ai.md](docs/chat-and-ai.md) | Chat basics, proposal cards, autopilot, conversation history, entity autocomplete |
 | [docs/slash-commands.md](docs/slash-commands.md) | All slash commands: `/dashboard`, `/automation`, `/script`, `/blueprint`, `/area` |
 | [docs/editor.md](docs/editor.md) | Automation/script editor, dashboard editor, Lovelace card type reference |
+| [docs/pipeline.md](docs/pipeline.md) | End-to-end request pipeline — context build, hybrid memory retrieval (TF-IDF embeddings), tool loop, response cleanup, per-turn snapshot, debug bundle, debug-mode flag |
 | [docs/architecture.md](docs/architecture.md) | Frontend, backend endpoints, context building, plan/action system |
 
 ## Architecture at a Glance

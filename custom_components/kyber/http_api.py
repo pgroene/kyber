@@ -34,6 +34,17 @@ _PROGRESS_KEY = "kyber_progress"
 _PROGRESS_MAX_AGE = 300  # seconds — purge entries older than this on access
 _PROGRESS_MAX_ENTRIES = 64
 
+_DEBUG_MODE_KEY = "kyber_debug_mode"
+_DEBUG_MODE_DEFAULT = True
+
+
+def _get_debug_mode(hass: HomeAssistant) -> bool:
+    val = hass.data.get(_DEBUG_MODE_KEY)
+    if val is None:
+        return _DEBUG_MODE_DEFAULT
+    return bool(val)
+
+
 # Debug snapshot keys — in-memory only, purged on HA restart.
 _DEBUG_LAST_TURN_KEY = "kyber_debug_last_turn"
 _DEBUG_SNAPSHOTS_KEY = "kyber_debug_snapshots"  # request_id -> snapshot ring buffer
@@ -1409,19 +1420,40 @@ class KyberView(HomeAssistantView):
             _LOGGER.warning("Kyber: knowledge lookup failed: %s", err)
             relevant_knowledge = []
         if relevant_knowledge:
+            # Report which facts were selected so the user can see them in
+            # the live progress card AND in the debug snapshot.
+            picked_summary = ", ".join(
+                f"{e.get('subject') or e.get('category','?')} (score {round(float(e.get('_score') or 0), 2)})"
+                for e in relevant_knowledge[:5]
+            )
+            _LOGGER.info(
+                "Kyber: injected %d memory facts via hybrid retrieval — %s",
+                len(relevant_knowledge),
+                picked_summary,
+            )
+            _progress_emit(hass, request_id, {
+                "type": "info",
+                "message": f"Recalled {len(relevant_knowledge)} memory fact(s): {picked_summary}",
+            })
             kn_lines = ["", "## Learned knowledge (from previous interactions)"]
             kn_lines.append(
-                "These facts were saved from prior conversations. Use them when relevant; "
-                "they override default assumptions. If a fact looks wrong, ask the user."
+                "These facts were retrieved by hybrid semantic + keyword search; "
+                "the most relevant ones for your current prompt come first. "
+                "Use them when relevant; they override default assumptions. "
+                "If a fact looks wrong, ask the user."
             )
             for entry in relevant_knowledge:
                 cat = entry.get("category", "general")
                 subj = entry.get("subject", "")
                 content = entry.get("content", "")
                 tags = ",".join(entry.get("tags", []) or [])
+                score = entry.get("_score")
+                src = entry.get("_source", "?")
+                score_note = f" [match: {round(float(score), 2)} via {src}]" if score is not None else ""
                 kn_lines.append(
                     f"- [{cat}]{(' '+subj) if subj else ''}: {content}"
                     + (f"  (tags: {tags})" if tags else "")
+                    + score_note
                 )
             instructions = instructions + "\n" + "\n".join(kn_lines) + "\n"
             await kstore.async_record_hit([e["id"] for e in relevant_knowledge])
@@ -2336,6 +2368,32 @@ class KyberDebugBundleView(HomeAssistantView):
             content_type="application/zip",
             headers={"Content-Disposition": f'attachment; filename="{fname}"'},
         )
+
+
+class KyberDebugModeView(HomeAssistantView):
+    """Get/set the debug-mode flag used by the panel.
+
+    GET  /api/kyber/debug/mode → {"enabled": bool}
+    POST /api/kyber/debug/mode {"enabled": bool} → {"enabled": bool}
+    """
+
+    url = "/api/kyber/debug/mode"
+    name = "api:kyber:debug:mode"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        return self.json({"enabled": _get_debug_mode(hass)})
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
+        enabled = bool(body.get("enabled", _DEBUG_MODE_DEFAULT))
+        hass.data[_DEBUG_MODE_KEY] = enabled
+        return self.json({"enabled": enabled})
 
 
 class KyberHistoryView(HomeAssistantView):
