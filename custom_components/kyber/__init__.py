@@ -103,6 +103,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
                 sidebar_title="Kyber Debug",
                 sidebar_icon="mdi:bug",
                 module_url="/local/kyber/kyber-panel.js?v=74",
+                config={"mode": "debug"},
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Debug panel registration skipped (test environment)")
