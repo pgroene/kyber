@@ -9,7 +9,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.components.panel_custom import async_register_panel
 
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
+from .const import (
+    CONF_AI_TASK_ENTITY_ID,
+    CONF_ENABLE_DEBUG_VIEWS,
+    DOMAIN,
+)
 from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberDebugModeView
 
 _LOGGER = logging.getLogger(__name__)
@@ -18,10 +22,38 @@ type KyberConfigEntry = ConfigEntry[None]
 
 _WWW_DIR = Path(__file__).parent / "www"
 
+_DEBUG_MODE_KEY = "kyber_debug_mode"
+
+
+def _resolve_debug_enabled(entry: ConfigEntry) -> bool:
+    """Resolve effective debug-views setting for an entry.
+
+    Precedence: entry.options → entry.data → fallback True.
+
+    The fallback True preserves the experience for entries that existed
+    BEFORE this option was introduced (they had no key anywhere). New
+    entries get the key written to entry.data via the config flow, so
+    they default to False as the user requested.
+    """
+    if CONF_ENABLE_DEBUG_VIEWS in entry.options:
+        return bool(entry.options[CONF_ENABLE_DEBUG_VIEWS])
+    if CONF_ENABLE_DEBUG_VIEWS in entry.data:
+        return bool(entry.data[CONF_ENABLE_DEBUG_VIEWS])
+    # Pre-existing entry from before the option existed — preserve previous behavior
+    return True
+
+
+async def _update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the entry whenever options change so panel registration follows."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bool:
     """Set up Kyber from a config entry."""
     config = dict(entry.data)
+
+    debug_enabled = _resolve_debug_enabled(entry)
+    hass.data[_DEBUG_MODE_KEY] = debug_enabled
 
     hass.http.register_view(KyberView(config))
     hass.http.register_view(KyberProgressView())
@@ -64,30 +96,42 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     except Exception:  # noqa: BLE001
         _LOGGER.debug("Panel registration skipped (test environment)")
 
-    try:
-        await async_register_panel(
-            hass,
-            frontend_url_path="kyber-debug",
-            webcomponent_name="kyber-panel",
-            sidebar_title="Kyber Debug",
-            sidebar_icon="mdi:bug",
-            module_url="/local/kyber/kyber-panel.js?v=58",
-            require_admin=True,
-            config={
-                "ai_task_entity_id": config.get(CONF_AI_TASK_ENTITY_ID),
-                "mode": "debug",
-            },
-        )
-    except Exception:  # noqa: BLE001
-        _LOGGER.debug("Debug panel registration skipped (test environment)")
+    # Only register the separate "Kyber Debug" sidebar entry when debug views
+    # are enabled — otherwise the panel would appear with nothing useful.
+    if debug_enabled:
+        try:
+            await async_register_panel(
+                hass,
+                frontend_url_path="kyber-debug",
+                webcomponent_name="kyber-panel",
+                sidebar_title="Kyber Debug",
+                sidebar_icon="mdi:bug",
+                module_url="/local/kyber/kyber-panel.js?v=58",
+                require_admin=True,
+                config={
+                    "ai_task_entity_id": config.get(CONF_AI_TASK_ENTITY_ID),
+                    "mode": "debug",
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Debug panel registration skipped (test environment)")
+
+    entry.async_on_unload(entry.add_update_listener(_update_listener))
 
     _LOGGER.warning(
-        "Kyber set up OK — panel registered, AI entity: %s",
+        "Kyber set up OK — panel registered, AI entity: %s, debug_views=%s",
         config.get(CONF_AI_TASK_ENTITY_ID),
+        debug_enabled,
     )
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bool:
     """Unload a config entry."""
+    # Remove the debug panel if we registered one so reloads can re-evaluate.
+    try:
+        from homeassistant.components.frontend import async_remove_panel
+        async_remove_panel(hass, "kyber-debug")
+    except Exception:  # noqa: BLE001
+        pass
     return True

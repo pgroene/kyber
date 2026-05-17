@@ -4,8 +4,10 @@ DOMAIN = "kyber"
 
 CONF_AI_TASK_ENTITY_ID = "ai_task_entity_id"
 CONF_MAX_TOKENS = "max_tokens"
+CONF_ENABLE_DEBUG_VIEWS = "enable_debug_views"
 
 DEFAULT_MAX_TOKENS = 2048
+DEFAULT_ENABLE_DEBUG_VIEWS = False
 
 # Maximum characters allowed for the entity list section of the context prompt.
 # Approximately 8 K tokens at ~4 chars/token; reduce if your model has a smaller
