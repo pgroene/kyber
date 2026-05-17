@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Kyber Home Assistant panel frontend",
   "scripts": {
+    "build": "vite build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

@@ -1472,19 +1472,10 @@ class KyberPanel extends HTMLElement {
   async _persistHistory() {
     if (!this._hass) return;
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/history", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          history: this._sanitizeHistoryForPersistence(this._chatHistory),
-          compacted_summary: String(this._compactedSummary || "").trim(),
-        }),
+      await this._hass.callApi("POST", "kyber/history", {
+        history: this._sanitizeHistoryForPersistence(this._chatHistory),
+        compacted_summary: String(this._compactedSummary || "").trim(),
       });
-      if (!resp.ok) {
-        const body = await resp.text().catch(() => "");
-        console.warn("[Kyber] _persistHistory failed:", resp.status, body);
-      }
     } catch (err) {
       console.warn("[Kyber] _persistHistory error:", err);
     }
@@ -1493,15 +1484,7 @@ class KyberPanel extends HTMLElement {
   async _restorePersistedHistory() {
     if (!this._hass) return;
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/history", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!resp.ok) {
-        console.warn("[Kyber] _restorePersistedHistory failed:", resp.status);
-        throw new Error(`HTTP ${resp.status}`);
-      }
-      const data = await resp.json();
+      const data = await this._hass.callApi("GET", "kyber/history");
       const persistedHistory = this._sanitizeHistoryForPersistence(data?.history || []);
       const persistedSummary = String(data?.compacted_summary || "").trim();
 
@@ -1534,17 +1517,9 @@ class KyberPanel extends HTMLElement {
     this._compactedSummary = "";
     this._resetChatView();
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/history", {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (resp.ok) {
-        this._setStatus("History cleared");
-        this._showContextRefreshedMessage("History cleared");
-      } else {
-        this._setStatus(`History clear failed: HTTP ${resp.status}`, "error");
-      }
+      await this._hass.callApi("DELETE", "kyber/history");
+      this._setStatus("History cleared");
+      this._showContextRefreshedMessage("History cleared");
     } catch (err) {
       this._setStatus(`History clear failed: ${err.message || String(err)}`, "error");
     }
