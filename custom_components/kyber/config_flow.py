@@ -17,7 +17,6 @@ from .const import (
     CONF_AI_TASK_ENTITY_ID,
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_MAX_TOKENS,
-    CONF_USER_NAME,
     DEFAULT_ENABLE_DEBUG_VIEWS,
     DEFAULT_MAX_TOKENS,
     DOMAIN,
@@ -46,7 +45,6 @@ def _build_schema(hass: HomeAssistant) -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(CONF_AI_TASK_ENTITY_ID, default=default_entity): str,
-            vol.Optional(CONF_USER_NAME, default=""): str,
             vol.Optional(CONF_MAX_TOKENS, default=DEFAULT_MAX_TOKENS): vol.All(
                 int, vol.Range(min=256, max=2_000_000)
             ),
@@ -80,7 +78,6 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
                     title="Kyber",
                     data={
                         CONF_AI_TASK_ENTITY_ID: entity_id,
-                        CONF_USER_NAME: user_input.get(CONF_USER_NAME, "").strip(),
                         CONF_MAX_TOKENS: user_input.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS),
                         CONF_ENABLE_DEBUG_VIEWS: bool(
                             user_input.get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)
@@ -112,7 +109,6 @@ class KyberOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         if user_input is not None:
             return self.async_create_entry(title="", data={
-                CONF_USER_NAME: user_input.get(CONF_USER_NAME, "").strip(),
                 CONF_ENABLE_DEBUG_VIEWS: bool(user_input.get(CONF_ENABLE_DEBUG_VIEWS, False)),
             })
 
@@ -122,13 +118,8 @@ class KyberOptionsFlow(OptionsFlow):
                 CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS
             ),
         )
-        current_user_name = self._config_entry.options.get(
-            CONF_USER_NAME,
-            self._config_entry.data.get(CONF_USER_NAME, ""),
-        )
 
         schema = vol.Schema({
-            vol.Optional(CONF_USER_NAME, default=current_user_name): str,
             vol.Optional(
                 CONF_ENABLE_DEBUG_VIEWS, default=current_debug
             ): bool,

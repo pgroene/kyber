@@ -252,7 +252,7 @@ def _build_home_state_by_area(
     return home_state, stats
 
 
-def _build_context(hass: HomeAssistant, user_name: str = "") -> tuple[str, dict[str, Any]]:
+def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
     """Build a compact context string with domain stats + area home state."""
     area_reg = ar.async_get(hass)
     entity_reg = er.async_get(hass)
@@ -313,9 +313,7 @@ def _build_context(hass: HomeAssistant, user_name: str = "") -> tuple[str, dict[
         "low_battery_count": area_stats["low_battery_count"],
     }
 
-    user_name_line = f"The user's name is {_sanitize_prompt_value(user_name)}." if user_name and user_name.strip() else ""
     context = SYSTEM_PROMPT_TEMPLATE.format(
-        user_name_line=user_name_line,
         home_summary=home_summary,
         area_list=area_list,
         notable_state_block=notable_state_block,

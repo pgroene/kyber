@@ -24,7 +24,7 @@ except ImportError:  # HA < 2025.2 (test environments)
     async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
         raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
 
-from .const import CONF_AI_TASK_ENTITY_ID, CONF_USER_NAME, DOMAIN, SYSTEM_PROMPT_TEMPLATE, AUTOMATION_EDITOR_GUIDANCE, LOVELACE_CARDS_REFERENCE
+from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, SYSTEM_PROMPT_TEMPLATE, AUTOMATION_EDITOR_GUIDANCE, LOVELACE_CARDS_REFERENCE
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
 from .analyzer import analyze_automations as _analyze_automations
 from .source import (
@@ -230,10 +230,7 @@ class KyberView(HomeAssistantView):
             bool(compacted_summary),
         )
 
-        context, context_stats = _build_context(
-            hass,
-            user_name=self._config.get(CONF_USER_NAME, ""),
-        )
+        context, context_stats = _build_context(hass)
 
         # Dashboard list from frontend (may be empty list if fetch failed)
         dash_lines = ["- Overview (default) — url_path: (default)"]
