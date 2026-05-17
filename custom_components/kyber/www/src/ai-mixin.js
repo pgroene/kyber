@@ -452,6 +452,7 @@ export const AIMixin = (Base) => class extends Base {
     const textOnly = fullText
       .replace(/```yaml[\s\S]*?```/gi, "")
       .replace(/```plan[\s\S]*?```/gi, "")
+      .replace(/^#{1,3}\s*[Pp]lan\s*\n\{[\s\S]*?\n\}\s*/gm, "") // strip bare ## Plan {...} blocks
       .trim();
     if (textOnly) {
       const msg = document.createElement("div");
@@ -459,6 +460,8 @@ export const AIMixin = (Base) => class extends Base {
 
       const hasBold = /\*\*[^*\n]+\*\*/.test(textOnly);
       const isQuestion = /\?/.test(textOnly);
+      // Only show suggestion chips when the AI is explicitly presenting a choice
+      const isChoiceContext = /\b(choose|pick|select|which (?:one|option)|what would you (?:like|prefer)|do you want|I can:?|options?:|confirm|proceed|sure)\b/i.test(textOnly);
 
       if (hasBold) {
         // Render **bold** words as inline adornment buttons
@@ -474,8 +477,9 @@ export const AIMixin = (Base) => class extends Base {
 
       history.appendChild(msg);
 
-      // Fallback chips for non-bold question responses (e.g. Yes/No or quoted options)
-      if (isQuestion && !hasBold && !plan) {
+      // Fallback chips for non-bold question responses (e.g. Yes/No or quoted options).
+      // Only shown when the AI is explicitly asking the user to pick an option.
+      if (isQuestion && isChoiceContext && !hasBold && !plan) {
         const chips = this._extractSuggestions(textOnly);
         if (chips.length >= 2) {
           const chipRow = document.createElement("div");
