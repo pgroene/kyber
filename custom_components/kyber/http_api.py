@@ -215,8 +215,10 @@ def _progress_complete(hass: HomeAssistant, request_id: str) -> None:
 _YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _CLARIFY_BLOCK_RE = re.compile(r"```clarify\s*([\s\S]+?)\s*```", re.IGNORECASE)
-# Match [TOOL_CALL: ...] tolerating O/0 confusion from small models
-_TOOL_CALL_RE = re.compile(r"\[T[O0]{2}L[_\-]CALL:\s*(\{[^]]*?\})\s*\]", re.DOTALL | re.IGNORECASE)
+# Match [TOOL_CALL: ...] tolerating O/0 confusion from small models.
+# NOTE: Use .*? (not [^]]*?) so JSON arrays inside the body (e.g. "fields": ["x"])
+# are matched correctly — [^]]* would stop at the first ] inside the JSON.
+_TOOL_CALL_RE = re.compile(r"\[T[O0]{2}L[_\-]CALL:\s*(\{.*?\})\s*\]", re.DOTALL | re.IGNORECASE)
 # Match [TOOL_RESULT: ...] with same tolerance
 _TOOL_RESULT_STRIP_RE = re.compile(r"\[T[O0]{2}L[_\-]RESULT:[^\]]*?\][^\n]*\n?", re.IGNORECASE)
 _TOOL_RESULT_ECHO_RE = re.compile(r"\[T[O0]{2}L[_\-]RESULT:[^\]]*?\][^\n]*\n?.*?(?=\n\n|\Z)", re.DOTALL | re.IGNORECASE)
