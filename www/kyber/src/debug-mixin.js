@@ -340,6 +340,17 @@ export const DebugMixin = (Base) => class extends Base {
       return;
     }
     const picked = snap.picked_knowledge || [];
+    const logs = Array.isArray(snap.logs) ? snap.logs : [];
+    const logLines = logs.map((rec) => {
+      const tsNum = Number(rec?.ts);
+      const ts = Number.isFinite(tsNum) && tsNum > 0
+        ? new Date(tsNum * 1000).toLocaleTimeString()
+        : "—";
+      const level = String(rec?.level || "?");
+      const logger = String(rec?.logger || "?");
+      const message = String(rec?.message || "");
+      return `${ts} ${level.padEnd(8, " ")} ${logger}: ${message}`;
+    });
     const toolRows = (snap.tool_log || []).map((t) => `
       <tr>
         <td><code>${this._escapeHtml(t.name || t.tool || "?")}</code></td>
@@ -381,6 +392,10 @@ export const DebugMixin = (Base) => class extends Base {
       <details class="debug-section">
         <summary><strong>🔧 Tool calls (${(snap.tool_log || []).length})</strong></summary>
         ${toolRows ? `<table class="dbg-tools"><thead><tr><th>tool</th><th>args</th><th>status</th><th>ms</th></tr></thead><tbody>${toolRows}</tbody></table>` : '<em>No tool calls.</em>'}
+      </details>
+      <details class="debug-section">
+        <summary><strong>🪵 Logs (${logs.length})</strong></summary>
+        ${logLines.length > 0 ? `<pre class="dbg-pre">${this._escapeHtml(logLines.join("\n"))}</pre>` : "<em>No logs captured for this turn.</em>"}
       </details>
       <details class="debug-section">
         <summary><strong>📜 Expanded system prompt</strong> (what the model actually saw)</summary>
