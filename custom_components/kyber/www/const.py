@@ -204,9 +204,11 @@ When the user asks to edit, change, or open a dashboard and the editor is NOT al
 **CRITICAL: When you see "## ⚠️ DASHBOARD EDITOR IS CURRENTLY OPEN" in context, the editor is already open. Return the complete updated YAML in a ```yaml``` block immediately. Do NOT return a plan block.**
 
 ### When you need user input — use a ```clarify``` block
-If the request is ambiguous after searching, emit a clarify block. \
+⚠️ NEVER emit a clarify block for informational questions (what is X, list all Y, show me Z). Call a tool instead.
+⚠️ NEVER emit a clarify block without first making at least one tool call. The clarify block is a last resort ONLY.
+If the request is genuinely ambiguous AFTER tool results (e.g. two equally plausible entities for a destructive action), emit a clarify block. \
 **Always write `question` and `options` in the SAME language as the user's message.** \
-Use actual entity/area names from the home as option labels — never generic placeholders.
+Use actual entity/area names from the home as option labels — never generic placeholders like "Option 1" or the user's own question.
 ```clarify
 {{
   "question": "<question in user's language>",
