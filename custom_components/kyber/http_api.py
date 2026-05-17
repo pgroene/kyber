@@ -2460,9 +2460,23 @@ class KyberKnowledgeDeepAnalyzeView(HomeAssistantView):
                 limit=limit,
                 force=force,
             )
-        except HomeAssistantError as err:
-            return self.json_message(f"AI error: {err}", HTTPStatus.SERVICE_UNAVAILABLE)
-        return self.json({"status": "ok", **result})
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Kyber deep_analyzer: unexpected error: %s", err, exc_info=True)
+            return self.json_message(f"Deep analyze error: {err}", HTTPStatus.INTERNAL_SERVER_ERROR)
+        try:
+            return self.json({"status": "ok", **result})
+        except Exception as ser_err:  # noqa: BLE001
+            _LOGGER.error("Kyber deep_analyzer: JSON serialization failed: %s", ser_err, exc_info=True)
+            # Return a safe minimal response so the frontend doesn't get a 500 text body
+            return self.json({
+                "status": "ok",
+                "analyzed": [],
+                "skipped_unchanged": result.get("skipped_unchanged", 0),
+                "errors": [{"kind": "?", "ident": "?", "error": f"serialization error: {ser_err}"}],
+                "candidates_total": result.get("candidates_total", 0),
+                "processed": result.get("processed", 0),
+                "limit": result.get("limit", limit),
+            })
 
 
 
