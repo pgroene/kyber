@@ -18,6 +18,35 @@ DEFAULT_ENABLE_DEBUG_VIEWS = False
 DEFAULT_RUN_INITIAL_ANALYZE = True
 DEFAULT_INITIAL_DEEP_LEARNING_RUNS = 10
 
+# Known model-family → typical max context window (tokens).
+# Used to pre-fill the max_tokens field in the config flow.
+MODEL_CONTEXT_SIZES: dict[str, int] = {
+    "llama3": 131072,
+    "llama2": 4096,
+    "mistral-nemo": 131072,
+    "mistral": 32768,
+    "mixtral": 32768,
+    "gemma3": 131072,
+    "gemma2": 8192,
+    "gemma": 8192,
+    "phi4": 131072,
+    "phi3.5": 131072,
+    "phi3": 131072,
+    "phi": 4096,
+    "qwen2.5": 131072,
+    "qwen2": 131072,
+    "qwen": 32768,
+    "deepseek-r1": 131072,
+    "deepseek": 65536,
+    "codellama": 16384,
+    "command-r": 131072,
+    "aya": 8192,
+    "solar": 4096,
+    "vicuna": 4096,
+    "openhermes": 32768,
+    "nous-hermes": 4096,
+}
+
 # Maximum characters allowed for the entity list section of the context prompt.
 # Approximately 8 K tokens at ~4 chars/token; reduce if your model has a smaller
 # context window, increase if you need more entities visible to the AI.

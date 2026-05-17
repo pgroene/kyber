@@ -23,7 +23,7 @@ from .const import (
 )
 from .analyzer import analyze_automations as _analyze_automations
 from . import deep_analyzer as _deep
-from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView
+from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -196,6 +196,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberKnowledgeAnalyzeView())
     hass.http.register_view(KyberKnowledgeDeepAnalyzeView(config))
     hass.http.register_view(KyberKnowledgeFeedbackView())
+    hass.http.register_view(KyberKnowledgePurgeView())
     hass.http.register_view(KyberDebugLastTurnView())
     hass.http.register_view(KyberDebugToolHistoryView())
     hass.http.register_view(KyberDebugStatusView())

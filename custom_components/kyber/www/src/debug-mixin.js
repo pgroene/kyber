@@ -39,9 +39,16 @@ export const DebugMixin = (Base) => class extends Base {
     const data = await resp.json();
     const entries = data.entries || [];
     const categories = data.categories || [];
-    const filtered = (this._debugMemFilter || "all") === "review"
+    let filtered = (this._debugMemFilter || "all") === "review"
       ? entries.filter((e) => e.needs_review)
       : entries;
+    const textQ = (this._debugMemText || "").toLowerCase().trim();
+    if (textQ) {
+      filtered = filtered.filter((e) => {
+        const blob = [e.content, e.subject, ...(e.tags || [])].join(" ").toLowerCase();
+        return blob.includes(textQ);
+      });
+    }
     const sortKey = this._debugMemSort || "updated";
     filtered.sort((a, b) => {
       if (sortKey === "hits") return (b.hits || 0) - (a.hits || 0);
@@ -72,12 +79,14 @@ export const DebugMixin = (Base) => class extends Base {
             <option value="rating" ${this._debugMemSort==='rating'?'selected':''}>Highest rating</option>
           </select>
         </label>
+        <input type="text" id="dbg-mem-text" placeholder="🔍 Filter text…" value="${this._escapeAttr(this._debugMemText||'')}" style="padding:4px 8px;border:1px solid var(--divider-color,#ccc);border-radius:4px;font-size:0.88em;min-width:140px">
         <button id="dbg-mem-add">➕ Add fact</button>
         <button id="dbg-mem-analyze">🔍 Analyze my home</button>
         <button id="dbg-mem-deep-analyze">🧬 Start deep analysis</button>
         <label style="display:flex;align-items:center;gap:4px;font-size:0.85em">
           <input type="checkbox" id="dbg-deep-force"> Re-analyze all
         </label>
+        <button id="dbg-mem-purge" style="color:#c00">🗑 Purge facts</button>
       </div>
       <div id="dbg-deep-status" style="display:none;margin:6px 0;padding:8px 10px;border-radius:6px;background:var(--secondary-background-color,#f0f0f0);font-size:0.88em;line-height:1.6"></div>
       <div class="kn-list">${filtered.map((e) => this._renderKnowledgeRow(e, categories)).join("")}</div>
@@ -88,6 +97,10 @@ export const DebugMixin = (Base) => class extends Base {
     });
     body.querySelector("#dbg-mem-sort").addEventListener("change", (e) => {
       this._debugMemSort = e.target.value;
+      this._renderDebugTab("memory");
+    });
+    body.querySelector("#dbg-mem-text").addEventListener("input", (e) => {
+      this._debugMemText = e.target.value;
       this._renderDebugTab("memory");
     });
     body.querySelector("#dbg-mem-add").addEventListener("click", () => this._showKnowledgeEditor(null, categories, null));
@@ -113,9 +126,198 @@ export const DebugMixin = (Base) => class extends Base {
       this._startDeepAnalysisPolling(body);
     });
 
+    body.querySelector("#dbg-mem-purge").addEventListener("click", () => {
+      this._renderPurgeFacts(body);
+    });
+
     // Show status if a job is already running / recently finished
     this._refreshDeepAnalysisStatus(body);
     this._wireKnowledgeRowEvents(body, filtered, categories);
+  }
+
+  async _renderPurgeFacts(body) {
+    body.innerHTML = "<em>Loading facts…</em>";
+    const token = this._hass.auth.data.access_token;
+    const resp = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+    const data = await resp.json();
+    this._purgeAllEntries = data.entries || [];
+    this._purgeSelected = new Set();
+    this._purgeSort = this._purgeSort || "updated";
+    this._purgeText = this._purgeText || "";
+    this._renderPurgeFacts_withData(body);
+  }
+
+  _renderPurgeFacts_withData(body) {
+    const all = this._purgeAllEntries || [];
+    const textQ = (this._purgeText || "").toLowerCase().trim();
+    let filtered = all.filter((e) => {
+      if (!textQ) return true;
+      const blob = [e.content, e.subject, ...(e.tags || [])].join(" ").toLowerCase();
+      return blob.includes(textQ);
+    });
+    const sort = this._purgeSort || "updated";
+    filtered.sort((a, b) => {
+      if (sort === "hits") return (b.hits || 0) - (a.hits || 0);
+      if (sort === "confidence_asc") return (a.confidence || 0) - (b.confidence || 0);
+      if (sort === "confidence_desc") return (b.confidence || 0) - (a.confidence || 0);
+      if (sort === "rating") return (b.user_rating || 0) - (a.user_rating || 0);
+      return (b.updated || 0) - (a.updated || 0);
+    });
+    const sel = this._purgeSelected;
+    const selCount = filtered.filter((e) => sel.has(e.id)).length;
+
+    // Group sources and categories for quick-select
+    const sources = [...new Set(all.map((e) => e.source || "unknown"))].sort();
+    const cats = [...new Set(all.map((e) => e.category || "general"))].sort();
+
+    const rows = filtered.map((e) => {
+      const checked = sel.has(e.id) ? "checked" : "";
+      const conf = e.confidence != null ? `${Math.round(e.confidence * 100)}%` : "—";
+      const stars = e.user_rating ? "★".repeat(e.user_rating) : "—";
+      const ago = e.updated ? this._relativeTime(e.updated) : "";
+      const src = this._escapeHtml(e.source || "");
+      const cat = this._escapeHtml(e.category || "");
+      return `
+        <label class="purge-row${sel.has(e.id) ? " purge-row--sel" : ""}" style="display:flex;align-items:flex-start;gap:8px;padding:6px 4px;border-bottom:1px solid var(--divider-color,#eee);cursor:pointer">
+          <input type="checkbox" class="purge-cb" data-id="${this._escapeAttr(e.id)}" ${checked} style="margin-top:3px;flex-shrink:0">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:0.88em;line-height:1.4">${this._escapeHtml(e.content || "")}</div>
+            <div style="font-size:0.78em;opacity:.65;margin-top:2px">
+              <span class="kn-tag">${cat}</span>
+              <span class="kn-tag">${src}</span>
+              <span>conf: ${conf}</span> · <span>${stars}</span> · <span>${e.hits || 0} hits</span> · <span>${ago}</span>
+            </div>
+          </div>
+        </label>`;
+    }).join("");
+
+    body.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <button id="purge-back" style="font-size:0.9em">← Back</button>
+        <strong style="font-size:1em">🗑 Purge facts</strong>
+        <span style="font-size:0.85em;opacity:.7">${all.length} total</span>
+      </div>
+
+      <div class="debug-toolbar" style="margin-bottom:6px">
+        <input type="text" id="purge-text" placeholder="🔍 Filter text…" value="${this._escapeAttr(this._purgeText||'')}"
+          style="padding:4px 8px;border:1px solid var(--divider-color,#ccc);border-radius:4px;font-size:0.88em;min-width:150px">
+        <label>Sort
+          <select id="purge-sort">
+            <option value="updated" ${sort==='updated'?'selected':''}>Most recent</option>
+            <option value="hits" ${sort==='hits'?'selected':''}>Most hits</option>
+            <option value="confidence_asc" ${sort==='confidence_asc'?'selected':''}>Lowest confidence</option>
+            <option value="confidence_desc" ${sort==='confidence_desc'?'selected':''}>Highest confidence</option>
+            <option value="rating" ${sort==='rating'?'selected':''}>Highest rating</option>
+          </select>
+        </label>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;font-size:0.83em">
+        <span style="opacity:.7">Quick-select:</span>
+        ${sources.map((s) => {
+          const n = all.filter((e) => e.source === s).length;
+          return `<button class="qs-source" data-source="${this._escapeAttr(s)}" style="padding:2px 7px;font-size:0.9em">${this._escapeHtml(s)} (${n})</button>`;
+        }).join("")}
+        <button class="qs-low-conf" style="padding:2px 7px;font-size:0.9em">Confidence &lt; 60%</button>
+        <button id="purge-sel-all" style="padding:2px 7px;font-size:0.9em">Select all visible</button>
+        <button id="purge-desel-all" style="padding:2px 7px;font-size:0.9em">Deselect all</button>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <button id="purge-do" style="background:#c00;color:#fff;padding:5px 14px;border-radius:4px;border:none;cursor:pointer;font-weight:600" ${selCount===0?'disabled':''}>
+          🗑 Delete selected (${selCount})
+        </button>
+        <span id="purge-msg" style="font-size:0.85em;opacity:.8"></span>
+      </div>
+
+      <div id="purge-list" style="max-height:60vh;overflow-y:auto">${rows}</div>
+    `;
+
+    // Back
+    body.querySelector("#purge-back").addEventListener("click", () => {
+      this._purgeText = "";
+      this._renderDebugTab("memory");
+    });
+
+    // Text filter
+    body.querySelector("#purge-text").addEventListener("input", (ev) => {
+      this._purgeText = ev.target.value;
+      this._renderPurgeFacts_withData(body);
+    });
+
+    // Sort
+    body.querySelector("#purge-sort").addEventListener("change", (ev) => {
+      this._purgeSort = ev.target.value;
+      this._renderPurgeFacts_withData(body);
+    });
+
+    // Checkboxes
+    body.querySelectorAll(".purge-cb").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const id = cb.dataset.id;
+        if (cb.checked) sel.add(id); else sel.delete(id);
+        this._renderPurgeFacts_withData(body);
+      });
+    });
+
+    // Quick-select by source
+    body.querySelectorAll(".qs-source").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const src = btn.dataset.source;
+        all.filter((e) => e.source === src).forEach((e) => sel.add(e.id));
+        this._renderPurgeFacts_withData(body);
+      });
+    });
+
+    // Quick-select low confidence
+    body.querySelector(".qs-low-conf").addEventListener("click", () => {
+      all.filter((e) => (e.confidence || 0) < 0.6).forEach((e) => sel.add(e.id));
+      this._renderPurgeFacts_withData(body);
+    });
+
+    // Select / deselect all visible
+    body.querySelector("#purge-sel-all").addEventListener("click", () => {
+      filtered.forEach((e) => sel.add(e.id));
+      this._renderPurgeFacts_withData(body);
+    });
+    body.querySelector("#purge-desel-all").addEventListener("click", () => {
+      sel.clear();
+      this._renderPurgeFacts_withData(body);
+    });
+
+    // Delete selected
+    body.querySelector("#purge-do").addEventListener("click", () => this._doPurgeSelected(body, filtered));
+  }
+
+  async _doPurgeSelected(body, filtered) {
+    const sel = this._purgeSelected;
+    const ids = filtered.filter((e) => sel.has(e.id)).map((e) => e.id);
+    if (!ids.length) return;
+    const msg = body.querySelector("#purge-msg");
+    const btn = body.querySelector("#purge-do");
+    if (!confirm(`Delete ${ids.length} fact(s)? This cannot be undone.`)) return;
+    if (btn) btn.disabled = true;
+    if (msg) msg.textContent = "Deleting…";
+    try {
+      const token = this._hass.auth.data.access_token;
+      const r = await fetch("/api/kyber/knowledge/purge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ids }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.message || r.statusText);
+      sel.clear();
+      // Reload full list
+      const resp2 = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+      const data2 = await resp2.json();
+      this._purgeAllEntries = data2.entries || [];
+      if (msg) msg.textContent = `✅ Deleted ${j.deleted}`;
+      this._renderPurgeFacts_withData(body);
+    } catch (err) {
+      if (msg) msg.textContent = `❌ ${err.message}`;
+      if (btn) btn.disabled = false;
+    }
   }
 
   async _renderDebugLastTurn(body) {

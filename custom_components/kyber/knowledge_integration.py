@@ -66,6 +66,7 @@ async def _async_background_deep_analysis(
                 kinds=kinds,
                 limit=limit,
                 force=force,
+                prompt_variant=i,
             )
             n_analyzed = len(result.get("analyzed", []))
             n_facts = sum(len(a.get("fact_ids", [])) for a in result.get("analyzed", []))
@@ -80,8 +81,9 @@ async def _async_background_deep_analysis(
             if result.get("analyzed"):
                 last = result["analyzed"][-1]
                 _DEEP_JOB["current_item"] = f"{last.get('kind','?')}: {last.get('ident','?')}"
-            # Stop early if nothing left to analyze (only meaningful when force=False)
-            if not force and result.get("processed", 0) == 0:
+            # Stop early when force=False and every item was skipped
+            # (all lenses up to this pass have already been applied)
+            if not force and result.get("processed", 0) == 0 and result.get("skipped_unchanged", 0) > 0:
                 break
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Kyber background deep analysis failed: %s", err)
@@ -382,6 +384,40 @@ class KyberKnowledgeDeepAnalyzeView(HomeAssistantView):
                 "processed": result.get("processed", 0),
                 "limit": result.get("limit", limit),
             })
+
+
+class KyberKnowledgePurgeView(HomeAssistantView):
+    """Bulk-delete knowledge entries by ID.
+
+    POST /api/kyber/knowledge/purge
+      body: {ids: [entry_id, ...]}
+      response: {deleted: N, not_found: N}
+    """
+
+    url = "/api/kyber/knowledge/purge"
+    name = "api:kyber:knowledge:purge"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        kstore = get_knowledge_store(hass)
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
+        ids = body.get("ids")
+        if not isinstance(ids, list) or not ids:
+            return self.json_message("'ids' must be a non-empty list", HTTPStatus.BAD_REQUEST)
+        deleted = 0
+        not_found = 0
+        for entry_id in ids:
+            ok = await kstore.async_delete(str(entry_id))
+            if ok:
+                deleted += 1
+            else:
+                not_found += 1
+        _LOGGER.info("Kyber knowledge purge: deleted %d, not found %d", deleted, not_found)
+        return self.json({"status": "ok", "deleted": deleted, "not_found": not_found})
 
 
 class KyberKnowledgeFeedbackView(HomeAssistantView):

@@ -74,7 +74,7 @@ from .action_execution import (
 from .knowledge_integration import (
     _FACT_EXTRACTION_PROMPT, _try_extract_learned_fact,
     KyberKnowledgeView, KyberKnowledgeAnalyzeView,
-    KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView,
+    KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView,
 )
 from .api_utilities import (
     _PROGRESS_KEY, _PROGRESS_MAX_AGE, _PROGRESS_MAX_ENTRIES,
