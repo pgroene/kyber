@@ -25,6 +25,8 @@ except ImportError:  # HA < 2025.2 (test environments)
         raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
 
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, SYSTEM_PROMPT_TEMPLATE
+from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
+from .analyzer import analyze_automations as _analyze_automations
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -449,6 +451,11 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "list_areas": "get_areas",
         "list_labels": "get_labels",
         "get_entities_by_label": "list_entities_by_label",
+        "get_knowledge": "search_knowledge",
+        "list_knowledge": "search_knowledge",
+        "knowledge": "search_knowledge",
+        "entity_notes": "get_entity_notes",
+        "get_notes": "get_entity_notes",
     }
     if name in _ALIASES:
         _LOGGER.info("Kyber: tool alias %s → %s", name, _ALIASES[name])
@@ -664,6 +671,55 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         labels = label_reg.async_list_labels()
         return json.dumps({lbl.label_id: lbl.name for lbl in labels})
 
+    # ── Knowledge / memory tools ──────────────────────────────────────────
+    # Searches the learned-knowledge store for relevant facts (area aliases,
+    # entity notes, procedures, device chains). Use when the user uses a
+    # name/term that doesn't match HA's registries, or when looking for
+    # special handling instructions.
+    if name == "search_knowledge":
+        kstore = get_knowledge_store(hass)
+        query = str(call.get("query", "")).strip()
+        category = call.get("category")
+        subject = str(call.get("subject", "")).strip()
+        limit_arg = call.get("limit", 10)
+        try:
+            limit = max(1, min(50, int(limit_arg)))
+        except (TypeError, ValueError):
+            limit = 10
+        # Caller must ensure store was loaded before; if not, return empty.
+        if not kstore._loaded:
+            return json.dumps({"entries": [], "_note": "knowledge store not yet loaded"})
+        entries = kstore.search_sync(query=query, category=category, subject=subject, limit=limit)
+        return json.dumps({"entries": entries, "count": len(entries)})
+
+    if name == "get_entity_notes":
+        kstore = get_knowledge_store(hass)
+        eid = str(call.get("entity_id", "")).strip()
+        if not eid:
+            return json.dumps({"error": "Missing 'entity_id' argument"})
+        if not kstore._loaded:
+            return json.dumps({"entries": [], "_note": "knowledge store not yet loaded"})
+        entries = kstore.get_for_entity_sync(eid)
+        return json.dumps({"entity_id": eid, "entries": entries, "count": len(entries)})
+
+    if name == "analyze_automations":
+        # Scan existing automations/scenes/scripts for inferred relationships.
+        # Read-only — returns proposed knowledge entries (not saved). The
+        # model can then propose `add_knowledge` actions for ones it finds
+        # useful, which the user approves.
+        try:
+            result = _analyze_automations(hass)
+        except Exception as err:  # noqa: BLE001
+            return json.dumps({"error": f"Analysis failed: {err}"})
+        # Cap the proposals returned to the model — could be 100s of entries
+        proposals = result.get("proposals", [])
+        if len(proposals) > 30:
+            proposals = proposals[:30]
+            result["_truncated"] = True
+            result["_total_proposals"] = len(result.get("proposals", []))
+        result["proposals"] = proposals
+        return json.dumps(result)
+
     # call_service / assign_area / etc. are ACTIONS that belong in a plan
     # block, not [TOOL_CALL:]s. If the model tries to use them as a tool,
     # return a guidance error so it stops and emits a plan instead.
@@ -671,6 +727,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "call_service", "assign_area", "rename_entity", "assign_label",
         "turn_on", "turn_off", "toggle", "service_call",
         "create_area", "delete_area", "rename_area",
+        "add_knowledge", "update_knowledge", "delete_knowledge",
     }
     if name in _ACTION_AS_TOOL:
         return json.dumps({
@@ -686,6 +743,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "list_entities_by_domain", "get_entity_state", "get_area_entities",
         "list_entities_by_label", "search_entities", "list_entities_without_area",
         "get_areas", "get_labels",
+        "search_knowledge", "get_entity_notes", "analyze_automations",
     ]
     return json.dumps({
         "error": f"Unknown tool '{name}'",
@@ -775,6 +833,9 @@ _CONFIG_CHANGING_ACTION_TYPES: set[str] = {
     "update_dashboard",
     "create_dashboard",
     "delete_dashboard",
+    "add_knowledge",
+    "update_knowledge",
+    "delete_knowledge",
 }
 
 # Domain.service combinations that are considered DESTRUCTIVE runtime actions
@@ -1075,6 +1136,32 @@ class KyberView(HomeAssistantView):
             instructions = instructions[:_MAX_INSTRUCTIONS_CHARS]
 
         entity_id: str = self._config[CONF_AI_TASK_ENTITY_ID]
+
+        # Load knowledge store and inject relevant entries into the instructions.
+        kstore = get_knowledge_store(hass)
+        await kstore.async_load()
+        try:
+            relevant_knowledge = await kstore.async_pick_relevant(prompt, max_entries=8)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Kyber: knowledge lookup failed: %s", err)
+            relevant_knowledge = []
+        if relevant_knowledge:
+            kn_lines = ["", "## Learned knowledge (from previous interactions)"]
+            kn_lines.append(
+                "These facts were saved from prior conversations. Use them when relevant; "
+                "they override default assumptions. If a fact looks wrong, ask the user."
+            )
+            for entry in relevant_knowledge:
+                cat = entry.get("category", "general")
+                subj = entry.get("subject", "")
+                content = entry.get("content", "")
+                tags = ",".join(entry.get("tags", []) or [])
+                kn_lines.append(
+                    f"- [{cat}]{(' '+subj) if subj else ''}: {content}"
+                    + (f"  (tags: {tags})" if tags else "")
+                )
+            instructions = instructions + "\n" + "\n".join(kn_lines) + "\n"
+            await kstore.async_record_hit([e["id"] for e in relevant_knowledge])
 
         # Tool-calling loop — the AI may request live HA data via [TOOL_CALL: {...}]
         # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
@@ -1506,6 +1593,29 @@ class KyberView(HomeAssistantView):
 
         _progress_complete(hass, request_id)
         plan_block = _annotate_plan_approval(plan_block)
+        # Auto-rate: detect negative cues in the response and auto-flag any
+        # knowledge entries that were injected this turn. The user can
+        # override via the 👍/👎 buttons on the message.
+        knowledge_used_ids = [e["id"] for e in (relevant_knowledge or [])]
+        auto_rating: int | None = None
+        if knowledge_used_ids:
+            low = (response_text or "").lower()
+            negative_cues = (
+                "i couldn't find", "couldn't find", "no entities found",
+                "i don't know", "i'm not sure", "unable to find",
+                "no matching", "doesn't exist", "i can't find",
+            )
+            if any(c in low for c in negative_cues):
+                try:
+                    await kstore.async_apply_feedback(
+                        knowledge_used_ids,
+                        rating=2,
+                        notes="auto: response contained negative cue",
+                        auto=True,
+                    )
+                    auto_rating = 2
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning("Kyber: auto-rate failed: %s", err)
         return self.json({
             "response": response_text,
             "yaml_blocks": yaml_blocks,
@@ -1513,6 +1623,8 @@ class KyberView(HomeAssistantView):
             "clarify": clarify_block,
             "context_stats": context_stats,
             "tool_log": tool_log,
+            "knowledge_used": knowledge_used_ids,
+            "auto_rating": auto_rating,
         })
 
 
@@ -1539,6 +1651,176 @@ class KyberProgressView(HomeAssistantView):
             "events": new_events,
             "status": entry.get("status", "running"),
             "next": len(events),
+        })
+
+
+class KyberKnowledgeView(HomeAssistantView):
+    """CRUD endpoint for learned knowledge entries.
+
+    GET    /api/kyber/knowledge            → list all
+    GET    /api/kyber/knowledge?q=...      → search
+    POST   /api/kyber/knowledge            → add (body: category, content, ...)
+    DELETE /api/kyber/knowledge?id=ENTRYID → delete
+    """
+
+    url = "/api/kyber/knowledge"
+    name = "api:kyber:knowledge"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        kstore = get_knowledge_store(hass)
+        q = request.query.get("q", "").strip()
+        category = request.query.get("category", "").strip() or None
+        subject = request.query.get("subject", "").strip()
+        try:
+            limit = max(1, min(500, int(request.query.get("limit", "200"))))
+        except ValueError:
+            limit = 200
+        if q or category or subject:
+            entries = await kstore.async_search(query=q, category=category, subject=subject, limit=limit)
+        else:
+            entries = await kstore.async_all()
+        needs_review = request.query.get("needs_review", "").strip().lower()
+        if needs_review in ("1", "true", "yes"):
+            entries = [e for e in entries if e.get("needs_review")]
+        return self.json({
+            "entries": entries,
+            "count": len(entries),
+            "categories": sorted(KNOWLEDGE_CATEGORIES),
+            "needs_review_count": sum(1 for e in await kstore.async_all() if e.get("needs_review")),
+        })
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        kstore = get_knowledge_store(hass)
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
+        # Update vs create
+        entry_id = body.get("id") or body.get("entry_id")
+        if entry_id:
+            # Rating-only update is allowed even without content
+            changes = {k: v for k, v in body.items()
+                       if k in ("category", "subject", "content", "tags",
+                                "confidence", "source", "provenance",
+                                "user_rating", "needs_review")}
+            updated = await kstore.async_update(str(entry_id), **changes)
+            if not updated:
+                return self.json_message(f"Entry '{entry_id}' not found", HTTPStatus.NOT_FOUND)
+            return self.json({"status": "ok", "entry": updated})
+        content = str(body.get("content", "")).strip()
+        if not content:
+            return self.json_message("Missing 'content' field", HTTPStatus.BAD_REQUEST)
+        entry = await kstore.async_add(
+            category=str(body.get("category", "general")),
+            content=content,
+            subject=str(body.get("subject", "")),
+            tags=list(body.get("tags", []) or []),
+            source=str(body.get("source", "user")),
+            confidence=float(body.get("confidence", 1.0)),
+            provenance=str(body.get("provenance", "Added manually by user")),
+            user_rating=int(body.get("user_rating", 0)),
+        )
+        return self.json({"status": "ok", "entry": entry})
+
+    async def delete(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        kstore = get_knowledge_store(hass)
+        entry_id = request.query.get("id", "").strip()
+        if not entry_id:
+            return self.json_message("Missing 'id' query parameter", HTTPStatus.BAD_REQUEST)
+        ok = await kstore.async_delete(entry_id)
+        if not ok:
+            return self.json_message(f"Entry '{entry_id}' not found", HTTPStatus.NOT_FOUND)
+        return self.json({"status": "ok"})
+
+
+class KyberKnowledgeAnalyzeView(HomeAssistantView):
+    """Run the automation/scene/script analyzer and return inferred proposals.
+
+    GET  /api/kyber/knowledge/analyze         → return proposals (not saved)
+    POST /api/kyber/knowledge/analyze         → body: {entry_indices: [...], save: true}
+                                                save selected proposals
+    """
+
+    url = "/api/kyber/knowledge/analyze"
+    name = "api:kyber:knowledge:analyze"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        result = _analyze_automations(hass)
+        return self.json(result)
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        kstore = get_knowledge_store(hass)
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
+        proposals = body.get("proposals") or []
+        if not isinstance(proposals, list):
+            return self.json_message("Field 'proposals' must be a list", HTTPStatus.BAD_REQUEST)
+        saved = []
+        for p in proposals:
+            if not isinstance(p, dict) or not p.get("content"):
+                continue
+            entry = await kstore.async_add(
+                category=str(p.get("category", "general")),
+                content=str(p.get("content", "")),
+                subject=str(p.get("subject", "")),
+                tags=list(p.get("tags", []) or []),
+                source=str(p.get("source", "inferred")),
+                confidence=float(p.get("confidence", 0.5)),
+                provenance=str(p.get("provenance", "Inferred from automation/scene/script analysis")),
+            )
+            saved.append(entry["id"])
+        return self.json({"status": "ok", "saved": saved, "count": len(saved)})
+
+
+class KyberKnowledgeFeedbackView(HomeAssistantView):
+    """Record user (or auto) feedback on a chat response, applied to the
+    knowledge entries that were injected into that turn's context.
+
+    POST /api/kyber/knowledge/feedback
+      body: {rating: 1-5, knowledge_ids: [...], notes?, auto?}
+    """
+
+    url = "/api/kyber/knowledge/feedback"
+    name = "api:kyber:knowledge:feedback"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        kstore = get_knowledge_store(hass)
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
+        try:
+            rating = int(body.get("rating", 0))
+        except (TypeError, ValueError):
+            return self.json_message("'rating' must be 1-5", HTTPStatus.BAD_REQUEST)
+        if rating < 1 or rating > 5:
+            return self.json_message("'rating' must be 1-5", HTTPStatus.BAD_REQUEST)
+        ids = body.get("knowledge_ids") or []
+        if not isinstance(ids, list):
+            return self.json_message("'knowledge_ids' must be a list", HTTPStatus.BAD_REQUEST)
+        notes = str(body.get("notes", ""))[:200]
+        auto = bool(body.get("auto", False))
+        updated = await kstore.async_apply_feedback(
+            [str(i) for i in ids if i],
+            rating=rating,
+            notes=notes,
+            auto=auto,
+        )
+        return self.json({
+            "status": "ok",
+            "updated": [e["id"] for e in updated],
+            "count": len(updated),
         })
 
 
@@ -1927,6 +2209,50 @@ class KyberExecuteView(HomeAssistantView):
                     "status": "ok", "type": action_type,
                     "tool_result": json.loads(tool_result),
                 })
+                continue
+
+            # ── Knowledge management actions ───────────────────────────────
+            if action_type in ("add_knowledge", "update_knowledge", "delete_knowledge"):
+                kstore = get_knowledge_store(hass)
+                try:
+                    if action_type == "add_knowledge":
+                        entry = await kstore.async_add(
+                            category=str(action.get("category", "general")),
+                            content=str(action.get("content", "")),
+                            subject=str(action.get("subject", "")),
+                            tags=list(action.get("tags", []) or []),
+                            source=str(action.get("source", "user")),
+                            confidence=float(action.get("confidence", 1.0)),
+                        )
+                        results.append({
+                            "status": "ok", "type": action_type, "entry_id": entry["id"],
+                            "undo_action": {
+                                "type": "delete_knowledge", "entry_id": entry["id"],
+                                "current_state": entry.get("content", "")[:60],
+                                "new_state": "(deleted)",
+                                "description": "Remove learned knowledge entry",
+                            },
+                        })
+                    elif action_type == "update_knowledge":
+                        entry_id = str(action.get("entry_id", ""))
+                        changes = {k: v for k, v in action.items()
+                                   if k in ("category", "subject", "content", "tags", "confidence", "source")}
+                        updated = await kstore.async_update(entry_id, **changes)
+                        if updated:
+                            results.append({"status": "ok", "type": action_type, "entry_id": entry_id})
+                        else:
+                            results.append({"status": "error", "message": f"Knowledge entry '{entry_id}' not found"})
+                    elif action_type == "delete_knowledge":
+                        entry_id = str(action.get("entry_id", ""))
+                        ok = await kstore.async_delete(entry_id)
+                        results.append({
+                            "status": "ok" if ok else "error", "type": action_type,
+                            "entry_id": entry_id,
+                            **({"message": f"Knowledge entry '{entry_id}' not found"} if not ok else {}),
+                        })
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.error("Knowledge action %s failed: %s", action_type, err)
+                    results.append({"status": "error", "message": str(err)})
                 continue
 
             # ── Area management actions (no entity_id needed) ──────────────
