@@ -287,14 +287,16 @@ The system will execute it and call you again with the result.
 
 All entity-listing tools support an optional `state` argument to filter results server-side. Use it whenever the user asks about a specific state — it makes responses much smaller and faster.
 
+All entity tools also support an optional `fields` argument: a list of property names to return PER ENTITY. Use this to keep responses tiny — request only what you need.
+
 | Tool | Required args | Optional args | Example |
 |------|--------------|--------------|---------|
-| `list_entities_by_domain` | `domain` | `state` | [TOOL_CALL: {{"name": "list_entities_by_domain", "domain": "light", "state": "on"}}] |
-| `get_entity_state` | `entity_id` | _(none)_ | [TOOL_CALL: {{"name": "get_entity_state", "entity_id": "light.REPLACE_WITH_REAL_ID"}}] |
-| `get_area_entities` | `area` | `state`, `domain` | [TOOL_CALL: {{"name": "get_area_entities", "area": "living room", "state": "on"}}] |
-| `list_entities_by_label` | `label` | `state` | [TOOL_CALL: {{"name": "list_entities_by_label", "label": "outdoor", "state": "on"}}] |
-| `search_entities` | `query` | `state` | [TOOL_CALL: {{"name": "search_entities", "query": "kitchen", "state": "off"}}] |
-| `list_entities_without_area` | _(none)_ | `domain`, `state` | [TOOL_CALL: {{"name": "list_entities_without_area", "domain": "light"}}] |
+| `list_entities_by_domain` | `domain` | `state`, `fields` | [TOOL_CALL: {{"name": "list_entities_by_domain", "domain": "light", "state": "on", "fields": ["name", "state", "brightness"]}}] |
+| `get_entity_state` | `entity_id` | `fields` | [TOOL_CALL: {{"name": "get_entity_state", "entity_id": "light.REPLACE_WITH_REAL_ID", "fields": ["state", "brightness"]}}] |
+| `get_area_entities` | `area` | `state`, `domain`, `fields` | [TOOL_CALL: {{"name": "get_area_entities", "area": "living room", "state": "on", "fields": ["name", "state"]}}] |
+| `list_entities_by_label` | `label` | `state`, `fields` | [TOOL_CALL: {{"name": "list_entities_by_label", "label": "outdoor", "state": "on"}}] |
+| `search_entities` | `query` | `state`, `fields` | [TOOL_CALL: {{"name": "search_entities", "query": "kitchen", "state": "off"}}] |
+| `list_entities_without_area` | _(none)_ | `domain`, `state`, `fields` | [TOOL_CALL: {{"name": "list_entities_without_area", "domain": "light"}}] |
 | `get_areas` | _(none)_ | _(none)_ | [TOOL_CALL: {{"name": "get_areas"}}] |
 | `get_labels` | _(none)_ | _(none)_ | [TOOL_CALL: {{"name": "get_labels"}}] |
 
@@ -303,6 +305,15 @@ All entity-listing tools support an optional `state` argument to filter results 
 - "open doors" → `{{"name": "list_entities_by_domain", "domain": "binary_sensor", "state": "on"}}`
 - "unavailable devices" → `{{"name": "list_entities_by_domain", "domain": "switch", "state": "unavailable"}}`
 - Multiple states: `"state": ["on", "playing"]`
+
+**`fields` examples (use to shrink responses):**
+- Just whether things are on: `"fields": ["state"]`
+- Include area: `"fields": ["name", "state", "area"]`
+- Brightness check: `"fields": ["state", "brightness"]`
+- Temperatures: `"fields": ["state", "current_temperature", "temperature"]`
+- Synthetic keys: `name`, `state`, `domain`, `area`, `area_id`
+- Any other key is looked up in the entity's attributes (e.g. `brightness`, `rgb_color`, `current_temperature`, `volume_level`).
+- **When omitted, tools return the minimal default `{{name, state}}` projection — only ask for more fields when you actually need them.**
 
 ⚠️ ONLY use the tool names listed above. Tool names like `list_entities_by_area`, `list_areas`, `get_state` do NOT exist — use the exact names from the table.
 

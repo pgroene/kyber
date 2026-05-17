@@ -464,6 +464,54 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
 
     state_filter = call.get("state")
 
+    # `fields` lets the model request only specific properties per entity to
+    # keep responses small. Accepts a list of strings. Synthetic keys:
+    #   "name", "state", "domain", "area", "area_id"
+    # Any other key is looked up in state.attributes (e.g. "brightness",
+    # "current_temperature", "rgb_color"). When omitted, the tool uses its
+    # default minimal projection ({name, state}).
+    fields_raw = call.get("fields")
+    fields_set: set[str] | None = None
+    if isinstance(fields_raw, list) and fields_raw:
+        fields_set = {str(f).strip() for f in fields_raw if str(f).strip()}
+    elif isinstance(fields_raw, str) and fields_raw.strip():
+        fields_set = {f.strip() for f in fields_raw.split(",") if f.strip()}
+
+    def _project_entity(eid: str, st, entry=None) -> dict:
+        """Return a dict for an entity using the active fields_set, or the
+        default {name, state} projection when no fields were requested.
+        """
+        attrs = st.attributes if st else {}
+        domain = eid.split(".")[0]
+        if fields_set is None:
+            return {
+                "name": attrs.get("friendly_name", eid),
+                "state": st.state if st else "unknown",
+            }
+        out: dict = {}
+        for f in fields_set:
+            if f in ("entity_id", "id"):
+                out["entity_id"] = eid
+            elif f == "name":
+                out["name"] = attrs.get("friendly_name", eid)
+            elif f == "state":
+                out["state"] = st.state if st else "unknown"
+            elif f == "domain":
+                out["domain"] = domain
+            elif f in ("area", "area_name", "area_id"):
+                resolved_entry = entry if entry is not None else entity_reg.async_get(eid)
+                aid = resolved_entry.area_id if resolved_entry else None
+                if f == "area_id":
+                    out["area_id"] = aid
+                else:
+                    aobj = area_reg.async_get_area(aid) if aid else None
+                    out["area"] = aobj.name if aobj else None
+            else:
+                # Look up in attributes (drop None values to save bytes)
+                if f in attrs and attrs[f] is not None:
+                    out[f] = attrs[f]
+        return out
+
     if name == "list_entities_by_domain":
         domain = call.get("domain", "").strip().lower()
         if not domain:
@@ -474,10 +522,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
                 continue
             if not _state_matches(state, state_filter):
                 continue
-            results[state.entity_id] = {
-                "name": state.attributes.get("friendly_name", state.entity_id),
-                "state": state.state,
-            }
+            results[state.entity_id] = _project_entity(state.entity_id, state)
         if not results:
             msg = f"No entities found for domain '{domain}'"
             if state_filter:
@@ -498,13 +543,19 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         if area_id:
             area_obj = area_reg.async_get_area(area_id)
             area_name = area_obj.name if area_obj else None
-        # Trim attributes: drop noisy metadata (supported_features, effect_list,
-        # supported_color_modes, etc.) that bloat the response and confuse small
-        # models. Keep only useful runtime attributes.
+        # If the caller specified `fields`, return ONLY those attributes
+        # (synthetic keys: name, state, area, area_id, domain — anything else
+        # is looked up in state.attributes).
+        if fields_set is not None:
+            return json.dumps({
+                "entity_id": entity_id,
+                **_project_entity(entity_id, state, entry),
+            })
+        # Default: trim noisy metadata
         _DROP_ATTRS = {
             "supported_features", "supported_color_modes", "effect_list",
             "min_mireds", "max_mireds", "min_color_temp_kelvin", "max_color_temp_kelvin",
-            "hs_color", "xy_color",  # keep rgb_color, drop the redundant ones
+            "hs_color", "xy_color",
             "icon", "entity_picture", "device_class", "state_class",
             "attribution", "assumed_state", "editable",
             "fan_modes", "swing_modes", "preset_modes", "hvac_modes",
@@ -543,11 +594,11 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             state = hass.states.get(entry.entity_id)
             if not _state_matches(state, state_filter):
                 continue
-            results[entry.entity_id] = {
-                "name": state.attributes.get("friendly_name", entry.entity_id) if state else entry.original_name,
-                "state": state.state if state else "unknown",
-                "domain": entry.entity_id.split(".")[0],
-            }
+            projection = _project_entity(entry.entity_id, state, entry)
+            # Preserve legacy default 'domain' key when no explicit fields requested
+            if fields_set is None:
+                projection["domain"] = entry.entity_id.split(".")[0]
+            results[entry.entity_id] = projection
         return json.dumps({"area": area_obj.name, "entities": results})
 
     if name == "list_entities_by_label":
@@ -568,10 +619,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             state = hass.states.get(entry.entity_id)
             if not _state_matches(state, state_filter):
                 continue
-            results[entry.entity_id] = {
-                "name": state.attributes.get("friendly_name", entry.entity_id) if state else entry.original_name,
-                "state": state.state if state else "unknown",
-            }
+            results[entry.entity_id] = _project_entity(entry.entity_id, state, entry)
         return json.dumps({"label": label_obj.name, "entities": results})
 
     if name == "search_entities":
@@ -585,11 +633,10 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
                 continue
             if not _state_matches(state, state_filter):
                 continue
-            results[state.entity_id] = {
-                "name": state.attributes.get("friendly_name", state.entity_id),
-                "state": state.state,
-                "domain": state.entity_id.split(".")[0],
-            }
+            projection = _project_entity(state.entity_id, state)
+            if fields_set is None:
+                projection["domain"] = state.entity_id.split(".")[0]
+            results[state.entity_id] = projection
         return json.dumps(results or {"info": f"No entities matching '{query}'"})
 
     if name == "list_entities_without_area":
@@ -603,12 +650,10 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             state = hass.states.get(entry.entity_id)
             if not _state_matches(state, state_filter):
                 continue
-            results[entry.entity_id] = {
-                "name": (state.attributes.get("friendly_name", entry.entity_id)
-                         if state else entry.original_name or entry.entity_id),
-                "state": state.state if state else "unknown",
-                "domain": entry.entity_id.split(".")[0],
-            }
+            projection = _project_entity(entry.entity_id, state, entry)
+            if fields_set is None:
+                projection["domain"] = entry.entity_id.split(".")[0]
+            results[entry.entity_id] = projection
         return json.dumps(results or {"info": "All entities have an area assigned"})
 
     if name == "get_areas":
