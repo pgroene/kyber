@@ -153,3 +153,24 @@ describe("_updateSessionIndicator", () => {
     expect(indicator.textContent).toBe("");
   });
 });
+
+// ---------------------------------------------------------------------------
+// _loadSessionList
+// ---------------------------------------------------------------------------
+describe("_loadSessionList", () => {
+  it("loads sessions via hass.callApi even when auth token is unavailable", async () => {
+    const callApi = vi.fn().mockResolvedValue({
+      sessions: [
+        { id: "s1", name: "Session 1", message_count: 2, active: true },
+      ],
+    });
+    const el = makeUnrenderedPanel({ auth: undefined, callApi });
+
+    const sessions = await el._loadSessionList();
+
+    expect(callApi).toHaveBeenCalledWith("GET", "kyber/sessions");
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].id).toBe("s1");
+    expect(sessions[0].history).toHaveLength(2);
+  });
+});

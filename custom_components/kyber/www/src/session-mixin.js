@@ -121,10 +121,7 @@ export const SessionMixin = (Base) => class extends Base {
   async _loadSessionList() {
     if (!this._hass) return [];
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/sessions", { headers: { Authorization: `Bearer ${token}` } });
-      if (!resp.ok) return [];
-      const data = await resp.json();
+      const data = await this._hass.callApi("GET", "kyber/sessions");
       this._sessions = (data.sessions || []).map((s) => ({ id: s.id, name: s.name, history: Array(s.message_count), active: s.active }));
       return this._sessions;
     } catch (_) {
