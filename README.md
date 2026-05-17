@@ -25,22 +25,26 @@ Or use the quick-add button:
 
 ## Features
 
-- 💬 **AI Chat** — ask questions and give commands in natural language (multilingual, fuzzy matching)
+- 💬 **AI Chat** — ask questions and give commands in natural language; automatic language detection with locale-specific vocabulary hints (Dutch supported out of the box)
 - 📋 **Proposal Cards** — review changes before they're applied, with one-click Undo
 - ⚡ **Autopilot Mode** — auto-execute proposals for hands-free operation
 - ✏️ **Automation & Script Editor** — CodeMirror 6 YAML editor with AI assistance
 - 📊 **Dashboard Editor** — edit Lovelace dashboards as YAML, create new dashboards
 - 🔧 **Slash Commands** — `/dashboard`, `/automation`, `/script`, `/blueprint`, `/area`
-- 🔒 **100% Local** — all AI inference runs on your own Ollama instance
-- 🐞 **Debug tab** — inspect everything Kyber knows: memory entries, the expanded system prompt of the last turn, which knowledge entries it picked (with similarity scores), tool calls, and per-entry ratings + inline "refine with a hint" action. Lives in its own **Kyber Debug** sidebar entry so the chat panel stays clean.
-- 📦 **Debug bundle download** — every assistant message has a `⬇ debug` button (visible on hover) that exports a ZIP with the user prompt, the full expanded system prompt the model actually saw, picked memory entries, tool log, progress events, captured `kyber.*` logs and the response — perfect for filing a precise issue
-- 🧠 **Hybrid memory retrieval** — knowledge entries are indexed with an in-memory TF-IDF embedding; each turn picks the top facts via cosine similarity blended with keyword overlap. Selected facts are streamed to the live progress card so you can see what Kyber recalled. See [docs/pipeline.md](docs/pipeline.md) for the full request lifecycle.
+- 🔒 **100% Local** — all AI inference runs on your own Ollama instance; nothing leaves your network
+- 🔌 **Integration Explorer** — on startup Kyber automatically indexes every loaded HA integration: sensor names, entity IDs (including groups, template sensors, input helpers, utility meters), and natural-language capability descriptions. Stored as searchable knowledge facts so the AI can answer "what is my solar yield?" without you having to say "goodwe"
+- 🔬 **Deep Analyzer** — on-demand AI extraction of durable home facts from automations / scripts / blueprints across **8 analytical lenses**: daily routines, device inventory, occupancy patterns, time/location triggers, energy usage, safety rules, entity relationships & dependencies, and automation purpose & use case
+- 🧠 **Hybrid memory retrieval** — knowledge entries are indexed with an in-memory TF-IDF embedding; each turn picks the top facts via cosine similarity blended with keyword overlap. Selected facts are streamed to the live progress card so you can see what Kyber recalled. See [docs/pipeline.md](docs/pipeline.md) for the full request lifecycle
+- 🔁 **Tool-calling loop** — up to 5 rounds of tool calls per turn; duplicate call detection with targeted redirect hints prevents the AI from looping. Tool name aliases resolve common model typos/variants automatically
+- 🗂️ **Conversation sessions** — named sessions with full rolling history and automatic compaction via summarization
+- 🐞 **Debug tab** — inspect everything Kyber knows: memory entries, the expanded system prompt of the last turn, which knowledge entries it picked (with similarity scores), tool calls, and per-entry ratings + inline "refine with a hint" action. Lives in its own **Kyber Debug** sidebar entry so the chat panel stays clean
+- 📦 **Debug bundle download** — every assistant turn has a downloadable ZIP with the user prompt, the full expanded system prompt the model actually saw, picked memory entries, tool log, progress events, captured `kyber.*` logs and the response — perfect for filing a precise issue
 
 ## Quick Start
 
 See **[docs/installation.md](docs/installation.md)** for full setup instructions.
 
-**Requirements:** Home Assistant 2025.1+, Ollama with a model pulled, HA Ollama integration configured.
+**Requirements:** Home Assistant 2025.2+, Ollama with a model pulled, HA Ollama integration configured.
 
 ```bash
 # Docker dev setup
@@ -63,18 +67,53 @@ docker compose -f docker-compose.dev.yml up
 
 | Layer | Technology |
 |---|---|
-| AI provider | HA Ollama integration via `ai_task.async_generate_data()` |
-| Backend | Python custom component — context builder, plan executor, YAML parser |
+| AI provider | HA Ollama integration via `ai_task.async_generate_data()` (HA 2025.2+) |
+| Backend | Modular Python custom component — 14+ modules covering context building, tool execution, knowledge store, session management, debug diagnostics, integration explorer, and deep analysis |
 | Frontend | Shadow DOM web component with CodeMirror 6 YAML editor |
+
+### Backend modules
+
+| Module | Responsibility |
+|---|---|
+| `http_api.py` | Main AI request handler — prompt assembly, tool-call loop, intent classification, mode rules |
+| `action_execution.py` | Plan action executor — service calls, area/label assignments, undo tracking |
+| `knowledge.py` | TF-IDF knowledge store — add, search, rate, purge facts |
+| `knowledge_integration.py` | Knowledge HTTP views — CRUD, shallow & deep analyze, feedback, purge |
+| `integration_explorer.py` | Startup integration indexer — sensors, entity IDs, capability facts for all platforms |
+| `deep_analyzer.py` | AI-powered automation/script/blueprint fact extractor (8 analytical lenses) |
+| `session_and_storage.py` | Chat session management — multi-session store, history, summarization |
+| `debug_and_diagnostics.py` | Per-turn debug snapshots, bundle ZIP builder, bug report, debug-mode flag |
+| `intent_and_context.py` | Intent classification, quick-intents, home-state context builder |
+| `tool_execution.py` | Tool handler dispatch, alias resolution, domain priority ranking |
+| `language_hints.py` | Language detection and locale-specific vocabulary hints (Dutch + extensible) |
+| `domain_docs.py` | Per-domain documentation injected into tool context |
+| `response_processing.py` | Response cleanup — strip tool echoes, narration, rewrap action blocks |
+| `source.py` | Raw YAML readers for automations, scripts, blueprints + content-hash memos |
 
 ### API endpoints
 
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/kyber/complete` | Prompt + history + HA context → AI response + plan |
-| `POST /api/kyber/execute` | Execute plan actions (entity changes, service calls, area management) |
+| `POST /api/kyber/execute` | Execute plan actions (service calls, area/label/entity management) |
 | `POST /api/kyber/parse_yaml` | YAML string → JSON config (used before saving via HA API) |
 | `POST /api/kyber/summarize` | Compact conversation history into a summary |
+| `GET /api/kyber/progress` | Live progress events (polled by the frontend during AI turns) |
+| `GET /api/kyber/history` | Retrieve chat history for the active session |
+| `GET /api/kyber/sessions` | List all named sessions |
+| `POST /api/kyber/sessions/name` | Rename a session |
+| `GET /api/kyber/knowledge` | List knowledge store entries |
+| `POST /api/kyber/knowledge` | Add or update a knowledge entry |
+| `POST /api/kyber/knowledge/analyze` | Shallow automation analysis → knowledge facts |
+| `POST /api/kyber/knowledge/analyze_deep` | Deep AI-driven analysis across all 8 lenses |
+| `POST /api/kyber/knowledge/feedback` | Rate knowledge entries (👍/👎) |
+| `POST /api/kyber/knowledge/purge` | Delete knowledge entries by filter |
+| `GET /api/kyber/debug/last_turn` | Last-turn debug snapshot (system prompt, tool log, knowledge used) |
+| `GET /api/kyber/debug/tool_history` | Ring buffer of recent tool calls |
+| `GET /api/kyber/debug/status` | Integration status + entity/area counts |
+| `GET /api/kyber/debug/bundle` | Download per-turn debug ZIP by `request_id` |
+| `GET /api/kyber/debug/bug-report` | Download sanitised bug report ZIP |
+| `GET/POST /api/kyber/debug/mode` | Read or toggle debug-mode flag |
 
 ## License
 
