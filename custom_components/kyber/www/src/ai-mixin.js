@@ -714,10 +714,27 @@ export const AIMixin = (Base) => class extends Base {
       spinner.remove();
 
       // Display the tool results as formatted assistant messages
+      const ENTITY_TOOL_TYPES = new Set([
+        "search_entities", "list_entities_by_domain", "get_area_entities",
+        "list_entities_by_label", "get_integration_entities", "list_entities_without_area",
+      ]);
       results.forEach((r) => {
         const msg = document.createElement("div");
         msg.className = "chat-message assistant";
         const toolData = r.tool_result || r;
+        // Render entity tools as a visual grid instead of raw JSON
+        if (ENTITY_TOOL_TYPES.has(r.type)) {
+          const grid = this._buildEntityResultGrid(JSON.stringify(toolData));
+          if (grid) {
+            const label = document.createElement("div");
+            label.style.cssText = "font-size:11px;opacity:0.55;margin-bottom:4px;";
+            label.textContent = `📋 ${r.type}`;
+            msg.appendChild(label);
+            msg.appendChild(grid);
+            history.appendChild(msg);
+            return;
+          }
+        }
         const formatted = JSON.stringify(toolData, null, 2);
         msg.textContent = `📋 ${r.type}:\n${formatted}`;
         history.appendChild(msg);

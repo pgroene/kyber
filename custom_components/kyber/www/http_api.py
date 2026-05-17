@@ -666,10 +666,16 @@ class KyberView(HomeAssistantView):
         response_text = _BARE_JSON_TOOL_RESULT_RE.sub("\n", response_text)
         response_text = re.sub(r"\n{3,}", "\n\n", response_text).strip()
 
-        # Strip leftover bare JSON-result lines (e.g. {"_truncated": true, ...} or {"light.X": ...})
-        # that escaped the [TOOL_RESULT:] wrapper.
+        # Strip leftover bare JSON-result lines where the key looks like an entity_id (domain.name)
+        # or known result wrapper keys. Covers all domains the model might echo back.
         response_text = re.sub(
-            r"^\s*\{\"(?:_truncated|light\.|switch\.|sensor\.|result)[^\n]+\}\s*$",
+            r"^\s*\{\"[a-z_]+\.[a-z0-9_][^\"]*\":[^\n]*\}\s*$",
+            "",
+            response_text,
+            flags=re.MULTILINE,
+        ).strip()
+        response_text = re.sub(
+            r"^\s*\{\"(?:_truncated|info|result|area|entities|count)[^\n]*\}\s*$",
             "",
             response_text,
             flags=re.MULTILINE,
