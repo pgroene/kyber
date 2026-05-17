@@ -77,6 +77,20 @@ def test_quick_intent_rejects_generic_name():
     assert ns["_try_quick_intent"]("create an area area") is None
 
 
+def test_quick_intent_skips_multiline():
+    ns = _load_helpers()
+    # Multi-line prompts with extra instructions must go to the AI, not quick-intent
+    multiline_cases = [
+        "create an area Yard\nmake it a dutch name because my home is dutch",
+        "create an area Garden\nplease use a nice name",
+        "add area Test\nwith some extra context",
+    ]
+    for prompt in multiline_cases:
+        assert ns["_try_quick_intent"](prompt) is None, (
+            f"Should NOT match multi-line prompt: {prompt!r}"
+        )
+
+
 def test_quick_intent_response_text_includes_plan_block():
     ns = _load_helpers()
     out = ns["_try_quick_intent"]("create area outside")

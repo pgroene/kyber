@@ -231,8 +231,17 @@ def _try_quick_intent(user_prompt: str) -> dict[str, Any] | None:
       - "create (an?) area NAME"
       - "add area NAME"
       - "make a new area called NAME"
+
+    Multi-line prompts (e.g. "create an area Yard\\nmake it Dutch") are
+    intentionally skipped so the AI can process the extra instructions.
     """
     if not user_prompt:
+        return None
+    # If the user added extra instructions on additional lines (e.g.
+    # "create an area Yard\nmake it a dutch name"), skip the shortcut so
+    # the AI loop can honour those instructions (e.g. translating the name).
+    lines = [l for l in user_prompt.split("\n") if l.strip()]
+    if len(lines) > 1:
         return None
     text = user_prompt.strip()
     m = _QUICK_CREATE_AREA_RE.match(text)
@@ -242,6 +251,10 @@ def _try_quick_intent(user_prompt: str) -> dict[str, Any] | None:
             return None
         # Reject obviously non-name tokens that a casual user wouldn't intend
         if name.lower() in {"area", "the area", "new", "one"}:
+            return None
+        # Reject names that contain newlines (should have been caught above,
+        # but guard defensively against other multi-line edge cases).
+        if "\n" in name or "\r" in name:
             return None
         plan = {
             "summary": f"Create area '{name}'",
