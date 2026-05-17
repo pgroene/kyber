@@ -182,25 +182,40 @@ async def analyze_pending(
     """
     kinds = kinds or ["automation", "script", "blueprint"]
     memo: AnalysisMemo = get_memo(hass)
-    await memo.async_load()
+    try:
+        await memo.async_load()
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Kyber deep_analyzer: memo load failed: %s", err)
 
     # Lazy import to avoid circular dep
     from .knowledge import get_knowledge_store
     kstore = get_knowledge_store(hass)
-    if not kstore._loaded:
-        await kstore.async_load()
+    try:
+        if not kstore._loaded:
+            await kstore.async_load()
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Kyber deep_analyzer: knowledge store load failed: %s", err)
 
     # Gather candidates
     candidates: list[tuple[str, dict[str, Any]]] = []
     if "automation" in kinds:
-        for it in await hass.async_add_executor_job(read_automations, hass):
-            candidates.append(("automation", it))
+        try:
+            for it in await hass.async_add_executor_job(read_automations, hass):
+                candidates.append(("automation", it))
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Kyber deep_analyzer: read_automations failed: %s", err)
     if "script" in kinds:
-        for it in await hass.async_add_executor_job(read_scripts, hass):
-            candidates.append(("script", it))
+        try:
+            for it in await hass.async_add_executor_job(read_scripts, hass):
+                candidates.append(("script", it))
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Kyber deep_analyzer: read_scripts failed: %s", err)
     if "blueprint" in kinds:
-        for it in await hass.async_add_executor_job(read_blueprints, hass):
-            candidates.append(("blueprint", it))
+        try:
+            for it in await hass.async_add_executor_job(read_blueprints, hass):
+                candidates.append(("blueprint", it))
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Kyber deep_analyzer: read_blueprints failed: %s", err)
 
     analyzed: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
@@ -246,19 +261,26 @@ async def analyze_pending(
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Kyber deep_analyzer: failed to persist fact: %s", err)
 
-        await memo.async_record(
-            kind=kind,
-            ident=ident,
-            new_hash=new_hash,
-            fact_ids=fact_ids,
-            skipped=(len(fact_ids) == 0),
-        )
+        try:
+            await memo.async_record(
+                kind=kind,
+                ident=ident,
+                new_hash=new_hash,
+                fact_ids=fact_ids,
+                skipped=(len(fact_ids) == 0),
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Kyber deep_analyzer: memo record failed for %s:%s: %s", kind, ident, err)
         analyzed.append({
             "kind": kind,
             "ident": ident,
-            "facts": facts,
-            "fact_ids": fact_ids,
-            "raw_response_chars": len(raw or ""),
+            "facts": [
+                {k: v for k, v in f.items() if k != "confidence"}
+                | {"confidence": round(float(f["confidence"]), 4)}
+                for f in facts
+            ],
+            "fact_ids": [str(fid) for fid in fact_ids],
+            "raw_response_chars": int(len(raw or "")),
         })
 
     return {
