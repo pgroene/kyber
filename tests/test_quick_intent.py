@@ -97,3 +97,13 @@ def test_quick_intent_response_text_includes_plan_block():
     assert "```plan" in out["response_text"]
     assert "outside" in out["response_text"]
     assert "create_area" in out["response_text"]
+
+
+def test_quick_intent_make_area_variant():
+    """Regression: 'make area tuin' was dropping the plan due to 'make' missing from action keywords."""
+    ns = _load_helpers()
+    out = ns["_try_quick_intent"]("make area tuin")
+    assert out is not None
+    assert out["shortcut"] == "quick_create_area"
+    assert out["plan"]["actions"][0]["name"] == "tuin"
+    assert out["intent"] == "action"

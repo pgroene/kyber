@@ -296,7 +296,7 @@ _SYNTHESIS_INSTRUCTIONS = (
 _ACTION_KEYWORDS: frozenset[str] = frozenset({
     "edit", "modify", "change", "update", "rename", "assign", "move",
     "turn on", "turn off", "switch on", "switch off", "set", "create",
-    "delete", "remove", "add", "enable", "disable", "fix", "open editor",
+    "delete", "remove", "add", "make", "enable", "disable", "fix", "open editor",
     "open automation", "open script", "open dashboard", "adjust", "configure",
     "schedule", "trigger", "automate", "control", "dim", "brighten",
     "lock", "unlock", "arm", "disarm",
@@ -1694,6 +1694,7 @@ class KyberView(HomeAssistantView):
                 "message": f"Quick-intent shortcut: {_quick.get('shortcut')}",
             })
             response_text = _quick["response_text"]
+            intent = "action"  # quick intents are always actions; prevent informational guard from dropping the plan
             _skip_ai_loop = True
 
         for _round in range(0 if _skip_ai_loop else _TOOL_CALL_MAX_ROUNDS):
