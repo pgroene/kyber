@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import re
 import time
 import uuid
 from typing import Any, Iterable
@@ -37,6 +39,36 @@ CATEGORIES = {
 }
 
 
+# ── Embeddings (lightweight, in-memory TF-IDF over knowledge entries) ──────
+# We avoid pulling heavy deps (sentence-transformers etc.) so that Kyber stays
+# pure-python + zero-install. Tokens = lowercased word unigrams ∪ bigrams.
+# IDF is computed lazily over the current corpus and cached.
+
+_TOKEN_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+", re.UNICODE)
+
+
+def _tokenize(text: str) -> list[str]:
+    if not text:
+        return []
+    words = [w.lower() for w in _TOKEN_RE.findall(text) if len(w) > 1]
+    bigrams = [f"{a}_{b}" for a, b in zip(words, words[1:])]
+    return words + bigrams
+
+
+def _vec_dot(a: dict[str, float], b: dict[str, float]) -> float:
+    if len(a) > len(b):
+        a, b = b, a
+    return sum(v * b.get(k, 0.0) for k, v in a.items())
+
+
+def _vec_norm(a: dict[str, float]) -> float:
+    return math.sqrt(sum(v * v for v in a.values())) or 1.0
+
+
+def _cosine(a: dict[str, float], b: dict[str, float]) -> float:
+    return _vec_dot(a, b) / (_vec_norm(a) * _vec_norm(b))
+
+
 class KnowledgeStore:
     """In-memory cache backed by HA Store for persistence."""
 
@@ -46,6 +78,72 @@ class KnowledgeStore:
         self._entries: dict[str, dict[str, Any]] = {}
         self._loaded = False
         self._lock = asyncio.Lock()
+        # Embedding index — rebuilt lazily on entry mutation.
+        self._idf: dict[str, float] = {}
+        self._vectors: dict[str, dict[str, float]] = {}
+        self._index_dirty = True
+
+    # ── Embedding index helpers ──────────────────────────────────────
+    def _entry_blob(self, entry: dict[str, Any]) -> str:
+        return " ".join([
+            entry.get("subject", ""),
+            entry.get("content", ""),
+            " ".join(entry.get("tags", []) or []),
+            entry.get("category", ""),
+        ])
+
+    def _rebuild_index(self) -> None:
+        """Recompute IDF and per-entry TF-IDF vectors over current corpus."""
+        docs: dict[str, list[str]] = {}
+        df: dict[str, int] = {}
+        for eid, entry in self._entries.items():
+            toks = _tokenize(self._entry_blob(entry))
+            docs[eid] = toks
+            for t in set(toks):
+                df[t] = df.get(t, 0) + 1
+        n_docs = max(1, len(docs))
+        self._idf = {t: math.log((n_docs + 1) / (c + 1)) + 1.0 for t, c in df.items()}
+        self._vectors = {}
+        for eid, toks in docs.items():
+            tf: dict[str, float] = {}
+            for t in toks:
+                tf[t] = tf.get(t, 0.0) + 1.0
+            self._vectors[eid] = {t: f * self._idf.get(t, 1.0) for t, f in tf.items()}
+        self._index_dirty = False
+
+    def _query_vector(self, text: str) -> dict[str, float]:
+        if self._index_dirty:
+            self._rebuild_index()
+        toks = _tokenize(text)
+        tf: dict[str, float] = {}
+        for t in toks:
+            tf[t] = tf.get(t, 0.0) + 1.0
+        # Use existing IDF; unseen tokens get neutral weight 1.0 so the vector
+        # still has signal even if the corpus is empty.
+        return {t: f * self._idf.get(t, 1.0) for t, f in tf.items()}
+
+    async def async_semantic_search(
+        self, query: str, *, limit: int = 8, min_score: float = 0.05
+    ) -> list[dict[str, Any]]:
+        """Return top-N entries ranked by cosine similarity over TF-IDF."""
+        await self.async_load()
+        if not query or not self._entries:
+            return []
+        qv = self._query_vector(query)
+        if not qv:
+            return []
+        if self._index_dirty:
+            self._rebuild_index()
+        scored: list[tuple[float, dict[str, Any]]] = []
+        for eid, vec in self._vectors.items():
+            sim = _cosine(qv, vec)
+            if sim >= min_score:
+                entry = dict(self._entries[eid])
+                entry["_score"] = round(sim, 4)
+                scored.append((sim, entry))
+        scored.sort(key=lambda p: p[0], reverse=True)
+        return [e for _, e in scored[:limit]]
+
 
     async def async_load(self) -> None:
         async with self._lock:
@@ -54,9 +152,11 @@ class KnowledgeStore:
             data = await self._store.async_load() or {}
             self._entries = data.get("entries", {})
             self._loaded = True
+            self._index_dirty = True
             _LOGGER.info("Kyber knowledge: loaded %d entries", len(self._entries))
 
     async def _persist(self) -> None:
+        self._index_dirty = True
         await self._store.async_save({"entries": self._entries})
 
     async def async_add(
@@ -300,12 +400,33 @@ class KnowledgeStore:
         return out
 
     async def async_pick_relevant(self, prompt: str, *, max_entries: int = 8) -> list[dict[str, Any]]:
-        """Pick entries relevant to a free-form prompt for context injection."""
-        results = await self.async_search(prompt, limit=max_entries)
-        if results:
-            return results
-        # Always include high-confidence area aliases as background context
-        return await self.async_search("", category="area_alias", limit=max_entries)
+        """Pick entries relevant to a free-form prompt for context injection.
+
+        Hybrid scoring: TF-IDF cosine similarity (semantic) + keyword overlap
+        (legacy). Each entry gets a unified `_score` field used downstream
+        (UI + debug snapshot). High-confidence area aliases are always kept
+        as a safety net even when scores are low.
+        """
+        await self.async_load()
+        semantic = await self.async_semantic_search(prompt, limit=max_entries * 2)
+        keyword = await self.async_search(prompt, limit=max_entries * 2)
+        merged: dict[str, dict[str, Any]] = {}
+        for e in semantic:
+            merged[e["id"]] = {**e, "_score": float(e.get("_score", 0.0)), "_source": "semantic"}
+        for e in keyword:
+            existing = merged.get(e["id"])
+            kw_score = 0.3  # legacy search doesn't expose a normalized score; treat as moderate
+            if existing:
+                existing["_score"] = max(existing["_score"], kw_score) + 0.05  # bonus when both hit
+                existing["_source"] = "hybrid"
+            else:
+                merged[e["id"]] = {**e, "_score": kw_score, "_source": "keyword"}
+        ranked = sorted(merged.values(), key=lambda x: x["_score"], reverse=True)
+        if ranked[:max_entries]:
+            return ranked[:max_entries]
+        # Fallback: always include high-confidence area aliases as background.
+        aliases = await self.async_search("", category="area_alias", limit=max_entries)
+        return [{**e, "_score": 0.0, "_source": "fallback_alias"} for e in aliases]
 
 
 _INSTANCE_KEY = "kyber_knowledge_store"

@@ -470,6 +470,11 @@ const STYLES = `
     flex: 1; display: flex; flex-direction: column; height: 100%;
     padding: 12px; box-sizing: border-box; overflow: auto;
   }
+  .debug-pane--standalone {
+    position: absolute; inset: 0;
+    background: var(--primary-background-color, #fafafa);
+    z-index: 5;
+  }
   .debug-header {
     display: flex; align-items: center; gap: 8px;
     border-bottom: 1px solid var(--divider-color);
@@ -1046,6 +1051,12 @@ class KyberPanel extends HTMLElement {
     }
   }
 
+  set panel(panel) {
+    // HA passes panel.config when registering via panel_custom.
+    this._panelConfig = panel?.config || {};
+    this._mode = this._panelConfig.mode || "chat";
+  }
+
   connectedCallback() {
     // Block keyboard events at the shadow host so HA's global shortcuts don't fire while typing
     const stopKey = (e) => {
@@ -1055,7 +1066,14 @@ class KyberPanel extends HTMLElement {
     this.addEventListener("keydown", stopKey);
     this.addEventListener("keyup", stopKey);
     this.addEventListener("keypress", stopKey);
-    console.log("[CopilotAssist] connectedCallback - keyboard listeners attached to", this.tagName);
+    // Mode is also derivable from URL path so it works even when set panel runs late
+    if (!this._mode) {
+      try {
+        const path = window.location?.pathname || "";
+        this._mode = path.startsWith("/kyber-debug") ? "debug" : "chat";
+      } catch (e) { this._mode = "chat"; }
+    }
+    console.log("[CopilotAssist] connectedCallback - mode:", this._mode);
     if (!this._rendered) this._render();
   }
 
@@ -1123,6 +1141,40 @@ class KyberPanel extends HTMLElement {
 
     this._bindEvents(shadow);
     this._restorePersistedHistory();
+    this._applyModeAndDebugFlag();
+  }
+
+  async _applyModeAndDebugFlag() {
+    // Fetch debug-mode flag from backend
+    let debugEnabled = true; // default until we know
+    try {
+      const token = this._hass?.auth?.data?.access_token;
+      if (token) {
+        const resp = await fetch("/api/kyber/debug/mode", { headers: { Authorization: `Bearer ${token}` } });
+        if (resp.ok) {
+          const data = await resp.json();
+          debugEnabled = !!data.enabled;
+        }
+      }
+    } catch (e) { /* keep default */ }
+    this._debugEnabled = debugEnabled;
+    const shadow = this.shadowRoot;
+    const btnDebug = shadow.getElementById("btn-debug");
+    if (btnDebug) btnDebug.style.display = debugEnabled ? "" : "none";
+    if (this._mode === "debug") {
+      // Hide chat-pane entirely, show debug-pane full-width.
+      const chat = shadow.querySelector(".chat-pane");
+      const pane = shadow.getElementById("debug-pane");
+      if (chat) chat.style.display = "none";
+      if (pane) {
+        pane.removeAttribute("hidden");
+        pane.classList.add("debug-pane--standalone");
+        const closeBtn = shadow.getElementById("btn-debug-close");
+        if (closeBtn) closeBtn.style.display = "none";
+      }
+      this._debugTab = this._debugTab || "memory";
+      this._renderDebugTab(this._debugTab);
+    }
   }
 
   _initEditor(container) {
@@ -1189,7 +1241,16 @@ class KyberPanel extends HTMLElement {
     shadow.getElementById("btn-clear-history").addEventListener("click", () => {
       this._clearHistory();
     });
-    shadow.getElementById("btn-debug").addEventListener("click", () => this._toggleDebugPane());
+    shadow.getElementById("btn-debug").addEventListener("click", () => {
+      // Always navigate to the dedicated debug page so the chat panel stays clean.
+      if (this._mode === "debug") return;
+      try {
+        window.history.pushState({}, "", "/kyber-debug");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      } catch (e) {
+        window.location.href = "/kyber-debug";
+      }
+    });
     shadow.getElementById("btn-debug-close").addEventListener("click", () => this._toggleDebugPane(false));
     shadow.getElementById("btn-debug-refresh").addEventListener("click", () => this._renderDebugTab(this._debugTab || "memory"));
     shadow.querySelectorAll(".debug-tab").forEach((b) => {
@@ -1598,6 +1659,7 @@ class KyberPanel extends HTMLElement {
   // Knowledge / memory panel
   // ────────────────────────────────────────────────────────────────────
   _attachDebugBundleButton(requestId) {
+    if (!this._debugEnabled) return;
     const history = this.shadowRoot.getElementById("chat-history");
     if (!history || !requestId) return;
     const messages = history.querySelectorAll(".chat-message.assistant");
