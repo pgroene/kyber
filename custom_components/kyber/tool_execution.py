@@ -21,6 +21,31 @@ from .source import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Domain priority for search result ranking — lower = more useful for control.
+# Satellite/diagnostic entities (button, update, number) rank last so the
+# primary controllable entity wins when a device exposes many sub-entities.
+_DOMAIN_PRIORITY: dict[str, int] = {
+    "media_player": 0,
+    "light": 1,
+    "climate": 2,
+    "switch": 3,
+    "fan": 4,
+    "cover": 5,
+    "lock": 6,
+    "alarm_control_panel": 7,
+    "vacuum": 8,
+    "input_boolean": 9,
+    "sensor": 10,
+    "binary_sensor": 11,
+    "camera": 12,
+    "number": 15,
+    "input_number": 15,
+    "select": 16,
+    "input_select": 16,
+    "button": 20,
+    "update": 21,
+}
+
 # Tool name aliases — small models often invent close-but-wrong tool names.
 # Defined at module level so both sync and async paths can resolve them.
 TOOL_ALIASES: dict[str, str] = {
@@ -358,7 +383,27 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             if fields_set is None:
                 projection["domain"] = state.entity_id.split(".")[0]
             results[state.entity_id] = projection
-        return json.dumps(results or {"info": f"No entities matching '{query}'"})
+
+            # Sort by domain priority (most-controllable first), then entity_id.
+            def _sort_key(eid: str) -> tuple[int, str]:
+                return (_DOMAIN_PRIORITY.get(eid.split(".")[0], 50), eid)
+
+            sorted_items = sorted(results.items(), key=lambda kv: _sort_key(kv[0]))
+
+            # Deduplicate satellite entities: if a higher-priority entity has slug
+            # "foo" and another entity has slug "foo_bar…", the latter is a sub-
+            # entity of the same physical device — drop it so the AI isn't confused
+            # by dozens of buttons/sensors from the same device.
+            final: dict[str, Any] = {}
+            kept_slugs: list[str] = []
+            for eid, proj in sorted_items:
+                slug = eid.split(".", 1)[1]
+                if any(slug.startswith(ks + "_") for ks in kept_slugs):
+                    continue  # satellite of an already-kept primary entity
+                final[eid] = proj
+                kept_slugs.append(slug)
+
+            return json.dumps(final or {"info": f"No entities matching '{query}'"})
 
     if name == "list_entities_without_area":
         domain_filter = call.get("domain", "").strip().lower()

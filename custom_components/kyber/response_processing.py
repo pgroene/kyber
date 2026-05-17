@@ -11,13 +11,13 @@ _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _BARE_PLAN_RE = re.compile(r"^#{1,3}\s*Plan\s*\n(\{[\s\S]*?\n\})\s*(?=\n|$)", re.MULTILINE)
 _CLARIFY_BLOCK_RE = re.compile(r"```clarify\s*([\s\S]+?)\s*```", re.IGNORECASE)
 # Match [TOOL_CALL: ...] tolerating O/0 confusion from small models.
-# NOTE: Use .*? (not [^]]*?) so JSON arrays inside the body (e.g. "fields": ["x"])
-# are matched correctly — [^]]* would stop at the first ] inside the JSON.
-# Also tolerates models that emit `}}` instead of `}]` or omit the closing `]` at EOL.
+# Used for stripping — parsing uses bracket-balanced extraction instead (see _parse_tool_calls).
 _TOOL_CALL_RE = re.compile(
     r"\[T[O0]{2}L[_\-]CALL:\s*(\{.*?\})\}?\s*(?:\]|(?=\n|\Z))",
     re.DOTALL | re.IGNORECASE,
 )
+# Bracket-balanced prefix: match "[TOOL_CALL: " followed by an opening brace.
+_TOOL_CALL_PREFIX_RE = re.compile(r"\[T[O0]{2}L[_\-]CALL:\s*(?=\{)", re.IGNORECASE)
 # Match [TOOL_RESULT: ...] with same tolerance
 _TOOL_RESULT_STRIP_RE = re.compile(r"\[T[O0]{2}L[_\-]RESULT:[^\]]*?\][^\n]*\n?", re.IGNORECASE)
 _TOOL_RESULT_ECHO_RE = re.compile(r"\[T[O0]{2}L[_\-]RESULT:[^\]]*?\][^\n]*\n?.*?(?=\n\n|\Z)", re.DOTALL | re.IGNORECASE)
@@ -25,13 +25,40 @@ _TOOL_CALL_MAX_ROUNDS = 5
 
 
 def _parse_tool_calls(text: str) -> list[dict[str, Any]]:
-    """Extract all [TOOL_CALL: {...}] blocks from a response."""
+    """Extract all [TOOL_CALL: {...}] blocks from a response.
+
+    Uses bracket-depth counting so nested JSON objects (e.g. ``service_data``)
+    are parsed correctly — the old single-regex approach stopped at the first
+    ``}`` inside a nested object and produced invalid JSON.
+    """
     calls = []
-    for m in _TOOL_CALL_RE.finditer(text):
-        try:
-            calls.append(json.loads(m.group(1)))
-        except (json.JSONDecodeError, ValueError):
-            pass
+    for m in _TOOL_CALL_PREFIX_RE.finditer(text):
+        start = m.end()  # position of the opening {
+        depth = 0
+        i = start
+        in_str = False
+        escaped = False
+        while i < len(text):
+            ch = text[i]
+            if escaped:
+                escaped = False
+            elif ch == "\\" and in_str:
+                escaped = True
+            elif ch == '"':
+                in_str = not in_str
+            elif not in_str:
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        json_str = text[start : i + 1]
+                        try:
+                            calls.append(json.loads(json_str))
+                        except (json.JSONDecodeError, ValueError):
+                            pass
+                        break
+            i += 1
     return calls
 
 
