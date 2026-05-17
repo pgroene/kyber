@@ -1778,9 +1778,10 @@ class KyberPanel extends HTMLElement {
                 <textarea id="br-happened" rows="3" placeholder="e.g. Nothing happened / wrong room / error message"></textarea>
               </label>
               <label class="bug-report-checkbox">
-                <input type="checkbox" id="br-include-bundle" checked>
-                Include debug bundle summary (PII will be redacted)
+                <input type="checkbox" id="br-include-bundle">
+                Upload redacted debug logs with this report
               </label>
+              <div class="bug-report-bundle-name">Bundle: <code>${this._escapeHtml(`kyber-debug-${requestId}.zip`)}</code></div>
               <div class="bug-report-actions">
                 <button class="bug-report-btn-cancel" id="br-cancel">Cancel</button>
                 <button class="bug-report-btn-submit" id="br-submit">Generate report →</button>
@@ -1812,7 +1813,14 @@ class KyberPanel extends HTMLElement {
               const resp = await fetch("/api/kyber/debug/bug-report", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ request_id: requestId, what_asked: asked, what_expected: expected, what_happened: happened, include_bundle: includeBundle }),
+                body: JSON.stringify({
+                  request_id: requestId,
+                  what_asked: asked,
+                  what_expected: expected,
+                  what_happened: happened,
+                  include_bundle: includeBundle,
+                  bundle_name: `kyber-debug-${requestId}.zip`,
+                }),
               });
               if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
               data = await resp.json();
@@ -1825,18 +1833,14 @@ class KyberPanel extends HTMLElement {
             // Step 3: review
             const similar = (data.similar_issues || []);
             const similarHtml = similar.length
-              ? `<div class="bug-report-similar"><strong>Similar open issues:</strong><ul style="margin:4px 0 0;padding-left:18px">${similar.map(i => `<li><a href="${this._escapeHtml(i.url)}" target="_blank">#${i.number} ${this._escapeHtml(i.title)}</a> [${i.state}]</li>`).join("")}</ul></div>`
+              ? `<div class="bug-report-similar"><strong>Similar open issues:</strong><ul style="margin:4px 0 0;padding-left:18px">${similar.map(i => `<li><a href="${this._escapeAttr(i.url)}" target="_blank">#${i.number} ${this._escapeHtml(i.title)}</a> [${i.state}]</li>`).join("")}</ul></div>`
               : "";
-
-            const encodedTitle = encodeURIComponent(data.title || "");
-            const encodedBody = encodeURIComponent(data.body || "");
-            const ghUrl = `https://github.com/pgroene/kyber/issues/new?title=${encodedTitle}&body=${encodedBody}`;
 
             dlg.innerHTML = `
               <h3>🐛 Review Bug Report</h3>
               ${similarHtml}
               <label class="bug-report-result-title">Title
-                <input type="text" id="br-title" value="${this._escapeHtml(data.title || "")}">
+                <input type="text" id="br-title" value="${this._escapeAttr(data.title || "")}">
               </label>
               <label>Body (markdown)
                 <textarea id="br-body" rows="12">${this._escapeHtml(data.body || "")}</textarea>
@@ -1863,7 +1867,9 @@ class KyberPanel extends HTMLElement {
               window.open(`https://github.com/pgroene/kyber/issues/new?title=${t}&body=${b}`, "_blank");
             });
           });
-        }(rating, knowledgeIds, btnsRoot) {
+        }
+
+  async _submitTurnFeedback(rating, knowledgeIds, btnsRoot) {
     const status = btnsRoot.querySelector(".tf-status");
     btnsRoot.querySelectorAll(".tf-btn-rate").forEach((b) => (b.disabled = true));
     try {
@@ -2396,7 +2402,7 @@ class KyberPanel extends HTMLElement {
       ? `<span class="tf-auto" title="Auto-flagged because the response looked uncertain">⚠ auto-rated ${snap.auto_rating}/5</span>`
       : "";
     const feedbackBar = `
-      <div class="dbg-turn-feedback" id="dbg-turn-feedback" data-request-id="${this._escapeHtml(snap.request_id || "")}">
+      <div class="dbg-turn-feedback" id="dbg-turn-feedback" data-request-id="${this._escapeAttr(snap.request_id || "")}">
         <span class="tf-label">How was this turn?</span>
         <button class="tf-btn tf-btn-rate tf-up" title="Helpful — boost related memory" ${hasKnowledge ? "" : "disabled"}>👍 helpful</button>
         <button class="tf-btn tf-btn-rate tf-down" title="Not helpful — flag related memory for review" ${hasKnowledge ? "" : "disabled"}>👎 not helpful</button>
@@ -4095,8 +4101,6 @@ class KyberPanel extends HTMLElement {
     }
   }
 
-  }
-
   _buildMemoryCard(learnedFact) {
     const action = (learnedFact.actions || [])[0] || {};
     const userTerm = action.description?.match(/Save alias: (.+?) →/)?.[1]
@@ -4629,10 +4633,16 @@ class KyberPanel extends HTMLElement {
   }
 
   _escapeHtml(str) {
-    return str
+    return String(str ?? "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
+  }
+
+  _escapeAttr(str) {
+    return this._escapeHtml(str)
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 }
 

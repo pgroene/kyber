@@ -2893,7 +2893,7 @@ class KyberBugReportView(HomeAssistantView):
     """Generate an AI-drafted GitHub issue from a debug turn snapshot.
 
     POST /api/kyber/debug/bug-report
-    Body: { request_id, what_asked, what_expected, what_happened, include_bundle }
+    Body: { request_id, what_asked, what_expected, what_happened, include_bundle, bundle_name }
     Returns: { title, body, similar_issues }
     """
 
@@ -2916,7 +2916,8 @@ class KyberBugReportView(HomeAssistantView):
         what_asked = (body.get("what_asked") or "").strip()
         what_expected = (body.get("what_expected") or "").strip()
         what_happened = (body.get("what_happened") or "").strip()
-        include_bundle = bool(body.get("include_bundle", True))
+        include_bundle = bool(body.get("include_bundle", False))
+        bundle_name = (body.get("bundle_name") or "").strip()
 
         if not (what_asked or what_happened):
             return self.json_message("Provide at least what_asked or what_happened", HTTPStatus.BAD_REQUEST)
@@ -2953,6 +2954,7 @@ class KyberBugReportView(HomeAssistantView):
             f"**What was asked / typed:** {what_asked or '(not provided)'}",
             f"**What was expected:** {what_expected or '(not provided)'}",
             f"**What actually happened:** {what_happened or '(not provided)'}",
+            f"**Bundle filename:** {bundle_name or '(not provided)'}",
         ]
         if bundle_summary:
             prompt_parts += ["", "Debug bundle summary (PII has been redacted):", bundle_summary]
