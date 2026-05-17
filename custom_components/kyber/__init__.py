@@ -36,6 +36,7 @@ async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -
     """Run first-install analysis helpers once, in the background."""
     data = dict(entry.data)
     if CONF_INITIAL_LEARNING_DONE in data:
+        _LOGGER.debug("Kyber initial learning already done — skipping")
         return
 
     ai_entity_id = str(data.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
@@ -55,20 +56,40 @@ async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -
         ),
     )
 
+    _LOGGER.warning(
+        "Kyber initial learning starting — analyze=%s, deep_runs=%d, ai_entity=%s",
+        run_initial_analyze,
+        deep_runs,
+        ai_entity_id,
+    )
+
     if run_initial_analyze:
+        _LOGGER.warning("Kyber initial learning: running automation analysis…")
         try:
             await hass.async_add_executor_job(_analyze_automations, hass)
+            _LOGGER.warning("Kyber initial learning: automation analysis complete")
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber initial analyze run failed: %s", err)
 
-    for _ in range(deep_runs):
+    for i in range(deep_runs):
+        _LOGGER.warning(
+            "Kyber initial learning: deep-learning run %d/%d…", i + 1, deep_runs
+        )
         try:
             await _deep.analyze_pending(hass, ai_entity_id=ai_entity_id, limit=5)
+            _LOGGER.warning(
+                "Kyber initial learning: deep-learning run %d/%d complete",
+                i + 1,
+                deep_runs,
+            )
         except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Kyber initial deep learning run failed: %s", err)
+            _LOGGER.warning(
+                "Kyber initial deep learning run %d/%d failed: %s", i + 1, deep_runs, err
+            )
 
     data[CONF_INITIAL_LEARNING_DONE] = True
     hass.config_entries.async_update_entry(entry, data=data)
+    _LOGGER.warning("Kyber initial learning: all runs complete ✓")
 
 
 def _resolve_debug_enabled(entry: ConfigEntry) -> bool:
@@ -154,8 +175,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Debug panel registration skipped (test environment)")
 
-    if CONF_RUN_INITIAL_ANALYZE in config or CONF_INITIAL_DEEP_LEARNING_RUNS in config:
-        hass.async_create_task(_async_run_initial_learning(hass, entry))
+    # Always schedule the initial learning task; the function itself guards
+    # against re-running via CONF_INITIAL_LEARNING_DONE.
+    hass.async_create_task(_async_run_initial_learning(hass, entry))
 
     entry.async_on_unload(entry.add_update_listener(_update_listener))
 
