@@ -100,6 +100,29 @@ def _parse_tool_calls(text: str) -> list[dict[str, Any]]:
 
 def _strip_tool_calls(text: str) -> str:
     """Remove all tool-call blocks (any format) from a response string."""
+    def _consume_optional_closer(s: str, start: int) -> int:
+        """Consume optional whitespace + closing token + whitespace."""
+        i = start
+        n = len(s)
+        while i < n and s[i].isspace():
+            i += 1
+
+        closer_end = i
+        if s.startswith("]", i):
+            closer_end = i + 1
+        elif s[i:i + 11].lower() == "</tool_call>":
+            closer_end = i + 11
+        elif s[i:i + 11].lower() == "</tool-call>":
+            closer_end = i + 11
+
+        if closer_end == i:
+            return start
+
+        i = closer_end
+        while i < n and s[i].isspace():
+            i += 1
+        return i
+
     spans: list[tuple[int, int]] = []
     for m in _TOOL_CALL_PREFIX_RE.finditer(text):
         # Back up to start of line unless real text precedes the match
@@ -114,10 +137,8 @@ def _strip_tool_calls(text: str) -> str:
             continue
 
         span_end = json_end
-        # Consume optional closing ] or </tool_call> (with surrounding whitespace)
-        close = re.match(r"\s*(?:\]|</tool[_\-]?call>)\s*", text[span_end:], re.IGNORECASE)
-        if close:
-            span_end += close.end()
+        # Consume optional closing ] or </tool_call> (with surrounding whitespace).
+        span_end = _consume_optional_closer(text, span_end)
         # Eat one trailing newline
         if span_end < len(text) and text[span_end] == "\n":
             span_end += 1
