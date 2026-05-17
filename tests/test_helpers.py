@@ -80,6 +80,7 @@ _http_api = _load("custom_components.kyber.http_api", ROOT / "custom_components"
 _extract_yaml_blocks = _http_api._extract_yaml_blocks
 _extract_plan_block = _http_api._extract_plan_block
 _build_service_undo = _http_api._build_service_undo
+_build_redaction_map = _http_api._build_redaction_map
 _build_redacted_bundle_summary = _http_api._build_redacted_bundle_summary
 _restore_kyber_version_in_bug_report = _http_api._restore_kyber_version_in_bug_report
 _sanitize_prompt_value = _http_api._sanitize_prompt_value
@@ -260,6 +261,34 @@ def test_build_service_undo_media_player_volume():
     undo = _build_service_undo("media_player", "volume_set", "media_player.tv", pre_state)
     assert undo is not None
     assert undo["service_data"]["volume_level"] == 0.5
+
+
+def test_build_redaction_map_reuses_same_replacement_for_same_token():
+    """Same token should always map to the same redacted marker."""
+    snap = {
+        "tool_log": [{"name": "get_entity_state", "args": {"entity_id": "light.kitchen_main"}}],
+        "instructions_used": "Check light.kitchen_main please",
+    }
+    rmap = _build_redaction_map(snap)
+    assert "light.kitchen_main" in rmap
+    marker = rmap["light.kitchen_main"]
+    assert marker.startswith("***redacted-")
+    assert marker.endswith("***")
+
+
+def test_build_redacted_bundle_summary_redacts_entity_tokens():
+    """Redacted summary should not leak entity IDs found in the snapshot."""
+    snap = {
+        "intent": "action",
+        "char_count": 100,
+        "elapsed_ms": 42,
+        "tool_log": [{"name": "get_entity_state", "status": "ok", "args": {"entity_id": "light.kitchen_main"}}],
+        "response_text": "I toggled light.kitchen_main",
+        "logs": [{"level": "ERROR", "message": "Failed to call light.kitchen_main"}],
+    }
+    summary = _build_redacted_bundle_summary(snap)
+    assert "light.kitchen_main" not in summary
+    assert "***redacted-" in summary
 
 
 def test_build_service_undo_unknown_service_returns_none():

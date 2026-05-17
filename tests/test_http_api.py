@@ -27,6 +27,7 @@ from custom_components.kyber.http_api import KyberView, KyberSaveView, KyberExec
 
 # Correct patch target — all tests must use this path
 _PATCH_GENERATE = "custom_components.kyber.http_api.async_generate_data"
+_PATCH_GENERATE_DEBUG = "custom_components.kyber.debug_and_diagnostics.async_generate_data"
 
 
 def _make_ai_result(text: str) -> MagicMock:
@@ -1037,3 +1038,87 @@ async def test_response_includes_context_stats(
     assert "area_count" in stats
     assert stats["entity_count"] >= 1
     assert stats["automation_count"] >= 1
+
+
+async def test_debug_bug_report_defaults_bundle_upload_off(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Bug report endpoint should not include bundle summary unless explicitly enabled."""
+    hass.data["kyber_debug_last_turn"] = {
+        "request_id": "req-default-off",
+        "intent": "action",
+        "char_count": 123,
+        "elapsed_ms": 45,
+        "tool_log": [{"name": "get_entity_state", "args": {"entity_id": "light.kitchen_main"}, "status": "ok"}],
+        "response_text": "Checked light.kitchen_main",
+        "logs": [{"level": "ERROR", "message": "Failed for light.kitchen_main"}],
+    }
+    captured = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        captured["instructions"] = instructions
+        return _make_ai_result("TITLE: test bug\nBODY:\nBody text")
+
+    client = await hass_client()
+    fake_entry = MagicMock(options={}, data={"ai_task_entity_id": "ai_task.ollama_ai_task"})
+    with (
+        patch.object(hass.config_entries, "async_entries", return_value=[fake_entry]),
+        patch(_PATCH_GENERATE_DEBUG, side_effect=fake),
+        patch("aiohttp.ClientSession", side_effect=RuntimeError("offline")),
+    ):
+        resp = await client.post(
+            "/api/kyber/debug/bug-report",
+            json={
+                "request_id": "req-default-off",
+                "what_happened": "Wrong entity toggled",
+                "bundle_name": "kyber-debug-req-default-off.zip",
+            },
+        )
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["title"] == "test bug"
+    assert "**Bundle filename:** kyber-debug-req-default-off.zip" in captured["instructions"]
+    assert "Debug bundle summary (PII has been redacted):" not in captured["instructions"]
+
+
+async def test_debug_bug_report_includes_redacted_summary_when_enabled(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Bug report endpoint should add a redacted bundle summary when include_bundle=true."""
+    hass.data["kyber_debug_last_turn"] = {
+        "request_id": "req-include-on",
+        "intent": "action",
+        "char_count": 123,
+        "elapsed_ms": 45,
+        "tool_log": [{"name": "get_entity_state", "args": {"entity_id": "light.kitchen_main"}, "status": "ok"}],
+        "response_text": "Checked light.kitchen_main",
+        "logs": [{"level": "ERROR", "message": "Failed for light.kitchen_main"}],
+    }
+    captured = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        captured["instructions"] = instructions
+        return _make_ai_result("TITLE: test bug\nBODY:\nBody text")
+
+    client = await hass_client()
+    fake_entry = MagicMock(options={}, data={"ai_task_entity_id": "ai_task.ollama_ai_task"})
+    with (
+        patch.object(hass.config_entries, "async_entries", return_value=[fake_entry]),
+        patch(_PATCH_GENERATE_DEBUG, side_effect=fake),
+        patch("aiohttp.ClientSession", side_effect=RuntimeError("offline")),
+    ):
+        resp = await client.post(
+            "/api/kyber/debug/bug-report",
+            json={
+                "request_id": "req-include-on",
+                "what_happened": "Wrong entity toggled",
+                "include_bundle": True,
+                "bundle_name": "kyber-debug-req-include-on.zip",
+            },
+        )
+
+    assert resp.status == 200
+    assert "Debug bundle summary (PII has been redacted):" in captured["instructions"]
+    assert "light.kitchen_main" not in captured["instructions"]
+    assert "***redacted-" in captured["instructions"]

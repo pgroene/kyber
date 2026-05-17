@@ -146,7 +146,7 @@ export const DebugMixin = (Base) => class extends Base {
       ? `<span class="tf-auto" title="Auto-flagged because the response looked uncertain">⚠ auto-rated ${snap.auto_rating}/5</span>`
       : "";
     const feedbackBar = `
-      <div class="dbg-turn-feedback" id="dbg-turn-feedback" data-request-id="${this._escapeHtml(snap.request_id || "")}">
+      <div class="dbg-turn-feedback" id="dbg-turn-feedback" data-request-id="${this._escapeAttr(snap.request_id || "")}">
         <span class="tf-label">How was this turn?</span>
         <button class="tf-btn tf-btn-rate tf-up" title="Helpful — boost related memory" ${hasKnowledge ? "" : "disabled"}>👍 helpful</button>
         <button class="tf-btn tf-btn-rate tf-down" title="Not helpful — flag related memory for review" ${hasKnowledge ? "" : "disabled"}>👎 not helpful</button>

@@ -46,6 +46,20 @@ describe("_escapeHtml", () => {
   });
 });
 
+describe("_escapeAttr", () => {
+  let el;
+  beforeEach(() => { el = makeUnrenderedPanel(); });
+
+  it("escapes quotes for HTML attributes", () => {
+    expect(el._escapeAttr('"hello" \'world\'')).toBe("&quot;hello&quot; &#39;world&#39;");
+  });
+
+  it("escapes html-special chars and handles null input", () => {
+    expect(el._escapeAttr("<x&y>")).toBe("&lt;x&amp;y&gt;");
+    expect(el._escapeAttr(null)).toBe("");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // _getTokenAtCursor
 // ---------------------------------------------------------------------------
