@@ -85,6 +85,11 @@ class KnowledgeStore:
         self._vectors: dict[str, dict[str, float]] = {}
         self._index_dirty = True
 
+    @property
+    def is_loaded(self) -> bool:
+        """Return True once async_load() has completed successfully."""
+        return self._loaded
+
     # ── Embedding index helpers ──────────────────────────────────────
     def _entry_blob(self, entry: dict[str, Any]) -> str:
         parts = [

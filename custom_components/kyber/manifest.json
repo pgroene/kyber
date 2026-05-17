@@ -9,6 +9,6 @@
   "iot_class": "local_polling",
   "requirements": [],
   "homeassistant": "2025.2.0",
-  "version": "0.1.86"
+  "version": "0.1.89"
 }
 
