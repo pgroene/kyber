@@ -285,10 +285,15 @@ def _strip_role_echo_prefix(text: str) -> str:
 
 
 _BRIGHTNESS_INTENT_RE = re.compile(
-    r"\b(?:to\s+)?(?:max(?:imum)?|full(?:\s+brightness)?|brightest|100\s*%)\b",
+    r"\b(?:to\s+)?(?:max(?:imum)?|full(?:\s+brightness)?|brightest|100\s*%"
+    r"|maximaal|volledig|helemaal\s+aan|vol(?:\s+aan)?|zo\s+fel\s+mogelijk)\b",
     re.IGNORECASE,
 )
-_DIM_INTENT_RE = re.compile(r"\b(?:dim(?:med)?|low(?:est)?|min(?:imum)?|10\s*%)\b", re.IGNORECASE)
+_DIM_INTENT_RE = re.compile(
+    r"\b(?:dim(?:med)?|low(?:est)?|min(?:imum)?|10\s*%"
+    r"|gedimd|zwak(?:ste)?|minimaal|zo\s+laag\s+mogelijk)\b",
+    re.IGNORECASE,
+)
 
 
 def _augment_brightness_intent(plan: dict | None, prompt: str) -> dict | None:
