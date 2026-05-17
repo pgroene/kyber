@@ -1863,7 +1863,9 @@ class KyberPanel extends HTMLElement {
               window.open(`https://github.com/pgroene/kyber/issues/new?title=${t}&body=${b}`, "_blank");
             });
           });
-        }(rating, knowledgeIds, btnsRoot) {
+        }
+
+  async _submitTurnFeedback(rating, knowledgeIds, btnsRoot) {
     const status = btnsRoot.querySelector(".tf-status");
     btnsRoot.querySelectorAll(".tf-btn-rate").forEach((b) => (b.disabled = true));
     try {
