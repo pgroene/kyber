@@ -236,6 +236,909 @@ async def _auto_record_search_alias(kstore: Any, query: str, entity_ids: list[st
         _LOGGER.debug("Kyber: auto-record search alias failed (non-critical): %s", err)
 
 
+
+
+def _parse_request_body(body: dict, request: "web.Request") -> dict:
+    """Extract and sanitize all fields from the HTTP request body."""
+    import uuid as _uuid
+    user_yaml: str = body.get("yaml", "")
+    user_prompt: str = body.get("prompt", "").strip()
+    history: list = body.get("history", [])
+    compacted_summary: str = body.get("compacted_summary", "").strip()
+    editor_mode: str = body.get("editor_mode", "automation")
+    request_id: str = str(body.get("request_id", "")).strip()
+    # Sanitize to safe alphanumeric + hyphen/underscore only.
+    # request_id is used as a dict key and appears in debug filenames,
+    # so we must prevent path-traversal and injection payloads.
+    request_id = re.sub(r"[^a-zA-Z0-9_\-]", "", request_id)[:64]
+    if not request_id:
+        request_id = _uuid.uuid4().hex[:12]
+    dashboards: list = body.get("dashboards", [])
+    lovelace_resources: list = body.get("lovelace_resources", [])
+    return {
+        "user_yaml": user_yaml,
+        "user_prompt": user_prompt,
+        "history": history,
+        "compacted_summary": compacted_summary,
+        "editor_mode": editor_mode,
+        "request_id": request_id,
+        "dashboards": dashboards,
+        "lovelace_resources": lovelace_resources,
+    }
+
+
+def _build_prompt_sections(body_fields: dict, context: str, request: "web.Request") -> dict:
+    """Build all system-prompt sections and assemble the instruction string.
+
+    Returns a dict with keys: instructions, intent, conversation_block.
+    """
+    user_yaml: str = body_fields["user_yaml"]
+    user_prompt: str = body_fields["user_prompt"]
+    history: list = body_fields["history"]
+    compacted_summary: str = body_fields["compacted_summary"]
+    editor_mode: str = body_fields["editor_mode"]
+    dashboards: list = body_fields["dashboards"]
+    lovelace_resources: list = body_fields["lovelace_resources"]
+
+    # Dashboard list from frontend (may be empty list if fetch failed)
+    dash_lines = ["- Overview (default) \u2014 url_path: (default)"]
+    for d in (dashboards or []):
+        title = _sanitize_prompt_value(d.get("title") or d.get("url_path", "?"))
+        url_path = _sanitize_prompt_value(d.get("url_path", ""))
+        mode = _sanitize_prompt_value(d.get("mode", "unknown"))
+        if url_path:  # skip entries with no url_path to avoid duplicating default
+            dash_lines.append(f"- {title} \u2014 url_path: {url_path} \u2014 mode: {mode}")
+    dashboard_section = "## Dashboards\n" + "\n".join(dash_lines) + "\n\n"
+
+    # Custom Lovelace card resources
+    if lovelace_resources:
+        resource_lines = [f"- {_sanitize_prompt_value(url)}" for url in lovelace_resources]
+        dashboard_section += "## Custom card resources (installed via HACS or manually)\n" + "\n".join(resource_lines) + "\nWhen using custom cards use `type: custom:<card-name>` syntax.\n\n"
+
+    # Current user info (always available — view requires auth)
+    ha_user = request.get("hass_user")
+    if ha_user:
+        user_display = _sanitize_prompt_value(ha_user.name or ha_user.id)
+        user_role = "administrator" if ha_user.is_admin else "standard user"
+        user_section = f"## Current user (the person you are talking to)\nYou are speaking with: {user_display} ({user_role})\n\n"
+    else:
+        user_section = ""
+
+    if editor_mode == "dashboard":
+        if user_yaml.strip():
+            yaml_section = (
+                f"## \u26a0\ufe0f DASHBOARD EDITOR IS CURRENTLY OPEN\n"
+                f"The user is actively editing the dashboard. The current YAML is shown below.\n"
+                f"**You MUST respond with a ```yaml block containing the FULL updated YAML \u2014 do NOT use a plan block or open_dashboard. "
+                f"The user will click Apply to update the editor.**\n\n"
+                f"```yaml\n{user_yaml}\n```\n\n"
+            )
+        else:
+            yaml_section = (
+                "## \u26a0\ufe0f DASHBOARD EDITOR IS CURRENTLY OPEN (empty/no config yet)\n"
+                "**You MUST respond with a ```yaml block containing the new full dashboard YAML \u2014 do NOT use a plan block or open_dashboard.**\n\n"
+            )
+    else:
+        yaml_section = (
+            f"## Current automation YAML\n```yaml\n{user_yaml}\n```\n\n"
+            if user_yaml.strip()
+            else ""
+        )
+
+    # Build conversation history block — placed right before the user message
+    # so the model sees it as the most recent context.
+    conversation_block = ""
+    if compacted_summary or history:
+        parts = []
+        if compacted_summary:
+            parts.append(f"[Earlier in this conversation]\n{compacted_summary}")
+        if history:
+            lines = []
+            for msg in history:
+                role = msg.get("role", "user")
+                content = str(msg.get("content", "")).strip()
+                if content:
+                    lines.append(f"{'User' if role == 'user' else 'Assistant'}: {content}")
+            if lines:
+                parts.append("[Recent messages]\n" + "\n".join(lines))
+        conversation_block = "\n\n".join(parts) + "\n\n"
+
+    # Classify intent and inject mandatory response-mode constraint.
+    # This prevents small models from generating plan blocks (e.g. open_editor)
+    # for simple informational queries like "what lights do I have".
+    intent = _classify_intent(user_prompt)
+    response_mode_block = (
+        _RESPONSE_MODE_INFORMATIONAL if intent == "informational"
+        else _RESPONSE_MODE_ACTION
+    )
+
+    # Lazy-load sections: inject only when relevant to save prompt budget.
+    automation_guidance = (
+        AUTOMATION_EDITOR_GUIDANCE
+        if user_yaml.strip() or _AUTOMATION_EDIT_RE.search(user_prompt)
+        else ""
+    )
+    lovelace_ref = LOVELACE_CARDS_REFERENCE if editor_mode == "dashboard" else ""
+
+    instructions = (
+        f"{context}\n\n"
+        f"{automation_guidance}"
+        f"{lovelace_ref}"
+        f"{response_mode_block}"
+        f"{user_section}"
+        f"{dashboard_section}"
+        f"{yaml_section}"
+        f"---\n\n"
+        f"{conversation_block}"
+        f"User: {user_prompt}\n"
+        f"Assistant:"
+    )
+
+    if len(instructions) > _BASE_INSTRUCTIONS_CHARS:
+        _LOGGER.warning(
+            "Kyber: instructions truncated from %d to %d chars to fit context window.",
+            len(instructions),
+            _BASE_INSTRUCTIONS_CHARS,
+        )
+        instructions = instructions[:_BASE_INSTRUCTIONS_CHARS]
+
+    return {
+        "instructions": instructions,
+        "intent": intent,
+        "conversation_block": conversation_block,
+    }
+
+
+async def _inject_knowledge_into_instructions(
+    hass: Any, kstore: Any, user_prompt: str, instructions: str, request_id: str
+) -> "tuple[str, list]":
+    """Load relevant knowledge and language hints; inject them into the instructions.
+
+    Returns (updated_instructions, relevant_knowledge).
+    """
+    try:
+        relevant_knowledge = await kstore.async_pick_relevant(user_prompt, max_entries=8)
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Kyber: knowledge lookup failed: %s", err)
+        relevant_knowledge = []
+    if relevant_knowledge:
+        # Drop low-relevance facts that add noise without helping.
+        # Always keep entity_alias / area_alias regardless of score since
+        # they answer "what is 'the TV'?" type questions definitively.
+        # IMPORTANT: do NOT fall back to "show top-2 regardless" —
+        # injecting low-score irrelevant facts confuses the model into
+        # hallucinating entity IDs from unrelated context.
+        _MIN_KNOWLEDGE_SCORE = 0.45
+        _ABS_FLOOR_SCORE = 0.15  # hard floor: never inject below this
+        filtered_knowledge = [
+            e for e in relevant_knowledge
+            if float(e.get("_score") or 0) >= _MIN_KNOWLEDGE_SCORE
+            or e.get("category") in ("entity_alias", "area_alias")
+        ]
+        # If nothing passed the soft threshold, only keep facts above the
+        # absolute floor (never show completely irrelevant facts).
+        if not filtered_knowledge:
+            filtered_knowledge = [
+                e for e in relevant_knowledge
+                if float(e.get("_score") or 0) >= _ABS_FLOOR_SCORE
+                or e.get("category") in ("entity_alias", "area_alias")
+            ]
+        relevant_knowledge = filtered_knowledge  # empty = inject nothing
+
+        # Report which facts were selected so the user can see them in
+        # the live progress card AND in the debug snapshot.
+        picked_summary = ", ".join(
+            f"{e.get('subject') or e.get('category','?')} (score {round(float(e.get('_score') or 0), 2)})"
+            for e in relevant_knowledge[:5]
+        )
+        _LOGGER.info(
+            "Kyber: injected %d memory facts via hybrid retrieval \u2014 %s",
+            len(relevant_knowledge),
+            picked_summary,
+        )
+        _progress_emit(hass, request_id, {
+            "type": "info",
+            "message": f"Recalled {len(relevant_knowledge)} memory fact(s): {picked_summary}",
+        })
+        kn_lines = ["", "## Learned knowledge (from previous interactions)"]
+        kn_lines.append(
+            "These facts were retrieved by hybrid semantic + keyword search; "
+            "the most relevant ones for your current prompt come first. "
+            "Use them when relevant; they override default assumptions. "
+            "If a fact looks wrong, ask the user."
+        )
+        for entry in relevant_knowledge:
+            cat = _sanitize_prompt_value(entry.get("category", "general"))
+            subj = _sanitize_prompt_value(entry.get("subject", ""))
+            content = _sanitize_prompt_value(entry.get("content", ""))
+            tags = ",".join(_sanitize_prompt_value(t) for t in (entry.get("tags", []) or []))
+            score = entry.get("_score")
+            src = entry.get("_source", "?")
+            score_note = f" [match: {round(float(score), 2)} via {src}]" if score is not None else ""
+            kn_lines.append(
+                f"- [{cat}]{(' '+subj) if subj else ''}: {content}"
+                + (f"  (tags: {tags})" if tags else "")
+                + score_note
+            )
+        instructions = instructions + "\n" + "\n".join(kn_lines) + "\n"
+        await kstore.async_record_hit([e["id"] for e in relevant_knowledge])
+
+    # Inject language-specific vocabulary hints when the user writes in a
+    # non-English language.  These are stored as knowledge entries with
+    # category="language_hint" and are retrieved deterministically by tag
+    # (not by TF-IDF score) so they are always complete and consistent.
+    _detected_lang = detect_language(user_prompt)
+    if _detected_lang != "en":
+        _lang_hints = await kstore.async_get_by_tag(
+            _detected_lang, category="language_hint"
+        )
+        if _lang_hints:
+            _lang_name = language_display_name(_detected_lang)
+            _LOGGER.info(
+                "Kyber: detected language '%s' (%s) \u2014 injecting %d vocabulary hints",
+                _detected_lang, _lang_name, len(_lang_hints),
+            )
+            _progress_emit(hass, request_id, {
+                "type": "info",
+                "message": f"Detected language: {_lang_name} \u2014 injecting vocabulary hints",
+            })
+            lang_lines = [
+                "",
+                f"## Language hints ({_lang_name})",
+                "The user is writing in "
+                + _lang_name
+                + ". Use the vocabulary below to map their words to HA domains, "
+                "service calls, and entity types. These hints are helpers \u2014 always "
+                "confirm entity IDs with tool calls; never guess them.",
+            ]
+            for hint_entry in _lang_hints:
+                lang_lines.append(f"- {hint_entry.get('content', '')}")
+            instructions = instructions + "\n" + "\n".join(lang_lines) + "\n"
+
+    return instructions, relevant_knowledge
+
+
+async def _run_ai_loop(
+    hass: Any,
+    entity_id: str,
+    instructions: str,
+    kstore: Any,
+    user_prompt: str,
+    request_id: str,
+    history: list,
+    intent: str,
+) -> tuple:
+    """Run the AI tool-calling loop; return (response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions).
+
+    May raise HomeAssistantError if the AI provider fails.
+    """
+    # Tool-calling loop — the AI may request live HA data via [TOOL_CALL: {...}]
+    # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
+    tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
+    tool_log: list = []  # summary of tool calls for UI feedback
+    executed_calls_cache: dict = {}  # signature → result str (dedup across rounds)
+    response_text = ""
+    _loop_redirect_given = False  # allow one redirect hint before falling back to synthesis
+    _auto_plan_rescued = False    # set when call_service tool call is auto-converted to plan
+    loop_instructions = instructions  # default if the loop never runs
+
+    # ── Quick-intent shortcut — skip the AI for trivially parseable requests
+    # like "create an area outside". Small local models loop on get_areas
+    # because every action example in the prompt has an entity_id; bypassing
+    # the model entirely is far more reliable for these patterns.
+    _skip_ai_loop = False
+    _quick = _try_quick_intent(user_prompt)
+    if _quick is not None:
+        _LOGGER.info("Kyber: quick-intent shortcut hit (%s)", _quick.get("shortcut"))
+        _progress_emit(hass, request_id, {
+            "type": "info",
+            "message": f"Quick-intent shortcut: {_quick.get('shortcut')}",
+        })
+        response_text = _quick["response_text"]
+        intent = "action"  # quick intents are always actions; prevent informational guard from dropping the plan
+        _skip_ai_loop = True
+
+    for _round in range(0 if _skip_ai_loop else _TOOL_CALL_MAX_ROUNDS):
+        loop_instructions = instructions + tool_exchange
+        if len(loop_instructions) > _MAX_INSTRUCTIONS_CHARS:
+            loop_instructions = loop_instructions[:_MAX_INSTRUCTIONS_CHARS]
+
+        _progress_emit(hass, request_id, {
+            "type": "info",
+            "message": f"Asking AI (round {_round + 1})\u2026",
+        })
+        try:
+            result = await async_generate_data(
+                hass,
+                task_name=f"{DOMAIN}_complete",
+                entity_id=entity_id,
+                instructions=loop_instructions,
+            )
+        except HomeAssistantError as err:
+            _LOGGER.error("AI task failed: %s", err)
+            _progress_emit(hass, request_id, {"type": "error", "message": str(err)})
+            _progress_complete(hass, request_id)
+            raise
+
+        response_text = result.data if isinstance(result.data, str) else (
+            str(result.data) if result.data is not None else ""
+        )
+        if not isinstance(result.data, str):
+            _LOGGER.warning(
+                "Kyber: AI result.data is not str (type=%s); coerced to string",
+                type(result.data).__name__,
+            )
+        tool_calls = _parse_tool_calls(response_text)
+
+        # Also handle plan blocks where the AI put tool calls inside actions
+        if not tool_calls:
+            plan_for_tools = _extract_plan_block(response_text)
+            if plan_for_tools and plan_for_tools.get("actions"):
+                _TOOL_CALL_TYPES = {
+                    "list_entities_by_domain", "get_entity_state", "get_area_entities",
+                    "list_entities_by_label", "search_entities", "get_areas", "get_labels",
+                    "list_entities_without_area",
+                }
+                tool_calls = [
+                    {**a, "name": a["type"]}
+                    for a in plan_for_tools["actions"]
+                    if a.get("type") in _TOOL_CALL_TYPES
+                ]
+                if tool_calls:
+                    # Strip the plan block from response so it never reaches the frontend
+                    response_text = _PLAN_BLOCK_RE.sub("", response_text).strip()
+
+        if not tool_calls:
+            break  # no tool calls — final answer
+
+        # Dedup: within this round and against prior rounds.
+        seen_signatures: set = set()
+        unique_calls = []
+        for call in tool_calls:
+            # Canonical signature: tool name + sorted args
+            sig_dict = {k: v for k, v in call.items() if k != "name"}
+            sig = json.dumps({"name": call.get("name", ""), "args": sig_dict}, sort_keys=True)
+            if sig in seen_signatures:
+                _LOGGER.info("Kyber: skipping duplicate tool call %s", sig[:120])
+                continue
+            seen_signatures.add(sig)
+            unique_calls.append((sig, call))
+        tool_calls_filtered = unique_calls
+
+        # Execute tools and build result block
+        clean_response = _strip_tool_calls(response_text)
+        tool_results_block = ""
+        # Cap each tool result fed back to the model to keep context small.
+        # Small models (8K window) choke on huge JSON payloads and forget
+        # to continue. Truncate at ~6KB with a note.
+        new_call_count = 0
+
+        # Emit tool_call progress events upfront, then execute uncached calls
+        # in parallel via the HA executor. Read-only tools (list_*, get_*) are
+        # safe to fan out; mutating actions go through plan blocks, not tools.
+        for sig, call in tool_calls_filtered:
+            _progress_emit(hass, request_id, {
+                "type": "tool_call",
+                "name": call.get("name", ""),
+                "args": {k: v for k, v in call.items() if k != "name"},
+            })
+
+        async def _run_one_tool(sig: str, call: dict) -> tuple:
+            if sig in executed_calls_cache:
+                return sig, call, executed_calls_cache[sig]
+            # Resolve aliases before deciding sync vs async path
+            call = resolve_tool_call(call)
+            if call.get("name") in _ASYNC_TOOLS:
+                result = await _async_execute_tool(hass, call)
+            else:
+                result = await hass.async_add_executor_job(_execute_tool, hass, call)
+            return sig, call, result
+
+        tool_results_parallel = await asyncio.gather(
+            *[_run_one_tool(s, c) for s, c in tool_calls_filtered],
+            return_exceptions=True,
+        )
+
+        for idx, item in enumerate(tool_results_parallel):
+            sig_call = tool_calls_filtered[idx]
+            sig, call = sig_call
+            if isinstance(item, BaseException):
+                _LOGGER.warning("Kyber: tool %s raised %s", call.get("name"), item)
+                tool_result_str = json.dumps({"error": str(item)})
+            else:
+                _, _, tool_result_str = item
+                if sig not in executed_calls_cache:
+                    executed_calls_cache[sig] = tool_result_str
+                    new_call_count += 1
+            try:
+                tool_result_data = json.loads(tool_result_str)
+            except json.JSONDecodeError:
+                tool_result_data = {"error": "invalid_json", "raw": tool_result_str[:200]}
+            _LOGGER.debug("Tool call %s \u2192 %s chars", call.get("name"), len(tool_result_str))
+
+            # Auto-plan rescue: when call_service was used as a tool and the
+            # backend auto-built a plan, inject it as the final response now.
+            if isinstance(tool_result_data, dict) and tool_result_data.get("_auto_plan"):
+                plan_json = tool_result_data.get("_plan_json", "")
+                if plan_json:
+                    _LOGGER.info("Kyber: auto-converting call_service tool call to plan block")
+                    response_text = f"```plan\n{plan_json}\n```"
+                    intent = "action"  # ensure informational guard doesn't strip it
+                    _auto_plan_rescued = True
+                    break  # exit tool-results inner loop
+
+            # Auto-record entity aliases: when search_entities returns 1-3 primary
+            # entities, silently save the query->entity mapping so future turns don't
+            # need to search again.
+            if call.get("name") == "search_entities" and isinstance(tool_result_data, dict):
+                _primary_eids = [
+                    k for k in tool_result_data
+                    if isinstance(k, str) and "." in k and not k.startswith("_")
+                ]
+                if 1 <= len(_primary_eids) <= 3:
+                    _q = (call.get("query") or ", ".join(call.get("queries") or [])).strip()
+                    if _q:
+                        asyncio.ensure_future(
+                            _auto_record_search_alias(kstore, _q, _primary_eids)
+                        )
+
+            # Also record aliases from get_entity_state: when entity_id words
+            # overlap with the user prompt we know the user was asking about that
+            # entity — save the mapping so next time we don't need to search.
+            if (
+                call.get("name") == "get_entity_state"
+                and isinstance(tool_result_data, dict)
+                and "error" not in tool_result_data
+            ):
+                _eid = call.get("entity_id", "")
+                if _eid and "." in _eid:
+                    # Extract meaningful words from the entity_id (ignore domain prefix)
+                    _eid_words = set(re.split(r"[._]", _eid.split(".", 1)[-1].lower()))
+                    _eid_words.discard("")
+                    # Build the prompt search space: current prompt + last history message
+                    _prompt_words = set(re.split(r"\W+", user_prompt.lower()))
+                    _last_hist = ""
+                    if history:
+                        _last_hist = str(history[-1].get("content", "")).lower()
+                    _hist_words = set(re.split(r"\W+", _last_hist))
+                    _all_context_words = _prompt_words | _hist_words
+                    # Require at least one meaningful entity word (>3 chars) in context
+                    _overlap = {
+                        w for w in _eid_words
+                        if len(w) > 3 and w in _all_context_words
+                    }
+                    if _overlap:
+                        # Build a natural alias from the overlapping context words
+                        _alias_words = sorted(_overlap, key=lambda w: -len(w))
+                        _alias_q = " ".join(_alias_words[:3])
+                        asyncio.ensure_future(
+                            _auto_record_search_alias(kstore, _alias_q, [_eid])
+                        )
+
+            # Build a short human-readable summary for the UI
+            summary = _tool_result_summary(call, tool_result_data)
+            args_display = {k: v for k, v in call.items() if k != "name"}
+            tool_log.append({
+                "name": call.get("name", ""),
+                "args": args_display,
+                "summary": summary,
+            })
+            # Build a short preview of the result for the live UI
+            preview = tool_result_str
+            if len(preview) > 400:
+                preview = preview[:400] + "\u2026"
+            _progress_emit(hass, request_id, {
+                "type": "tool_result",
+                "name": call.get("name", ""),
+                "summary": summary,
+                "preview": preview,
+            })
+
+            # Truncate the version sent BACK to the model (UI summary above is unaffected)
+            feedback_str = tool_result_str
+            if len(feedback_str) > _MAX_TOOL_RESULT_CHARS:
+                if isinstance(tool_result_data, dict) and len(tool_result_data) > 1:
+                    items = list(tool_result_data.items())
+                    kept: dict = {}
+                    running = 0
+                    for k, v in items:
+                        piece = json.dumps({k: v})
+                        if running + len(piece) > _MAX_TOOL_RESULT_CHARS:
+                            break
+                        kept[k] = v
+                        running += len(piece) + 2
+                    omitted = len(items) - len(kept)
+                    feedback_str = json.dumps({
+                        "_truncated": True,
+                        "_total_items": len(items),
+                        "_returned_items": len(kept),
+                        "_note": f"{omitted} more items omitted. Use a more specific filter (state, domain, area) to narrow results.",
+                        "items": kept,
+                    })
+                else:
+                    feedback_str = feedback_str[:_MAX_TOOL_RESULT_CHARS] + '..."[TRUNCATED]"}'
+                _LOGGER.info(
+                    "Kyber: truncated tool result %s from %d \u2192 %d chars",
+                    call.get("name"), len(tool_result_str), len(feedback_str),
+                )
+
+            tool_results_block += (
+                f"\n[TOOL_RESULT: {json.dumps(call)}]\n{feedback_str}\n"
+            )
+        tool_exchange += f"{clean_response}\n{tool_results_block}\nAssistant:"
+        _progress_emit(hass, request_id, {"type": "thinking", "stage": "follow_up"})
+
+        # Auto-plan rescue already set response_text — exit the round loop.
+        if _auto_plan_rescued:
+            break
+
+        # Stop early if model is looping (every call was a duplicate)
+        if new_call_count == 0:
+            # First time: try a targeted redirect hint so the model can
+            # try a different tool before we fall back to synthesis.
+            if not _loop_redirect_given:
+                redirect = _build_loop_redirect(tool_calls_filtered)
+                if redirect is not None:
+                    _loop_redirect_given = True
+                    tool_exchange += redirect
+                    _progress_emit(hass, request_id, {
+                        "type": "info",
+                        "message": "Redirecting \u2014 trying alternative search approach.",
+                    })
+                    continue  # one more AI round with the redirect hint
+
+            _LOGGER.info("Kyber: all tool calls in round were duplicates; stopping loop")
+            _progress_emit(hass, request_id, {
+                "type": "info",
+                "message": "Model repeated previous tool calls \u2014 synthesizing answer from results.",
+            })
+            # The model looped instead of answering in prose. Do one final
+            # synthesis pass with no tool-calling instructions so it turns
+            # the collected data into a natural-language response.
+            if not _strip_tool_calls(response_text).strip() and tool_exchange:
+                synth_prompt = instructions + tool_exchange + _SYNTHESIS_INSTRUCTIONS
+                if len(synth_prompt) > _MAX_INSTRUCTIONS_CHARS:
+                    synth_prompt = synth_prompt[:_MAX_INSTRUCTIONS_CHARS]
+                try:
+                    _progress_emit(hass, request_id, {"type": "thinking", "stage": "synthesize"})
+                    synth_result = await async_generate_data(
+                        hass,
+                        task_name=f"{DOMAIN}_complete",
+                        entity_id=entity_id,
+                        instructions=synth_prompt,
+                    )
+                    synth_text = (
+                        synth_result.data
+                        if isinstance(synth_result.data, str)
+                        else (str(synth_result.data) if synth_result.data is not None else "")
+                    )
+                    synth_text = _strip_tool_calls(synth_text).strip()
+                    if synth_text:
+                        response_text = synth_text
+                except Exception as _synth_err:  # noqa: BLE001
+                    _LOGGER.warning("Kyber: synthesis pass failed: %s", _synth_err)
+            # Final guard: if synthesis also produced nothing, show a helpful message.
+            if not _strip_tool_calls(response_text).strip():
+                response_text = (
+                    "I wasn't able to figure out the right action for that "
+                    "request \u2014 could you rephrase or be more specific?"
+                )
+            break
+
+    return response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions
+
+
+def _extract_response_components(
+    response_text: str,
+    intent: str,
+    user_prompt: str,
+    hass: Any,
+    tool_log: list,
+) -> dict:
+    """Strip model artifacts and extract structured blocks from the response.
+
+    Returns a dict with keys: response_text, yaml_blocks, plan_block, clarify_block.
+    """
+    # Strip leading "User: ...\nAssistant: ..." echo block before parsing.
+    response_text = _strip_role_echo_prefix(response_text)
+    # Rewrap bare ``` JSON action fences as a ```plan``` block so the
+    # frontend can render an Execute button. This MUST run before plan extraction.
+    response_text = _rewrap_bare_action_fences(response_text)
+
+    yaml_blocks = _extract_yaml_blocks(response_text)
+    plan_block = _extract_plan_block(response_text)
+    # Honour brightness intent ("max" / "full" / "dim" / "100%") by
+    # injecting brightness_pct on light.turn_on actions.
+    plan_block = _augment_brightness_intent(plan_block, user_prompt)
+    clarify_block = _extract_clarify_block(response_text)
+
+    # Remove the raw clarify code block from the displayed response; UI renders it.
+    if clarify_block:
+        response_text = _CLARIFY_BLOCK_RE.sub("", response_text).strip()
+
+    # NOTE: plan block is stripped from response_text AFTER the informational guard
+    # (see below) so that a mis-classified query that produces only a plan doesn't
+    # result in an empty response.
+
+    # Strip any [TOOL_RESULT: ...] or [T00L_RESULT: ...] lines the model echoed back.
+    response_text = _TOOL_RESULT_STRIP_RE.sub("", response_text).strip()
+    # Also strip multi-line [TOOL_RESULT: ...] payloads (block form)
+    response_text = re.sub(
+        r"\[T[O0]{2}L[_\-]RESULT:[^\]]*\][^\n]*\n(?:.*?\n)*?(?=\n[A-Z]|\n\n|\Z)",
+        "",
+        response_text,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    # Strip any unparsed tool calls in any format from the final response.
+    response_text = _strip_tool_calls(response_text)
+
+    # Strip "User: ..." and "Assistant:" turn echoes (anywhere, not just at start)
+    response_text = re.sub(r"^\s*User:\s.*?(?=\n\n|\Z)", "", response_text, flags=re.DOTALL).strip()
+    response_text = re.sub(r"^\s*Assistant:\s*", "", response_text, flags=re.MULTILINE).strip()
+
+    # Strip narrated/role-played tool calls and "Based on the result..." fluff.
+    for pattern in _NARRATION_PATTERNS:
+        response_text = pattern.sub("\n", response_text)
+    # Collapse blank lines left by narration scrubbing
+    response_text = re.sub(r"\n{3,}", "\n\n", response_text).strip()
+
+    # Strip bare JSON tool-result lines (e.g. {"area": "X", "entities": {...}})
+    # that the model echoed inline outside of any code fence.
+    response_text = _BARE_JSON_TOOL_RESULT_RE.sub("\n", response_text)
+    response_text = re.sub(r"\n{3,}", "\n\n", response_text).strip()
+
+    # Strip leftover bare JSON-result lines where the key looks like an entity_id (domain.name)
+    # or known result wrapper keys. Covers all domains the model might echo back.
+    response_text = re.sub(
+        r"^\s*\{\"[a-z_]+\.[a-z0-9_][^\"]*\":[^\n]*\}\s*$",
+        "",
+        response_text,
+        flags=re.MULTILINE,
+    ).strip()
+    response_text = re.sub(
+        r"^\s*\{\"(?:_truncated|info|result|area|entities|count)[^\n]*\}\s*$",
+        "",
+        response_text,
+        flags=re.MULTILINE,
+    ).strip()
+
+    # Strip [SYSTEM: ...] / [END SYSTEM] blocks the model echoed back.
+    response_text = re.sub(r"\[SYSTEM:[^\]]*?\].*?\[END SYSTEM\]\s*", "", response_text, flags=re.DOTALL).strip()
+    response_text = re.sub(r"<<RULES:.*?>>.*?<</RULES>>\s*", "", response_text, flags=re.DOTALL).strip()
+
+    # Strip common model preamble and narration patterns (applied left-to-right, each once).
+    _PREAMBLE_PATTERNS = [
+        # "I'm happy to help!" / "I'm here to help!"
+        re.compile(r"^I'?m (happy|here) to help[^.!]*[.!]?\s*", re.IGNORECASE),
+        # "Since this is an INFORMATIONAL query..."
+        re.compile(r"^Since this is an? (INFORMATIONAL|ACTION)[^.]*\.\s*", re.IGNORECASE),
+        # "Since the user asked about X, I'll output a tool call..."
+        re.compile(r"^Since the user (asked|is asking)[^.]*\.\s*", re.IGNORECASE),
+        # "I'll respond in plain text and use tool calls if needed."
+        re.compile(r"^I('ll| will) (respond in plain text|use tool calls?)[^.]*\.\s*", re.IGNORECASE),
+        # "To get the IDs of all X, I'll need to execute some tool calls."
+        re.compile(r"^To (get|find|retrieve)[^,]+,\s*I('ll| will) need to (execute|call|run)[^.]+\.\s*", re.IGNORECASE),
+        # "Here are the results:" / "Here's my response:"
+        re.compile(r"^Here (are the results|is my response|are the (presence|motion|light)[^:]*):?\s*", re.IGNORECASE),
+        # "After executing the tool call, I found that..."
+        re.compile(r"^After (executing|running) the tool call[^,]*,\s*", re.IGNORECASE),
+        # "Let me call some tools to get more information..."
+        re.compile(r"^Let me (call|use|run) (some |a )?tools?[^.]*\.\s*", re.IGNORECASE),
+        # "According to the current state of the house,"
+        re.compile(r"^According to the (current state|context)[^,]*,\s*", re.IGNORECASE),
+    ]
+    for pattern in _PREAMBLE_PATTERNS:
+        response_text = pattern.sub("", response_text).strip()
+
+    # Strip model footer noise (end of response).
+    _FOOTER_PATTERNS = [
+        re.compile(r"\s*Please (let me know|note)[^.!?]*[.!?]\s*$", re.IGNORECASE),
+        re.compile(r"\s*Just let me know[.!]?\s*$", re.IGNORECASE),
+        re.compile(r"\s*What would you like to do\?\s*$", re.IGNORECASE),
+        re.compile(r"\s*Can I help you with anything else\?\s*$", re.IGNORECASE),
+        re.compile(r"\s*Let me know if you (need|have|want|would like)[^.!?]*[.!?]?\s*$", re.IGNORECASE),
+        re.compile(r"\s*Is there anything else[^?]*\?\s*$", re.IGNORECASE),
+    ]
+    for pattern in _FOOTER_PATTERNS:
+        response_text = pattern.sub("", response_text).strip()
+
+    # Guard: if intent was informational and the model still hallucinated an
+    # open_editor or open_dashboard plan, drop it.
+    # Also drop create/delete/update action plans for informational queries
+    # (e.g. "what areas do I have" should never become "create_area outside").
+    if intent == "informational" and plan_block:
+        has_editor = plan_block.get("open_editor") or plan_block.get("open_dashboard")
+        mutating_action_types = {
+            "create_area", "delete_area", "rename_entity", "assign_area",
+            "assign_label", "call_service", "update_knowledge", "add_knowledge",
+            "delete_knowledge",
+        }
+        actions = plan_block.get("actions", [])
+        has_mutating = any(a.get("type") in mutating_action_types for a in actions)
+        if has_editor or has_mutating:
+            _LOGGER.warning(
+                "Kyber: dropping spurious action plan for informational query: %r (types: %s)",
+                user_prompt[:80],
+                [a.get("type") for a in actions],
+            )
+            plan_block = None
+
+    # Remove plan block from displayed response — do this AFTER the informational
+    # guard so that a dropped plan doesn't leave response_text empty (the raw plan
+    # JSON stays in the text, which is better than a blank response).
+    if plan_block:
+        response_text = _strip_plan_block(response_text)
+
+    # Rescue: if the model used open_editor with a non-automation/script entity
+    # (e.g. light.*, switch.*), convert to a call_service actions plan.
+    if plan_block and plan_block.get("open_editor"):
+        aid = plan_block.get("automation_id", "")
+        entity_domain = aid.split(".")[0] if "." in aid else ""
+        if entity_domain and entity_domain not in ("automation", "script"):
+            summary_lower = plan_block.get("summary", "").lower()
+            prompt_lower = user_prompt.lower()
+            # Infer service from summary / original prompt
+            if any(w in summary_lower or w in prompt_lower for w in ("turn off", "switch off", "zet uit", "off")):
+                service = "turn_off"
+                new_state = "off"
+                current_state = "on"
+            elif any(w in summary_lower or w in prompt_lower for w in ("turn on", "switch on", "zet aan", "on")):
+                service = "turn_on"
+                new_state = "on"
+                current_state = "off"
+            elif any(w in summary_lower or w in prompt_lower for w in ("toggle")):
+                service = "toggle"
+                new_state = "toggled"
+                current_state = ""
+            else:
+                service = None
+
+            if service and aid:
+                _LOGGER.info(
+                    "Kyber: rescued open_editor plan for %s \u2192 call_service %s.%s",
+                    aid, entity_domain, service,
+                )
+                plan_block = {
+                    "summary": plan_block.get("summary", f"{service} {aid}"),
+                    "actions": [{
+                        "type": "call_service",
+                        "domain": entity_domain,
+                        "service": service,
+                        "entity_id": aid,
+                        "description": plan_block.get("summary", ""),
+                        "current_state": current_state,
+                        "new_state": new_state,
+                    }],
+                }
+            else:
+                _LOGGER.warning(
+                    "Kyber: dropping open_editor plan for non-automation entity %r (cannot infer service)",
+                    aid,
+                )
+                plan_block = None
+
+    # Plan auto-resolution: when a plan references an entity_id that does
+    # not exist (e.g. `light.werkkamer`) but the local part matches an area
+    # name, expand to the REAL entities in that area for the requested
+    # domain. This rescues small models that skip the area lookup tool.
+    if plan_block and isinstance(plan_block.get("actions"), list):
+        try:
+            area_reg = ar.async_get(hass)
+            entity_reg = er.async_get(hass)
+            # Build lookup: lowercase area-name -> area_id
+            area_by_name: dict = {}
+            for a in area_reg.async_list_areas():
+                area_by_name[a.name.lower()] = a.id
+                area_by_name[a.id.lower()] = a.id
+            # Build lookup: area_id -> list of entity_ids
+            entities_by_area: dict = {}
+            for entry in entity_reg.entities.values():
+                if entry.area_id:
+                    entities_by_area.setdefault(entry.area_id, []).append(entry.entity_id)
+
+            new_actions: list = []
+            resolved_any = False
+            for action in plan_block["actions"]:
+                if not isinstance(action, dict):
+                    new_actions.append(action)
+                    continue
+                eid = action.get("entity_id", "")
+                if not eid or "." not in eid:
+                    new_actions.append(action)
+                    continue
+                if hass.states.get(eid):
+                    new_actions.append(action)
+                    continue
+                # Bogus entity_id — try to resolve `<domain>.<area>` -> area
+                domain, _, local = eid.partition(".")
+                candidate = local.replace("_", " ").lower()
+                area_id = area_by_name.get(candidate) or area_by_name.get(local.lower())
+                real_ids: list = []
+                if area_id:
+                    real_ids = [
+                        e for e in entities_by_area.get(area_id, [])
+                        if e.split(".")[0] == domain and hass.states.get(e)
+                    ]
+                if not real_ids:
+                    # Fallback: name-hint matching — find entities of the
+                    # right domain whose id or friendly_name contains the
+                    # candidate token. Useful when areas aren't configured.
+                    tokens = [t for t in re.split(r"[\s_\-]+", candidate) if t]
+                    if tokens:
+                        hint_matches: list = []
+                        for st in hass.states.async_all():
+                            if st.entity_id.split(".")[0] != domain:
+                                continue
+                            hay = (
+                                st.entity_id.lower()
+                                + " "
+                                + str(st.attributes.get("friendly_name", "")).lower()
+                            )
+                            if all(t in hay for t in tokens):
+                                hint_matches.append(st.entity_id)
+                        real_ids = hint_matches
+                if not real_ids:
+                    new_actions.append(action)
+                    continue
+                _LOGGER.info(
+                    "Kyber: resolved bogus entity %r \u2192 %d real %s entities",
+                    eid, len(real_ids), domain,
+                )
+                resolved_any = True
+                for real_id in real_ids:
+                    rs = hass.states.get(real_id)
+                    new_actions.append({
+                        **action,
+                        "entity_id": real_id,
+                        "current_state": rs.state if rs else action.get("current_state", ""),
+                    })
+            if resolved_any:
+                plan_block["actions"] = new_actions
+        except Exception as err:  # pragma: no cover - best effort
+            _LOGGER.debug("Kyber: plan auto-resolve failed: %s", err)
+
+    # Detect hallucinated entity IDs: if no tool was called but the response
+    # contains entity-id patterns (domain.name), check them against HA state.
+    # If none match real states, append a warning so the user knows.
+    # Skip the warning when we already produced a plan with verified IDs
+    # (auto-resolution above will have fixed any bogus IDs).
+    plan_has_verified_ids = False
+    if plan_block and isinstance(plan_block.get("actions"), list):
+        plan_has_verified_ids = any(
+            isinstance(a, dict) and a.get("entity_id") and hass.states.get(a["entity_id"])
+            for a in plan_block["actions"]
+        )
+    if not tool_log and not plan_has_verified_ids:
+        _ENTITY_ID_RE = re.compile(r"\b([a-z_]+\.[a-z0-9_]+)\b")
+        candidate_ids = _ENTITY_ID_RE.findall(response_text)
+        if candidate_ids:
+            fake_ids = [
+                eid for eid in candidate_ids
+                if "." in eid and not hass.states.get(eid)
+                and eid.split(".")[0] in (
+                    "light", "switch", "sensor", "binary_sensor",
+                    "climate", "cover", "media_player", "person",
+                )
+            ]
+            if fake_ids:
+                _LOGGER.warning(
+                    "Kyber: response may contain fabricated entity IDs (not in HA state): %s",
+                    fake_ids[:5],
+                )
+                response_text += (
+                    "\n\n\u26a0\ufe0f *Note: I couldn't verify these entity IDs against your Home Assistant. "
+                    "They may be incorrect \u2014 ask me to search for them to get real IDs.*"
+                )
+
+    return {
+        "response_text": response_text,
+        "yaml_blocks": yaml_blocks,
+        "plan_block": plan_block,
+        "clarify_block": clarify_block,
+    }
+
+
 class KyberView(HomeAssistantView):
     """Handle POST /api/kyber/complete."""
 
@@ -258,23 +1161,14 @@ class KyberView(HomeAssistantView):
         except (json.JSONDecodeError, ValueError):
             return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
 
-        user_yaml: str = body.get("yaml", "")
-        user_prompt: str = body.get("prompt", "").strip()
-        history: list[dict] = body.get("history", [])
-        compacted_summary: str = body.get("compacted_summary", "").strip()
-        editor_mode: str = body.get("editor_mode", "automation")
-        request_id: str = str(body.get("request_id", "")).strip()
-        # Sanitize to safe alphanumeric + hyphen/underscore only.
-        # request_id is used as a dict key and appears in debug filenames,
-        # so we must prevent path-traversal and injection payloads.
-        request_id = re.sub(r"[^a-zA-Z0-9_\-]", "", request_id)[:64]
-        if not request_id:
-            import uuid as _uuid
-            request_id = _uuid.uuid4().hex[:12]
+        body_fields = _parse_request_body(body, request)
+        user_prompt = body_fields["user_prompt"]
+        request_id = body_fields["request_id"]
+        history = body_fields["history"]
+        compacted_summary = body_fields["compacted_summary"]
+        editor_mode = body_fields["editor_mode"]
         # Per-turn log capture for the Debug bundle download.
         _debug_log_sink, _debug_log_handler = _debug_attach_log_capture(request_id)
-        dashboards: list[dict] = body.get("dashboards", [])
-        lovelace_resources: list[str] = body.get("lovelace_resources", [])
 
         if not user_prompt:
             _debug_detach_log_capture(_debug_log_handler)
@@ -287,819 +1181,35 @@ class KyberView(HomeAssistantView):
         )
 
         context, context_stats = _build_context(hass)
-
-        # Dashboard list from frontend (may be empty list if fetch failed)
-        dash_lines = ["- Overview (default) — url_path: (default)"]
-        for d in (dashboards or []):
-            title = _sanitize_prompt_value(d.get("title") or d.get("url_path", "?"))
-            url_path = _sanitize_prompt_value(d.get("url_path", ""))
-            mode = _sanitize_prompt_value(d.get("mode", "unknown"))
-            if url_path:  # skip entries with no url_path to avoid duplicating default
-                dash_lines.append(f"- {title} — url_path: {url_path} — mode: {mode}")
-        dashboard_section = "## Dashboards\n" + "\n".join(dash_lines) + "\n\n"
-
-        # Custom Lovelace card resources
-        if lovelace_resources:
-            resource_lines = [f"- {_sanitize_prompt_value(url)}" for url in lovelace_resources]
-            dashboard_section += "## Custom card resources (installed via HACS or manually)\n" + "\n".join(resource_lines) + "\nWhen using custom cards use `type: custom:<card-name>` syntax.\n\n"
-
-        # Current user info (always available — view requires auth)
-        ha_user = request.get("hass_user")
-        if ha_user:
-            user_display = _sanitize_prompt_value(ha_user.name or ha_user.id)
-            user_role = "administrator" if ha_user.is_admin else "standard user"
-            user_section = f"## Current user (the person you are talking to)\nYou are speaking with: {user_display} ({user_role})\n\n"
-        else:
-            user_section = ""
-
-        if editor_mode == "dashboard":
-            if user_yaml.strip():
-                yaml_section = (
-                    f"## ⚠️ DASHBOARD EDITOR IS CURRENTLY OPEN\n"
-                    f"The user is actively editing the dashboard. The current YAML is shown below.\n"
-                    f"**You MUST respond with a ```yaml block containing the FULL updated YAML — do NOT use a plan block or open_dashboard. "
-                    f"The user will click Apply to update the editor.**\n\n"
-                    f"```yaml\n{user_yaml}\n```\n\n"
-                )
-            else:
-                yaml_section = (
-                    "## ⚠️ DASHBOARD EDITOR IS CURRENTLY OPEN (empty/no config yet)\n"
-                    "**You MUST respond with a ```yaml block containing the new full dashboard YAML — do NOT use a plan block or open_dashboard.**\n\n"
-                )
-        else:
-            yaml_section = (
-                f"## Current automation YAML\n```yaml\n{user_yaml}\n```\n\n"
-                if user_yaml.strip()
-                else ""
-            )
-
-        # Build conversation history block — placed right before the user message
-        # so the model sees it as the most recent context.
-        conversation_block = ""
-        if compacted_summary or history:
-            parts = []
-            if compacted_summary:
-                parts.append(f"[Earlier in this conversation]\n{compacted_summary}")
-            if history:
-                lines = []
-                for msg in history:
-                    role = msg.get("role", "user")
-                    content = str(msg.get("content", "")).strip()
-                    if content:
-                        lines.append(f"{'User' if role == 'user' else 'Assistant'}: {content}")
-                if lines:
-                    parts.append("[Recent messages]\n" + "\n".join(lines))
-            conversation_block = "\n\n".join(parts) + "\n\n"
-
-        # Classify intent and inject mandatory response-mode constraint.
-        # This prevents small models from generating plan blocks (e.g. open_editor)
-        # for simple informational queries like "what lights do I have".
-        intent = _classify_intent(user_prompt)
-        response_mode_block = (
-            _RESPONSE_MODE_INFORMATIONAL if intent == "informational"
-            else _RESPONSE_MODE_ACTION
-        )
-
-        # Lazy-load sections: inject only when relevant to save prompt budget.
-        automation_guidance = (
-            AUTOMATION_EDITOR_GUIDANCE
-            if user_yaml.strip() or _AUTOMATION_EDIT_RE.search(user_prompt)
-            else ""
-        )
-        lovelace_ref = LOVELACE_CARDS_REFERENCE if editor_mode == "dashboard" else ""
-
-        instructions = (
-            f"{context}\n\n"
-            f"{automation_guidance}"
-            f"{lovelace_ref}"
-            f"{response_mode_block}"
-            f"{user_section}"
-            f"{dashboard_section}"
-            f"{yaml_section}"
-            f"---\n\n"
-            f"{conversation_block}"
-            f"User: {user_prompt}\n"
-            f"Assistant:"
-        )
-
-        if len(instructions) > _BASE_INSTRUCTIONS_CHARS:
-            _LOGGER.warning(
-                "Kyber: instructions truncated from %d to %d chars to fit context window.",
-                len(instructions),
-                _BASE_INSTRUCTIONS_CHARS,
-            )
-            instructions = instructions[:_BASE_INSTRUCTIONS_CHARS]
+        sections = _build_prompt_sections(body_fields, context, request)
+        instructions = sections["instructions"]
+        intent = sections["intent"]
+        conversation_block = sections["conversation_block"]
 
         entity_id: str = self._config[CONF_AI_TASK_ENTITY_ID]
 
         # Load knowledge store and inject relevant entries into the instructions.
         kstore = get_knowledge_store(hass)
         await kstore.async_load()
-        try:
-            relevant_knowledge = await kstore.async_pick_relevant(user_prompt, max_entries=8)
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Kyber: knowledge lookup failed: %s", err)
-            relevant_knowledge = []
-        if relevant_knowledge:
-            # Drop low-relevance facts that add noise without helping.
-            # Always keep entity_alias / area_alias regardless of score since
-            # they answer "what is 'the TV'?" type questions definitively.
-            # IMPORTANT: do NOT fall back to "show top-2 regardless" —
-            # injecting low-score irrelevant facts confuses the model into
-            # hallucinating entity IDs from unrelated context.
-            _MIN_KNOWLEDGE_SCORE = 0.45
-            _ABS_FLOOR_SCORE = 0.15  # hard floor: never inject below this
-            filtered_knowledge = [
-                e for e in relevant_knowledge
-                if float(e.get("_score") or 0) >= _MIN_KNOWLEDGE_SCORE
-                or e.get("category") in ("entity_alias", "area_alias")
-            ]
-            # If nothing passed the soft threshold, only keep facts above the
-            # absolute floor (never show completely irrelevant facts).
-            if not filtered_knowledge:
-                filtered_knowledge = [
-                    e for e in relevant_knowledge
-                    if float(e.get("_score") or 0) >= _ABS_FLOOR_SCORE
-                    or e.get("category") in ("entity_alias", "area_alias")
-                ]
-            relevant_knowledge = filtered_knowledge  # empty = inject nothing
+        instructions, relevant_knowledge = await _inject_knowledge_into_instructions(
+            hass, kstore, user_prompt, instructions, request_id
+        )
 
-            # Report which facts were selected so the user can see them in
-            # the live progress card AND in the debug snapshot.
-            picked_summary = ", ".join(
-                f"{e.get('subject') or e.get('category','?')} (score {round(float(e.get('_score') or 0), 2)})"
-                for e in relevant_knowledge[:5]
-            )
-            _LOGGER.info(
-                "Kyber: injected %d memory facts via hybrid retrieval — %s",
-                len(relevant_knowledge),
-                picked_summary,
-            )
-            _progress_emit(hass, request_id, {
-                "type": "info",
-                "message": f"Recalled {len(relevant_knowledge)} memory fact(s): {picked_summary}",
-            })
-            kn_lines = ["", "## Learned knowledge (from previous interactions)"]
-            kn_lines.append(
-                "These facts were retrieved by hybrid semantic + keyword search; "
-                "the most relevant ones for your current prompt come first. "
-                "Use them when relevant; they override default assumptions. "
-                "If a fact looks wrong, ask the user."
-            )
-            for entry in relevant_knowledge:
-                cat = _sanitize_prompt_value(entry.get("category", "general"))
-                subj = _sanitize_prompt_value(entry.get("subject", ""))
-                content = _sanitize_prompt_value(entry.get("content", ""))
-                tags = ",".join(_sanitize_prompt_value(t) for t in (entry.get("tags", []) or []))
-                score = entry.get("_score")
-                src = entry.get("_source", "?")
-                score_note = f" [match: {round(float(score), 2)} via {src}]" if score is not None else ""
-                kn_lines.append(
-                    f"- [{cat}]{(' '+subj) if subj else ''}: {content}"
-                    + (f"  (tags: {tags})" if tags else "")
-                    + score_note
-                )
-            instructions = instructions + "\n" + "\n".join(kn_lines) + "\n"
-            await kstore.async_record_hit([e["id"] for e in relevant_knowledge])
-
-        # Inject language-specific vocabulary hints when the user writes in a
-        # non-English language.  These are stored as knowledge entries with
-        # category="language_hint" and are retrieved deterministically by tag
-        # (not by TF-IDF score) so they are always complete and consistent.
-        _detected_lang = detect_language(user_prompt)
-        if _detected_lang != "en":
-            _lang_hints = await kstore.async_get_by_tag(
-                _detected_lang, category="language_hint"
-            )
-            if _lang_hints:
-                _lang_name = language_display_name(_detected_lang)
-                _LOGGER.info(
-                    "Kyber: detected language '%s' (%s) — injecting %d vocabulary hints",
-                    _detected_lang, _lang_name, len(_lang_hints),
-                )
-                _progress_emit(hass, request_id, {
-                    "type": "info",
-                    "message": f"Detected language: {_lang_name} — injecting vocabulary hints",
-                })
-                lang_lines = [
-                    "",
-                    f"## Language hints ({_lang_name})",
-                    "The user is writing in "
-                    + _lang_name
-                    + ". Use the vocabulary below to map their words to HA domains, "
-                    "service calls, and entity types. These hints are helpers — always "
-                    "confirm entity IDs with tool calls; never guess them.",
-                ]
-                for hint_entry in _lang_hints:
-                    lang_lines.append(f"- {hint_entry.get('content', '')}")
-                instructions = instructions + "\n" + "\n".join(lang_lines) + "\n"
-
-        # Tool-calling loop — the AI may request live HA data via [TOOL_CALL: {...}]
-        # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
-        tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
-        tool_log: list[dict[str, Any]] = []  # summary of tool calls for UI feedback
-        executed_calls_cache: dict[str, str] = {}  # signature → result str (dedup across rounds)
-        response_text = ""
-        _loop_redirect_given = False  # allow one redirect hint before falling back to synthesis
-        _auto_plan_rescued = False    # set when call_service tool call is auto-converted to plan
         _progress_emit(hass, request_id, {"type": "info", "message": f"Built context: {context_stats.get('entity_count', 0)} entities, {context_stats.get('area_count', 0)} areas"})
 
-        # ── Quick-intent shortcut — skip the AI for trivially parseable requests
-        # like "create an area outside". Small local models loop on get_areas
-        # because every action example in the prompt has an entity_id; bypassing
-        # the model entirely is far more reliable for these patterns.
-        _skip_ai_loop = False
-        _quick = _try_quick_intent(user_prompt)
-        if _quick is not None:
-            _LOGGER.info("Kyber: quick-intent shortcut hit (%s)", _quick.get("shortcut"))
-            _progress_emit(hass, request_id, {
-                "type": "info",
-                "message": f"Quick-intent shortcut: {_quick.get('shortcut')}",
-            })
-            response_text = _quick["response_text"]
-            intent = "action"  # quick intents are always actions; prevent informational guard from dropping the plan
-            _skip_ai_loop = True
-
-        for _round in range(0 if _skip_ai_loop else _TOOL_CALL_MAX_ROUNDS):
-            loop_instructions = instructions + tool_exchange
-            if len(loop_instructions) > _MAX_INSTRUCTIONS_CHARS:
-                loop_instructions = loop_instructions[:_MAX_INSTRUCTIONS_CHARS]
-
-            _progress_emit(hass, request_id, {
-                "type": "info",
-                "message": f"Asking AI (round {_round + 1})…",
-            })
-            try:
-                result = await async_generate_data(
-                    hass,
-                    task_name=f"{DOMAIN}_complete",
-                    entity_id=entity_id,
-                    instructions=loop_instructions,
-                )
-            except HomeAssistantError as err:
-                _LOGGER.error("AI task failed: %s", err)
-                _progress_emit(hass, request_id, {"type": "error", "message": str(err)})
-                _progress_complete(hass, request_id)
-                return self.json_message(
-                    f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
-                )
-
-            response_text = result.data if isinstance(result.data, str) else (
-                str(result.data) if result.data is not None else ""
-            )
-            if not isinstance(result.data, str):
-                _LOGGER.warning(
-                    "Kyber: AI result.data is not str (type=%s); coerced to string",
-                    type(result.data).__name__,
-                )
-            tool_calls = _parse_tool_calls(response_text)
-
-            # Also handle plan blocks where the AI put tool calls inside actions
-            if not tool_calls:
-                plan_for_tools = _extract_plan_block(response_text)
-                if plan_for_tools and plan_for_tools.get("actions"):
-                    _TOOL_CALL_TYPES = {
-                        "list_entities_by_domain", "get_entity_state", "get_area_entities",
-                        "list_entities_by_label", "search_entities", "get_areas", "get_labels",
-                        "list_entities_without_area",
-                    }
-                    tool_calls = [
-                        {**a, "name": a["type"]}
-                        for a in plan_for_tools["actions"]
-                        if a.get("type") in _TOOL_CALL_TYPES
-                    ]
-                    if tool_calls:
-                        # Strip the plan block from response so it never reaches the frontend
-                        response_text = _PLAN_BLOCK_RE.sub("", response_text).strip()
-
-            if not tool_calls:
-                break  # no tool calls — final answer
-
-            # Dedup: within this round and against prior rounds.
-            seen_signatures: set[str] = set()
-            unique_calls = []
-            for call in tool_calls:
-                # Canonical signature: tool name + sorted args
-                sig_dict = {k: v for k, v in call.items() if k != "name"}
-                sig = json.dumps({"name": call.get("name", ""), "args": sig_dict}, sort_keys=True)
-                if sig in seen_signatures:
-                    _LOGGER.info("Kyber: skipping duplicate tool call %s", sig[:120])
-                    continue
-                seen_signatures.add(sig)
-                unique_calls.append((sig, call))
-            tool_calls_filtered = unique_calls
-
-            # Execute tools and build result block
-            clean_response = _strip_tool_calls(response_text)
-            tool_results_block = ""
-            # Cap each tool result fed back to the model to keep context small.
-            # Small models (8K window) choke on huge JSON payloads and forget
-            # to continue. Truncate at ~6KB with a note.
-            new_call_count = 0
-
-            # Emit tool_call progress events upfront, then execute uncached calls
-            # in parallel via the HA executor. Read-only tools (list_*, get_*) are
-            # safe to fan out; mutating actions go through plan blocks, not tools.
-            for sig, call in tool_calls_filtered:
-                _progress_emit(hass, request_id, {
-                    "type": "tool_call",
-                    "name": call.get("name", ""),
-                    "args": {k: v for k, v in call.items() if k != "name"},
-                })
-
-            async def _run_one_tool(sig: str, call: dict) -> tuple[str, dict, str]:
-                if sig in executed_calls_cache:
-                    return sig, call, executed_calls_cache[sig]
-                # Resolve aliases before deciding sync vs async path
-                call = resolve_tool_call(call)
-                if call.get("name") in _ASYNC_TOOLS:
-                    result = await _async_execute_tool(hass, call)
-                else:
-                    result = await hass.async_add_executor_job(_execute_tool, hass, call)
-                return sig, call, result
-
-            tool_results_parallel = await asyncio.gather(
-                *[_run_one_tool(s, c) for s, c in tool_calls_filtered],
-                return_exceptions=True,
+        try:
+            response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions = \
+                await _run_ai_loop(hass, entity_id, instructions, kstore, user_prompt, request_id, history, intent)
+        except HomeAssistantError as err:
+            return self.json_message(
+                f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
             )
 
-            for idx, item in enumerate(tool_results_parallel):
-                sig_call = tool_calls_filtered[idx]
-                sig, call = sig_call
-                if isinstance(item, BaseException):
-                    _LOGGER.warning("Kyber: tool %s raised %s", call.get("name"), item)
-                    tool_result_str = json.dumps({"error": str(item)})
-                else:
-                    _, _, tool_result_str = item
-                    if sig not in executed_calls_cache:
-                        executed_calls_cache[sig] = tool_result_str
-                        new_call_count += 1
-                try:
-                    tool_result_data = json.loads(tool_result_str)
-                except json.JSONDecodeError:
-                    tool_result_data = {"error": "invalid_json", "raw": tool_result_str[:200]}
-                _LOGGER.debug("Tool call %s → %s chars", call.get("name"), len(tool_result_str))
-
-                # Auto-plan rescue: when call_service was used as a tool and the
-                # backend auto-built a plan, inject it as the final response now.
-                if isinstance(tool_result_data, dict) and tool_result_data.get("_auto_plan"):
-                    plan_json = tool_result_data.get("_plan_json", "")
-                    if plan_json:
-                        _LOGGER.info("Kyber: auto-converting call_service tool call to plan block")
-                        response_text = f"```plan\n{plan_json}\n```"
-                        intent = "action"  # ensure informational guard doesn't strip it
-                        _auto_plan_rescued = True
-                        break  # exit tool-results inner loop
-
-                # Auto-record entity aliases: when search_entities returns 1–3 primary
-                # entities, silently save the query→entity mapping so future turns don't
-                # need to search again.
-                if call.get("name") == "search_entities" and isinstance(tool_result_data, dict):
-                    _primary_eids = [
-                        k for k in tool_result_data
-                        if isinstance(k, str) and "." in k and not k.startswith("_")
-                    ]
-                    if 1 <= len(_primary_eids) <= 3:
-                        _q = (call.get("query") or ", ".join(call.get("queries") or [])).strip()
-                        if _q:
-                            asyncio.ensure_future(
-                                _auto_record_search_alias(kstore, _q, _primary_eids)
-                            )
-
-                # Also record aliases from get_entity_state: when entity_id words
-                # overlap with the user prompt we know the user was asking about that
-                # entity — save the mapping so next time we don't need to search.
-                if (
-                    call.get("name") == "get_entity_state"
-                    and isinstance(tool_result_data, dict)
-                    and "error" not in tool_result_data
-                ):
-                    _eid = call.get("entity_id", "")
-                    if _eid and "." in _eid:
-                        # Extract meaningful words from the entity_id (ignore domain prefix)
-                        _eid_words = set(re.split(r"[._]", _eid.split(".", 1)[-1].lower()))
-                        _eid_words.discard("")
-                        # Build the prompt search space: current prompt + last history message
-                        _prompt_words = set(re.split(r"\W+", user_prompt.lower()))
-                        _last_hist = ""
-                        if history:
-                            _last_hist = str(history[-1].get("content", "")).lower()
-                        _hist_words = set(re.split(r"\W+", _last_hist))
-                        _all_context_words = _prompt_words | _hist_words
-                        # Require at least one meaningful entity word (>3 chars) in context
-                        _overlap = {
-                            w for w in _eid_words
-                            if len(w) > 3 and w in _all_context_words
-                        }
-                        if _overlap:
-                            # Build a natural alias from the overlapping context words
-                            _alias_words = sorted(_overlap, key=lambda w: -len(w))
-                            _alias_q = " ".join(_alias_words[:3])
-                            asyncio.ensure_future(
-                                _auto_record_search_alias(kstore, _alias_q, [_eid])
-                            )
-
-                # Build a short human-readable summary for the UI
-                summary = _tool_result_summary(call, tool_result_data)
-                args_display = {k: v for k, v in call.items() if k != "name"}
-                tool_log.append({
-                    "name": call.get("name", ""),
-                    "args": args_display,
-                    "summary": summary,
-                })
-                # Build a short preview of the result for the live UI
-                preview = tool_result_str
-                if len(preview) > 400:
-                    preview = preview[:400] + "…"
-                _progress_emit(hass, request_id, {
-                    "type": "tool_result",
-                    "name": call.get("name", ""),
-                    "summary": summary,
-                    "preview": preview,
-                })
-
-                # Truncate the version sent BACK to the model (UI summary above is unaffected)
-                feedback_str = tool_result_str
-                if len(feedback_str) > _MAX_TOOL_RESULT_CHARS:
-                    if isinstance(tool_result_data, dict) and len(tool_result_data) > 1:
-                        items = list(tool_result_data.items())
-                        kept: dict = {}
-                        running = 0
-                        for k, v in items:
-                            piece = json.dumps({k: v})
-                            if running + len(piece) > _MAX_TOOL_RESULT_CHARS:
-                                break
-                            kept[k] = v
-                            running += len(piece) + 2
-                        omitted = len(items) - len(kept)
-                        feedback_str = json.dumps({
-                            "_truncated": True,
-                            "_total_items": len(items),
-                            "_returned_items": len(kept),
-                            "_note": f"{omitted} more items omitted. Use a more specific filter (state, domain, area) to narrow results.",
-                            "items": kept,
-                        })
-                    else:
-                        feedback_str = feedback_str[:_MAX_TOOL_RESULT_CHARS] + '..."[TRUNCATED]"}'
-                    _LOGGER.info(
-                        "Kyber: truncated tool result %s from %d → %d chars",
-                        call.get("name"), len(tool_result_str), len(feedback_str),
-                    )
-
-                tool_results_block += (
-                    f"\n[TOOL_RESULT: {json.dumps(call)}]\n{feedback_str}\n"
-                )
-            tool_exchange += f"{clean_response}\n{tool_results_block}\nAssistant:"
-            _progress_emit(hass, request_id, {"type": "thinking", "stage": "follow_up"})
-
-            # Auto-plan rescue already set response_text — exit the round loop.
-            if _auto_plan_rescued:
-                break
-
-            # Stop early if model is looping (every call was a duplicate)
-            if new_call_count == 0:
-                # First time: try a targeted redirect hint so the model can
-                # try a different tool before we fall back to synthesis.
-                if not _loop_redirect_given:
-                    redirect = _build_loop_redirect(tool_calls_filtered)
-                    if redirect is not None:
-                        _loop_redirect_given = True
-                        tool_exchange += redirect
-                        _progress_emit(hass, request_id, {
-                            "type": "info",
-                            "message": "Redirecting — trying alternative search approach.",
-                        })
-                        continue  # one more AI round with the redirect hint
-
-                _LOGGER.info("Kyber: all tool calls in round were duplicates; stopping loop")
-                _progress_emit(hass, request_id, {
-                    "type": "info",
-                    "message": "Model repeated previous tool calls — synthesizing answer from results.",
-                })
-                # The model looped instead of answering in prose. Do one final
-                # synthesis pass with no tool-calling instructions so it turns
-                # the collected data into a natural-language response.
-                if not _strip_tool_calls(response_text).strip() and tool_exchange:
-                    synth_prompt = instructions + tool_exchange + _SYNTHESIS_INSTRUCTIONS
-                    if len(synth_prompt) > _MAX_INSTRUCTIONS_CHARS:
-                        synth_prompt = synth_prompt[:_MAX_INSTRUCTIONS_CHARS]
-                    try:
-                        _progress_emit(hass, request_id, {"type": "thinking", "stage": "synthesize"})
-                        synth_result = await async_generate_data(
-                            hass,
-                            task_name=f"{DOMAIN}_complete",
-                            entity_id=entity_id,
-                            instructions=synth_prompt,
-                        )
-                        synth_text = (
-                            synth_result.data
-                            if isinstance(synth_result.data, str)
-                            else (str(synth_result.data) if synth_result.data is not None else "")
-                        )
-                        synth_text = _strip_tool_calls(synth_text).strip()
-                        if synth_text:
-                            response_text = synth_text
-                    except Exception as _synth_err:  # noqa: BLE001
-                        _LOGGER.warning("Kyber: synthesis pass failed: %s", _synth_err)
-                # Final guard: if synthesis also produced nothing, show a helpful message.
-                if not _strip_tool_calls(response_text).strip():
-                    response_text = (
-                        "I wasn't able to figure out the right action for that "
-                        "request — could you rephrase or be more specific?"
-                    )
-                break
-
-        # Strip leading "User: ...\nAssistant: ..." echo block before parsing.
-        response_text = _strip_role_echo_prefix(response_text)
-        # Rewrap bare ``` JSON action fences as a ```plan``` block so the
-        # frontend can render an Execute button. This MUST run before plan extraction.
-        response_text = _rewrap_bare_action_fences(response_text)
-
-        yaml_blocks = _extract_yaml_blocks(response_text)
-        plan_block = _extract_plan_block(response_text)
-        # Honour brightness intent ("max" / "full" / "dim" / "100%") by
-        # injecting brightness_pct on light.turn_on actions.
-        plan_block = _augment_brightness_intent(plan_block, user_prompt)
-        clarify_block = _extract_clarify_block(response_text)
-
-        # Remove the raw clarify code block from the displayed response; UI renders it.
-        if clarify_block:
-            response_text = _CLARIFY_BLOCK_RE.sub("", response_text).strip()
-
-        # NOTE: plan block is stripped from response_text AFTER the informational guard
-        # (see below) so that a mis-classified query that produces only a plan doesn't
-        # result in an empty response.
-
-        # Strip any [TOOL_RESULT: ...] or [T00L_RESULT: ...] lines the model echoed back.
-        response_text = _TOOL_RESULT_STRIP_RE.sub("", response_text).strip()
-        # Also strip multi-line [TOOL_RESULT: ...] payloads (block form)
-        response_text = re.sub(
-            r"\[T[O0]{2}L[_\-]RESULT:[^\]]*\][^\n]*\n(?:.*?\n)*?(?=\n[A-Z]|\n\n|\Z)",
-            "",
-            response_text,
-            flags=re.IGNORECASE,
-        ).strip()
-
-        # Strip any unparsed tool calls in any format from the final response.
-        response_text = _strip_tool_calls(response_text)
-
-        # Strip "User: ..." and "Assistant:" turn echoes (anywhere, not just at start)
-        response_text = re.sub(r"^\s*User:\s.*?(?=\n\n|\Z)", "", response_text, flags=re.DOTALL).strip()
-        response_text = re.sub(r"^\s*Assistant:\s*", "", response_text, flags=re.MULTILINE).strip()
-
-        # Strip narrated/role-played tool calls and "Based on the result..." fluff.
-        for pattern in _NARRATION_PATTERNS:
-            response_text = pattern.sub("\n", response_text)
-        # Collapse blank lines left by narration scrubbing
-        response_text = re.sub(r"\n{3,}", "\n\n", response_text).strip()
-
-        # Strip bare JSON tool-result lines (e.g. {"area": "X", "entities": {...}})
-        # that the model echoed inline outside of any code fence.
-        response_text = _BARE_JSON_TOOL_RESULT_RE.sub("\n", response_text)
-        response_text = re.sub(r"\n{3,}", "\n\n", response_text).strip()
-
-        # Strip leftover bare JSON-result lines where the key looks like an entity_id (domain.name)
-        # or known result wrapper keys. Covers all domains the model might echo back.
-        response_text = re.sub(
-            r"^\s*\{\"[a-z_]+\.[a-z0-9_][^\"]*\":[^\n]*\}\s*$",
-            "",
-            response_text,
-            flags=re.MULTILINE,
-        ).strip()
-        response_text = re.sub(
-            r"^\s*\{\"(?:_truncated|info|result|area|entities|count)[^\n]*\}\s*$",
-            "",
-            response_text,
-            flags=re.MULTILINE,
-        ).strip()
-
-        # Strip [SYSTEM: ...] / [END SYSTEM] blocks the model echoed back.
-        response_text = re.sub(r"\[SYSTEM:[^\]]*?\].*?\[END SYSTEM\]\s*", "", response_text, flags=re.DOTALL).strip()
-        response_text = re.sub(r"<<RULES:.*?>>.*?<</RULES>>\s*", "", response_text, flags=re.DOTALL).strip()
-
-        # Strip common model preamble and narration patterns (applied left-to-right, each once).
-        _PREAMBLE_PATTERNS = [
-            # "I'm happy to help!" / "I'm here to help!"
-            re.compile(r"^I'?m (happy|here) to help[^.!]*[.!]?\s*", re.IGNORECASE),
-            # "Since this is an INFORMATIONAL query..."
-            re.compile(r"^Since this is an? (INFORMATIONAL|ACTION)[^.]*\.\s*", re.IGNORECASE),
-            # "Since the user asked about X, I'll output a tool call..."
-            re.compile(r"^Since the user (asked|is asking)[^.]*\.\s*", re.IGNORECASE),
-            # "I'll respond in plain text and use tool calls if needed."
-            re.compile(r"^I('ll| will) (respond in plain text|use tool calls?)[^.]*\.\s*", re.IGNORECASE),
-            # "To get the IDs of all X, I'll need to execute some tool calls."
-            re.compile(r"^To (get|find|retrieve)[^,]+,\s*I('ll| will) need to (execute|call|run)[^.]+\.\s*", re.IGNORECASE),
-            # "Here are the results:" / "Here's my response:"
-            re.compile(r"^Here (are the results|is my response|are the (presence|motion|light)[^:]*):?\s*", re.IGNORECASE),
-            # "After executing the tool call, I found that..."
-            re.compile(r"^After (executing|running) the tool call[^,]*,\s*", re.IGNORECASE),
-            # "Let me call some tools to get more information..."
-            re.compile(r"^Let me (call|use|run) (some |a )?tools?[^.]*\.\s*", re.IGNORECASE),
-            # "According to the current state of the house,"
-            re.compile(r"^According to the (current state|context)[^,]*,\s*", re.IGNORECASE),
-        ]
-        for pattern in _PREAMBLE_PATTERNS:
-            response_text = pattern.sub("", response_text).strip()
-
-        # Strip model footer noise (end of response).
-        _FOOTER_PATTERNS = [
-            re.compile(r"\s*Please (let me know|note)[^.!?]*[.!?]\s*$", re.IGNORECASE),
-            re.compile(r"\s*Just let me know[.!]?\s*$", re.IGNORECASE),
-            re.compile(r"\s*What would you like to do\?\s*$", re.IGNORECASE),
-            re.compile(r"\s*Can I help you with anything else\?\s*$", re.IGNORECASE),
-            re.compile(r"\s*Let me know if you (need|have|want|would like)[^.!?]*[.!?]?\s*$", re.IGNORECASE),
-            re.compile(r"\s*Is there anything else[^?]*\?\s*$", re.IGNORECASE),
-        ]
-        for pattern in _FOOTER_PATTERNS:
-            response_text = pattern.sub("", response_text).strip()
-
-        # Guard: if intent was informational and the model still hallucinated an
-        # open_editor or open_dashboard plan, drop it.
-        # Also drop create/delete/update action plans for informational queries
-        # (e.g. "what areas do I have" should never become "create_area outside").
-        if intent == "informational" and plan_block:
-            has_editor = plan_block.get("open_editor") or plan_block.get("open_dashboard")
-            mutating_action_types = {
-                "create_area", "delete_area", "rename_entity", "assign_area",
-                "assign_label", "call_service", "update_knowledge", "add_knowledge",
-                "delete_knowledge",
-            }
-            actions = plan_block.get("actions", [])
-            has_mutating = any(a.get("type") in mutating_action_types for a in actions)
-            if has_editor or has_mutating:
-                _LOGGER.warning(
-                    "Kyber: dropping spurious action plan for informational query: %r (types: %s)",
-                    user_prompt[:80],
-                    [a.get("type") for a in actions],
-                )
-                plan_block = None
-
-        # Remove plan block from displayed response — do this AFTER the informational
-        # guard so that a dropped plan doesn't leave response_text empty (the raw plan
-        # JSON stays in the text, which is better than a blank response).
-        if plan_block:
-            response_text = _strip_plan_block(response_text)
-
-        # Rescue: if the model used open_editor with a non-automation/script entity
-        # (e.g. light.*, switch.*), convert to a call_service actions plan.
-        if plan_block and plan_block.get("open_editor"):
-            aid = plan_block.get("automation_id", "")
-            entity_domain = aid.split(".")[0] if "." in aid else ""
-            if entity_domain and entity_domain not in ("automation", "script"):
-                summary_lower = plan_block.get("summary", "").lower()
-                prompt_lower = user_prompt.lower()
-                # Infer service from summary / original prompt
-                if any(w in summary_lower or w in prompt_lower for w in ("turn off", "switch off", "zet uit", "off")):
-                    service = "turn_off"
-                    new_state = "off"
-                    current_state = "on"
-                elif any(w in summary_lower or w in prompt_lower for w in ("turn on", "switch on", "zet aan", "on")):
-                    service = "turn_on"
-                    new_state = "on"
-                    current_state = "off"
-                elif any(w in summary_lower or w in prompt_lower for w in ("toggle")):
-                    service = "toggle"
-                    new_state = "toggled"
-                    current_state = ""
-                else:
-                    service = None
-
-                if service and aid:
-                    _LOGGER.info(
-                        "Kyber: rescued open_editor plan for %s → call_service %s.%s",
-                        aid, entity_domain, service,
-                    )
-                    plan_block = {
-                        "summary": plan_block.get("summary", f"{service} {aid}"),
-                        "actions": [{
-                            "type": "call_service",
-                            "domain": entity_domain,
-                            "service": service,
-                            "entity_id": aid,
-                            "description": plan_block.get("summary", ""),
-                            "current_state": current_state,
-                            "new_state": new_state,
-                        }],
-                    }
-                else:
-                    _LOGGER.warning(
-                        "Kyber: dropping open_editor plan for non-automation entity %r (cannot infer service)",
-                        aid,
-                    )
-                    plan_block = None
-
-        # Plan auto-resolution: when a plan references an entity_id that does
-        # not exist (e.g. `light.werkkamer`) but the local part matches an area
-        # name, expand to the REAL entities in that area for the requested
-        # domain. This rescues small models that skip the area lookup tool.
-        if plan_block and isinstance(plan_block.get("actions"), list):
-            try:
-                area_reg = ar.async_get(hass)
-                entity_reg = er.async_get(hass)
-                # Build lookup: lowercase area-name → area_id
-                area_by_name: dict[str, str] = {}
-                for a in area_reg.async_list_areas():
-                    area_by_name[a.name.lower()] = a.id
-                    area_by_name[a.id.lower()] = a.id
-                # Build lookup: area_id → list of entity_ids
-                entities_by_area: dict[str, list[str]] = {}
-                for entry in entity_reg.entities.values():
-                    if entry.area_id:
-                        entities_by_area.setdefault(entry.area_id, []).append(entry.entity_id)
-
-                new_actions: list[dict] = []
-                resolved_any = False
-                for action in plan_block["actions"]:
-                    if not isinstance(action, dict):
-                        new_actions.append(action)
-                        continue
-                    eid = action.get("entity_id", "")
-                    if not eid or "." not in eid:
-                        new_actions.append(action)
-                        continue
-                    if hass.states.get(eid):
-                        new_actions.append(action)
-                        continue
-                    # Bogus entity_id — try to resolve `<domain>.<area>` → area
-                    domain, _, local = eid.partition(".")
-                    candidate = local.replace("_", " ").lower()
-                    area_id = area_by_name.get(candidate) or area_by_name.get(local.lower())
-                    real_ids: list[str] = []
-                    if area_id:
-                        real_ids = [
-                            e for e in entities_by_area.get(area_id, [])
-                            if e.split(".")[0] == domain and hass.states.get(e)
-                        ]
-                    if not real_ids:
-                        # Fallback: name-hint matching — find entities of the
-                        # right domain whose id or friendly_name contains the
-                        # candidate token. Useful when areas aren't configured.
-                        tokens = [t for t in re.split(r"[\s_\-]+", candidate) if t]
-                        if tokens:
-                            hint_matches: list[str] = []
-                            for st in hass.states.async_all():
-                                if st.entity_id.split(".")[0] != domain:
-                                    continue
-                                hay = (
-                                    st.entity_id.lower()
-                                    + " "
-                                    + str(st.attributes.get("friendly_name", "")).lower()
-                                )
-                                if all(t in hay for t in tokens):
-                                    hint_matches.append(st.entity_id)
-                            real_ids = hint_matches
-                    if not real_ids:
-                        new_actions.append(action)
-                        continue
-                    _LOGGER.info(
-                        "Kyber: resolved bogus entity %r → %d real %s entities",
-                        eid, len(real_ids), domain,
-                    )
-                    resolved_any = True
-                    for real_id in real_ids:
-                        rs = hass.states.get(real_id)
-                        new_actions.append({
-                            **action,
-                            "entity_id": real_id,
-                            "current_state": rs.state if rs else action.get("current_state", ""),
-                        })
-                if resolved_any:
-                    plan_block["actions"] = new_actions
-            except Exception as err:  # pragma: no cover - best effort
-                _LOGGER.debug("Kyber: plan auto-resolve failed: %s", err)
-
-        # Detect hallucinated entity IDs: if no tool was called but the response
-        # contains entity-id patterns (domain.name), check them against HA state.
-        # If none match real states, append a warning so the user knows.
-        # Skip the warning when we already produced a plan with verified IDs
-        # (auto-resolution above will have fixed any bogus IDs).
-        plan_has_verified_ids = False
-        if plan_block and isinstance(plan_block.get("actions"), list):
-            plan_has_verified_ids = any(
-                isinstance(a, dict) and a.get("entity_id") and hass.states.get(a["entity_id"])
-                for a in plan_block["actions"]
-            )
-        if not tool_log and not plan_has_verified_ids:
-            _ENTITY_ID_RE = re.compile(r"\b([a-z_]+\.[a-z0-9_]+)\b")
-            candidate_ids = _ENTITY_ID_RE.findall(response_text)
-            if candidate_ids:
-                fake_ids = [
-                    eid for eid in candidate_ids
-                    if "." in eid and not hass.states.get(eid)
-                    and eid.split(".")[0] in (
-                        "light", "switch", "sensor", "binary_sensor",
-                        "climate", "cover", "media_player", "person",
-                    )
-                ]
-                if fake_ids:
-                    _LOGGER.warning(
-                        "Kyber: response may contain fabricated entity IDs (not in HA state): %s",
-                        fake_ids[:5],
-                    )
-                    response_text += (
-                        "\n\n⚠️ *Note: I couldn't verify these entity IDs against your Home Assistant. "
-                        "They may be incorrect — ask me to search for them to get real IDs.*"
-                    )
+        components = _extract_response_components(response_text, intent, user_prompt, hass, tool_log)
+        response_text = components["response_text"]
+        yaml_blocks = components["yaml_blocks"]
+        plan_block = components["plan_block"]
+        clarify_block = components["clarify_block"]
 
         _progress_complete(hass, request_id)
         plan_block = _annotate_plan_approval(plan_block)
@@ -1172,7 +1282,7 @@ class KyberView(HomeAssistantView):
                 request_id=request_id,
                 user_prompt=user_prompt,
                 expanded_prompt=instructions,
-                instructions_used=loop_instructions if 'loop_instructions' in locals() else instructions,
+                instructions_used=loop_instructions,
                 picked_knowledge=[
                     {
                         "id": e.get("id"),

@@ -1,4 +1,4 @@
-{
+﻿{
   "domain": "kyber",
   "name": "Kyber",
   "codeowners": ["@pgroene"],
@@ -9,6 +9,8 @@
   "iot_class": "local_polling",
   "requirements": [],
   "homeassistant": "2025.2.0",
-  "version": "0.1.89"
+  "version": "0.1.90"
 }
+
+
 
