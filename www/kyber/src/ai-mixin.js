@@ -121,11 +121,15 @@ export const AIMixin = (Base) => class extends Base {
               </label>
               <div class="bug-report-actions">
                 <button class="bug-report-btn-cancel" id="br-close">Close</button>
+                <button class="bug-report-btn-submit" id="br-download">⬇ Download bundle</button>
                 <button class="bug-report-btn-submit" id="br-copy">📋 Copy</button>
                 <button class="bug-report-btn-submit" id="br-open-gh">Open on GitHub ↗</button>
               </div>`;
 
             dlg.querySelector("#br-close").addEventListener("click", close);
+            dlg.querySelector("#br-download")?.addEventListener("click", () => {
+              this._downloadDebugBundle(requestId, dlg.querySelector("#br-download"));
+            });
             dlg.querySelector("#br-copy").addEventListener("click", () => {
               const title = dlg.querySelector("#br-title").value;
               const body = dlg.querySelector("#br-body").value;

@@ -23,12 +23,23 @@ from homeassistant.core import HomeAssistant
 _LOGGER = logging.getLogger(__name__)
 
 # Words to ignore when extracting room hints from names.
+# Includes both English and common Dutch function words so automation names
+# like 'zet de lamp in de woonkamer aan' don't produce false area inferences.
 _STOPWORDS = {
+    # English
     "automation", "scene", "script", "schedule", "morning", "evening",
     "night", "day", "on", "off", "turn", "toggle", "set", "the", "a",
-    "and", "or", "if", "then", "when", "auto", "smart", "home", "ha",
+    "an", "and", "or", "if", "then", "when", "auto", "smart", "home", "ha",
     "light", "lights", "switch", "switches", "sensor", "sensors",
     "for", "to", "from", "with", "trigger", "test", "demo", "new", "old",
+    "my", "all", "any", "is", "at", "by", "up", "do",
+    # Dutch function words (articles, prepositions, conjunctions, pronouns)
+    "de", "het", "een", "in", "op", "aan", "uit", "van", "met", "en",
+    "of", "als", "dan", "dat", "die", "dit", "ze", "zijn", "wordt",
+    "door", "bij", "om", "te", "er", "is", "ik", "je", "we", "zet",
+    "doe", "maak", "ga", "gaat", "naar", "ook", "niet", "mijn", "nu",
+    "al", "nog", "wel", "geen", "zo", "wat", "wie", "hoe", "waar",
+    "wordt", "ben", "heeft", "hebben", "was", "waren",
 }
 
 

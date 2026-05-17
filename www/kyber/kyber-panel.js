@@ -40,7 +40,7 @@ import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=87";
 import { DebugMixin } from "./src/debug-mixin.js?v=87";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=87";
 import { EditorMixin } from "./src/editor-mixin.js?v=87";
-import { AIMixin } from "./src/ai-mixin.js?v=87";
+import { AIMixin } from "./src/ai-mixin.js?v=88";
 import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=87";
 
 // ---------------------------------------------------------------------------

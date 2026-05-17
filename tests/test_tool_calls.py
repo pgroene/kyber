@@ -71,6 +71,7 @@ def _load(name: str, path: Path):
 _load("custom_components.kyber.const", ROOT / "custom_components" / "kyber" / "const.py")
 _load("custom_components.kyber.knowledge", ROOT / "custom_components" / "kyber" / "knowledge.py")
 _load("custom_components.kyber.analyzer", ROOT / "custom_components" / "kyber" / "analyzer.py")
+_load("custom_components.kyber.source", ROOT / "custom_components" / "kyber" / "source.py")
 http_api = _load("custom_components.kyber.http_api", ROOT / "custom_components" / "kyber" / "http_api.py")
 
 _parse_tool_calls = http_api._parse_tool_calls
