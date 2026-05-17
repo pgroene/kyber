@@ -411,13 +411,25 @@ class KyberView(HomeAssistantView):
             # Drop low-relevance facts that add noise without helping.
             # Always keep entity_alias / area_alias regardless of score since
             # they answer "what is 'the TV'?" type questions definitively.
+            # IMPORTANT: do NOT fall back to "show top-2 regardless" —
+            # injecting low-score irrelevant facts confuses the model into
+            # hallucinating entity IDs from unrelated context.
             _MIN_KNOWLEDGE_SCORE = 0.45
+            _ABS_FLOOR_SCORE = 0.15  # hard floor: never inject below this
             filtered_knowledge = [
                 e for e in relevant_knowledge
                 if float(e.get("_score") or 0) >= _MIN_KNOWLEDGE_SCORE
                 or e.get("category") in ("entity_alias", "area_alias")
             ]
-            relevant_knowledge = filtered_knowledge or relevant_knowledge[:2]  # always show at least top-2
+            # If nothing passed the soft threshold, only keep facts above the
+            # absolute floor (never show completely irrelevant facts).
+            if not filtered_knowledge:
+                filtered_knowledge = [
+                    e for e in relevant_knowledge
+                    if float(e.get("_score") or 0) >= _ABS_FLOOR_SCORE
+                    or e.get("category") in ("entity_alias", "area_alias")
+                ]
+            relevant_knowledge = filtered_knowledge  # empty = inject nothing
 
             # Report which facts were selected so the user can see them in
             # the live progress card AND in the debug snapshot.

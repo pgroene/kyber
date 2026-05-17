@@ -156,7 +156,8 @@ For entity IDs (like light.xyz) or current states (on/off/temperature), ALWAYS c
 - "How many X" / "list all X" → `list_entities_by_domain`
 - Unknown device name / partial match → `search_entities`
 - Area or room management only → `get_areas` (do NOT call it for unrelated questions)
-- **Streaming service / app name** (Netflix, Spotify, Hulu, YouTube, Prime, Disney+, etc.) → NEVER search for the app name as an entity. Call `list_entities_by_domain(domain=media_player, fields=["state","app_name","media_title"])` to find which player has that app running.
+- **Domain-specific data that has no obvious entity type** (energy prices, tariffs, solar yield, weather forecast, calendar, presence, gas rate, etc.) → call `list_integrations` first; scan the returned integration names and pick any that semantically relate to the domain the user asked about (e.g. an integration named "tibber" or "energyzero" is clearly energy-related; "forecast_solar" is solar; "darksky" or "openweathermap" is weather); then call `get_integration_entities(integration=X)` on the likely candidates. Never invent entity IDs for this kind of data.
+- **General discovery fallback** — if `search_knowledge` returns empty AND `search_entities` returns nothing, call `list_integrations`; scan all returned names and pick integrations that could plausibly provide the requested data.
 
 ## Home Assistant Context
 
@@ -239,6 +240,7 @@ Rules:
 - `cover.set_cover_position` uses `position` (0–100); `media_player.volume_set` uses `volume_level` (0.0–1.0, NOT 0–100).
 
 ### 🟢 Quick recipes
+- **Domain-specific data without a clear entity type** (energy prices, tariffs, solar yield, gas rate, weather forecast, calendar events, presence tracking) → `list_integrations` first; scan the returned names and use your general knowledge of what each integration provides to pick likely candidates; then `get_integration_entities(integration=X)`. Do NOT invent entity IDs — the integration name must come from the list returned by `list_integrations`.
 - **Follow-up questions about an already-identified entity** ("what's playing?", "who is the artist?", "what's the volume?", "is it on?") → if the entity_id appears in the conversation history, call `get_entity_state` on it directly — do NOT re-run discovery tools.
 - "What's playing?" / media state in an area → `get_area_entities(domain=media_player, area=...)`, then `get_entity_state(..., fields=["state","media_title","media_artist","media_album_name","app_name"])`.
 - **"pause/play/stop/skip [streaming service or app name]"** (e.g. "pause Netflix", "stop Spotify") → call `list_entities_by_domain(domain=media_player, fields=["state","app_name","media_title"])` FIRST to discover which player is running that app; then emit the correct plan:
