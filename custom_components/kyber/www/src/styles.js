@@ -238,6 +238,53 @@ export const STYLES = `
     background: color-mix(in srgb, var(--accent) 15%, transparent);
   }
 
+  /* Entity chips — inline entity references with icon + name + state */
+  .entity-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: color-mix(in srgb, var(--primary-color, #03a9f4) 10%, var(--card-background-color, #1e2530));
+    border: 1px solid color-mix(in srgb, var(--primary-color, #03a9f4) 35%, transparent);
+    border-radius: 12px;
+    padding: 1px 8px 1px 4px;
+    font-size: 12px;
+    vertical-align: middle;
+    white-space: nowrap;
+    cursor: default;
+    line-height: 1.6;
+  }
+  .entity-chip .entity-chip-icon { font-size: 13px; }
+  .entity-chip .entity-chip-name { font-weight: 600; color: var(--primary-text-color, #e0e0e0); }
+  .entity-chip .entity-chip-state {
+    font-size: 11px;
+    opacity: 0.7;
+    margin-left: 2px;
+  }
+
+  /* Entity grid in tool result previews */
+  .entity-result-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 6px;
+    padding: 8px 0;
+  }
+  .entity-result-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: color-mix(in srgb, var(--primary-color, #03a9f4) 6%, var(--card-background-color, #1e2530));
+    border: 1px solid color-mix(in srgb, var(--primary-color, #03a9f4) 20%, transparent);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    overflow: hidden;
+  }
+  .entity-result-card .erc-icon { font-size: 18px; flex-shrink: 0; }
+  .entity-result-card .erc-body { overflow: hidden; }
+  .entity-result-card .erc-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .entity-result-card .erc-id { font-size: 10px; opacity: 0.55; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .entity-result-card .erc-state { font-size: 11px; opacity: 0.75; margin-top: 1px; }
+
   /* Inline adornment buttons — rendered in-place inside the AI message text */
   .inline-choice {
     display: inline;
