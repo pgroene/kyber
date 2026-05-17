@@ -611,6 +611,39 @@ class KyberView(HomeAssistantView):
                                 _auto_record_search_alias(kstore, _q, _primary_eids)
                             )
 
+                # Also record aliases from get_entity_state: when entity_id words
+                # overlap with the user prompt we know the user was asking about that
+                # entity — save the mapping so next time we don't need to search.
+                if (
+                    call.get("name") == "get_entity_state"
+                    and isinstance(tool_result_data, dict)
+                    and "error" not in tool_result_data
+                ):
+                    _eid = call.get("entity_id", "")
+                    if _eid and "." in _eid:
+                        # Extract meaningful words from the entity_id (ignore domain prefix)
+                        _eid_words = set(re.split(r"[._]", _eid.split(".", 1)[-1].lower()))
+                        _eid_words.discard("")
+                        # Build the prompt search space: current prompt + last history message
+                        _prompt_words = set(re.split(r"\W+", user_prompt.lower()))
+                        _last_hist = ""
+                        if history:
+                            _last_hist = str(history[-1].get("content", "")).lower()
+                        _hist_words = set(re.split(r"\W+", _last_hist))
+                        _all_context_words = _prompt_words | _hist_words
+                        # Require at least one meaningful entity word (>3 chars) in context
+                        _overlap = {
+                            w for w in _eid_words
+                            if len(w) > 3 and w in _all_context_words
+                        }
+                        if _overlap:
+                            # Build a natural alias from the overlapping context words
+                            _alias_words = sorted(_overlap, key=lambda w: -len(w))
+                            _alias_q = " ".join(_alias_words[:3])
+                            asyncio.ensure_future(
+                                _auto_record_search_alias(kstore, _alias_q, [_eid])
+                            )
+
                 # Build a short human-readable summary for the UI
                 summary = _tool_result_summary(call, tool_result_data)
                 args_display = {k: v for k, v in call.items() if k != "name"}
