@@ -464,3 +464,7 @@ def get_store(hass: HomeAssistant) -> KnowledgeStore:
         store = KnowledgeStore(hass)
         hass.data[_INSTANCE_KEY] = store
     return store
+
+
+# Alias used by __init__.py and other modules that import by this name.
+get_knowledge_store = get_store
