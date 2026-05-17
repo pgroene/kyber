@@ -102,13 +102,12 @@ HA reloads all integrations on start. No browser action is required.
 
 ### Dev loop — JavaScript changes
 
-The frontend panel is loaded as a versioned static asset. HA (and the browser) aggressively cache it, so **every JS change needs a cache-bust**:
+After editing frontend files, sync them to the integration and restart Home Assistant:
 
 1. Edit `www/kyber/kyber-panel.js` (source of truth for dev + tests).
 2. Copy to `custom_components/kyber/www/kyber-panel.js` (shipped version).
-3. Bump the `?v=N` query string in `__init__.py` (see [Version Bumping](#5-version-bumping)).
-4. Restart the container: `docker restart kyber-ha`
-5. Hard-refresh the browser (`Ctrl+Shift+R` / `Cmd+Shift+R`).
+3. Restart the container: `docker restart kyber-ha`
+4. Hard-refresh the browser (`Ctrl+Shift+R` / `Cmd+Shift+R`).
 
 ```bash
 # Quick sync helper
@@ -116,32 +115,7 @@ cp www/kyber/kyber-panel.js custom_components/kyber/www/kyber-panel.js
 docker restart kyber-ha
 ```
 
----
-
-## 5. Version Bumping
-
-The panel is registered with a versioned URL so that HA and the browser know to fetch a fresh copy:
-
-```python
-# custom_components/kyber/__init__.py
-module_url="/local/kyber/kyber-panel.js?v=62",
-```
-
-**Every time you change a JS file**, increment the version number:
-
-```python
-# Before
-module_url="/local/kyber/kyber-panel.js?v=62",
-
-# After
-module_url="/local/kyber/kyber-panel.js?v=63",
-```
-
-Then restart the container and hard-refresh the browser. Skipping the version bump means the old cached file continues to be served even after the file on disk has changed.
-
----
-
-## 6. Running Tests
+## 5. Running Tests
 
 ### Python tests
 
