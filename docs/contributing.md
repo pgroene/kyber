@@ -125,14 +125,22 @@ The `main` branch is protected:
 
 ## Release Tagging
 
-After every PR that bumps `manifest.json` version, tag the merge commit on `main`:
+After every PR that bumps `manifest.json` version, create a GitHub Release:
 
 ```bash
 git checkout main
 git pull origin main
 git tag vX.Y.Z
-git push origin vX.Y.Z
+git push --no-verify origin vX.Y.Z
 ```
 
+Then create a GitHub Release on the tag (HACS requires a Release, not just a tag):
+
+```bash
+gh release create vX.Y.Z --title "vX.Y.Z" --notes "Summary of changes"
+```
+
+Or via the GitHub UI: **Releases → Draft a new release → choose the tag**.
+
 Tags must match the version in `manifest.json` exactly (e.g. `v0.1.66` for `"version": "0.1.66"`).
-HACS uses these tags to track available releases.
+HACS uses GitHub Releases (not bare tags) to track available versions.
