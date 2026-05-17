@@ -1,6 +1,7 @@
 export const UtilsMixin = (Base) => class extends Base {
   _escapeAttr(s) {
-    return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+    if (s == null) return "";
+    return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
   _showMsg(text, role = "assistant") {
