@@ -12,6 +12,11 @@ test.describe("Chat — send button and AI response", () => {
     await page.screenshot({ path: "screenshots/chat-initial.png" });
   });
 
+  test("debug tabs do not show memory option", async ({ page }) => {
+    await expect(page.locator("button[data-debug-tab='memory']")).toHaveCount(0);
+    await expect(page.locator("button[data-debug-tab='last_turn']")).toHaveCount(1);
+  });
+
   test("typing a message and sending shows a user bubble", async ({ page }) => {
     await page.route("**/api/kyber/complete", (route) =>
       route.fulfill({

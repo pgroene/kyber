@@ -1105,8 +1105,8 @@ class KyberPanel extends HTMLElement {
       this._render();
     } else if (this._mode === "debug") {
       // HA reuses panel elements across navigation — re-fetch live backend data
-      // so memory/last-turn/status are always fresh when the user arrives.
-      this._renderDebugTab(this._debugTab || "memory");
+      // so debug data is always fresh when the user arrives.
+      this._renderDebugTab(this._debugTab || "last_turn");
     }
   }
 
@@ -1140,7 +1140,7 @@ class KyberPanel extends HTMLElement {
             <span class="session-label" id="session-indicator"></span>
             <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
             <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
-            <button class="btn-debug" id="btn-debug" title="Open debug / memory inspector">🐞</button>
+            <button class="btn-debug" id="btn-debug" title="Open debug inspector">🐞</button>
           </div>
           <div class="chat-history" id="chat-history">
             <div class="chat-message assistant">${this._DEFAULT_GREETING}</div>
@@ -1155,8 +1155,7 @@ class KyberPanel extends HTMLElement {
           <div class="debug-header">
             <strong>🐞 Kyber Debug</strong>
             <nav class="debug-tabs">
-              <button class="debug-tab active" data-debug-tab="memory">🧠 Memory</button>
-              <button class="debug-tab" data-debug-tab="last_turn">📥 Last turn</button>
+              <button class="debug-tab active" data-debug-tab="last_turn">📥 Last turn</button>
               <button class="debug-tab" data-debug-tab="status">⚙️ Status</button>
             </nav>
             <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">↻</button>
@@ -1191,7 +1190,7 @@ class KyberPanel extends HTMLElement {
         const closeBtn = shadow.getElementById("btn-debug-close");
         if (closeBtn) closeBtn.style.display = "none";
       }
-      this._debugTab = this._debugTab || "memory";
+      this._debugTab = this._debugTab || "last_turn";
     }
 
     // Fetch debug-mode flag from backend (async — layout already applied above)
@@ -1291,7 +1290,7 @@ class KyberPanel extends HTMLElement {
       }
     });
     shadow.getElementById("btn-debug-close").addEventListener("click", () => this._toggleDebugPane(false));
-    shadow.getElementById("btn-debug-refresh").addEventListener("click", () => this._renderDebugTab(this._debugTab || "memory"));
+    shadow.getElementById("btn-debug-refresh").addEventListener("click", () => this._renderDebugTab(this._debugTab || "last_turn"));
     shadow.querySelectorAll(".debug-tab").forEach((b) => {
       b.addEventListener("click", () => {
         shadow.querySelectorAll(".debug-tab").forEach((x) => x.classList.remove("active"));
@@ -2090,7 +2089,7 @@ class KyberPanel extends HTMLElement {
     if (wantOpen) {
       pane.removeAttribute("hidden");
       chat.style.display = "none";
-      this._debugTab = this._debugTab || "memory";
+      this._debugTab = this._debugTab || "last_turn";
       this._renderDebugTab(this._debugTab);
     } else {
       pane.setAttribute("hidden", "");
