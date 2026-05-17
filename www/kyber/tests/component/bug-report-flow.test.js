@@ -5,20 +5,20 @@ const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
 describe("_openBugReportFlow", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("defaults bundle upload to off and shows bundle name", async () => {
+  it("defaults bundle upload to ON and shows bundle name", async () => {
     const { element } = makePanel();
     await element._openBugReportFlow("req-123");
 
     const checkbox = element.shadowRoot.querySelector("#br-include-bundle");
     expect(checkbox).not.toBeNull();
-    expect(checkbox.checked).toBe(false);
+    expect(checkbox.checked).toBe(true);
     expect(element.shadowRoot.querySelector(".bug-report-bundle-name").textContent).toContain("kyber-debug-req-123.zip");
   });
 
-  it("sends include_bundle=false by default with bundle_name", async () => {
+  it("sends include_bundle=true by default with bundle_name", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ title: "Bug title", body: "Bug body", similar_issues: [] }),
+      json: async () => ({ title: "Bug title", body: "Bug body", similar_issues: [], bundle_available: true }),
     }));
     const { element } = makePanel();
     await element._openBugReportFlow("req-999");
@@ -30,7 +30,7 @@ describe("_openBugReportFlow", () => {
 
     const bugCall = fetch.mock.calls.find((call) => call[0] === "/api/kyber/debug/bug-report");
     const payload = JSON.parse(bugCall[1].body);
-    expect(payload.include_bundle).toBe(false);
+    expect(payload.include_bundle).toBe(true);
     expect(payload.bundle_name).toBe("kyber-debug-req-999.zip");
   });
 });
