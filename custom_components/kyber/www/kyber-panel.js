@@ -32,16 +32,16 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=78";
+import { STYLES } from "./src/styles.js?v=79";
 
-import { UtilsMixin } from "./src/utils-mixin.js?v=78";
-import { SessionMixin } from "./src/session-mixin.js?v=78";
-import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=78";
-import { DebugMixin } from "./src/debug-mixin.js?v=78";
-import { SlashMixin } from "./src/slash-commands-mixin.js?v=78";
-import { EditorMixin } from "./src/editor-mixin.js?v=78";
-import { AIMixin } from "./src/ai-mixin.js?v=78";
-import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=78";
+import { UtilsMixin } from "./src/utils-mixin.js?v=79";
+import { SessionMixin } from "./src/session-mixin.js?v=79";
+import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=79";
+import { DebugMixin } from "./src/debug-mixin.js?v=79";
+import { SlashMixin } from "./src/slash-commands-mixin.js?v=79";
+import { EditorMixin } from "./src/editor-mixin.js?v=79";
+import { AIMixin } from "./src/ai-mixin.js?v=79";
+import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=79";
 
 // ---------------------------------------------------------------------------
 // Custom Element
@@ -205,7 +205,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     }
 
     // Fetch debug-mode flag from backend (async — layout already applied above)
-    let debugEnabled = true; // default until we know
+    let debugEnabled = false; // keep debug UI hidden unless backend explicitly enables it
     try {
       const token = this._hass?.auth?.data?.access_token;
       if (token) {
@@ -220,8 +220,18 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     const btnDebug = shadow.getElementById("btn-debug");
     if (btnDebug) btnDebug.style.display = debugEnabled ? "" : "none";
 
+    if (!debugEnabled) {
+      const chat = shadow.querySelector(".chat-pane");
+      const pane = shadow.getElementById("debug-pane");
+      if (pane) {
+        pane.setAttribute("hidden", "");
+        pane.classList.remove("debug-pane--standalone");
+      }
+      if (chat && this._mode === "debug") chat.style.display = "";
+    }
+
     // Now render debug tab content (needs hass + debug flag confirmed)
-    if (this._mode === "debug") {
+    if (this._mode === "debug" && debugEnabled) {
       this._renderDebugTab(this._debugTab);
     }
   }

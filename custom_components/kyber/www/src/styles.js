@@ -502,6 +502,9 @@ export const STYLES = `
     flex: 1; display: flex; flex-direction: column; height: 100%;
     padding: 12px; box-sizing: border-box; overflow: auto;
   }
+  .debug-pane[hidden] {
+    display: none !important;
+  }
   .debug-pane--standalone {
     position: absolute; inset: 0;
     background: var(--primary-background-color, #fafafa);
@@ -1037,4 +1040,3 @@ export const STYLES = `
   .ac-item .ac-id   { font-family: monospace; font-weight: 600; }
   .ac-item .ac-name { opacity: .75; font-size: 11px; }
 `;
-
