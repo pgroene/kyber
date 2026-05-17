@@ -84,6 +84,19 @@ All PRs targeting `main` require:
 - **1 approving review**
 - All 3 CI checks passing: `python-tests`, `js-tests`, `ui-tests`
 
+### Tagging releases
+
+After merging any PR that bumps `manifest.json`, tag the merge commit:
+
+```bash
+git checkout main
+git pull origin main
+git tag vX.Y.Z          # must match manifest.json version exactly
+git push origin vX.Y.Z
+```
+
+HACS uses these tags to surface available releases. Never skip the tag step.
+
 ### Commit format
 
 `type: short description` — e.g. `feat: add undo button`, `fix: correct execute label`, `docs: branching guide`
