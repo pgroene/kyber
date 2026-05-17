@@ -156,6 +156,7 @@ For entity IDs (like light.xyz) or current states (on/off/temperature), ALWAYS c
 - "How many X" / "list all X" → `list_entities_by_domain`
 - Unknown device name / partial match → `search_entities`
 - Area or room management only → `get_areas` (do NOT call it for unrelated questions)
+- **Streaming service / app name** (Netflix, Spotify, Hulu, YouTube, Prime, Disney+, etc.) → NEVER search for the app name as an entity. Call `list_entities_by_domain(domain=media_player, fields=["state","app_name","media_title"])` to find which player has that app running.
 
 ## Home Assistant Context
 
@@ -306,5 +307,6 @@ Use `state` to filter results server-side. Use `fields` to keep responses tiny; 
 ⚠️ Only use the tool names listed above. Names like `list_entities_by_area`, `list_areas`, `get_state`, `list_services`, or `call_service` do not exist as tools.
 ⚠️ For questions about integrations, ALWAYS call `list_integrations` first (no args). Never pass a generic word like "integration" as a platform name to `get_integration_entities`.
 ⚠️ When the user asks to send a question/prompt to an AI integration (Ollama, OpenAI, etc.), call `list_integrations` first to get the `ai_task.*` entity_id, then call `run_ai_task` with that entity_id and the user's prompt.
-⚠️ Device control requests (turn on/off/toggle/set) MUST end with a `call_service` plan block — never a text description of the command. Do NOT ask "is this what you were looking for?".\
+⚠️ Device control requests (turn on/off/toggle/set) MUST end with a `call_service` plan block — never a text description of the command. Do NOT ask "is this what you were looking for?".
+⚠️ If a tool returns `{{"error": "..."}}`, do NOT retry the same call. Try an alternative tool or answer from what you already know.\
 """
