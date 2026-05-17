@@ -14,7 +14,9 @@ from .const import (
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_INITIAL_LEARNING_DONE,
+    CONF_INITIAL_LEARNING_VERSION,
     CONF_RUN_INITIAL_ANALYZE,
+    CURRENT_INITIAL_LEARNING_VERSION,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
     DEFAULT_RUN_INITIAL_ANALYZE,
     DOMAIN,
@@ -33,10 +35,19 @@ _DEBUG_MODE_KEY = "kyber_debug_mode"
 
 
 async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Run first-install analysis helpers once, in the background."""
+    """Run AI-powered analysis of automations/scripts to populate the knowledge store.
+
+    Guarded by a version number so it re-runs automatically when the learning
+    logic is improved (bump CURRENT_INITIAL_LEARNING_VERSION in const.py).
+    Uses force=True so the AI is called on every item regardless of whether
+    the YAML has changed since the last run.
+    """
     data = dict(entry.data)
-    if CONF_INITIAL_LEARNING_DONE in data:
-        _LOGGER.debug("Kyber initial learning already done — skipping")
+    stored_version = int(data.get(CONF_INITIAL_LEARNING_VERSION, 0))
+    if stored_version >= CURRENT_INITIAL_LEARNING_VERSION:
+        _LOGGER.debug(
+            "Kyber initial learning already at v%d — skipping", stored_version
+        )
         return
 
     ai_entity_id = str(data.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
@@ -57,39 +68,70 @@ async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -
     )
 
     _LOGGER.warning(
-        "Kyber initial learning starting — analyze=%s, deep_runs=%d, ai_entity=%s",
+        "Kyber initial learning v%d starting — analyze=%s, deep_runs=%d, ai_entity=%s",
+        CURRENT_INITIAL_LEARNING_VERSION,
         run_initial_analyze,
         deep_runs,
         ai_entity_id,
     )
 
     if run_initial_analyze:
-        _LOGGER.warning("Kyber initial learning: running automation analysis…")
+        _LOGGER.warning("Kyber initial learning: running fast automation analysis…")
         try:
             await hass.async_add_executor_job(_analyze_automations, hass)
-            _LOGGER.warning("Kyber initial learning: automation analysis complete")
+            _LOGGER.warning("Kyber initial learning: fast analysis complete")
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber initial analyze run failed: %s", err)
 
+    total_facts = 0
     for i in range(deep_runs):
         _LOGGER.warning(
-            "Kyber initial learning: deep-learning run %d/%d…", i + 1, deep_runs
+            "Kyber initial learning: AI deep-analysis run %d/%d…", i + 1, deep_runs
         )
         try:
-            await _deep.analyze_pending(hass, ai_entity_id=ai_entity_id, limit=5)
-            _LOGGER.warning(
-                "Kyber initial learning: deep-learning run %d/%d complete",
-                i + 1,
-                deep_runs,
+            # force=True: analyze every automation/script even if hash unchanged,
+            # retiring old knowledge entries first to avoid duplicates.
+            result = await _deep.analyze_pending(
+                hass, ai_entity_id=ai_entity_id, limit=5, force=True
             )
+            n_analyzed = len(result.get("analyzed", []))
+            n_facts = sum(
+                len(a.get("fact_ids", [])) for a in result.get("analyzed", [])
+            )
+            total_facts += n_facts
+            _LOGGER.warning(
+                "Kyber initial learning: run %d/%d — %d items analyzed, %d facts stored"
+                " (skipped_unchanged=%d, errors=%d)",
+                i + 1, deep_runs, n_analyzed, n_facts,
+                result.get("skipped_unchanged", 0),
+                len(result.get("errors", [])),
+            )
+            for item in result.get("analyzed", []):
+                if item.get("facts"):
+                    _LOGGER.warning(
+                        "  [%s] '%s' → %d fact(s): %s",
+                        item["kind"],
+                        item["ident"],
+                        len(item["facts"]),
+                        " | ".join(
+                            f.get("content", "")[:100]
+                            for f in item["facts"]
+                        ),
+                    )
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning(
                 "Kyber initial deep learning run %d/%d failed: %s", i + 1, deep_runs, err
             )
 
+    data[CONF_INITIAL_LEARNING_VERSION] = CURRENT_INITIAL_LEARNING_VERSION
     data[CONF_INITIAL_LEARNING_DONE] = True
     hass.config_entries.async_update_entry(entry, data=data)
-    _LOGGER.warning("Kyber initial learning: all runs complete ✓")
+    _LOGGER.warning(
+        "Kyber initial learning v%d complete ✓ — %d total facts stored across %d runs",
+        CURRENT_INITIAL_LEARNING_VERSION,
+        total_facts,
+        deep_runs,
+    )
 
 
 def _resolve_debug_enabled(entry: ConfigEntry) -> bool:

@@ -9,6 +9,9 @@ CONF_USER_NAME = "user_name"
 CONF_RUN_INITIAL_ANALYZE = "run_initial_analyze"
 CONF_INITIAL_DEEP_LEARNING_RUNS = "initial_deep_learning_runs"
 CONF_INITIAL_LEARNING_DONE = "initial_learning_done"
+CONF_INITIAL_LEARNING_VERSION = "initial_learning_version"
+# Bump this to trigger a re-run of initial learning on existing installs.
+CURRENT_INITIAL_LEARNING_VERSION = 2
 
 DEFAULT_MAX_TOKENS = 2048
 DEFAULT_ENABLE_DEBUG_VIEWS = False
@@ -235,6 +238,8 @@ Use `state` to filter results server-side. Use `fields` to keep responses tiny; 
 | `get_script` | `id` or `alias` | inspect one script |
 | `list_blueprints` | none | list blueprints |
 | `get_blueprint` | `path` | inspect one blueprint |
+| `list_integrations` | none | list all loaded integrations with entity counts |
+| `get_integration_entities` | `integration`; optional `domain`, `state`, `fields` | entities provided by one integration (e.g. `hue`, `mqtt`, `zwave_js`) |
 
 ### Tool usage rules
 ⚠️ Do NOT narrate tool usage. Output the `[TOOL_CALL: ...]` immediately and stop.

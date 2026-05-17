@@ -52,6 +52,13 @@ def _tool_result_summary(call: dict[str, Any], result: Any) -> str:
     if name == "get_labels":
         count = len(result) if isinstance(result, dict) else 0
         return f"{count} labels"
+    if name == "list_integrations":
+        count = result.get("count", 0) if isinstance(result, dict) else 0
+        return f"{count} integrations"
+    if name == "get_integration_entities":
+        integration = call.get("integration", "?")
+        count = result.get("count", 0) if isinstance(result, dict) else 0
+        return f"{count} entities from '{integration}'"
     return "done"
 
 
@@ -94,6 +101,10 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "knowledge": "search_knowledge",
         "entity_notes": "get_entity_notes",
         "get_notes": "get_entity_notes",
+        "get_integrations": "list_integrations",
+        "integrations": "list_integrations",
+        "integration_entities": "get_integration_entities",
+        "get_entities_by_integration": "get_integration_entities",
     }
     if name in _ALIASES:
         _LOGGER.info("Kyber: tool alias %s → %s", name, _ALIASES[name])
@@ -508,6 +519,60 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             return json.dumps({"error": f"Read failed: {err}"})
         return json.dumps(data, default=str)
 
+    if name == "list_integrations":
+        from homeassistant.helpers import device_registry as dr
+        device_reg = dr.async_get(hass)
+        integrations: dict[str, dict] = {}
+        for entry in entity_reg.entities.values():
+            platform = entry.platform or "unknown"
+            if platform not in integrations:
+                integrations[platform] = {
+                    "entity_count": 0,
+                    "domains": set(),
+                    "sample_entities": [],
+                }
+            integrations[platform]["entity_count"] += 1
+            integrations[platform]["domains"].add(entry.entity_id.split(".")[0])
+            if len(integrations[platform]["sample_entities"]) < 3:
+                state = hass.states.get(entry.entity_id)
+                label = state.attributes.get("friendly_name", entry.entity_id) if state else entry.entity_id
+                integrations[platform]["sample_entities"].append(
+                    {"entity_id": entry.entity_id, "name": label}
+                )
+        result = {
+            platform: {
+                "entity_count": info["entity_count"],
+                "domains": sorted(info["domains"]),
+                "sample_entities": info["sample_entities"],
+            }
+            for platform, info in sorted(
+                integrations.items(), key=lambda kv: -kv[1]["entity_count"]
+            )
+        }
+        return json.dumps({"integrations": result, "count": len(result)})
+
+    if name == "get_integration_entities":
+        integration = str(call.get("integration", "")).strip().lower()
+        if not integration:
+            return json.dumps({"error": "Missing 'integration' argument"})
+        domain_filter = call.get("domain", "").strip().lower()
+        results = {}
+        for entry in entity_reg.entities.values():
+            if (entry.platform or "").lower() != integration:
+                continue
+            if domain_filter and entry.entity_id.split(".")[0] != domain_filter:
+                continue
+            state = hass.states.get(entry.entity_id)
+            if not _state_matches(state, state_filter):
+                continue
+            projection = _project_entity(entry.entity_id, state, entry)
+            if fields_set is None:
+                projection["domain"] = entry.entity_id.split(".")[0]
+            results[entry.entity_id] = projection
+        if not results:
+            return json.dumps({"info": f"No entities found for integration '{integration}'"})
+        return json.dumps({"integration": integration, "entities": results, "count": len(results)})
+
     # call_service / assign_area / etc. are ACTIONS that belong in a plan
     # block, not [TOOL_CALL:]s. If the model tries to use them as a tool,
     # return a guidance error so it stops and emits a plan instead.
@@ -535,6 +600,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "list_automations", "get_automation",
         "list_scripts", "get_script",
         "list_blueprints", "get_blueprint",
+        "list_integrations", "get_integration_entities",
     ]
     # If the bogus "tool" name looks like a word from a user request (e.g.
     # they typed "create an area outside" and the model called tool

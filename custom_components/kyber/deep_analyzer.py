@@ -234,6 +234,17 @@ async def analyze_pending(
             # Reached this run's budget — leave for next sweep.
             break
         processed += 1
+
+        # When forcing re-analysis, retire old knowledge entries first so we
+        # don't accumulate duplicate facts across runs.
+        if force:
+            existing = memo.get(kind, ident)
+            if existing and existing.get("fact_ids"):
+                for old_id in existing["fact_ids"]:
+                    try:
+                        await kstore.async_delete(old_id)
+                    except Exception:  # noqa: BLE001
+                        pass
         try:
             prompt = _build_prompt(kind, item)
             raw = await _run_ai(hass, ai_entity_id, prompt)
