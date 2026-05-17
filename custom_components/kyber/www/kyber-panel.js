@@ -4097,8 +4097,6 @@ class KyberPanel extends HTMLElement {
     }
   }
 
-  }
-
   _buildMemoryCard(learnedFact) {
     const action = (learnedFact.actions || [])[0] || {};
     const userTerm = action.description?.match(/Save alias: (.+?) →/)?.[1]
