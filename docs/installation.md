@@ -72,6 +72,8 @@ cp -r custom_components/kyber  /path/to/ha-config/custom_components/kyber
 3. In the config form:
    - **AI Task Entity ID** — select the `ai_task.*` entity from the dropdown. The form shows all available entities. For Ollama this is typically `ai_task.ollama_llama3`; for HA Cloud it will look like `ai_task.home_assistant_cloud_*`.
    - **Max Tokens** — maximum tokens per AI response (default 2048, range 256–2,000,000).
+   - **Run 1 initial analyze pass after install** — enabled by default; this performs one quick analyze run on first install.
+   - **Initial deep learning runs** — choose how many deep-learning passes to run on first install (1–10). Recommended: **10**.
 4. Click **Submit**. A **Kyber** entry appears in the sidebar.
 
 > Only one Kyber config entry is allowed. To reconfigure, remove the existing entry first.

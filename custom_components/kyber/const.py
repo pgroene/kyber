@@ -6,9 +6,14 @@ CONF_AI_TASK_ENTITY_ID = "ai_task_entity_id"
 CONF_MAX_TOKENS = "max_tokens"
 CONF_ENABLE_DEBUG_VIEWS = "enable_debug_views"
 CONF_USER_NAME = "user_name"
+CONF_RUN_INITIAL_ANALYZE = "run_initial_analyze"
+CONF_INITIAL_DEEP_LEARNING_RUNS = "initial_deep_learning_runs"
+CONF_INITIAL_LEARNING_DONE = "initial_learning_done"
 
 DEFAULT_MAX_TOKENS = 2048
 DEFAULT_ENABLE_DEBUG_VIEWS = False
+DEFAULT_RUN_INITIAL_ANALYZE = True
+DEFAULT_INITIAL_DEEP_LEARNING_RUNS = 10
 
 # Maximum characters allowed for the entity list section of the context prompt.
 # Approximately 8 K tokens at ~4 chars/token; reduce if your model has a smaller

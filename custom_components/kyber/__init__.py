@@ -12,8 +12,15 @@ from homeassistant.components.panel_custom import async_register_panel
 from .const import (
     CONF_AI_TASK_ENTITY_ID,
     CONF_ENABLE_DEBUG_VIEWS,
+    CONF_INITIAL_DEEP_LEARNING_RUNS,
+    CONF_INITIAL_LEARNING_DONE,
+    CONF_RUN_INITIAL_ANALYZE,
+    DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
+    DEFAULT_RUN_INITIAL_ANALYZE,
     DOMAIN,
 )
+from .analyzer import analyze_automations as _analyze_automations
+from . import deep_analyzer as _deep
 from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,6 +30,45 @@ type KyberConfigEntry = ConfigEntry[None]
 _WWW_DIR = Path(__file__).parent / "www"
 
 _DEBUG_MODE_KEY = "kyber_debug_mode"
+
+
+async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Run first-install analysis helpers once, in the background."""
+    data = dict(entry.data)
+    if CONF_INITIAL_LEARNING_DONE in data:
+        return
+
+    ai_entity_id = str(data.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
+    run_initial_analyze = bool(
+        data.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)
+    )
+    deep_runs = max(
+        1,
+        min(
+            10,
+            int(
+                data.get(
+                    CONF_INITIAL_DEEP_LEARNING_RUNS,
+                    DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
+                )
+            ),
+        ),
+    )
+
+    if run_initial_analyze:
+        try:
+            await hass.async_add_executor_job(_analyze_automations, hass)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Kyber initial analyze run failed: %s", err)
+
+    for _ in range(deep_runs):
+        try:
+            await _deep.analyze_pending(hass, ai_entity_id=ai_entity_id, limit=5)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Kyber initial deep learning run failed: %s", err)
+
+    data[CONF_INITIAL_LEARNING_DONE] = True
+    hass.config_entries.async_update_entry(entry, data=data)
 
 
 def _resolve_debug_enabled(entry: ConfigEntry) -> bool:
@@ -107,6 +153,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Debug panel registration skipped (test environment)")
+
+    if CONF_RUN_INITIAL_ANALYZE in config or CONF_INITIAL_DEEP_LEARNING_RUNS in config:
+        hass.async_create_task(_async_run_initial_learning(hass, entry))
 
     entry.async_on_unload(entry.add_update_listener(_update_listener))
 

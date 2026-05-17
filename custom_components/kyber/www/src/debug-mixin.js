@@ -246,4 +246,9 @@ export const DebugMixin = (Base) => class extends Base {
       ` : "<em>No turn captured yet.</em>"}
     `;
   }
+
+  _getDeepLearningRuns(root) {
+    const val = parseInt(root.querySelector("select")?.value ?? "1", 10);
+    return Math.min(10, Math.max(1, isNaN(val) ? 1 : val));
+  }
 };

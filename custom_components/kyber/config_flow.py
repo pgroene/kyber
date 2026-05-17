@@ -17,9 +17,13 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_AI_TASK_ENTITY_ID,
     CONF_ENABLE_DEBUG_VIEWS,
+    CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_MAX_TOKENS,
+    CONF_RUN_INITIAL_ANALYZE,
     DEFAULT_ENABLE_DEBUG_VIEWS,
+    DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_RUN_INITIAL_ANALYZE,
     DOMAIN,
 )
 
@@ -55,6 +59,13 @@ def _build_schema(hass: HomeAssistant, default_entity: str = "") -> vol.Schema:
             vol.Optional(
                 CONF_ENABLE_DEBUG_VIEWS, default=DEFAULT_ENABLE_DEBUG_VIEWS
             ): bool,
+            vol.Optional(
+                CONF_RUN_INITIAL_ANALYZE, default=DEFAULT_RUN_INITIAL_ANALYZE
+            ): bool,
+            vol.Optional(
+                CONF_INITIAL_DEEP_LEARNING_RUNS,
+                default=DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
+            ): vol.All(int, vol.Range(min=1, max=10)),
         }
     )
 
@@ -85,6 +96,15 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_MAX_TOKENS: user_input.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS),
                         CONF_ENABLE_DEBUG_VIEWS: bool(
                             user_input.get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)
+                        ),
+                        CONF_RUN_INITIAL_ANALYZE: bool(
+                            user_input.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)
+                        ),
+                        CONF_INITIAL_DEEP_LEARNING_RUNS: int(
+                            user_input.get(
+                                CONF_INITIAL_DEEP_LEARNING_RUNS,
+                                DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
+                            )
                         ),
                     },
                 )

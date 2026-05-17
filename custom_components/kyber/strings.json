@@ -7,7 +7,9 @@
         "data": {
           "ai_task_entity_id": "AI Task Entity",
           "max_tokens": "Max Tokens",
-          "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)"
+          "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)",
+          "run_initial_analyze": "Run 1 initial analyze pass after install",
+          "initial_deep_learning_runs": "Initial deep learning runs (1-10, recommended: 10)"
         }
       }
     },
