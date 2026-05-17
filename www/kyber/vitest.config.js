@@ -27,7 +27,8 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
-      include: ["kyber-panel.js"],
+      include: ["kyber-panel.js", "src/**/*.js"],
+      exclude: ["src/styles.js"],
     },
   },
 });
