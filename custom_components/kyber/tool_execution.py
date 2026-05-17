@@ -361,20 +361,33 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
 
     if name == "search_entities":
         query = call.get("query", "").strip().lower()
-        if not query:
-            return json.dumps({"error": "Missing 'query' argument"})
-        query_words = query.split()
+        # Support multi-query: `queries` accepts a list of strings; results are
+        # merged (OR semantics — entity matches if ANY query matches it).
+        queries_raw = call.get("queries")
+        if queries_raw and isinstance(queries_raw, list):
+            query_list = [str(q).strip().lower() for q in queries_raw if str(q).strip()]
+        elif query:
+            query_list = [query]
+        else:
+            return json.dumps({"error": "Missing 'query' argument (or 'queries' list)"})
+
         results = {}
         for state in hass.states.async_all():
             entity_lower = state.entity_id.lower()
             friendly = state.attributes.get("friendly_name", "").lower()
-            # 1. Direct substring match
-            matched = query in entity_lower or query in friendly
-            # 2. Word-token match: all query words present in entity text
-            #    (handles brackets/punctuation in friendly names like "[LG] webOS TV")
-            if not matched:
+            matched = False
+            for q in query_list:
+                q_words = q.split()
+                # 1. Direct substring match
+                if q in entity_lower or q in friendly:
+                    matched = True
+                    break
+                # 2. Word-token match: all query words present in entity text
+                #    (handles brackets/punctuation like "[LG] webOS TV")
                 target = entity_lower + " " + friendly
-                matched = all(w in target for w in query_words)
+                if all(w in target for w in q_words):
+                    matched = True
+                    break
             if not matched:
                 continue
             if not _state_matches(state, state_filter):
@@ -384,26 +397,28 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
                 projection["domain"] = state.entity_id.split(".")[0]
             results[state.entity_id] = projection
 
-            # Sort by domain priority (most-controllable first), then entity_id.
-            def _sort_key(eid: str) -> tuple[int, str]:
-                return (_DOMAIN_PRIORITY.get(eid.split(".")[0], 50), eid)
+        # Sort by domain priority (most-controllable first), then entity_id.
+        # This must run AFTER the loop so all matching entities are collected.
+        def _sort_key(eid: str) -> tuple[int, str]:
+            return (_DOMAIN_PRIORITY.get(eid.split(".")[0], 50), eid)
 
-            sorted_items = sorted(results.items(), key=lambda kv: _sort_key(kv[0]))
+        sorted_items = sorted(results.items(), key=lambda kv: _sort_key(kv[0]))
 
-            # Deduplicate satellite entities: if a higher-priority entity has slug
-            # "foo" and another entity has slug "foo_bar…", the latter is a sub-
-            # entity of the same physical device — drop it so the AI isn't confused
-            # by dozens of buttons/sensors from the same device.
-            final: dict[str, Any] = {}
-            kept_slugs: list[str] = []
-            for eid, proj in sorted_items:
-                slug = eid.split(".", 1)[1]
-                if any(slug.startswith(ks + "_") for ks in kept_slugs):
-                    continue  # satellite of an already-kept primary entity
-                final[eid] = proj
-                kept_slugs.append(slug)
+        # Deduplicate satellite entities: if a higher-priority entity has slug
+        # "foo" and another entity has slug "foo_bar…", the latter is a sub-
+        # entity of the same physical device — drop it so the AI isn't confused
+        # by dozens of buttons/sensors from the same device.
+        final: dict[str, Any] = {}
+        kept_slugs: list[str] = []
+        for eid, proj in sorted_items:
+            slug = eid.split(".", 1)[1]
+            if any(slug.startswith(ks + "_") for ks in kept_slugs):
+                continue  # satellite of an already-kept primary entity
+            final[eid] = proj
+            kept_slugs.append(slug)
 
-            return json.dumps(final or {"info": f"No entities matching '{query}'"})
+        query_display = query or ", ".join(query_list)
+        return json.dumps(final or {"info": f"No entities matching '{query_display}'"})
 
     if name == "list_entities_without_area":
         domain_filter = call.get("domain", "").strip().lower()
