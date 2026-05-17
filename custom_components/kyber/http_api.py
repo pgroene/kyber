@@ -49,7 +49,7 @@ from .intent_and_context import (
     _classify_intent,
     _build_home_state_by_area, _build_context,
 )
-from .tool_execution import _tool_result_summary, _state_matches, _execute_tool
+from .tool_execution import _tool_result_summary, _state_matches, _execute_tool, _async_execute_tool, _ASYNC_TOOLS, TOOL_ALIASES
 from .session_and_storage import (
     _CHAT_HISTORY_STORE_VERSION, _CHAT_HISTORY_STORE_KEY,
     _CHAT_HISTORY_MAX_MESSAGES, _CHAT_MESSAGE_MAX_CHARS, _CHAT_SUMMARY_MAX_CHARS,
@@ -491,7 +491,14 @@ class KyberView(HomeAssistantView):
             async def _run_one_tool(sig: str, call: dict) -> tuple[str, dict, str]:
                 if sig in executed_calls_cache:
                     return sig, call, executed_calls_cache[sig]
-                result = await hass.async_add_executor_job(_execute_tool, hass, call)
+                # Resolve aliases before deciding sync vs async path
+                raw_name = call.get("name", "")
+                if raw_name in TOOL_ALIASES:
+                    call = {**call, "name": TOOL_ALIASES[raw_name]}
+                if call.get("name") in _ASYNC_TOOLS:
+                    result = await _async_execute_tool(hass, call)
+                else:
+                    result = await hass.async_add_executor_job(_execute_tool, hass, call)
                 return sig, call, result
 
             tool_results_parallel = await asyncio.gather(
