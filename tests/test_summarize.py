@@ -15,7 +15,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-_PATCH_GENERATE = "custom_components.kyber.http_api.async_generate_data"
+_PATCH_GENERATE = "custom_components.kyber.api_utilities.async_generate_data"
 
 
 def _make_ai_result(text: str) -> MagicMock:
