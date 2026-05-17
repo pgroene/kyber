@@ -345,6 +345,17 @@ class KyberView(HomeAssistantView):
             _LOGGER.warning("Kyber: knowledge lookup failed: %s", err)
             relevant_knowledge = []
         if relevant_knowledge:
+            # Drop low-relevance facts that add noise without helping.
+            # Always keep entity_alias / area_alias regardless of score since
+            # they answer "what is 'the TV'?" type questions definitively.
+            _MIN_KNOWLEDGE_SCORE = 0.45
+            filtered_knowledge = [
+                e for e in relevant_knowledge
+                if float(e.get("_score") or 0) >= _MIN_KNOWLEDGE_SCORE
+                or e.get("category") in ("entity_alias", "area_alias")
+            ]
+            relevant_knowledge = filtered_knowledge or relevant_knowledge[:2]  # always show at least top-2
+
             # Report which facts were selected so the user can see them in
             # the live progress card AND in the debug snapshot.
             picked_summary = ", ".join(
