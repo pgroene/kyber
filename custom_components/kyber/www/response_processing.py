@@ -5,6 +5,8 @@ import json
 import re
 from typing import Any
 
+from .const import TOOL_CALL_MAX_ROUNDS
+
 _YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
 # Bare ## Plan\n{...} blocks emitted by models that skip the backtick fences
@@ -41,7 +43,7 @@ _TOOL_CALL_CLOSE_RE = re.compile(r"\s*(?:\]|</tool[_\-]?call>)\s*", re.IGNORECAS
 # Match [TOOL_RESULT: ...] with same tolerance
 _TOOL_RESULT_STRIP_RE = re.compile(r"\[T[O0]{2}L[_\-]RESULT:[^\]]*?\][^\n]*\n?", re.IGNORECASE)
 _TOOL_RESULT_ECHO_RE = re.compile(r"\[T[O0]{2}L[_\-]RESULT:[^\]]*?\][^\n]*\n?.*?(?=\n\n|\Z)", re.DOTALL | re.IGNORECASE)
-_TOOL_CALL_MAX_ROUNDS = 5
+_TOOL_CALL_MAX_ROUNDS = TOOL_CALL_MAX_ROUNDS
 
 
 def _find_json_end(text: str, start: int) -> int:
