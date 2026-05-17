@@ -1,4 +1,4 @@
-﻿"""Functional tests for the Kyber HTTP API views.
+"""Functional tests for the Kyber HTTP API views.
 
 Covers all four endpoints:
   - POST /api/kyber/complete
@@ -9,6 +9,10 @@ Covers all four endpoints:
 Helper functions (_extract_yaml_blocks, _extract_plan_block, _build_service_undo)
 are tested in tests/test_helpers.py.
 """
+import pytest
+
+pytest.importorskip("pytest_homeassistant_custom_component", reason="requires pytest-homeassistant-custom-component")
+
 from unittest.mock import MagicMock, patch
 
 import pytest

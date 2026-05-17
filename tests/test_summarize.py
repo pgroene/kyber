@@ -5,6 +5,10 @@ history exceeds ~20 messages, to compact older turns into a running summary.
 The endpoint must never fail; if the AI is unavailable it falls back to plain
 text concatenation.
 """
+import pytest
+
+pytest.importorskip("pytest_homeassistant_custom_component", reason="requires pytest-homeassistant-custom-component")
+
 from unittest.mock import MagicMock, patch
 
 import pytest

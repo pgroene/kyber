@@ -1,5 +1,8 @@
 """Unit tests for the _build_context() helper in http_api.py."""
 import pytest
+
+pytest.importorskip("pytest_homeassistant_custom_component", reason="requires pytest-homeassistant-custom-component")
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import entity_registry as er
