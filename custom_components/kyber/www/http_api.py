@@ -1174,37 +1174,39 @@ def _extract_response_components(
         except Exception as err:  # pragma: no cover - best effort
             _LOGGER.debug("Kyber: plan auto-resolve failed: %s", err)
 
-    # Detect hallucinated entity IDs: if no tool was called but the response
-    # contains entity-id patterns (domain.name), check them against HA state.
-    # If none match real states, append a warning so the user knows.
-    # Skip the warning when we already produced a plan with verified IDs
-    # (auto-resolution above will have fixed any bogus IDs).
+    # Detect hallucinated entity IDs: check response text for domain.name patterns
+    # that don't exist in HA state. This fires even when tools were called because
+    # the model may ignore tool results and invent plausible-looking IDs instead.
+    # Only skip when the plan already has verified IDs (auto-resolution confirmed them).
     plan_has_verified_ids = False
     if plan_block and isinstance(plan_block.get("actions"), list):
         plan_has_verified_ids = any(
             isinstance(a, dict) and a.get("entity_id") and hass.states.get(a["entity_id"])
             for a in plan_block["actions"]
         )
-    if not tool_log and not plan_has_verified_ids:
+    if not plan_has_verified_ids:
         _ENTITY_ID_RE = re.compile(r"\b([a-z_]+\.[a-z0-9_]+)\b")
         candidate_ids = _ENTITY_ID_RE.findall(response_text)
         if candidate_ids:
+            _CHECKABLE_DOMAINS = {
+                "light", "switch", "sensor", "binary_sensor",
+                "climate", "cover", "media_player", "person",
+                "fan", "lock", "vacuum", "input_boolean",
+            }
             fake_ids = [
-                eid for eid in candidate_ids
-                if "." in eid and not hass.states.get(eid)
-                and eid.split(".")[0] in (
-                    "light", "switch", "sensor", "binary_sensor",
-                    "climate", "cover", "media_player", "person",
-                )
+                eid for eid in dict.fromkeys(candidate_ids)  # deduplicate, preserve order
+                if eid.split(".")[0] in _CHECKABLE_DOMAINS
+                and not hass.states.get(eid)
             ]
             if fake_ids:
                 _LOGGER.warning(
-                    "Kyber: response may contain fabricated entity IDs (not in HA state): %s",
+                    "Kyber: response contains entity IDs not found in HA state: %s",
                     fake_ids[:5],
                 )
                 response_text += (
-                    "\n\n\u26a0\ufe0f *Note: I couldn't verify these entity IDs against your Home Assistant. "
-                    "They may be incorrect \u2014 ask me to search for them to get real IDs.*"
+                    "\n\n⚠️ *Note: I couldn't verify these entity IDs against your Home Assistant: "
+                    + ", ".join(f"`{e}`" for e in fake_ids[:5])
+                    + ". They may be incorrect — ask me to search for them to get real IDs.*"
                 )
 
     return {
