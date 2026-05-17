@@ -92,8 +92,8 @@ Contains all API view handlers (see [API Endpoints](#api-endpoints) below). Also
 
 Defines `DOMAIN`, config key constants, and `SYSTEM_PROMPT_TEMPLATE` — a large f-string that embeds:
 
-- The AI persona and behavioural rules (language matching, fuzzy entity resolution).
-- `{area_list}`, `{label_list}`, `{automation_list}`, `{script_list}`, `{entity_list}` placeholders filled by `_build_context`.
+- The AI persona, first-tool routing hints, and behavioural rules (language matching, fuzzy entity resolution).
+- A compact home summary plus `{area_list}` and `{notable_state_block}` placeholders filled by `_build_context`.
 - The complete reference of built-in HA Lovelace card types and YAML authoring rules.
 - All plan/action type specifications (see [Plan/Action System](#planaction-system)).
 
@@ -135,11 +135,10 @@ The full prompt structure (in order):
 
 ```
 [SYSTEM_PROMPT_TEMPLATE]
+  ├── Query-type → first-tool routing hints
+  ├── Home summary (area/label/automation/script/entity counts)
   ├── Areas (name → id)
-  ├── Labels (label_id | name)
-  ├── Automations (entity_id | friendly_name | config_id)
-  ├── Scripts (entity_id | friendly_name)
-  └── Entities (entity_id | friendly_name | area | labels)
+  └── Notable per-area home state lines [optional]
 
 ## Current user
   └── Display name and role (admin / standard user)
@@ -165,6 +164,8 @@ Assistant:
 ```
 
 The dashboard editor warning is a hard instruction that overrides the plan system — the AI must return a `\`\`\`yaml` block, not a `\`\`\`plan` block, when the editor is open.
+
+The prompt intentionally no longer injects full label / automation / script inventories on every turn. Those are available through tools (`get_labels`, `list_automations`, `list_scripts`) so the base prompt stays smaller and leaves more room for recent conversation history.
 
 ---
 

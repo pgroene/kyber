@@ -266,13 +266,9 @@ def _build_context(hass: HomeAssistant, user_name: str = "") -> tuple[str, dict[
     area_by_id = {a.id: _sanitize_prompt_value(a.name) for a in areas}
 
     labels = label_reg.async_list_labels()
-    label_list = "\n".join(
-        f"- {_sanitize_prompt_value(lbl.label_id)} | {_sanitize_prompt_value(lbl.name)}"
-        for lbl in labels
-    ) or "(no labels)"
 
-    automation_lines: list[str] = []
-    script_lines: list[str] = []
+    automation_count = 0
+    script_count = 0
     domain_counts: dict[str, int] = {}
 
     all_states = hass.states.async_all()
@@ -281,49 +277,36 @@ def _build_context(hass: HomeAssistant, user_name: str = "") -> tuple[str, dict[
     for state in sorted(all_states, key=lambda s: s.entity_id):
         domain = state.entity_id.split(".")[0]
         if state.entity_id.startswith("automation."):
-            friendly = _sanitize_prompt_value(state.attributes.get("friendly_name", state.entity_id))
-            config_id = _sanitize_prompt_value(state.attributes.get("id", state.entity_id))
-            automation_lines.append(f"- {state.entity_id} | {friendly} | config_id: {config_id}")
+            automation_count += 1
         elif state.entity_id.startswith("script."):
-            friendly = _sanitize_prompt_value(state.attributes.get("friendly_name", state.entity_id))
-            script_lines.append(f"- {state.entity_id} | {friendly}")
+            script_count += 1
         else:
             entity_count += 1
             domain_counts[domain] = domain_counts.get(domain, 0) + 1
 
-    _AUTO_LIMIT = 50
-    _SCRIPT_LIMIT = 25
-    if len(automation_lines) > _AUTO_LIMIT:
-        automation_lines_shown = automation_lines[:_AUTO_LIMIT]
-        automation_lines_shown.append(
-            f"… and {len(automation_lines) - _AUTO_LIMIT} more (use list_automations tool to see all)"
-        )
-    else:
-        automation_lines_shown = automation_lines
-    if len(script_lines) > _SCRIPT_LIMIT:
-        script_lines_shown = script_lines[:_SCRIPT_LIMIT]
-        script_lines_shown.append(
-            f"… and {len(script_lines) - _SCRIPT_LIMIT} more (use list_scripts tool to see all)"
-        )
-    else:
-        script_lines_shown = script_lines
-
-    automation_list = "\n".join(automation_lines_shown) or "(no automations)"
-    script_list = "\n".join(script_lines_shown) or "(no scripts)"
-
     # Domain stats: top 10 by count
     sorted_domains = sorted(domain_counts.items(), key=lambda x: -x[1])
-    stats_parts = [f"{d}: {c}" for d, c in sorted_domains[:10]]
+    stats_parts = [f"{d}:{c}" for d, c in sorted_domains[:10]]
     if len(sorted_domains) > 10:
-        stats_parts.append(f"… {len(sorted_domains) - 10} more domains")
-    entity_stats = f"{entity_count} total — {' | '.join(stats_parts)}"
+        stats_parts.append(f"+{len(sorted_domains) - 10} more")
+    entity_stats = f"{entity_count} entities"
+    if stats_parts:
+        entity_stats += f" ({', '.join(stats_parts)})"
 
     # Per-area home state
     home_state_by_area, area_stats = _build_home_state_by_area(hass, entity_reg, area_by_id)
+    notable_state_block = ""
+    if home_state_by_area != "(no area state available)":
+        notable_state_block = f"\n### Current Home State (notable only)\n{home_state_by_area}\n"
+
+    home_summary = (
+        f"**Home:** {len(areas)} areas · {len(labels)} labels · "
+        f"{automation_count} automations · {script_count} scripts · {entity_stats}"
+    )
 
     context_stats: dict[str, Any] = {
         "entity_count": entity_count,
-        "automation_count": len(automation_lines),
+        "automation_count": automation_count,
         "area_count": len(areas),
         "lights_on": area_stats["total_lights_on"],
         "unavailable_count": area_stats["unavailable_count"],
@@ -333,11 +316,9 @@ def _build_context(hass: HomeAssistant, user_name: str = "") -> tuple[str, dict[
     user_name_line = f"The user's name is {_sanitize_prompt_value(user_name)}." if user_name and user_name.strip() else ""
     context = SYSTEM_PROMPT_TEMPLATE.format(
         user_name_line=user_name_line,
+        home_summary=home_summary,
         area_list=area_list,
-        label_list=label_list,
-        entity_stats=entity_stats,
-        home_state_by_area=home_state_by_area,
-        automation_list=automation_list,
-        script_list=script_list,
+        notable_state_block=notable_state_block,
     )
+    context_stats["prompt_chars"] = len(context)
     return context, context_stats

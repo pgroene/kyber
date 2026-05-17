@@ -27,6 +27,7 @@ from custom_components.kyber.http_api import KyberView, KyberSaveView, KyberExec
 
 # Correct patch target — all tests must use this path
 _PATCH_GENERATE = "custom_components.kyber.http_api.async_generate_data"
+_PATCH_GENERATE_DEBUG = "custom_components.kyber.debug_and_diagnostics.async_generate_data"
 
 
 def _make_ai_result(text: str) -> MagicMock:
@@ -1062,7 +1063,7 @@ async def test_debug_bug_report_defaults_bundle_upload_off(
     fake_entry = MagicMock(options={}, data={"ai_task_entity_id": "ai_task.ollama_ai_task"})
     with (
         patch.object(hass.config_entries, "async_entries", return_value=[fake_entry]),
-        patch(_PATCH_GENERATE, side_effect=fake),
+        patch(_PATCH_GENERATE_DEBUG, side_effect=fake),
         patch("aiohttp.ClientSession", side_effect=RuntimeError("offline")),
     ):
         resp = await client.post(
@@ -1104,7 +1105,7 @@ async def test_debug_bug_report_includes_redacted_summary_when_enabled(
     fake_entry = MagicMock(options={}, data={"ai_task_entity_id": "ai_task.ollama_ai_task"})
     with (
         patch.object(hass.config_entries, "async_entries", return_value=[fake_entry]),
-        patch(_PATCH_GENERATE, side_effect=fake),
+        patch(_PATCH_GENERATE_DEBUG, side_effect=fake),
         patch("aiohttp.ClientSession", side_effect=RuntimeError("offline")),
     ):
         resp = await client.post(
