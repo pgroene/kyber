@@ -127,12 +127,22 @@ export const DebugMixin = (Base) => class extends Base {
     });
 
     body.querySelector("#dbg-mem-purge").addEventListener("click", () => {
-      this._renderPurgeFacts(body);
+      this._renderPurgeFacts(body).catch((err) => {
+        body.innerHTML = `<div class="debug-error">Purge panel error: ${this._escapeHtml(err.message)}</div>`;
+      });
     });
 
     // Show status if a job is already running / recently finished
     this._refreshDeepAnalysisStatus(body);
     this._wireKnowledgeRowEvents(body, filtered, categories);
+  }
+
+  _timeAgo(unixTs) {
+    const secs = Math.floor(Date.now() / 1000) - unixTs;
+    if (secs < 60) return `${secs}s ago`;
+    if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+    if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+    return `${Math.floor(secs / 86400)}d ago`;
   }
 
   async _renderPurgeFacts(body) {
@@ -174,7 +184,7 @@ export const DebugMixin = (Base) => class extends Base {
       const checked = sel.has(e.id) ? "checked" : "";
       const conf = e.confidence != null ? `${Math.round(e.confidence * 100)}%` : "—";
       const stars = e.user_rating ? "★".repeat(e.user_rating) : "—";
-      const ago = e.updated ? this._relativeTime(e.updated) : "";
+      const ago = e.updated ? this._timeAgo(e.updated) : "";
       const src = this._escapeHtml(e.source || "");
       const cat = this._escapeHtml(e.category || "");
       return `
