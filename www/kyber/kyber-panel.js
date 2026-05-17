@@ -449,6 +449,60 @@ const STYLES = `
   }
   .kn-empty { color: var(--secondary-text-color, #888); padding: 8px 0; }
   .kn-list { display: flex; flex-direction: column; gap: 6px; }
+
+  .btn-debug {
+    background: transparent; color: var(--secondary-text-color);
+    border: 1px solid var(--divider-color); padding: 4px 8px;
+    border-radius: 4px; cursor: pointer; font-size: 13px;
+  }
+  .btn-debug:hover { color: var(--primary-color); border-color: var(--primary-color); }
+  .debug-pane {
+    flex: 1; display: flex; flex-direction: column; height: 100%;
+    padding: 12px; box-sizing: border-box; overflow: auto;
+  }
+  .debug-header {
+    display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid var(--divider-color);
+    padding-bottom: 8px; margin-bottom: 12px;
+  }
+  .debug-header h2 { margin: 0; font-size: 16px; flex: 0 0 auto; }
+  .debug-tabs { display: flex; gap: 4px; flex: 1; margin-left: 12px; }
+  .debug-tab {
+    background: transparent; border: 1px solid var(--divider-color);
+    padding: 4px 10px; border-radius: 4px; cursor: pointer;
+    color: var(--secondary-text-color); font-size: 12px;
+  }
+  .debug-tab.active {
+    background: var(--primary-color); color: white;
+    border-color: var(--primary-color);
+  }
+  .debug-body { flex: 1; overflow: auto; }
+  .debug-stats {
+    background: var(--card-background-color); padding: 8px 10px;
+    border-radius: 4px; margin-bottom: 10px; font-size: 12px;
+  }
+  .debug-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; font-size: 12px; }
+  .debug-toolbar select { font-size: 12px; padding: 2px 4px; }
+  .debug-section { margin: 8px 0; border: 1px solid var(--divider-color); border-radius: 4px; padding: 6px 10px; }
+  .debug-section summary { cursor: pointer; font-size: 13px; }
+  .debug-error { color: var(--error-color); padding: 12px; }
+  .debug-empty { color: var(--secondary-text-color); padding: 20px; text-align: center; font-style: italic; }
+  .dbg-pre {
+    background: var(--code-editor-background-color, #1e1e1e);
+    color: var(--code-editor-text-color, #d4d4d4);
+    padding: 8px; border-radius: 4px;
+    font-size: 11px; max-height: 320px; overflow: auto;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .dbg-tools { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 4px; }
+  .dbg-tools th, .dbg-tools td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--divider-color); }
+  .dbg-mono { font-family: monospace; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dbg-kv { width: 100%; border-collapse: collapse; font-size: 12px; margin: 4px 0 10px 0; }
+  .dbg-kv th { text-align: left; padding: 3px 8px; font-weight: normal; color: var(--secondary-text-color); width: 160px; }
+  .dbg-kv td { padding: 3px 8px; }
+  .kn-score { background: var(--primary-color); color: white; font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-right: 4px; }
+  .btn-kn-refine { background: transparent; border: 1px solid var(--divider-color); color: var(--primary-color); padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 11px; margin-right: 4px; }
+  .btn-kn-refine:hover { background: var(--primary-color); color: white; }
   .kn-row {
     background: rgba(255,255,255,0.04);
     border-left: 3px solid var(--primary-color, #03a9f4);
@@ -1025,6 +1079,7 @@ class KyberPanel extends HTMLElement {
             <span class="session-label" id="session-indicator"></span>
             <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
             <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
+            <button class="btn-debug" id="btn-debug" title="Open debug / memory inspector">🐞</button>
           </div>
           <div class="chat-history" id="chat-history">
             <div class="chat-message assistant">${this._DEFAULT_GREETING}</div>
@@ -1034,6 +1089,19 @@ class KyberPanel extends HTMLElement {
             <textarea id="prompt-input" placeholder="Ask me anything about your smart home… (type / for commands)" rows="3"></textarea>
             <button class="btn-ask" id="btn-ask">Ask</button>
           </div>
+        </div>
+        <div class="debug-pane" id="debug-pane" hidden>
+          <div class="debug-header">
+            <strong>🐞 Kyber Debug</strong>
+            <nav class="debug-tabs">
+              <button class="debug-tab active" data-debug-tab="memory">🧠 Memory</button>
+              <button class="debug-tab" data-debug-tab="last_turn">📥 Last turn</button>
+              <button class="debug-tab" data-debug-tab="status">⚙️ Status</button>
+            </nav>
+            <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">↻</button>
+            <button class="btn-debug-close" id="btn-debug-close" title="Back to chat">✕</button>
+          </div>
+          <div class="debug-body" id="debug-body"><em>Loading…</em></div>
         </div>
         <div class="editor-pane" id="editor-container"></div>
         <div class="status-bar" id="status-bar">
@@ -1110,6 +1178,16 @@ class KyberPanel extends HTMLElement {
     });
     shadow.getElementById("btn-clear-history").addEventListener("click", () => {
       this._clearHistory();
+    });
+    shadow.getElementById("btn-debug").addEventListener("click", () => this._toggleDebugPane());
+    shadow.getElementById("btn-debug-close").addEventListener("click", () => this._toggleDebugPane(false));
+    shadow.getElementById("btn-debug-refresh").addEventListener("click", () => this._renderDebugTab(this._debugTab || "memory"));
+    shadow.querySelectorAll(".debug-tab").forEach((b) => {
+      b.addEventListener("click", () => {
+        shadow.querySelectorAll(".debug-tab").forEach((x) => x.classList.remove("active"));
+        b.classList.add("active");
+        this._renderDebugTab(b.getAttribute("data-debug-tab"));
+      });
     });
 
     shadow.getElementById("prompt-input").addEventListener("keydown", (e) => {
@@ -1883,6 +1961,301 @@ class KyberPanel extends HTMLElement {
 
   _escapeAttr(s) {
     return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  }
+
+  // ────────────────────────────────────────────────────────────────────
+  // Debug pane
+  // ────────────────────────────────────────────────────────────────────
+  _toggleDebugPane(force) {
+    const pane = this.shadowRoot.getElementById("debug-pane");
+    const chat = this.shadowRoot.querySelector(".chat-pane");
+    if (!pane || !chat) return;
+    const wantOpen = force === undefined ? pane.hasAttribute("hidden") : !!force;
+    if (wantOpen) {
+      pane.removeAttribute("hidden");
+      chat.style.display = "none";
+      this._debugTab = this._debugTab || "memory";
+      this._renderDebugTab(this._debugTab);
+    } else {
+      pane.setAttribute("hidden", "");
+      chat.style.display = "";
+    }
+  }
+
+  async _renderDebugTab(tab) {
+    this._debugTab = tab;
+    const body = this.shadowRoot.getElementById("debug-body");
+    if (!body) return;
+    body.innerHTML = "<em>Loading…</em>";
+    try {
+      if (tab === "memory") {
+        await this._renderDebugMemory(body);
+      } else if (tab === "last_turn") {
+        await this._renderDebugLastTurn(body);
+      } else if (tab === "status") {
+        await this._renderDebugStatus(body);
+      }
+    } catch (err) {
+      body.innerHTML = `<div class="debug-error">Error: ${this._escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  async _renderDebugMemory(body) {
+    const token = this._hass.auth.data.access_token;
+    const resp = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+    const data = await resp.json();
+    const entries = data.entries || [];
+    const categories = data.categories || [];
+    const filtered = (this._debugMemFilter || "all") === "review"
+      ? entries.filter((e) => e.needs_review)
+      : entries;
+    const sortKey = this._debugMemSort || "updated";
+    filtered.sort((a, b) => {
+      if (sortKey === "hits") return (b.hits || 0) - (a.hits || 0);
+      if (sortKey === "confidence") return (a.confidence || 0) - (b.confidence || 0);
+      if (sortKey === "rating") return (b.user_rating || 0) - (a.user_rating || 0);
+      return (b.updated || 0) - (a.updated || 0);
+    });
+    const reviewCount = data.needs_review_count || 0;
+    const catCounts = {};
+    entries.forEach((e) => { catCounts[e.category] = (catCounts[e.category] || 0) + 1; });
+    const catBadges = Object.entries(catCounts).map(([k, v]) => `<span class="kn-tag">${this._escapeHtml(k)}: ${v}</span>`).join("");
+    body.innerHTML = `
+      <div class="debug-stats">
+        <strong>${entries.length}</strong> entries · ${reviewCount} need review · ${catBadges}
+      </div>
+      <div class="debug-toolbar">
+        <label>Filter
+          <select id="dbg-mem-filter">
+            <option value="all" ${(this._debugMemFilter||'all')==='all'?'selected':''}>All</option>
+            <option value="review" ${this._debugMemFilter==='review'?'selected':''}>⚠ needs review</option>
+          </select>
+        </label>
+        <label>Sort
+          <select id="dbg-mem-sort">
+            <option value="updated" ${(this._debugMemSort||'updated')==='updated'?'selected':''}>Most recent</option>
+            <option value="hits" ${this._debugMemSort==='hits'?'selected':''}>Most hits</option>
+            <option value="confidence" ${this._debugMemSort==='confidence'?'selected':''}>Lowest confidence</option>
+            <option value="rating" ${this._debugMemSort==='rating'?'selected':''}>Highest rating</option>
+          </select>
+        </label>
+        <button id="dbg-mem-add">➕ Add fact</button>
+        <button id="dbg-mem-analyze">🔍 Analyze my home</button>
+      </div>
+      <div class="kn-list">${filtered.map((e) => this._renderKnowledgeRow(e, categories)).join("")}</div>
+    `;
+    body.querySelector("#dbg-mem-filter").addEventListener("change", (e) => {
+      this._debugMemFilter = e.target.value;
+      this._renderDebugTab("memory");
+    });
+    body.querySelector("#dbg-mem-sort").addEventListener("change", (e) => {
+      this._debugMemSort = e.target.value;
+      this._renderDebugTab("memory");
+    });
+    body.querySelector("#dbg-mem-add").addEventListener("click", () => this._showKnowledgeEditor(null, categories, null));
+    body.querySelector("#dbg-mem-analyze").addEventListener("click", async () => {
+      this._toggleDebugPane(false);
+      await this._handleKnowledgeCommand("analyze");
+    });
+    this._wireKnowledgeRowEvents(body, filtered, categories);
+  }
+
+  _wireKnowledgeRowEvents(root, entries, categories) {
+    root.querySelectorAll("[data-kn-id]").forEach((row) => {
+      const id = row.getAttribute("data-kn-id");
+      row.querySelector(".btn-kn-edit")?.addEventListener("click", () => {
+        const entry = entries.find((e) => e.id === id);
+        this._showKnowledgeEditor(entry, categories, null);
+      });
+      row.querySelector(".btn-kn-del")?.addEventListener("click", () => this._deleteKnowledgeEntry(id, row));
+      row.querySelector(".btn-kn-clear")?.addEventListener("click", async () => {
+        const token = this._hass.auth.data.access_token;
+        await fetch("/api/kyber/knowledge", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ id, needs_review: false }),
+        });
+        this._renderDebugTab(this._debugTab);
+      });
+      row.querySelectorAll(".kn-star").forEach((star) => {
+        star.addEventListener("click", () => {
+          const r = parseInt(star.getAttribute("data-rating"), 10);
+          this._rateKnowledgeEntry(id, r, row);
+        });
+      });
+    });
+  }
+
+  async _renderDebugLastTurn(body) {
+    const token = this._hass.auth.data.access_token;
+    const resp = await fetch("/api/kyber/debug/last_turn", { headers: { Authorization: `Bearer ${token}` } });
+    const data = await resp.json();
+    const snap = data.snapshot;
+    if (!snap) {
+      body.innerHTML = `<div class="debug-empty">No turn captured yet. Ask Kyber something and come back.</div>`;
+      return;
+    }
+    const picked = snap.picked_knowledge || [];
+    const toolRows = (snap.tool_log || []).map((t) => `
+      <tr>
+        <td><code>${this._escapeHtml(t.name || t.tool || "?")}</code></td>
+        <td class="dbg-mono">${this._escapeHtml(JSON.stringify(t.args || t.arguments || {}))}</td>
+        <td>${t.status === "error" ? "❌" : "✓"}</td>
+        <td>${t.ms ?? ""}</td>
+      </tr>`).join("");
+    const ts = snap.ts ? new Date(snap.ts * 1000).toLocaleTimeString() : "—";
+    body.innerHTML = `
+      <div class="debug-stats">
+        <strong>Turn at ${ts}</strong> · ${snap.elapsed_ms ?? "?"} ms · intent: <code>${this._escapeHtml(snap.intent || "?")}</code>
+        · prompt: ${snap.char_count?.toLocaleString() ?? "?"} chars (~${snap.approx_tokens?.toLocaleString() ?? "?"} tokens)
+        · auto_rating: ${snap.auto_rating ? `⚠ ${snap.auto_rating}/5` : "—"}
+      </div>
+      <details class="debug-section" open>
+        <summary><strong>User prompt</strong></summary>
+        <pre class="dbg-pre">${this._escapeHtml(snap.user_prompt || "")}</pre>
+      </details>
+      <details class="debug-section" open>
+        <summary><strong>📌 Knowledge entries used this turn (${picked.length})</strong></summary>
+        ${picked.length === 0 ? '<em>None injected.</em>' : '<div class="kn-list" id="dbg-picked-list"></div>'}
+      </details>
+      <details class="debug-section">
+        <summary><strong>🔧 Tool calls (${(snap.tool_log || []).length})</strong></summary>
+        ${toolRows ? `<table class="dbg-tools"><thead><tr><th>tool</th><th>args</th><th>status</th><th>ms</th></tr></thead><tbody>${toolRows}</tbody></table>` : '<em>No tool calls.</em>'}
+      </details>
+      <details class="debug-section">
+        <summary><strong>📜 Expanded system prompt</strong> (what the model actually saw)</summary>
+        <pre class="dbg-pre">${this._escapeHtml(snap.expanded_prompt || "")}</pre>
+      </details>
+      <details class="debug-section">
+        <summary><strong>💬 Response text</strong></summary>
+        <pre class="dbg-pre">${this._escapeHtml(snap.response_text || "")}</pre>
+      </details>
+    `;
+    if (picked.length > 0) {
+      const list = body.querySelector("#dbg-picked-list");
+      // Fetch full entries so we get tags + feedback log for rendering
+      const fullResp = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+      const fullData = await fullResp.json();
+      const byId = new Map((fullData.entries || []).map((e) => [e.id, e]));
+      const fullPicked = picked.map((p) => byId.get(p.id) || p);
+      list.innerHTML = fullPicked.map((e) => this._renderKnowledgeRowWithScore(e, picked.find((p) => p.id === e.id))).join("");
+      this._wireKnowledgeRowEvents(list, fullPicked, fullData.categories || []);
+      // Refine-with-hint inline action per row
+      list.querySelectorAll("[data-kn-id]").forEach((row) => {
+        const id = row.getAttribute("data-kn-id");
+        row.querySelector(".btn-kn-refine")?.addEventListener("click", () => this._showRefineDialog(id, fullPicked.find((e) => e.id === id)));
+      });
+    }
+  }
+
+  _renderKnowledgeRowWithScore(entry, picked) {
+    // Same as _renderKnowledgeRow but adds a similarity-score badge and a Refine button
+    const base = this._renderKnowledgeRow(entry, []);
+    const scoreBadge = (picked && typeof picked.score === "number")
+      ? `<span class="kn-score" title="similarity score for last turn">score ${picked.score.toFixed(2)}</span>`
+      : "";
+    // Inject score badge + refine button into the row head
+    return base
+      .replace(
+        '<span class="kn-row-actions">',
+        `${scoreBadge}<button class="btn-kn-refine" title="Refine this fact — tell Kyber how it should be">✎ refine</button><span class="kn-row-actions">`,
+      );
+  }
+
+  _showRefineDialog(id, entry) {
+    const dlg = document.createElement("div");
+    dlg.className = "kn-editor";
+    dlg.innerHTML = `
+      <div class="kn-editor-inner">
+        <h3>Refine memory entry</h3>
+        <p style="margin:0;color:var(--secondary-text-color);font-size:11px;">
+          ${this._escapeHtml(entry.content || "")}
+        </p>
+        <label>How should Kyber update this fact?
+          <textarea class="kn-f-refine" rows="4" placeholder="e.g. werkkamer is actually called 'home office' and contains light.desk + light.ceiling_office"></textarea>
+        </label>
+        <label>Optional new rating
+          <select class="kn-f-rate">
+            <option value="">— keep as is —</option>
+            <option value="5">5 — perfect</option>
+            <option value="4">4 — good</option>
+            <option value="3">3 — okay</option>
+            <option value="2">2 — wrong, please fix</option>
+            <option value="1">1 — useless</option>
+          </select>
+        </label>
+        <div class="kn-editor-buttons">
+          <button class="btn-kn-cancel">Cancel</button>
+          <button class="btn-kn-save">Apply refinement</button>
+        </div>
+      </div>
+    `;
+    this.shadowRoot.appendChild(dlg);
+    dlg.querySelector(".btn-kn-cancel").addEventListener("click", () => dlg.remove());
+    dlg.querySelector(".btn-kn-save").addEventListener("click", async () => {
+      const hint = dlg.querySelector(".kn-f-refine").value.trim();
+      const ratingStr = dlg.querySelector(".kn-f-rate").value;
+      if (!hint && !ratingStr) { dlg.remove(); return; }
+      const token = this._hass.auth.data.access_token;
+      try {
+        if (hint) {
+          const newContent = (entry.content || "") + "\n\nRefinement: " + hint;
+          const newProv = (entry.provenance ? entry.provenance + "; " : "") + `User refined ${new Date().toISOString().slice(0, 10)}`;
+          await fetch("/api/kyber/knowledge", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ id, content: newContent, provenance: newProv, needs_review: false }),
+          });
+        }
+        if (ratingStr) {
+          await fetch("/api/kyber/knowledge/feedback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ rating: parseInt(ratingStr, 10), knowledge_ids: [id], auto: false }),
+          });
+        }
+        dlg.remove();
+        this._renderDebugTab("last_turn");
+      } catch (err) {
+        alert(`Refine failed: ${err.message}`);
+      }
+    });
+  }
+
+  async _renderDebugStatus(body) {
+    const token = this._hass.auth.data.access_token;
+    const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
+    const data = await resp.json();
+    const k = data.knowledge || {};
+    const lt = data.last_turn;
+    const catRows = Object.entries(k.by_category || {}).map(([cat, n]) =>
+      `<tr><td><code>${this._escapeHtml(cat)}</code></td><td>${n}</td></tr>`,
+    ).join("");
+    body.innerHTML = `
+      <h3>Runtime</h3>
+      <table class="dbg-kv">
+        <tr><th>AI Task entity</th><td><code>${this._escapeHtml(data.ai_task_entity || "—")}</code></td></tr>
+        <tr><th>Autopilot</th><td>${this._autopilot ? "ON ⚡" : "OFF"}</td></tr>
+        <tr><th>Session</th><td>${this._escapeHtml(this._sessionName || "—")}</td></tr>
+        <tr><th>Tool history size</th><td>${data.tool_history_size}</td></tr>
+      </table>
+      <h3>Knowledge store</h3>
+      <table class="dbg-kv">
+        <tr><th>Total entries</th><td>${k.total ?? 0}</td></tr>
+        <tr><th>Needs review</th><td>${k.needs_review ?? 0}</td></tr>
+        <tr><th>Total hits</th><td>${k.total_hits ?? 0}</td></tr>
+      </table>
+      ${catRows ? `<h4>By category</h4><table class="dbg-kv">${catRows}</table>` : ""}
+      <h3>Last turn</h3>
+      ${lt ? `
+        <table class="dbg-kv">
+          <tr><th>When</th><td>${lt.ts ? new Date(lt.ts * 1000).toLocaleString() : "—"}</td></tr>
+          <tr><th>Elapsed</th><td>${lt.elapsed_ms} ms</td></tr>
+          <tr><th>Intent</th><td><code>${this._escapeHtml(lt.intent || "—")}</code></td></tr>
+          <tr><th>Prompt size</th><td>${lt.char_count?.toLocaleString() ?? "?"} chars (~${lt.approx_tokens?.toLocaleString() ?? "?"} tokens)</td></tr>
+        </table>
+      ` : "<em>No turn captured yet.</em>"}
+    `;
   }
 
   async _handleSessionCommand(argStr) {
@@ -3082,6 +3455,11 @@ class KyberPanel extends HTMLElement {
       // Attach rating widget if any knowledge entries were used to ground this response
       if (data.knowledge_used && data.knowledge_used.length > 0) {
         this._attachRatingWidget(data.knowledge_used, data.auto_rating || null);
+      }
+      // Auto-refresh debug 'Last turn' pane if open
+      const debugPane = this.shadowRoot.getElementById("debug-pane");
+      if (debugPane && !debugPane.hasAttribute("hidden") && this._debugTab === "last_turn") {
+        this._renderDebugTab("last_turn");
       }
 
       // Show tool call feedback pills above the response

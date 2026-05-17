@@ -32,6 +32,7 @@ Or use the quick-add button:
 - 📊 **Dashboard Editor** — edit Lovelace dashboards as YAML, create new dashboards
 - 🔧 **Slash Commands** — `/dashboard`, `/automation`, `/script`, `/blueprint`, `/area`
 - 🔒 **100% Local** — all AI inference runs on your own Ollama instance
+- 🐞 **Debug tab** — inspect everything Kyber knows: memory entries, the expanded system prompt of the last turn, which knowledge entries it picked (with similarity scores), tool calls, and per-entry ratings + inline "refine with a hint" action
 
 ## Quick Start
 

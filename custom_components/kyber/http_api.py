@@ -34,6 +34,57 @@ _PROGRESS_KEY = "kyber_progress"
 _PROGRESS_MAX_AGE = 300  # seconds — purge entries older than this on access
 _PROGRESS_MAX_ENTRIES = 64
 
+# Debug snapshot keys — in-memory only, purged on HA restart.
+_DEBUG_LAST_TURN_KEY = "kyber_debug_last_turn"
+_DEBUG_TOOL_HISTORY_KEY = "kyber_debug_tool_history"
+_DEBUG_TOOL_HISTORY_MAX = 20
+
+
+def _debug_record_turn(
+    hass: HomeAssistant,
+    *,
+    request_id: str,
+    user_prompt: str,
+    expanded_prompt: str,
+    instructions_used: str,
+    picked_knowledge: list[dict],
+    tool_log: list[dict],
+    intent: str | None,
+    response_text: str,
+    auto_rating: int | None,
+    elapsed_ms: int,
+) -> None:
+    """Capture a per-turn debug snapshot. Single slot + ring buffer for tools."""
+    import time
+    snapshot = {
+        "request_id": request_id,
+        "ts": int(time.time()),
+        "user_prompt": user_prompt,
+        "expanded_prompt": expanded_prompt[:32000],
+        "instructions_used": instructions_used[:32000],
+        "picked_knowledge": picked_knowledge,
+        "tool_log": tool_log,
+        "intent": intent,
+        "response_text": (response_text or "")[:8000],
+        "auto_rating": auto_rating,
+        "elapsed_ms": elapsed_ms,
+        "char_count": len(expanded_prompt),
+        "approx_tokens": len(expanded_prompt) // 4,
+    }
+    hass.data[_DEBUG_LAST_TURN_KEY] = snapshot
+    # Append tool calls to ring buffer
+    from collections import deque
+    history = hass.data.get(_DEBUG_TOOL_HISTORY_KEY)
+    if not isinstance(history, deque):
+        history = deque(maxlen=_DEBUG_TOOL_HISTORY_MAX)
+        hass.data[_DEBUG_TOOL_HISTORY_KEY] = history
+    for entry in tool_log or []:
+        history.append({
+            "ts": snapshot["ts"],
+            "request_id": request_id,
+            **entry,
+        })
+
 
 def _progress_emit(hass: HomeAssistant, request_id: str, event: dict) -> None:
     """Append a progress event for a request_id (in-memory)."""
@@ -1157,6 +1208,8 @@ class KyberView(HomeAssistantView):
     async def post(self, request: web.Request) -> web.Response:
         """Handle an AI completion request from the frontend panel."""
         hass: HomeAssistant = request.app["hass"]
+        import time as _time
+        _turn_started_at = _time.time()
 
         try:
             body = await request.json()
@@ -1776,6 +1829,36 @@ class KyberView(HomeAssistantView):
                     auto_rating = 2
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning("Kyber: auto-rate failed: %s", err)
+        # Capture a debug snapshot for the in-panel debug tab.
+        try:
+            _debug_record_turn(
+                hass,
+                request_id=request_id,
+                user_prompt=user_prompt,
+                expanded_prompt=instructions,
+                instructions_used=loop_instructions if 'loop_instructions' in locals() else instructions,
+                picked_knowledge=[
+                    {
+                        "id": e.get("id"),
+                        "category": e.get("category"),
+                        "subject": e.get("subject"),
+                        "content": e.get("content"),
+                        "confidence": e.get("confidence"),
+                        "user_rating": e.get("user_rating"),
+                        "needs_review": e.get("needs_review"),
+                        "provenance": e.get("provenance"),
+                        "score": e.get("_score"),
+                    }
+                    for e in (relevant_knowledge or [])
+                ],
+                tool_log=tool_log,
+                intent=intent,
+                response_text=response_text,
+                auto_rating=auto_rating,
+                elapsed_ms=int((_time.time() - _turn_started_at) * 1000),
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Kyber: debug snapshot capture failed: %s", err)
         return self.json({
             "response": response_text,
             "yaml_blocks": yaml_blocks,
@@ -1785,6 +1868,7 @@ class KyberView(HomeAssistantView):
             "tool_log": tool_log,
             "knowledge_used": knowledge_used_ids,
             "auto_rating": auto_rating,
+            "request_id": request_id,
         })
 
 
@@ -1981,6 +2065,90 @@ class KyberKnowledgeFeedbackView(HomeAssistantView):
             "status": "ok",
             "updated": [e["id"] for e in updated],
             "count": len(updated),
+        })
+
+
+class KyberDebugLastTurnView(HomeAssistantView):
+    """Return the most recent turn's debug snapshot (in-memory only).
+
+    GET /api/kyber/debug/last_turn → {prompt, picked_knowledge, tool_log, ...}
+    """
+
+    url = "/api/kyber/debug/last_turn"
+    name = "api:kyber:debug:last_turn"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        snap = hass.data.get(_DEBUG_LAST_TURN_KEY)
+        if not snap:
+            return self.json({"snapshot": None})
+        return self.json({"snapshot": snap})
+
+
+class KyberDebugToolHistoryView(HomeAssistantView):
+    """Return the in-memory ring buffer of recent tool calls."""
+
+    url = "/api/kyber/debug/tool_history"
+    name = "api:kyber:debug:tool_history"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        history = hass.data.get(_DEBUG_TOOL_HISTORY_KEY)
+        try:
+            limit = max(1, min(_DEBUG_TOOL_HISTORY_MAX, int(request.query.get("limit", _DEBUG_TOOL_HISTORY_MAX))))
+        except ValueError:
+            limit = _DEBUG_TOOL_HISTORY_MAX
+        items = list(history)[-limit:] if history else []
+        return self.json({"items": items, "count": len(items), "max": _DEBUG_TOOL_HISTORY_MAX})
+
+
+class KyberDebugStatusView(HomeAssistantView):
+    """Runtime status: model, autopilot, session, store stats."""
+
+    url = "/api/kyber/debug/status"
+    name = "api:kyber:debug:status"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        kstore = get_knowledge_store(hass)
+        await kstore.async_load()
+        all_entries = await kstore.async_all()
+        cat_counts: dict[str, int] = {}
+        flagged = 0
+        total_hits = 0
+        for e in all_entries:
+            cat_counts[e.get("category", "general")] = cat_counts.get(e.get("category", "general"), 0) + 1
+            if e.get("needs_review"):
+                flagged += 1
+            total_hits += int(e.get("hits", 0) or 0)
+        snap = hass.data.get(_DEBUG_LAST_TURN_KEY)
+        # Find the configured AI Task entity from any entry in hass.data[DOMAIN]
+        entries = hass.data.get(DOMAIN, {})
+        ai_task_entity = ""
+        if isinstance(entries, dict) and entries:
+            first = next(iter(entries.values()), None)
+            if isinstance(first, dict):
+                ai_task_entity = str(first.get(CONF_AI_TASK_ENTITY_ID, ""))
+        return self.json({
+            "ai_task_entity": ai_task_entity,
+            "knowledge": {
+                "total": len(all_entries),
+                "by_category": cat_counts,
+                "needs_review": flagged,
+                "total_hits": total_hits,
+            },
+            "last_turn": {
+                "ts": snap.get("ts") if snap else None,
+                "request_id": snap.get("request_id") if snap else None,
+                "elapsed_ms": snap.get("elapsed_ms") if snap else None,
+                "intent": snap.get("intent") if snap else None,
+                "char_count": snap.get("char_count") if snap else None,
+                "approx_tokens": snap.get("approx_tokens") if snap else None,
+            } if snap else None,
+            "tool_history_size": len(hass.data.get(_DEBUG_TOOL_HISTORY_KEY, []) or []),
         })
 
 
