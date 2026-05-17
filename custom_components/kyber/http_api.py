@@ -207,6 +207,66 @@ _TOOL_RESULT_STRIP_RE = re.compile(r"\[T[O0]{2}L[_\-]RESULT:[^\]]*?\][^\n]*\n?",
 _TOOL_RESULT_ECHO_RE = re.compile(r"\[T[O0]{2}L[_\-]RESULT:[^\]]*?\][^\n]*\n?.*?(?=\n\n|\Z)", re.DOTALL | re.IGNORECASE)
 _TOOL_CALL_MAX_ROUNDS = 5
 
+# ── Quick-intent shortcuts (sidestep the AI for trivially parseable requests) ──
+# Small models often loop on `get_areas` instead of emitting a `create_area`
+# plan because every example action in the prompt has an `entity_id` and they
+# don't realise create_area has none. For 100% unambiguous requests we
+# short-circuit the model entirely.
+
+_QUICK_CREATE_AREA_RE = re.compile(
+    r"^\s*(?:please\s+)?(?:can\s+you\s+)?"
+    r"(?:create|add|make|new)"
+    r"\s+(?:an?\s+|a\s+new\s+)?area"
+    r"\s+(?:called\s+|named\s+)?[\"'`]?([\w][\w\s\-]{0,50}?)[\"'`]?\s*[.!?]?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _try_quick_intent(user_prompt: str) -> dict[str, Any] | None:
+    """Detect trivially parseable single-action requests.
+
+    Returns a dict suitable for emitting as the final response, or None.
+
+    Currently handles:
+      - "create (an?) area NAME"
+      - "add area NAME"
+      - "make a new area called NAME"
+    """
+    if not user_prompt:
+        return None
+    text = user_prompt.strip()
+    m = _QUICK_CREATE_AREA_RE.match(text)
+    if m:
+        name = m.group(1).strip().strip("'\"`").strip()
+        if not name:
+            return None
+        # Reject obviously non-name tokens that a casual user wouldn't intend
+        if name.lower() in {"area", "the area", "new", "one"}:
+            return None
+        plan = {
+            "summary": f"Create area '{name}'",
+            "actions": [{
+                "type": "create_area",
+                "name": name,
+                "current_state": "(none)",
+                "new_state": name,
+                "description": f"Create new area '{name}'",
+            }],
+        }
+        response = (
+            f"I'll create a new area called **{name}**. "
+            "Approve the plan below to apply.\n\n"
+            "```plan\n" + json.dumps(plan) + "\n```"
+        )
+        return {
+            "response_text": response,
+            "intent": "action",
+            "shortcut": "quick_create_area",
+            "plan": plan,
+        }
+    return None
+
+
 # Keywords that indicate the user wants to change/act on something (ACTION intent).
 # Anything else is INFORMATIONAL — the AI should just respond in plain text.
 _ACTION_KEYWORDS: frozenset[str] = frozenset({
@@ -1596,7 +1656,23 @@ class KyberView(HomeAssistantView):
         executed_calls_cache: dict[str, str] = {}  # signature → result str (dedup across rounds)
         response_text = ""
         _progress_emit(hass, request_id, {"type": "info", "message": f"Built context: {context_stats.get('entity_count', 0)} entities, {context_stats.get('area_count', 0)} areas"})
-        for _round in range(_TOOL_CALL_MAX_ROUNDS):
+
+        # ── Quick-intent shortcut — skip the AI for trivially parseable requests
+        # like "create an area outside". Small local models loop on get_areas
+        # because every action example in the prompt has an entity_id; bypassing
+        # the model entirely is far more reliable for these patterns.
+        _skip_ai_loop = False
+        _quick = _try_quick_intent(user_prompt)
+        if _quick is not None:
+            _LOGGER.info("Kyber: quick-intent shortcut hit (%s)", _quick.get("shortcut"))
+            _progress_emit(hass, request_id, {
+                "type": "info",
+                "message": f"Quick-intent shortcut: {_quick.get('shortcut')}",
+            })
+            response_text = _quick["response_text"]
+            _skip_ai_loop = True
+
+        for _round in range(0 if _skip_ai_loop else _TOOL_CALL_MAX_ROUNDS):
             loop_instructions = instructions + tool_exchange
             if len(loop_instructions) > _MAX_INSTRUCTIONS_CHARS:
                 loop_instructions = loop_instructions[:_MAX_INSTRUCTIONS_CHARS]
@@ -1765,11 +1841,16 @@ class KyberView(HomeAssistantView):
                     "type": "info",
                     "message": "Model repeated previous tool calls — stopping early.",
                 })
-                # Force a final response by appending a directive to the exchange
-                tool_exchange += (
-                    "\n[SYSTEM: You already called these tools. Do NOT call them again. "
-                    "Produce your final answer or plan block now.]\n"
-                )
+                # If the model never produced any prose (response_text empty after
+                # stripping the duplicate tool_call lines), fall through with a
+                # gentle error message rather than looping again — the loop has
+                # already proven itself stuck.
+                if not _strip_tool_calls(response_text).strip():
+                    response_text = (
+                        "I wasn't able to figure out the right action for that "
+                        "request — could you rephrase or be more specific?"
+                    )
+                break
 
         # Strip leading "User: ...\nAssistant: ..." echo block before parsing.
         response_text = _strip_role_echo_prefix(response_text)
