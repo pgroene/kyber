@@ -496,6 +496,7 @@ class KyberView(HomeAssistantView):
         executed_calls_cache: dict[str, str] = {}  # signature → result str (dedup across rounds)
         response_text = ""
         _loop_redirect_given = False  # allow one redirect hint before falling back to synthesis
+        _auto_plan_rescued = False    # set when call_service tool call is auto-converted to plan
         _progress_emit(hass, request_id, {"type": "info", "message": f"Built context: {context_stats.get('entity_count', 0)} entities, {context_stats.get('area_count', 0)} areas"})
 
         # ── Quick-intent shortcut — skip the AI for trivially parseable requests
@@ -630,6 +631,17 @@ class KyberView(HomeAssistantView):
                     tool_result_data = {"error": "invalid_json", "raw": tool_result_str[:200]}
                 _LOGGER.debug("Tool call %s → %s chars", call.get("name"), len(tool_result_str))
 
+                # Auto-plan rescue: when call_service was used as a tool and the
+                # backend auto-built a plan, inject it as the final response now.
+                if isinstance(tool_result_data, dict) and tool_result_data.get("_auto_plan"):
+                    plan_json = tool_result_data.get("_plan_json", "")
+                    if plan_json:
+                        _LOGGER.info("Kyber: auto-converting call_service tool call to plan block")
+                        response_text = f"```plan\n{plan_json}\n```"
+                        intent = "action"  # ensure informational guard doesn't strip it
+                        _auto_plan_rescued = True
+                        break  # exit tool-results inner loop
+
                 # Auto-record entity aliases: when search_entities returns 1–3 primary
                 # entities, silently save the query→entity mapping so future turns don't
                 # need to search again.
@@ -730,6 +742,10 @@ class KyberView(HomeAssistantView):
                 )
             tool_exchange += f"{clean_response}\n{tool_results_block}\nAssistant:"
             _progress_emit(hass, request_id, {"type": "thinking", "stage": "follow_up"})
+
+            # Auto-plan rescue already set response_text — exit the round loop.
+            if _auto_plan_rescued:
+                break
 
             # Stop early if model is looping (every call was a duplicate)
             if new_call_count == 0:

@@ -100,6 +100,12 @@ _ACTION_KEYWORDS: frozenset[str] = frozenset({
     "zet aan", "zet uit",  # Dutch on/off
     "organise", "organize", "order my", "sort my", "clean up", "tidy",
     "propose", "suggest changes", "suggest a plan",
+    # Media / device control
+    "stop", "pause", "resume", "play", "mute", "unmute", "skip", "next",
+    "volume", "restart", "reboot", "activate", "deactivate",
+    # Confirmation words — user is approving a pending action
+    "yes", "ok", "sure", "go ahead", "do it", "confirm", "execute", "proceed",
+    "ja", "ja doe maar", "doe maar", "prima", "goed",  # Dutch confirmations
 })
 
 # Regex patterns for split-word action intent (e.g. "turn those off", "switch it on")
@@ -118,8 +124,16 @@ _ACTION_RE_PATTERNS: tuple = (
 def _classify_intent(user_prompt: str) -> str:
     """Return 'action' if the prompt requests a change, otherwise 'informational'."""
     lower = user_prompt.lower()
-    if any(kw in lower for kw in _ACTION_KEYWORDS):
-        return "action"
+    for kw in _ACTION_KEYWORDS:
+        if " " in kw:
+            # Multi-word phrase: plain substring match is fine
+            if kw in lower:
+                return "action"
+        else:
+            # Single word: require word boundary to avoid false positives
+            # (e.g. "play" must not match "playing", "stop" not "stopping")
+            if re.search(r"\b" + re.escape(kw) + r"\b", lower):
+                return "action"
     if any(p.search(lower) for p in _ACTION_RE_PATTERNS):
         return "action"
     return "informational"

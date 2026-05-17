@@ -683,6 +683,35 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "add_knowledge", "update_knowledge", "delete_knowledge",
     }
     if name in _ACTION_AS_TOOL:
+        # For call_service specifically: if the model supplied enough args,
+        # auto-build a plan block so the frontend can execute it directly.
+        # This rescues small models that have the right intent but use the
+        # wrong output format (tool call instead of plan block).
+        if name == "call_service":
+            domain = call.get("domain", "")
+            service = call.get("service", "")
+            entity_id = call.get("entity_id", "")
+            service_data = call.get("service_data") or {}
+            if domain and service:
+                action: dict = {
+                    "type": "call_service",
+                    "domain": domain,
+                    "service": service,
+                    "description": f"{service.replace('_', ' ').title()} {entity_id or domain}",
+                }
+                if entity_id:
+                    action["entity_id"] = entity_id
+                if service_data:
+                    action["service_data"] = service_data
+                plan = {
+                    "summary": f"{service.replace('_', ' ').title()} {entity_id or domain}",
+                    "actions": [action],
+                }
+                return json.dumps({
+                    "_auto_plan": True,
+                    "_plan_json": json.dumps(plan),
+                    "guidance": "Auto-converted to plan block — return it to the user.",
+                })
         return json.dumps({
             "error": f"'{name}' is NOT a tool — it is an ACTION.",
             "guidance": (

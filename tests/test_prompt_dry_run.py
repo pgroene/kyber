@@ -442,3 +442,72 @@ class TestBuildLoopRedirect:
         result = _build_loop_redirect(calls)
         # Should mention search_knowledge as the second fallback
         assert "search_knowledge" in result
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Intent classification
+# ═════════════════════════════════════════════════════════════════════════════
+
+_load(
+    "custom_components.kyber.intent_and_context",
+    ROOT / "custom_components" / "kyber" / "intent_and_context.py",
+)
+from custom_components.kyber.intent_and_context import _classify_intent  # noqa: E402
+
+
+class TestIntentClassification:
+    """Verify _classify_intent correctly identifies action vs informational prompts.
+
+    Regression for debug zip kyber-debug-1779049092493 where 'yes stop the music'
+    was classified as 'informational', causing the plan to be dropped by the guard.
+    """
+
+    # ── Action prompts that must be classified as "action" ──────────────────
+    def test_stop_is_action(self):
+        assert _classify_intent("stop the music") == "action"
+
+    def test_yes_stop_is_action(self):
+        assert _classify_intent("yes stop the music") == "action"
+
+    def test_yes_alone_is_action(self):
+        assert _classify_intent("yes") == "action"
+
+    def test_ok_is_action(self):
+        assert _classify_intent("ok") == "action"
+
+    def test_sure_is_action(self):
+        assert _classify_intent("sure go ahead") == "action"
+
+    def test_pause_is_action(self):
+        assert _classify_intent("pause the tv") == "action"
+
+    def test_resume_is_action(self):
+        assert _classify_intent("resume playback") == "action"
+
+    def test_mute_is_action(self):
+        assert _classify_intent("mute the speakers") == "action"
+
+    def test_volume_is_action(self):
+        assert _classify_intent("set the volume to 50") == "action"
+
+    def test_ja_is_action(self):
+        assert _classify_intent("ja") == "action"
+
+    def test_doe_maar_is_action(self):
+        assert _classify_intent("doe maar") == "action"
+
+    def test_confirm_is_action(self):
+        assert _classify_intent("confirm") == "action"
+
+    # ── Informational prompts that must NOT become "action" ──────────────────
+    def test_what_is_playing_is_informational(self):
+        assert _classify_intent("what is playing?") == "informational"
+
+    def test_which_lights_on_is_informational(self):
+        assert _classify_intent("which lights are on?") == "informational"
+
+    def test_what_areas_informational(self):
+        assert _classify_intent("what areas do I have?") == "informational"
+
+    def test_who_is_at_home_informational(self):
+        assert _classify_intent("who is at home?") == "informational"
