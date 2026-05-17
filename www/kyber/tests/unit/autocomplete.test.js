@@ -66,13 +66,15 @@ describe("_onPromptInput — sub-action autocomplete", () => {
   it("lists automations when typing /automation open <partial>", () => {
     const { element } = setup();
     element._onPromptInput({ value: "/automation open morn", selectionStart: 21 });
-    expect(element._acItems.some((i) => i.entity_id.includes("morning"))).toBe(true);
+    // entity_id is now the full command with friendly name: "/automation open Morning Lights"
+    expect(element._acItems.some((i) => i.entity_id.toLowerCase().includes("morning"))).toBe(true);
   });
 
   it("lists dashboards when typing /dashboard open <partial>", () => {
     const { element } = setup();
     element._onPromptInput({ value: "/dashboard open en", selectionStart: 18 });
-    expect(element._acItems.some((i) => i.entity_id === "energy")).toBe(true);
+    // entity_id is now "/dashboard open Energy"; friendly_name holds the url_path
+    expect(element._acItems.some((i) => i.entity_id.toLowerCase().includes("energy"))).toBe(true);
   });
 
   it("lists scripts when typing /script open <partial>", () => {
