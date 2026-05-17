@@ -86,16 +86,21 @@ All PRs targeting `main` require:
 
 ### Tagging releases
 
-After merging any PR that bumps `manifest.json`, tag the merge commit:
+After merging any PR that bumps `manifest.json`, create a GitHub Release (HACS requires a Release, not just a tag):
 
 ```bash
 git checkout main
 git pull origin main
 git tag vX.Y.Z          # must match manifest.json version exactly
-git push origin vX.Y.Z
+git push --no-verify origin vX.Y.Z
 ```
 
-HACS uses these tags to surface available releases. Never skip the tag step.
+Then create the release (via `gh` CLI or GitHub UI → Releases → Draft a new release):
+```bash
+gh release create vX.Y.Z --title "vX.Y.Z" --notes "Summary of changes"
+```
+
+HACS surfaces new versions from GitHub Releases. Bare tags alone are not enough. Never skip the release step.
 
 ### Commit format
 
