@@ -51,6 +51,7 @@ const STYLES = `
     grid-template-rows: 56px 1fr;
     grid-template-columns: 1fr;
     height: 100%;
+    position: relative;
     background: var(--panel-bg);
     color: var(--text-color);
   }
@@ -1140,7 +1141,23 @@ class KyberPanel extends HTMLElement {
   }
 
   async _applyModeAndDebugFlag() {
-    // Fetch debug-mode flag from backend
+    const shadow = this.shadowRoot;
+
+    // Apply debug layout SYNCHRONOUSLY before any async work to avoid flash
+    if (this._mode === "debug") {
+      const chat = shadow.querySelector(".chat-pane");
+      const pane = shadow.getElementById("debug-pane");
+      if (chat) chat.style.display = "none";
+      if (pane) {
+        pane.removeAttribute("hidden");
+        pane.classList.add("debug-pane--standalone");
+        const closeBtn = shadow.getElementById("btn-debug-close");
+        if (closeBtn) closeBtn.style.display = "none";
+      }
+      this._debugTab = this._debugTab || "memory";
+    }
+
+    // Fetch debug-mode flag from backend (async — layout already applied above)
     let debugEnabled = true; // default until we know
     try {
       const token = this._hass?.auth?.data?.access_token;
@@ -1153,21 +1170,11 @@ class KyberPanel extends HTMLElement {
       }
     } catch (e) { /* keep default */ }
     this._debugEnabled = debugEnabled;
-    const shadow = this.shadowRoot;
     const btnDebug = shadow.getElementById("btn-debug");
     if (btnDebug) btnDebug.style.display = debugEnabled ? "" : "none";
+
+    // Now render debug tab content (needs hass + debug flag confirmed)
     if (this._mode === "debug") {
-      // Hide chat-pane entirely, show debug-pane full-width.
-      const chat = shadow.querySelector(".chat-pane");
-      const pane = shadow.getElementById("debug-pane");
-      if (chat) chat.style.display = "none";
-      if (pane) {
-        pane.removeAttribute("hidden");
-        pane.classList.add("debug-pane--standalone");
-        const closeBtn = shadow.getElementById("btn-debug-close");
-        if (closeBtn) closeBtn.style.display = "none";
-      }
-      this._debugTab = this._debugTab || "memory";
       this._renderDebugTab(this._debugTab);
     }
   }
