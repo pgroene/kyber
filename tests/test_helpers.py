@@ -80,6 +80,8 @@ _http_api = _load("custom_components.kyber.http_api", ROOT / "custom_components"
 _extract_yaml_blocks = _http_api._extract_yaml_blocks
 _extract_plan_block = _http_api._extract_plan_block
 _build_service_undo = _http_api._build_service_undo
+_build_redacted_bundle_summary = _http_api._build_redacted_bundle_summary
+_restore_kyber_version_in_bug_report = _http_api._restore_kyber_version_in_bug_report
 
 # ─────────────────────────────────────────────────────────────────────────────
 # _extract_yaml_blocks
@@ -276,6 +278,32 @@ def test_build_service_undo_no_entity_id_returns_none():
     """When entity_id is empty, should return None."""
     undo = _build_service_undo("light", "turn_off", "", MagicMock())
     assert undo is None
+
+
+def test_build_redacted_bundle_summary_uses_manifest_version_when_snapshot_missing_it():
+    """Bug-report bundle summaries should fall back to the integration version."""
+    original = _http_api.KyberDebugBundleView._read_manifest_version
+    _http_api.KyberDebugBundleView._read_manifest_version = staticmethod(lambda: "9.9.9")
+    try:
+        summary = _build_redacted_bundle_summary(
+            {
+                "intent": "chat",
+                "char_count": 123,
+                "elapsed_ms": 456,
+                "tool_log": [],
+            }
+        )
+    finally:
+        _http_api.KyberDebugBundleView._read_manifest_version = original
+
+    assert "- Kyber version: 9.9.9" in summary
+
+
+def test_restore_kyber_version_in_bug_report_replaces_redacted_value():
+    """AI-drafted bug reports should show the actual Kyber version."""
+    body = "## Debug info\n- Kyber version: ? (Redacted)\n- Intent: chat"
+    restored = _restore_kyber_version_in_bug_report(body, "0.1.54")
+    assert restored == "## Debug info\n- Kyber version: 0.1.54\n- Intent: chat"
 
 
 
