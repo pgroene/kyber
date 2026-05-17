@@ -2981,6 +2981,8 @@ class KyberBugReportView(HomeAssistantView):
         if not title:
             title = f"bug: {(what_asked or what_happened)[:70]}"
         body_md = "\n".join(body_lines).strip() or raw.strip()
+        kyber_version = (snap or {}).get("kyber_version") or KyberDebugBundleView._read_manifest_version()
+        body_md = _restore_kyber_version_in_bug_report(body_md, kyber_version)
 
         similar: list[dict] = []
         try:
@@ -3034,9 +3036,24 @@ def _build_redaction_map(snap: dict) -> dict[str, str]:
     return {t: f"***redacted-{i + 1}***" for i, t in enumerate(sorted(tokens, key=len, reverse=True))}
 
 
+def _restore_kyber_version_in_bug_report(body_md: str, kyber_version: str) -> str:
+    """Replace redacted or unknown Kyber version lines with the actual version."""
+    import re as _re
+
+    if not body_md or not kyber_version:
+        return body_md
+    return _re.sub(
+        r"^(\s*(?:[-*]\s+)?(?:\*\*)?Kyber version(?:\*\*)?:\s*).*$",
+        rf"\g<1>{kyber_version}",
+        body_md,
+        flags=_re.IGNORECASE | _re.MULTILINE,
+    )
+
+
 def _build_redacted_bundle_summary(snap: dict) -> str:
     """Short redacted summary of key snap fields for the AI prompt."""
     rmap = _build_redaction_map(snap)
+    kyber_version = snap.get("kyber_version") or KyberDebugBundleView._read_manifest_version()
 
     def _r(text: str) -> str:
         for tok, rep in rmap.items():
@@ -3044,7 +3061,7 @@ def _build_redacted_bundle_summary(snap: dict) -> str:
         return text
 
     lines = [
-        f"- Kyber version: {snap.get('kyber_version', '?')}",
+        f"- Kyber version: {kyber_version}",
         f"- Intent: {snap.get('intent', '?')}",
         f"- Prompt size: {snap.get('char_count', '?')} chars",
         f"- Response time: {snap.get('elapsed_ms', '?')} ms",
