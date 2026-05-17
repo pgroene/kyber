@@ -872,10 +872,22 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "get_areas", "get_labels",
         "search_knowledge", "get_entity_notes", "analyze_automations",
     ]
+    # If the bogus "tool" name looks like a word from a user request (e.g.
+    # they typed "create an area outside" and the model called tool
+    # `outside`), nudge the model towards emitting a plan instead of
+    # retrying with another tool.
+    hint = (
+        "Retry with one of the valid tool names listed above. "
+        "If your goal is to CREATE/RENAME/DELETE an area or to control "
+        "entities, do NOT call a tool — emit a ```plan``` block with the "
+        "appropriate action (`create_area`, `rename_area`, `delete_area`, "
+        "`assign_area`, `call_service`, ...). For 'create an area X' just "
+        "emit a plan with one `create_area` action where `name` is X."
+    )
     return json.dumps({
         "error": f"Unknown tool '{name}'",
         "valid_tools": valid_tools,
-        "hint": "Retry with one of the valid tool names listed above.",
+        "hint": hint,
     })
 
 
