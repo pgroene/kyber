@@ -42,6 +42,65 @@ _MAX_FACTS_PER_ITEM = 6
 # Hard cap on raw config sent to AI (chars). Beyond this we truncate.
 _MAX_CONFIG_CHARS = 6000
 
+# Different analytical lenses — each pass uses a different angle so multiple
+# passes over the same automations produce complementary (non-duplicate) facts.
+_PROMPT_LENSES: list[dict[str, str]] = [
+    {
+        "title": "daily routines & schedules",
+        "ask": (
+            "Focus on DAILY ROUTINES and SCHEDULES implied by this item. "
+            "Examples: 'The household wakes before sunrise on weekdays', "
+            "'Lights turn off at 23:00 in the living room', "
+            "'Heating is lowered automatically at night'."
+        ),
+    },
+    {
+        "title": "devices & entity inventory",
+        "ask": (
+            "Focus on DEVICES and ENTITIES this item reveals exist in the home. "
+            "Examples: 'There is a motion sensor in the hallway', "
+            "'The garage has a tilt sensor on the door', "
+            "'A presence sensor is installed in the office'."
+        ),
+    },
+    {
+        "title": "occupancy & people",
+        "ask": (
+            "Focus on who LIVES or WORKS in the home and their BEHAVIOURAL PATTERNS. "
+            "Examples: 'Someone works from home during daytime', "
+            "'The household has at least one person with a morning routine', "
+            "'Occupants are typically active between 07:00 and 23:00'."
+        ),
+    },
+    {
+        "title": "time & location patterns",
+        "ask": (
+            "Focus on SPECIFIC TIMES, DAYS, or LOCATION TRIGGERS used by this item. "
+            "Examples: 'The front door light activates after sunset', "
+            "'This automation only runs on weekdays', "
+            "'Area-based presence detection is used in the bedroom'."
+        ),
+    },
+    {
+        "title": "energy & efficiency",
+        "ask": (
+            "Focus on ENERGY USE, ECO behaviour, or EFFICIENCY patterns. "
+            "Examples: 'The heating is programmed to lower when no one is home', "
+            "'Standby power is cut to the TV when the room is empty', "
+            "'Solar or battery state influences device control'."
+        ),
+    },
+    {
+        "title": "safety & security",
+        "ask": (
+            "Focus on SAFETY, SECURITY, or ALERT behaviours. "
+            "Examples: 'A smoke detector triggers a full-house alert', "
+            "'Exterior lights flash when the alarm is armed', "
+            "'Locks are checked automatically at 22:00'."
+        ),
+    },
+]
+
 
 # ── Public types ─────────────────────────────────────────────────────
 def _truncate(text: str, limit: int = _MAX_CONFIG_CHARS) -> str:
@@ -50,8 +109,12 @@ def _truncate(text: str, limit: int = _MAX_CONFIG_CHARS) -> str:
     return text[:limit] + f"\n… [truncated {len(text) - limit} chars]"
 
 
-def _build_prompt(kind: str, item: dict[str, Any]) -> str:
-    """Build a focused prompt that asks the AI for durable facts."""
+def _build_prompt(kind: str, item: dict[str, Any], prompt_variant: int = 0) -> str:
+    """Build a focused prompt that asks the AI for durable facts.
+
+    ``prompt_variant`` selects one of the analytical lenses in ``_PROMPT_LENSES``
+    so that multiple passes over the same automations produce complementary facts.
+    """
     if kind == "automation":
         ident = item.get("alias") or item.get("id") or "unnamed"
         body = {
@@ -80,23 +143,18 @@ def _build_prompt(kind: str, item: dict[str, Any]) -> str:
             "input_keys": item.get("input_keys"),
         }
 
+    lens = _PROMPT_LENSES[prompt_variant % len(_PROMPT_LENSES)]
     body_yaml = json.dumps(body, indent=2, ensure_ascii=False, default=str)
     body_yaml = _truncate(body_yaml)
 
     return (
         f"You are reviewing a Home Assistant {kind} called '{ident}'.\n"
-        "Infer DURABLE, NON-OBVIOUS facts about the home that this implies — "
-        "facts that would help an AI answer future questions about how the "
-        "home is organised, who lives there, daily routines, or device usage.\n"
-        "Examples of GOOD facts: 'The living-room lights turn off at 23:00 on weekdays', "
-        "'The garage door has a presence sensor used to trigger lighting', "
-        "'The owner uses motion-based lighting in the hallway'.\n"
-        "Examples of BAD (generic / obvious) facts: 'There is an automation', "
-        "'It uses a trigger', 'Lights can turn on'.\n\n"
+        f"{lens['ask']}\n"
+        "Infer DURABLE, NON-OBVIOUS facts — output ONLY facts relevant to this lens. "
+        "Skip generic observations ('there is an automation', 'it uses a trigger').\n\n"
         "Output ONLY a JSON array. Each item: {\"category\": str, "
         "\"subject\": str, \"content\": str, \"tags\": [str], "
-        "\"confidence\": float 0-1}. If the item implies NO useful new fact, "
-        "output an empty array [].\n\n"
+        "\"confidence\": float 0-1}. If nothing relevant, output [].\n\n"
         f"--- {kind} config ---\n{body_yaml}\n--- end ---\n\n"
         "JSON array:"
     )
@@ -167,6 +225,18 @@ def _identity(kind: str, item: dict[str, Any]) -> str:
     return str(item.get("id") or item.get("alias") or "")
 
 
+_DEDUP_SIMILARITY_THRESHOLD = 0.82
+
+
+async def _is_duplicate_fact(kstore: Any, content: str) -> bool:
+    """Return True if a near-identical fact from deep-analyzer already exists."""
+    try:
+        similar = await kstore.async_semantic_search(content, limit=5, min_score=_DEDUP_SIMILARITY_THRESHOLD)
+        return any(e.get("source") == "deep-analyzer" for e in similar)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def analyze_pending(
     hass: HomeAssistant,
     *,
@@ -174,6 +244,7 @@ async def analyze_pending(
     kinds: list[str] | None = None,
     limit: int = 5,
     force: bool = False,
+    prompt_variant: int = 0,
 ) -> dict[str, Any]:
     """Walk all configured items; analyze ones whose hash changed (up to `limit`).
 
@@ -227,15 +298,16 @@ async def analyze_pending(
         if not ident:
             continue
         new_hash = item.get("hash") or ""
-        if not force and not memo.is_changed(kind, ident, new_hash):
+        if not force and not memo.is_pending_lens(kind, ident, new_hash, prompt_variant):
             skipped += 1
             continue
         if processed >= limit:
             # Reached this run's budget — leave for next sweep.
             break
         processed += 1
+
         try:
-            prompt = _build_prompt(kind, item)
+            prompt = _build_prompt(kind, item, prompt_variant)
             raw = await _run_ai(hass, ai_entity_id, prompt)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber deep_analyzer: AI call failed for %s:%s: %s", kind, ident, err)
@@ -248,6 +320,12 @@ async def analyze_pending(
         fact_ids: list[str] = []
         for f in facts:
             try:
+                if await _is_duplicate_fact(kstore, f["content"]):
+                    _LOGGER.debug(
+                        "Kyber deep_analyzer: skipping near-duplicate fact for %s: %s",
+                        ident, f["content"][:80],
+                    )
+                    continue
                 entry = await kstore.async_add(
                     category=f["category"],
                     subject=f["subject"],
@@ -262,10 +340,11 @@ async def analyze_pending(
                 _LOGGER.warning("Kyber deep_analyzer: failed to persist fact: %s", err)
 
         try:
-            await memo.async_record(
+            await memo.async_record_lens(
                 kind=kind,
                 ident=ident,
                 new_hash=new_hash,
+                lens=prompt_variant,
                 fact_ids=fact_ids,
                 skipped=(len(fact_ids) == 0),
             )

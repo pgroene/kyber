@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Kyber — AI-powered Smart Home Assistant Panel
  *
  * A Home Assistant custom panel web component that provides:
@@ -32,16 +32,16 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js";
+import { STYLES } from "./src/styles.js?v=78";
 
-import { UtilsMixin } from "./src/utils-mixin.js";
-import { SessionMixin } from "./src/session-mixin.js";
-import { KnowledgeMixin } from "./src/knowledge-mixin.js";
-import { DebugMixin } from "./src/debug-mixin.js";
-import { SlashMixin } from "./src/slash-commands-mixin.js";
-import { EditorMixin } from "./src/editor-mixin.js";
-import { AIMixin } from "./src/ai-mixin.js";
-import { PlanCardsMixin } from "./src/plan-cards-mixin.js";
+import { UtilsMixin } from "./src/utils-mixin.js?v=78";
+import { SessionMixin } from "./src/session-mixin.js?v=78";
+import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=78";
+import { DebugMixin } from "./src/debug-mixin.js?v=78";
+import { SlashMixin } from "./src/slash-commands-mixin.js?v=78";
+import { EditorMixin } from "./src/editor-mixin.js?v=78";
+import { AIMixin } from "./src/ai-mixin.js?v=78";
+import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=78";
 
 // ---------------------------------------------------------------------------
 // Custom Element

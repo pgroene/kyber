@@ -44,8 +44,62 @@ export const KnowledgeMixin = (Base) => class extends Base {
       }
       return;
     }
+    if (sub === "add" && rest) {
+      try {
+        const resp = await fetch("/api/kyber/knowledge", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ category: "general", content: rest, source: "user", provenance: "Added via /memory add" }),
+        });
+        const d = await resp.json();
+        if (resp.ok) {
+          this._appendMessage(`✅ Saved: _${this._escapeHtml(rest)}_ (id: \`${d.entry?.id}\`)`, "assistant");
+        } else {
+          this._appendMessage(`Failed to save: ${d.message || resp.status}`, "assistant");
+        }
+      } catch (err) {
+        this._appendMessage(`Error: ${err.message}`, "assistant");
+      }
+      return;
+    }
+    if (sub === "stats") {
+      const data = await this._fetchKnowledge();
+      const entries = data.entries || [];
+      const by_cat = {};
+      const by_src = {};
+      entries.forEach((e) => {
+        by_cat[e.category] = (by_cat[e.category] || 0) + 1;
+        by_src[e.source || "unknown"] = (by_src[e.source || "unknown"] || 0) + 1;
+      });
+      const catRows = Object.entries(by_cat).map(([k, v]) => `| ${k} | ${v} |`).join("\n");
+      const srcRows = Object.entries(by_src).map(([k, v]) => `| ${k} | ${v} |`).join("\n");
+      this._appendMessage(
+        `**🧠 Memory stats** — ${entries.length} total entries\n\n**By category**\n| Category | Count |\n|---|---|\n${catRows}\n\n**By source**\n| Source | Count |\n|---|---|\n${srcRows}`,
+        "assistant",
+      );
+      return;
+    }
+    if (sub === "deep") {
+      this._appendMessage("🧬 Starting deep analysis in background…", "assistant");
+      try {
+        const resp = await fetch("/api/kyber/knowledge/analyze_deep", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ background: true, runs: 6, limit: 5, force: false }),
+        });
+        const d = await resp.json();
+        if (resp.ok) {
+          this._appendMessage(`✅ Deep analysis ${d.status === "already_running" ? "already running" : "started"}. Open the debug panel to track progress.`, "assistant");
+        } else {
+          this._appendMessage(`Failed: ${d.message || resp.status}`, "assistant");
+        }
+      } catch (err) {
+        this._appendMessage(`Error: ${err.message}`, "assistant");
+      }
+      return;
+    }
     this._appendMessage(
-      "Usage: `/knowledge` (list), `/knowledge search <q>`, `/knowledge analyze`, `/knowledge delete <id>`",
+      "**Memory commands:**\n`/memory` · `/memory list` · `/memory search <query>` · `/memory add <text>` · `/memory delete <id>` · `/memory analyze` · `/memory deep` · `/memory stats`",
       "assistant",
     );
   }

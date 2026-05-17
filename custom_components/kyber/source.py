@@ -228,6 +228,21 @@ class AnalysisMemo:
             return True
         return rec.get("hash") != new_hash
 
+    def is_pending_lens(self, kind: str, ident: str, new_hash: str, lens: int) -> bool:
+        """Return True if this item needs analysis with the given prompt lens.
+
+        An item is pending when:
+          - It has never been analyzed, OR
+          - Its content hash changed (automation was edited), OR
+          - This specific lens index hasn't been applied yet.
+        """
+        rec = self._data["items"].get(self._key(kind, ident))
+        if not rec:
+            return True
+        if rec.get("hash") != new_hash:
+            return True  # Content changed — all lenses are stale
+        return lens not in (rec.get("lenses_done") or [])
+
     def get(self, kind: str, ident: str) -> dict[str, Any] | None:
         return self._data["items"].get(self._key(kind, ident))
 
@@ -247,7 +262,45 @@ class AnalysisMemo:
             "hash": new_hash,
             "analyzed_at": int(time.time()),
             "fact_ids": fact_ids,
+            "lenses_done": [],
             "skipped": skipped,
+        }
+        await self._persist()
+
+    async def async_record_lens(
+        self,
+        *,
+        kind: str,
+        ident: str,
+        new_hash: str,
+        lens: int,
+        fact_ids: list[str],
+        skipped: bool = False,
+    ) -> None:
+        """Record analysis for a specific prompt lens, merging with existing data."""
+        import time
+        key = self._key(kind, ident)
+        rec = self._data["items"].get(key) or {}
+
+        # If hash changed, reset all lens tracking
+        if rec.get("hash") != new_hash:
+            rec = {"kind": kind, "ident": ident, "fact_ids": [], "lenses_done": []}
+
+        lenses_done: list[int] = list(rec.get("lenses_done") or [])
+        if lens not in lenses_done:
+            lenses_done.append(lens)
+
+        all_fact_ids: list[str] = list(rec.get("fact_ids") or [])
+        all_fact_ids.extend(fact_ids)
+
+        self._data["items"][key] = {
+            "kind": kind,
+            "ident": ident,
+            "hash": new_hash,
+            "analyzed_at": int(time.time()),
+            "fact_ids": all_fact_ids,
+            "lenses_done": sorted(lenses_done),
+            "skipped": skipped and not all_fact_ids,
         }
         await self._persist()
 

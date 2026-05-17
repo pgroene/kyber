@@ -1,9 +1,11 @@
 """Knowledge base integration views/helpers extracted from http_api.py."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
+import time
 from http import HTTPStatus
 from typing import Any
 
@@ -24,6 +26,83 @@ from . import deep_analyzer as _deep
 from .analyzer import analyze_automations as _analyze_automations
 
 _LOGGER = logging.getLogger(__name__)
+
+# ── Background deep-analysis job state ───────────────────────────────────────
+# Single-job tracker: only one deep analysis can run at a time.
+_DEEP_JOB: dict[str, Any] = {
+    "running": False,
+    "run": 0,           # current pass index (1-based)
+    "runs": 0,          # total passes requested
+    "analyzed": 0,      # items sent to AI this job
+    "facts": 0,         # facts stored this job
+    "errors": 0,        # AI call errors this job
+    "pending": 0,       # estimated items still in queue
+    "current_item": None,
+    "started_at": None,
+    "finished_at": None,
+    "last_result": None,  # summary dict of most recent completed job
+}
+
+
+async def _async_background_deep_analysis(
+    hass: Any,
+    ai_entity_id: str,
+    runs: int,
+    limit: int,
+    force: bool,
+    kinds: list[str],
+) -> None:
+    """Run deep analysis as a background task, updating _DEEP_JOB in place."""
+    _DEEP_JOB.update(
+        running=True, run=0, runs=runs, analyzed=0, facts=0, errors=0,
+        pending=0, current_item=None, started_at=time.time(), finished_at=None,
+    )
+    try:
+        for i in range(runs):
+            _DEEP_JOB["run"] = i + 1
+            result = await _deep.analyze_pending(
+                hass,
+                ai_entity_id=ai_entity_id,
+                kinds=kinds,
+                limit=limit,
+                force=force,
+                prompt_variant=i,
+            )
+            n_analyzed = len(result.get("analyzed", []))
+            n_facts = sum(len(a.get("fact_ids", [])) for a in result.get("analyzed", []))
+            n_errors = len(result.get("errors", []))
+            _DEEP_JOB["analyzed"] += n_analyzed
+            _DEEP_JOB["facts"] += n_facts
+            _DEEP_JOB["errors"] += n_errors
+            # Estimate remaining: candidates minus what's been processed so far
+            total = result.get("candidates_total", 0)
+            done_this_run = result.get("processed", 0) + result.get("skipped_unchanged", 0)
+            _DEEP_JOB["pending"] = max(0, total - done_this_run)
+            if result.get("analyzed"):
+                last = result["analyzed"][-1]
+                _DEEP_JOB["current_item"] = f"{last.get('kind','?')}: {last.get('ident','?')}"
+            # Stop early when force=False and every item was skipped
+            # (all lenses up to this pass have already been applied)
+            if not force and result.get("processed", 0) == 0 and result.get("skipped_unchanged", 0) > 0:
+                break
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Kyber background deep analysis failed: %s", err)
+        _DEEP_JOB["errors"] += 1
+    finally:
+        _DEEP_JOB["running"] = False
+        _DEEP_JOB["finished_at"] = time.time()
+        _DEEP_JOB["current_item"] = None
+        _DEEP_JOB["last_result"] = {
+            "analyzed": _DEEP_JOB["analyzed"],
+            "facts": _DEEP_JOB["facts"],
+            "errors": _DEEP_JOB["errors"],
+            "runs_completed": _DEEP_JOB["run"],
+            "duration_s": round(_DEEP_JOB["finished_at"] - (_DEEP_JOB["started_at"] or 0), 1),
+        }
+        _LOGGER.warning(
+            "Kyber deep analysis complete — %d items analyzed, %d facts stored in %d passes",
+            _DEEP_JOB["analyzed"], _DEEP_JOB["facts"], _DEEP_JOB["run"],
+        )
 
 # Mini prompt used for the post-turn fact-extraction LLM call.
 # Kept intentionally tiny to be fast and not cost much context budget.
@@ -244,8 +323,8 @@ class KyberKnowledgeDeepAnalyzeView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
-        status = await _deep.memo_status(hass)
-        return self.json(status)
+        memo_status = await _deep.memo_status(hass)
+        return self.json({**memo_status, "job": dict(_DEEP_JOB)})
 
     async def post(self, request: web.Request) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
@@ -265,6 +344,22 @@ class KyberKnowledgeDeepAnalyzeView(HomeAssistantView):
             limit = 5
         limit = max(1, min(50, limit))
         force = bool(body.get("force", False))
+
+        # background=true → fire-and-forget, return immediately with job state
+        if body.get("background"):
+            if _DEEP_JOB["running"]:
+                return self.json({"status": "already_running", "job": dict(_DEEP_JOB)})
+            try:
+                runs = max(1, min(50, int(body.get("runs", 10))))
+            except (TypeError, ValueError):
+                runs = 10
+            hass.async_create_task(
+                _async_background_deep_analysis(hass, ai_entity_id, runs, limit, force, kinds)
+            )
+            await asyncio.sleep(0.05)  # let the task start and update state
+            return self.json({"status": "started", "job": dict(_DEEP_JOB)})
+
+        # synchronous (legacy) path
         try:
             result = await _deep.analyze_pending(
                 hass,
@@ -280,7 +375,6 @@ class KyberKnowledgeDeepAnalyzeView(HomeAssistantView):
             return self.json({"status": "ok", **result})
         except Exception as ser_err:  # noqa: BLE001
             _LOGGER.error("Kyber deep_analyzer: JSON serialization failed: %s", ser_err, exc_info=True)
-            # Return a safe minimal response so the frontend doesn't get a 500 text body
             return self.json({
                 "status": "ok",
                 "analyzed": [],
@@ -290,6 +384,40 @@ class KyberKnowledgeDeepAnalyzeView(HomeAssistantView):
                 "processed": result.get("processed", 0),
                 "limit": result.get("limit", limit),
             })
+
+
+class KyberKnowledgePurgeView(HomeAssistantView):
+    """Bulk-delete knowledge entries by ID.
+
+    POST /api/kyber/knowledge/purge
+      body: {ids: [entry_id, ...]}
+      response: {deleted: N, not_found: N}
+    """
+
+    url = "/api/kyber/knowledge/purge"
+    name = "api:kyber:knowledge:purge"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        kstore = get_knowledge_store(hass)
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
+        ids = body.get("ids")
+        if not isinstance(ids, list) or not ids:
+            return self.json_message("'ids' must be a non-empty list", HTTPStatus.BAD_REQUEST)
+        deleted = 0
+        not_found = 0
+        for entry_id in ids:
+            ok = await kstore.async_delete(str(entry_id))
+            if ok:
+                deleted += 1
+            else:
+                not_found += 1
+        _LOGGER.info("Kyber knowledge purge: deleted %d, not found %d", deleted, not_found)
+        return self.json({"status": "ok", "deleted": deleted, "not_found": not_found})
 
 
 class KyberKnowledgeFeedbackView(HomeAssistantView):

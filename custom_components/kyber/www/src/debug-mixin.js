@@ -39,9 +39,16 @@ export const DebugMixin = (Base) => class extends Base {
     const data = await resp.json();
     const entries = data.entries || [];
     const categories = data.categories || [];
-    const filtered = (this._debugMemFilter || "all") === "review"
+    let filtered = (this._debugMemFilter || "all") === "review"
       ? entries.filter((e) => e.needs_review)
       : entries;
+    const textQ = (this._debugMemText || "").toLowerCase().trim();
+    if (textQ) {
+      filtered = filtered.filter((e) => {
+        const blob = [e.content, e.subject, ...(e.tags || [])].join(" ").toLowerCase();
+        return blob.includes(textQ);
+      });
+    }
     const sortKey = this._debugMemSort || "updated";
     filtered.sort((a, b) => {
       if (sortKey === "hits") return (b.hits || 0) - (a.hits || 0);
@@ -72,10 +79,16 @@ export const DebugMixin = (Base) => class extends Base {
             <option value="rating" ${this._debugMemSort==='rating'?'selected':''}>Highest rating</option>
           </select>
         </label>
+        <input type="text" id="dbg-mem-text" placeholder="🔍 Filter text…" value="${this._escapeAttr(this._debugMemText||'')}" style="padding:4px 8px;border:1px solid var(--divider-color,#ccc);border-radius:4px;font-size:0.88em;min-width:140px">
         <button id="dbg-mem-add">➕ Add fact</button>
         <button id="dbg-mem-analyze">🔍 Analyze my home</button>
-        <button id="dbg-mem-deep-analyze" title="AI-driven deep analysis of automations/scripts/blueprints with content-hash memoization">🧬 Deep analyze</button>
+        <button id="dbg-mem-deep-analyze">🧬 Start deep analysis</button>
+        <label style="display:flex;align-items:center;gap:4px;font-size:0.85em">
+          <input type="checkbox" id="dbg-deep-force"> Re-analyze all
+        </label>
+        <button id="dbg-mem-purge" style="color:#c00">🗑 Purge facts</button>
       </div>
+      <div id="dbg-deep-status" style="display:none;margin:6px 0;padding:8px 10px;border-radius:6px;background:var(--secondary-background-color,#f0f0f0);font-size:0.88em;line-height:1.6"></div>
       <div class="kn-list">${filtered.map((e) => this._renderKnowledgeRow(e, categories)).join("")}</div>
     `;
     body.querySelector("#dbg-mem-filter").addEventListener("change", (e) => {
@@ -86,40 +99,235 @@ export const DebugMixin = (Base) => class extends Base {
       this._debugMemSort = e.target.value;
       this._renderDebugTab("memory");
     });
+    body.querySelector("#dbg-mem-text").addEventListener("input", (e) => {
+      this._debugMemText = e.target.value;
+      this._renderDebugTab("memory");
+    });
     body.querySelector("#dbg-mem-add").addEventListener("click", () => this._showKnowledgeEditor(null, categories, null));
     body.querySelector("#dbg-mem-analyze").addEventListener("click", async () => {
       this._toggleDebugPane(false);
       await this._handleKnowledgeCommand("analyze");
     });
+
+    // Deep analysis — start background job and poll for progress
     body.querySelector("#dbg-mem-deep-analyze").addEventListener("click", async () => {
-      const btn = body.querySelector("#dbg-mem-deep-analyze");
-      const orig = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = "🧬 Analyzing…";
-      try {
-        const token = this._hass.auth.data.access_token;
-        const r = await fetch("/api/kyber/knowledge/analyze_deep", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ limit: 5 }),
-        });
-        const j = await r.json();
-        if (!r.ok) {
-          alert("Deep analyze failed: " + (j.message || r.statusText));
-        } else {
-          const analyzed = (j.analyzed || []).length;
-          const newFacts = (j.analyzed || []).reduce((n, a) => n + (a.fact_ids || []).length, 0);
-          alert(`Deep analyze: ${analyzed} items processed, ${newFacts} new facts added, ${j.skipped_unchanged || 0} unchanged (skipped).`);
-        }
-      } catch (err) {
-        alert("Deep analyze error: " + err);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = orig;
-        this._renderDebugTab("memory");
+      const token = this._hass.auth.data.access_token;
+      const force = body.querySelector("#dbg-deep-force")?.checked ?? false;
+      const r = await fetch("/api/kyber/knowledge/analyze_deep", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ background: true, runs: 10, limit: 5, force }),
+      });
+      const j = await r.json();
+      if (!r.ok || (j.status !== "started" && j.status !== "already_running")) {
+        alert("Failed to start: " + (j.message || r.statusText));
+        return;
       }
+      this._startDeepAnalysisPolling(body);
     });
+
+    body.querySelector("#dbg-mem-purge").addEventListener("click", () => {
+      this._renderPurgeFacts(body).catch((err) => {
+        body.innerHTML = `<div class="debug-error">Purge panel error: ${this._escapeHtml(err.message)}</div>`;
+      });
+    });
+
+    // Show status if a job is already running / recently finished
+    this._refreshDeepAnalysisStatus(body);
     this._wireKnowledgeRowEvents(body, filtered, categories);
+  }
+
+  _timeAgo(unixTs) {
+    const secs = Math.floor(Date.now() / 1000) - unixTs;
+    if (secs < 60) return `${secs}s ago`;
+    if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+    if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+    return `${Math.floor(secs / 86400)}d ago`;
+  }
+
+  async _renderPurgeFacts(body) {
+    body.innerHTML = "<em>Loading facts…</em>";
+    const token = this._hass.auth.data.access_token;
+    const resp = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+    const data = await resp.json();
+    this._purgeAllEntries = data.entries || [];
+    this._purgeSelected = new Set();
+    this._purgeSort = this._purgeSort || "updated";
+    this._purgeText = this._purgeText || "";
+    this._renderPurgeFacts_withData(body);
+  }
+
+  _renderPurgeFacts_withData(body) {
+    const all = this._purgeAllEntries || [];
+    const textQ = (this._purgeText || "").toLowerCase().trim();
+    let filtered = all.filter((e) => {
+      if (!textQ) return true;
+      const blob = [e.content, e.subject, ...(e.tags || [])].join(" ").toLowerCase();
+      return blob.includes(textQ);
+    });
+    const sort = this._purgeSort || "updated";
+    filtered.sort((a, b) => {
+      if (sort === "hits") return (b.hits || 0) - (a.hits || 0);
+      if (sort === "confidence_asc") return (a.confidence || 0) - (b.confidence || 0);
+      if (sort === "confidence_desc") return (b.confidence || 0) - (a.confidence || 0);
+      if (sort === "rating") return (b.user_rating || 0) - (a.user_rating || 0);
+      return (b.updated || 0) - (a.updated || 0);
+    });
+    const sel = this._purgeSelected;
+    const selCount = filtered.filter((e) => sel.has(e.id)).length;
+
+    // Group sources and categories for quick-select
+    const sources = [...new Set(all.map((e) => e.source || "unknown"))].sort();
+    const cats = [...new Set(all.map((e) => e.category || "general"))].sort();
+
+    const rows = filtered.map((e) => {
+      const checked = sel.has(e.id) ? "checked" : "";
+      const conf = e.confidence != null ? `${Math.round(e.confidence * 100)}%` : "—";
+      const stars = e.user_rating ? "★".repeat(e.user_rating) : "—";
+      const ago = e.updated ? this._timeAgo(e.updated) : "";
+      const src = this._escapeHtml(e.source || "");
+      const cat = this._escapeHtml(e.category || "");
+      return `
+        <label class="purge-row${sel.has(e.id) ? " purge-row--sel" : ""}" style="display:flex;align-items:flex-start;gap:8px;padding:6px 4px;border-bottom:1px solid var(--divider-color,#eee);cursor:pointer">
+          <input type="checkbox" class="purge-cb" data-id="${this._escapeAttr(e.id)}" ${checked} style="margin-top:3px;flex-shrink:0">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:0.88em;line-height:1.4">${this._escapeHtml(e.content || "")}</div>
+            <div style="font-size:0.78em;opacity:.65;margin-top:2px">
+              <span class="kn-tag">${cat}</span>
+              <span class="kn-tag">${src}</span>
+              <span>conf: ${conf}</span> · <span>${stars}</span> · <span>${e.hits || 0} hits</span> · <span>${ago}</span>
+            </div>
+          </div>
+        </label>`;
+    }).join("");
+
+    body.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <button id="purge-back" style="font-size:0.9em">← Back</button>
+        <strong style="font-size:1em">🗑 Purge facts</strong>
+        <span style="font-size:0.85em;opacity:.7">${all.length} total</span>
+      </div>
+
+      <div class="debug-toolbar" style="margin-bottom:6px">
+        <input type="text" id="purge-text" placeholder="🔍 Filter text…" value="${this._escapeAttr(this._purgeText||'')}"
+          style="padding:4px 8px;border:1px solid var(--divider-color,#ccc);border-radius:4px;font-size:0.88em;min-width:150px">
+        <label>Sort
+          <select id="purge-sort">
+            <option value="updated" ${sort==='updated'?'selected':''}>Most recent</option>
+            <option value="hits" ${sort==='hits'?'selected':''}>Most hits</option>
+            <option value="confidence_asc" ${sort==='confidence_asc'?'selected':''}>Lowest confidence</option>
+            <option value="confidence_desc" ${sort==='confidence_desc'?'selected':''}>Highest confidence</option>
+            <option value="rating" ${sort==='rating'?'selected':''}>Highest rating</option>
+          </select>
+        </label>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;font-size:0.83em">
+        <span style="opacity:.7">Quick-select:</span>
+        ${sources.map((s) => {
+          const n = all.filter((e) => e.source === s).length;
+          return `<button class="qs-source" data-source="${this._escapeAttr(s)}" style="padding:2px 7px;font-size:0.9em">${this._escapeHtml(s)} (${n})</button>`;
+        }).join("")}
+        <button class="qs-low-conf" style="padding:2px 7px;font-size:0.9em">Confidence &lt; 60%</button>
+        <button id="purge-sel-all" style="padding:2px 7px;font-size:0.9em">Select all visible</button>
+        <button id="purge-desel-all" style="padding:2px 7px;font-size:0.9em">Deselect all</button>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <button id="purge-do" style="background:#c00;color:#fff;padding:5px 14px;border-radius:4px;border:none;cursor:pointer;font-weight:600" ${selCount===0?'disabled':''}>
+          🗑 Delete selected (${selCount})
+        </button>
+        <span id="purge-msg" style="font-size:0.85em;opacity:.8"></span>
+      </div>
+
+      <div id="purge-list" style="max-height:60vh;overflow-y:auto">${rows}</div>
+    `;
+
+    // Back
+    body.querySelector("#purge-back").addEventListener("click", () => {
+      this._purgeText = "";
+      this._renderDebugTab("memory");
+    });
+
+    // Text filter
+    body.querySelector("#purge-text").addEventListener("input", (ev) => {
+      this._purgeText = ev.target.value;
+      this._renderPurgeFacts_withData(body);
+    });
+
+    // Sort
+    body.querySelector("#purge-sort").addEventListener("change", (ev) => {
+      this._purgeSort = ev.target.value;
+      this._renderPurgeFacts_withData(body);
+    });
+
+    // Checkboxes
+    body.querySelectorAll(".purge-cb").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const id = cb.dataset.id;
+        if (cb.checked) sel.add(id); else sel.delete(id);
+        this._renderPurgeFacts_withData(body);
+      });
+    });
+
+    // Quick-select by source
+    body.querySelectorAll(".qs-source").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const src = btn.dataset.source;
+        all.filter((e) => e.source === src).forEach((e) => sel.add(e.id));
+        this._renderPurgeFacts_withData(body);
+      });
+    });
+
+    // Quick-select low confidence
+    body.querySelector(".qs-low-conf").addEventListener("click", () => {
+      all.filter((e) => (e.confidence || 0) < 0.6).forEach((e) => sel.add(e.id));
+      this._renderPurgeFacts_withData(body);
+    });
+
+    // Select / deselect all visible
+    body.querySelector("#purge-sel-all").addEventListener("click", () => {
+      filtered.forEach((e) => sel.add(e.id));
+      this._renderPurgeFacts_withData(body);
+    });
+    body.querySelector("#purge-desel-all").addEventListener("click", () => {
+      sel.clear();
+      this._renderPurgeFacts_withData(body);
+    });
+
+    // Delete selected
+    body.querySelector("#purge-do").addEventListener("click", () => this._doPurgeSelected(body, filtered));
+  }
+
+  async _doPurgeSelected(body, filtered) {
+    const sel = this._purgeSelected;
+    const ids = filtered.filter((e) => sel.has(e.id)).map((e) => e.id);
+    if (!ids.length) return;
+    const msg = body.querySelector("#purge-msg");
+    const btn = body.querySelector("#purge-do");
+    if (!confirm(`Delete ${ids.length} fact(s)? This cannot be undone.`)) return;
+    if (btn) btn.disabled = true;
+    if (msg) msg.textContent = "Deleting…";
+    try {
+      const token = this._hass.auth.data.access_token;
+      const r = await fetch("/api/kyber/knowledge/purge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ids }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.message || r.statusText);
+      sel.clear();
+      // Reload full list
+      const resp2 = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+      const data2 = await resp2.json();
+      this._purgeAllEntries = data2.entries || [];
+      if (msg) msg.textContent = `✅ Deleted ${j.deleted}`;
+      this._renderPurgeFacts_withData(body);
+    } catch (err) {
+      if (msg) msg.textContent = `❌ ${err.message}`;
+      if (btn) btn.disabled = false;
+    }
   }
 
   async _renderDebugLastTurn(body) {
@@ -245,5 +453,86 @@ export const DebugMixin = (Base) => class extends Base {
         </table>
       ` : "<em>No turn captured yet.</em>"}
     `;
+  }
+
+  _getDeepLearningRuns(root) {
+    const val = parseInt(root.querySelector("select")?.value ?? "1", 10);
+    return Math.min(10, Math.max(1, isNaN(val) ? 1 : val));
+  }
+
+  _startDeepAnalysisPolling(body) {
+    if (this._deepPollTimer) clearInterval(this._deepPollTimer);
+    this._deepPollTimer = setInterval(async () => {
+      const alive = await this._refreshDeepAnalysisStatus(body);
+      if (!alive) {
+        clearInterval(this._deepPollTimer);
+        this._deepPollTimer = null;
+        this._renderDebugTab("memory");
+      }
+    }, 2000);
+    this._refreshDeepAnalysisStatus(body);
+  }
+
+  async _refreshDeepAnalysisStatus(body) {
+    const statusDiv = body?.querySelector?.("#dbg-deep-status");
+    const btn = body?.querySelector?.("#dbg-mem-deep-analyze");
+    if (!statusDiv) return false;
+    try {
+      const token = this._hass.auth.data.access_token;
+      const r = await fetch("/api/kyber/knowledge/analyze_deep", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) return false;
+      const data = await r.json();
+      const job = data.job || {};
+      const running = job.running === true;
+
+      if (!running && !job.started_at) {
+        statusDiv.style.display = "none";
+        if (btn) btn.disabled = false;
+        return false;
+      }
+
+      statusDiv.style.display = "block";
+      if (running) {
+        if (btn) { btn.disabled = true; btn.textContent = "🧬 Running…"; }
+        const elapsed = job.started_at ? Math.round(Date.now() / 1000 - job.started_at) : 0;
+        statusDiv.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="font-size:1.1em">🔄</span>
+            <strong>Deep analysis running</strong>
+            <span style="color:var(--secondary-text-color)">${elapsed}s</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center">
+            <div><div style="font-size:1.4em;font-weight:bold">${job.run || 0}/${job.runs || 0}</div><div style="font-size:0.8em;opacity:.7">passes</div></div>
+            <div><div style="font-size:1.4em;font-weight:bold">${job.analyzed || 0}</div><div style="font-size:0.8em;opacity:.7">analyzed</div></div>
+            <div><div style="font-size:1.4em;font-weight:bold">${job.facts || 0}</div><div style="font-size:0.8em;opacity:.7">facts stored</div></div>
+          </div>
+          ${job.current_item ? `<div style="margin-top:4px;font-size:0.8em;opacity:.6">📄 ${this._escapeHtml(job.current_item)}</div>` : ""}
+          ${job.errors ? `<div style="color:#e44;font-size:0.8em">⚠ ${job.errors} error(s)</div>` : ""}
+        `;
+        return true;
+      } else {
+        if (btn) { btn.disabled = false; btn.textContent = "🧬 Start deep analysis"; }
+        const last = job.last_result || {};
+        const dur = last.duration_s != null ? `${last.duration_s}s` : "";
+        statusDiv.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="font-size:1.1em">✅</span>
+            <strong>Last analysis complete</strong>
+            ${dur ? `<span style="color:var(--secondary-text-color)">${dur}</span>` : ""}
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center">
+            <div><div style="font-size:1.4em;font-weight:bold">${last.runs_completed || 0}</div><div style="font-size:0.8em;opacity:.7">passes</div></div>
+            <div><div style="font-size:1.4em;font-weight:bold">${last.analyzed || 0}</div><div style="font-size:0.8em;opacity:.7">analyzed</div></div>
+            <div><div style="font-size:1.4em;font-weight:bold">${last.facts || 0}</div><div style="font-size:0.8em;opacity:.7">facts stored</div></div>
+          </div>
+          ${last.errors ? `<div style="color:#e44;font-size:0.8em">⚠ ${last.errors} error(s)</div>` : ""}
+        `;
+        return false;
+      }
+    } catch (_) {
+      return false;
+    }
   }
 };

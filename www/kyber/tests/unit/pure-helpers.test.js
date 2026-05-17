@@ -264,3 +264,20 @@ describe("_findEntity", () => {
     expect(el._findEntity("automation", "morning")).toBeNull();
   });
 });
+
+describe("_getDeepLearningRuns", () => {
+  let el;
+  beforeEach(() => { el = makeUnrenderedPanel(); });
+
+  it("returns selected run count", () => {
+    const root = { querySelector: () => ({ value: "4" }) };
+    expect(el._getDeepLearningRuns(root)).toBe(4);
+  });
+
+  it("clamps invalid values to supported range", () => {
+    const low = { querySelector: () => ({ value: "0" }) };
+    const high = { querySelector: () => ({ value: "99" }) };
+    expect(el._getDeepLearningRuns(low)).toBe(1);
+    expect(el._getDeepLearningRuns(high)).toBe(10);
+  });
+});

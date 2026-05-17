@@ -23,7 +23,7 @@ def mock_dependencies(hass: HomeAssistant) -> None:
 
 
 async def test_form_shown(hass: HomeAssistant) -> None:
-    """Config flow should show a form with ai_task_entity_id selector and max_tokens."""
+    """Config flow should show expected setup fields."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
@@ -33,6 +33,8 @@ async def test_form_shown(hass: HomeAssistant) -> None:
     schema_keys = [str(k) for k in result["data_schema"].schema.keys()]
     assert any("ai_task_entity_id" in k for k in schema_keys)
     assert any("max_tokens" in k for k in schema_keys)
+    assert any("run_initial_analyze" in k for k in schema_keys)
+    assert any("initial_deep_learning_runs" in k for k in schema_keys)
 
 
 async def test_creates_entry_with_entity_id(hass: HomeAssistant) -> None:
@@ -56,6 +58,8 @@ async def test_creates_entry_with_entity_id(hass: HomeAssistant) -> None:
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["ai_task_entity_id"] == "ai_task.ollama_ai_task"
     assert result["data"]["max_tokens"] == 2048
+    assert result["data"]["run_initial_analyze"] is True
+    assert result["data"]["initial_deep_learning_runs"] == 10
 
 
 async def test_no_ai_task_entity_shows_error(hass: HomeAssistant) -> None:
@@ -129,6 +133,24 @@ async def test_creates_entry_with_large_max_tokens(hass: HomeAssistant) -> None:
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["max_tokens"] == 100_000
+
+
+async def test_initial_deep_learning_runs_above_maximum_returns_form_error(hass: HomeAssistant) -> None:
+    """Submitting initial_deep_learning_runs=11 should raise InvalidData."""
+    from homeassistant.data_entry_flow import InvalidData
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    with pytest.raises(InvalidData):
+        await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                "ai_task_entity_id": "ai_task.ollama_ai_task",
+                "max_tokens": 2048,
+                "initial_deep_learning_runs": 11,
+            },
+        )
 
 
 async def test_duplicate_config_entry_aborted(hass: HomeAssistant) -> None:
