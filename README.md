@@ -33,6 +33,7 @@ Or use the quick-add button:
 - 🔧 **Slash Commands** — `/dashboard`, `/automation`, `/script`, `/blueprint`, `/area`
 - 🔒 **100% Local** — all AI inference runs on your own Ollama instance
 - 🐞 **Debug tab** — inspect everything Kyber knows: memory entries, the expanded system prompt of the last turn, which knowledge entries it picked (with similarity scores), tool calls, and per-entry ratings + inline "refine with a hint" action
+- 📦 **Debug bundle download** — every assistant message has a `⬇ debug` button (visible on hover) that exports a ZIP with the user prompt, the full expanded system prompt the model actually saw, picked memory entries, tool log, progress events, captured `kyber.*` logs and the response — perfect for filing a precise issue
 
 ## Quick Start
 

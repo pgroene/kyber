@@ -36,8 +36,58 @@ _PROGRESS_MAX_ENTRIES = 64
 
 # Debug snapshot keys — in-memory only, purged on HA restart.
 _DEBUG_LAST_TURN_KEY = "kyber_debug_last_turn"
+_DEBUG_SNAPSHOTS_KEY = "kyber_debug_snapshots"  # request_id -> snapshot ring buffer
+_DEBUG_SNAPSHOTS_MAX = 50
 _DEBUG_TOOL_HISTORY_KEY = "kyber_debug_tool_history"
 _DEBUG_TOOL_HISTORY_MAX = 20
+_DEBUG_LOG_CAPTURE_KEY = "kyber_debug_log_capture"  # request_id -> list[dict]
+_DEBUG_LOG_CAPTURE_MAX_PER_TURN = 500
+
+
+class _KyberTurnLogHandler(logging.Handler):
+    """Logging handler that captures kyber.* records for a single turn."""
+
+    def __init__(self, sink: list[dict]) -> None:
+        super().__init__(level=logging.DEBUG)
+        self._sink = sink
+
+    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
+        try:
+            name = record.name or ""
+            if not (name.startswith("custom_components.kyber") or name.startswith("kyber")):
+                return
+            if len(self._sink) >= _DEBUG_LOG_CAPTURE_MAX_PER_TURN:
+                return
+            self._sink.append({
+                "ts": record.created,
+                "level": record.levelname,
+                "logger": name,
+                "message": record.getMessage(),
+            })
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _debug_attach_log_capture(request_id: str) -> tuple[list[dict], _KyberTurnLogHandler] | tuple[None, None]:
+    """Attach a per-turn log handler to the root logger; returns (sink, handler) or (None, None)."""
+    if not request_id:
+        return None, None
+    try:
+        sink: list[dict] = []
+        handler = _KyberTurnLogHandler(sink)
+        logging.getLogger().addHandler(handler)
+        return sink, handler
+    except Exception:  # noqa: BLE001
+        return None, None
+
+
+def _debug_detach_log_capture(handler: _KyberTurnLogHandler | None) -> None:
+    if handler is None:
+        return
+    try:
+        logging.getLogger().removeHandler(handler)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _debug_record_turn(
@@ -53,8 +103,11 @@ def _debug_record_turn(
     response_text: str,
     auto_rating: int | None,
     elapsed_ms: int,
+    logs: list[dict] | None = None,
+    progress_events: list[dict] | None = None,
+    session_meta: dict | None = None,
 ) -> None:
-    """Capture a per-turn debug snapshot. Single slot + ring buffer for tools."""
+    """Capture a per-turn debug snapshot. Single slot + ring buffer + per-request_id map."""
     import time
     snapshot = {
         "request_id": request_id,
@@ -70,10 +123,22 @@ def _debug_record_turn(
         "elapsed_ms": elapsed_ms,
         "char_count": len(expanded_prompt),
         "approx_tokens": len(expanded_prompt) // 4,
+        "logs": logs or [],
+        "progress_events": progress_events or [],
+        "session_meta": session_meta or {},
     }
     hass.data[_DEBUG_LAST_TURN_KEY] = snapshot
-    # Append tool calls to ring buffer
-    from collections import deque
+    # Per-request_id map (newest wins, evict oldest beyond max).
+    from collections import OrderedDict, deque
+    snaps = hass.data.get(_DEBUG_SNAPSHOTS_KEY)
+    if not isinstance(snaps, OrderedDict):
+        snaps = OrderedDict()
+        hass.data[_DEBUG_SNAPSHOTS_KEY] = snaps
+    if request_id:
+        snaps[request_id] = snapshot
+        while len(snaps) > _DEBUG_SNAPSHOTS_MAX:
+            snaps.popitem(last=False)
+    # Tool ring buffer
     history = hass.data.get(_DEBUG_TOOL_HISTORY_KEY)
     if not isinstance(history, deque):
         history = deque(maxlen=_DEBUG_TOOL_HISTORY_MAX)
@@ -1222,6 +1287,11 @@ class KyberView(HomeAssistantView):
         compacted_summary: str = body.get("compacted_summary", "").strip()
         editor_mode: str = body.get("editor_mode", "automation")
         request_id: str = str(body.get("request_id", "")).strip()
+        if not request_id:
+            import uuid as _uuid
+            request_id = _uuid.uuid4().hex[:12]
+        # Per-turn log capture for the Debug bundle download.
+        _debug_log_sink, _debug_log_handler = _debug_attach_log_capture(request_id)
         dashboards: list[dict] = body.get("dashboards", [])
         lovelace_resources: list[str] = body.get("lovelace_resources", [])
 
@@ -1831,6 +1901,8 @@ class KyberView(HomeAssistantView):
                     _LOGGER.warning("Kyber: auto-rate failed: %s", err)
         # Capture a debug snapshot for the in-panel debug tab.
         try:
+            _progress_store = hass.data.get(_PROGRESS_KEY) or {}
+            _progress_entry = _progress_store.get(request_id) or {}
             _debug_record_turn(
                 hass,
                 request_id=request_id,
@@ -1856,9 +1928,19 @@ class KyberView(HomeAssistantView):
                 response_text=response_text,
                 auto_rating=auto_rating,
                 elapsed_ms=int((_time.time() - _turn_started_at) * 1000),
+                logs=_debug_log_sink or [],
+                progress_events=list(_progress_entry.get("events") or []),
+                session_meta={
+                    "history_messages": len(history),
+                    "had_summary": bool(compacted_summary),
+                    "editor_mode": editor_mode,
+                    "context_stats": context_stats,
+                },
             )
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Kyber: debug snapshot capture failed: %s", err)
+        finally:
+            _debug_detach_log_capture(_debug_log_handler)
         return self.json({
             "response": response_text,
             "yaml_blocks": yaml_blocks,
@@ -2150,6 +2232,110 @@ class KyberDebugStatusView(HomeAssistantView):
             } if snap else None,
             "tool_history_size": len(hass.data.get(_DEBUG_TOOL_HISTORY_KEY, []) or []),
         })
+
+
+class KyberDebugBundleView(HomeAssistantView):
+    """Return a zip bundle of one turn's debug info (or the last turn).
+
+    GET /api/kyber/debug/bundle?request_id=XYZ  → application/zip
+    GET /api/kyber/debug/bundle                 → uses last turn
+    """
+
+    url = "/api/kyber/debug/bundle"
+    name = "api:kyber:debug:bundle"
+    requires_auth = True
+
+    @staticmethod
+    def _read_manifest_version() -> str:
+        try:
+            import json as _json
+            import os
+            here = os.path.dirname(__file__)
+            with open(os.path.join(here, "manifest.json"), "r", encoding="utf-8") as f:
+                return _json.load(f).get("version", "unknown")
+        except Exception:  # noqa: BLE001
+            return "unknown"
+
+    async def get(self, request: web.Request) -> web.Response:
+        import io
+        import json as _json
+        import zipfile
+        from collections import OrderedDict
+        hass: HomeAssistant = request.app["hass"]
+        rid = (request.query.get("request_id") or "").strip()
+        snaps = hass.data.get(_DEBUG_SNAPSHOTS_KEY)
+        snap: dict | None = None
+        if rid and isinstance(snaps, OrderedDict):
+            snap = snaps.get(rid)
+        if snap is None:
+            snap = hass.data.get(_DEBUG_LAST_TURN_KEY)
+        if not snap:
+            return self.json_message("No turn snapshot available", HTTPStatus.NOT_FOUND)
+
+        manifest_obj: dict = {
+            "kyber_version": self._read_manifest_version(),
+            "request_id": snap.get("request_id"),
+            "ts": snap.get("ts"),
+            "intent": snap.get("intent"),
+            "elapsed_ms": snap.get("elapsed_ms"),
+            "char_count": snap.get("char_count"),
+            "approx_tokens": snap.get("approx_tokens"),
+            "auto_rating": snap.get("auto_rating"),
+            "session_meta": snap.get("session_meta") or {},
+        }
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("manifest.json", _json.dumps(manifest_obj, indent=2, default=str))
+            zf.writestr("snapshot.json", _json.dumps(snap, indent=2, default=str))
+            zf.writestr("user_prompt.txt", snap.get("user_prompt") or "")
+            zf.writestr("expanded_prompt.txt", snap.get("expanded_prompt") or "")
+            zf.writestr("instructions_used.txt", snap.get("instructions_used") or "")
+            zf.writestr("response.txt", snap.get("response_text") or "")
+            zf.writestr("tool_log.json", _json.dumps(snap.get("tool_log") or [], indent=2, default=str))
+            zf.writestr("knowledge_used.json", _json.dumps(snap.get("picked_knowledge") or [], indent=2, default=str))
+            zf.writestr("progress_events.json", _json.dumps(snap.get("progress_events") or [], indent=2, default=str))
+            # Logs as text (one line per record) + json.
+            logs = snap.get("logs") or []
+            log_lines: list[str] = []
+            for r in logs:
+                ts_iso = ""
+                try:
+                    import datetime as _dt
+                    ts_iso = _dt.datetime.fromtimestamp(r.get("ts", 0)).strftime("%H:%M:%S.%f")[:-3]
+                except Exception:  # noqa: BLE001
+                    pass
+                log_lines.append(f"{ts_iso} {r.get('level','?'):<8} {r.get('logger','?')}: {r.get('message','')}")
+            zf.writestr("logs.txt", "\n".join(log_lines))
+            zf.writestr("logs.json", _json.dumps(logs, indent=2, default=str))
+            readme = (
+                "Kyber debug bundle\n"
+                "==================\n\n"
+                f"request_id: {snap.get('request_id')}\n"
+                f"ts: {snap.get('ts')}\n"
+                f"intent: {snap.get('intent')}\n"
+                f"elapsed_ms: {snap.get('elapsed_ms')}\n\n"
+                "Contents:\n"
+                "  manifest.json         - bundle meta (kyber version, ts, intent, ...)\n"
+                "  snapshot.json         - full per-turn snapshot (single source of truth)\n"
+                "  user_prompt.txt       - what the user typed\n"
+                "  expanded_prompt.txt   - the full system prompt the model actually saw\n"
+                "  instructions_used.txt - instructions for the final round of the tool loop\n"
+                "  response.txt          - assistant's final reply\n"
+                "  tool_log.json         - all tool calls made this turn (name, args, status, ms)\n"
+                "  knowledge_used.json   - which memory entries were injected (with score)\n"
+                "  progress_events.json  - progress updates streamed to the panel\n"
+                "  logs.txt / logs.json  - kyber.* log records captured during the turn\n"
+            )
+            zf.writestr("README.txt", readme)
+
+        data = buf.getvalue()
+        fname = f"kyber-debug-{snap.get('request_id') or 'last'}-{snap.get('ts') or 'now'}.zip"
+        return web.Response(
+            body=data,
+            content_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
 
 
 class KyberHistoryView(HomeAssistantView):

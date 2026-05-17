@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.components.panel_custom import async_register_panel
 
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
-from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeFeedbackView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView
+from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeFeedbackView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberDebugLastTurnView())
     hass.http.register_view(KyberDebugToolHistoryView())
     hass.http.register_view(KyberDebugStatusView())
+    hass.http.register_view(KyberDebugBundleView())
 
     # Serve frontend files from the component's www/ directory.
     # This makes HACS installs work without manual file copying.
@@ -51,7 +52,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
             sidebar_icon="mdi:robot",
-            module_url="/local/kyber/kyber-panel.js?v=53",
+            module_url="/local/kyber/kyber-panel.js?v=54",
             require_admin=True,
             config={
                 "ai_task_entity_id": config.get(CONF_AI_TASK_ENTITY_ID),
