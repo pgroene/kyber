@@ -155,6 +155,27 @@ async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -
     )
 
 
+async def _async_explore_integrations(hass: HomeAssistant) -> None:
+    """Background task: explore all loaded integrations and store knowledge facts.
+
+    Waits a short grace period so HA finishes loading other integrations before
+    we scan the entity registry. Idempotent — skips already-explored ones.
+    """
+    import asyncio
+    from homeassistant.helpers import entity_registry as er
+    from .knowledge import get_knowledge_store
+    from .integration_explorer import async_startup_explore_all
+
+    await asyncio.sleep(15)  # let HA finish loading other integrations
+    try:
+        kstore = get_knowledge_store(hass)
+        entity_reg = er.async_get(hass)
+        count = await async_startup_explore_all(hass, kstore, entity_reg)
+        _LOGGER.info("Kyber: integration explorer stored facts for %d integrations", count)
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Kyber: integration explorer failed: %s", err)
+
+
 async def _async_seed_language_hints(hass: HomeAssistant) -> None:
     """Seed language-vocabulary hints into the knowledge store.
 
@@ -319,6 +340,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
 
     # Seed language vocabulary hints into the knowledge store (idempotent).
     hass.async_create_task(_async_seed_language_hints(hass))
+
+    # Explore all loaded integrations and store capability knowledge facts.
+    # Runs in the background after startup so it doesn't block the UI.
+    # Idempotent: skips integrations that already have auto-discovered facts.
+    hass.async_create_task(_async_explore_integrations(hass))
 
     entry.async_on_unload(entry.add_update_listener(_update_listener))
 

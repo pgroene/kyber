@@ -7,6 +7,7 @@ HA-dependent KnowledgeStore class. The helpers are: `_tokenize`, `_cosine`,
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import math
 import sys
@@ -98,6 +99,45 @@ def test_cosine_partial_overlap_is_between_zero_and_one():
     b = {"werkkamer": 1.0, "switch": 1.0}
     score = mod._cosine(a, b)
     assert 0.0 < score < 1.0
+
+
+def test_record_hit_does_not_dirty_index():
+    mod = _load_module()
+    store = mod.KnowledgeStore(hass=None)  # type: ignore[arg-type]
+    store._entries = {
+        "e1": {"id": "e1", "category": "general", "subject": "", "content": "alpha", "tags": []},
+    }
+    store._loaded = True
+    store._rebuild_index()
+
+    assert store._index_dirty is False
+    async def _run():
+        await store.async_record_hit(["e1"])
+
+    asyncio.run(_run())
+    assert store._index_dirty is False
+
+
+def test_add_and_delete_dirty_index():
+    mod = _load_module()
+    store = mod.KnowledgeStore(hass=None)  # type: ignore[arg-type]
+    store._entries = {
+        "e1": {"id": "e1", "category": "general", "subject": "", "content": "alpha", "tags": []},
+    }
+    store._loaded = True
+    store._rebuild_index()
+    assert store._index_dirty is False
+
+    async def _run():
+        await store.async_add("general", "beta")
+        assert store._index_dirty is True
+        store._index_dirty = False
+        added_id = next(eid for eid in store._entries if eid != "e1")
+        deleted = await store.async_delete(added_id)
+        assert deleted is True
+        assert store._index_dirty is True
+
+    asyncio.run(_run())
 
 
 def test_query_and_index_via_full_class():

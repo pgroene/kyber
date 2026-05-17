@@ -140,9 +140,9 @@ def _classify_intent(user_prompt: str) -> str:
 
 
 def _build_home_state_by_area(
-    hass: HomeAssistant,
     entity_reg: er.EntityRegistry,
     area_by_id: dict[str, str],
+    all_states: list,
 ) -> tuple[str, dict[str, Any]]:
     """Build a per-area home state snapshot and aggregate stats."""
     # area_name → collected metrics
@@ -163,7 +163,7 @@ def _build_home_state_by_area(
     low_battery_count = 0
     total_lights_on = 0
 
-    for state in hass.states.async_all():
+    for state in all_states:
         entity_id = state.entity_id
         domain = entity_id.split(".")[0]
         if domain in ("automation", "script", "scene", "group", "persistent_notification",
@@ -312,7 +312,7 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
         entity_stats += f" ({', '.join(stats_parts)})"
 
     # Per-area home state
-    home_state_by_area, area_stats = _build_home_state_by_area(hass, entity_reg, area_by_id)
+    home_state_by_area, area_stats = _build_home_state_by_area(entity_reg, area_by_id, all_states)
     notable_state_block = ""
     if home_state_by_area != "(no area state available)":
         notable_state_block = f"\n### Current Home State (notable only)\n{home_state_by_area}\n"

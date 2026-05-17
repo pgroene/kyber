@@ -24,7 +24,16 @@ except ImportError:  # HA < 2025.2 (test environments)
     async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
         raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
 
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, SYSTEM_PROMPT_TEMPLATE, AUTOMATION_EDITOR_GUIDANCE, LOVELACE_CARDS_REFERENCE
+from .const import (
+    AUTOMATION_EDITOR_GUIDANCE,
+    CONF_AI_TASK_ENTITY_ID,
+    DOMAIN,
+    KNOWLEDGE_BUDGET_CHARS,
+    LOVELACE_CARDS_REFERENCE,
+    MAX_INSTRUCTIONS_CHARS,
+    MAX_TOOL_RESULT_CHARS,
+    SYSTEM_PROMPT_TEMPLATE,
+)
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
 from .language_hints import detect_language, get_hints_for_language, language_display_name
 from .analyzer import analyze_automations as _analyze_automations
@@ -78,33 +87,12 @@ from .knowledge_integration import (
     KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView,
 )
 from .api_utilities import (
-    _PROGRESS_KEY, _PROGRESS_MAX_AGE, _PROGRESS_MAX_ENTRIES,
+    _PROGRESS_KEY,
     _progress_emit, _progress_complete,
     KyberProgressView, KyberSaveView, _SUMMARIZE_SYSTEM_PROMPT, KyberSummarizeView,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-_DEBUG_MODE_KEY = "kyber_debug_mode"
-_DEBUG_MODE_DEFAULT = True
-
-
-def _get_debug_mode(hass: HomeAssistant) -> bool:
-    val = hass.data.get(_DEBUG_MODE_KEY)
-    if val is None:
-        return _DEBUG_MODE_DEFAULT
-    return bool(val)
-
-
-# Debug snapshot keys — in-memory only, purged on HA restart.
-_DEBUG_LAST_TURN_KEY = "kyber_debug_last_turn"
-_DEBUG_SNAPSHOTS_KEY = "kyber_debug_snapshots"  # request_id -> snapshot ring buffer
-_DEBUG_SNAPSHOTS_MAX = 50
-_DEBUG_TOOL_HISTORY_KEY = "kyber_debug_tool_history"
-_DEBUG_TOOL_HISTORY_MAX = 20
-_DEBUG_LOG_CAPTURE_KEY = "kyber_debug_log_capture"  # request_id -> list[dict]
-_DEBUG_LOG_CAPTURE_MAX_PER_TURN = 500
-
 
 def _sanitize_prompt_value(text: str) -> str:
     """Sanitize a user-supplied string before embedding it in the system prompt.
@@ -210,12 +198,13 @@ _RESPONSE_MODE_ACTION = (
 )
 
 # Hard cap on total instructions to avoid exceeding Ollama's context window (~8K tokens ≈ 32K chars)
-_MAX_INSTRUCTIONS_CHARS = 32_000
+_MAX_INSTRUCTIONS_CHARS = MAX_INSTRUCTIONS_CHARS
 # Reserve budget for knowledge facts so they survive the loop's re-truncation.
 # Base prompt is capped at (_MAX_INSTRUCTIONS_CHARS - _KNOWLEDGE_BUDGET); knowledge
 # is then appended within the remaining space, keeping total ≤ _MAX_INSTRUCTIONS_CHARS.
-_KNOWLEDGE_BUDGET = 2_000
+_KNOWLEDGE_BUDGET = KNOWLEDGE_BUDGET_CHARS
 _BASE_INSTRUCTIONS_CHARS = _MAX_INSTRUCTIONS_CHARS - _KNOWLEDGE_BUDGET  # 30 000
+_MAX_TOOL_RESULT_CHARS = MAX_TOOL_RESULT_CHARS
 
 
 async def _auto_record_search_alias(kstore: Any, query: str, entity_ids: list[str]) -> None:
@@ -411,13 +400,25 @@ class KyberView(HomeAssistantView):
             # Drop low-relevance facts that add noise without helping.
             # Always keep entity_alias / area_alias regardless of score since
             # they answer "what is 'the TV'?" type questions definitively.
+            # IMPORTANT: do NOT fall back to "show top-2 regardless" —
+            # injecting low-score irrelevant facts confuses the model into
+            # hallucinating entity IDs from unrelated context.
             _MIN_KNOWLEDGE_SCORE = 0.45
+            _ABS_FLOOR_SCORE = 0.15  # hard floor: never inject below this
             filtered_knowledge = [
                 e for e in relevant_knowledge
                 if float(e.get("_score") or 0) >= _MIN_KNOWLEDGE_SCORE
                 or e.get("category") in ("entity_alias", "area_alias")
             ]
-            relevant_knowledge = filtered_knowledge or relevant_knowledge[:2]  # always show at least top-2
+            # If nothing passed the soft threshold, only keep facts above the
+            # absolute floor (never show completely irrelevant facts).
+            if not filtered_knowledge:
+                filtered_knowledge = [
+                    e for e in relevant_knowledge
+                    if float(e.get("_score") or 0) >= _ABS_FLOOR_SCORE
+                    or e.get("category") in ("entity_alias", "area_alias")
+                ]
+            relevant_knowledge = filtered_knowledge  # empty = inject nothing
 
             # Report which facts were selected so the user can see them in
             # the live progress card AND in the debug snapshot.
@@ -583,7 +584,6 @@ class KyberView(HomeAssistantView):
             # Cap each tool result fed back to the model to keep context small.
             # Small models (8K window) choke on huge JSON payloads and forget
             # to continue. Truncate at ~6KB with a note.
-            _MAX_TOOL_RESULT_CHARS = 6000
             new_call_count = 0
 
             # Emit tool_call progress events upfront, then execute uncached calls
