@@ -1036,5 +1036,55 @@ export const STYLES = `
   }
   .ac-item .ac-id   { font-family: monospace; font-weight: 600; }
   .ac-item .ac-name { opacity: .75; font-size: 11px; }
+  .ac-item .ac-badge {
+    display: inline-block; font-size: 10px; padding: 1px 5px;
+    border-radius: 3px; background: rgba(0,0,0,.15); margin-left: 5px; vertical-align: middle;
+  }
+  .ac-item.active .ac-badge { background: rgba(255,255,255,.25); }
+
+  /* ── Help detail card ───────────────────────────────────────────── */
+  .kyber-help-card { padding: 0 !important; overflow: hidden; max-width: 520px; }
+  .kh-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px 10px;
+    background: var(--primary-color, #448aff); color: white;
+    border-radius: 10px 10px 0 0;
+  }
+  .kh-icon  { font-size: 22px; line-height: 1; }
+  .kh-title { font-size: 16px; font-weight: 700; flex-shrink: 0; }
+  .kh-subtitle { font-size: 12px; opacity: .85; }
+  .kh-rows  { padding: 6px 8px 2px; }
+  .kh-row {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: background .12s;
+  }
+  .kh-row:hover { background: var(--primary-color, #448aff); color: white; }
+  .kh-usage {
+    font-size: 12px; min-width: 210px; white-space: nowrap;
+    background: rgba(0,0,0,.07); padding: 2px 6px; border-radius: 4px; font-family: monospace;
+  }
+  .kh-row:hover .kh-usage { background: rgba(255,255,255,.2); color: white; }
+  .kh-row-desc { font-size: 12px; opacity: .72; }
+  .kh-row:hover .kh-row-desc { opacity: 1; }
+  .kh-footer { padding: 6px 14px 10px; font-size: 11px; opacity: .55; border-top: 1px solid var(--divider-color,#eee); margin-top: 4px; }
+
+  /* ── Help overview grid ─────────────────────────────────────────── */
+  .kyber-help-overview { padding: 0 !important; overflow: hidden; max-width: 520px; }
+  .kho-title {
+    padding: 12px 16px 10px; font-size: 15px; font-weight: 700;
+    background: var(--primary-color, #448aff); color: white; border-radius: 10px 10px 0 0;
+  }
+  .kho-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px; }
+  .kho-item {
+    display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px;
+    cursor: pointer; background: var(--secondary-background-color, #f5f5f5);
+    transition: background .12s; border: 1px solid var(--divider-color, #e0e0e0);
+  }
+  .kho-item:hover { background: var(--primary-color, #448aff); color: white; }
+  .kho-icon { font-size: 18px; }
+  .kho-name { font-size: 13px; font-weight: 600; font-family: monospace; }
+  .kho-desc { font-size: 11px; opacity: .72; }
+  .kho-item:hover .kho-desc { opacity: 1; }
+  .kho-footer { padding: 6px 14px 10px; font-size: 11px; opacity: .55; border-top: 1px solid var(--divider-color,#eee); }
 `;
 
