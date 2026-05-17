@@ -108,6 +108,21 @@ def _debug_detach_log_capture(handler: _KyberTurnLogHandler | None) -> None:
         pass
 
 
+def _sanitize_prompt_value(text: str) -> str:
+    """Sanitize a user-supplied string before embedding it in the system prompt.
+
+    Replaces newline and carriage-return characters with a single space so that
+    a maliciously crafted area name, label, entity friendly name, or memory
+    entry cannot inject new markdown sections or instructions into the prompt.
+    Other ASCII control characters are also stripped for the same reason.
+    """
+    if not isinstance(text, str):
+        return str(text) if text is not None else ""
+    # Replace runs of control characters (including \\n, \\r, \\t, etc.) with one space.
+    cleaned = re.sub(r"[\x00-\x1f\x7f]+", " ", text)
+    return cleaned.strip()
+
+
 def _debug_record_turn(
     hass: HomeAssistant,
     *,
@@ -536,8 +551,8 @@ def _build_home_state_by_area(
 
         elif domain == "media_player" and area_name:
             if state.state not in ("idle", "off", "standby", "unavailable", "unknown"):
-                friendly = state.attributes.get("friendly_name", entity_id)
-                title = state.attributes.get("media_title", "")
+                friendly = _sanitize_prompt_value(state.attributes.get("friendly_name", entity_id))
+                title = _sanitize_prompt_value(state.attributes.get("media_title", ""))
                 _area(area_name)["media"].append(f"{friendly}" + (f": {title}" if title else f" ({state.state})"))
 
     # Format lines
@@ -585,11 +600,17 @@ def _build_context(hass: HomeAssistant, user_name: str = "") -> tuple[str, dict[
     label_reg = lr.async_get(hass)
 
     areas = area_reg.async_list_areas()
-    area_list = "\n".join(f"- {a.name} → {a.id}" for a in areas) or "(no areas)"
-    area_by_id = {a.id: a.name for a in areas}
+    area_list = "\n".join(
+        f"- {_sanitize_prompt_value(a.name)} → {_sanitize_prompt_value(a.id)}"
+        for a in areas
+    ) or "(no areas)"
+    area_by_id = {a.id: _sanitize_prompt_value(a.name) for a in areas}
 
     labels = label_reg.async_list_labels()
-    label_list = "\n".join(f"- {lbl.label_id} | {lbl.name}" for lbl in labels) or "(no labels)"
+    label_list = "\n".join(
+        f"- {_sanitize_prompt_value(lbl.label_id)} | {_sanitize_prompt_value(lbl.name)}"
+        for lbl in labels
+    ) or "(no labels)"
 
     automation_lines: list[str] = []
     script_lines: list[str] = []
@@ -601,11 +622,11 @@ def _build_context(hass: HomeAssistant, user_name: str = "") -> tuple[str, dict[
     for state in sorted(all_states, key=lambda s: s.entity_id):
         domain = state.entity_id.split(".")[0]
         if state.entity_id.startswith("automation."):
-            friendly = state.attributes.get("friendly_name", state.entity_id)
-            config_id = state.attributes.get("id", state.entity_id)
+            friendly = _sanitize_prompt_value(state.attributes.get("friendly_name", state.entity_id))
+            config_id = _sanitize_prompt_value(state.attributes.get("id", state.entity_id))
             automation_lines.append(f"- {state.entity_id} | {friendly} | config_id: {config_id}")
         elif state.entity_id.startswith("script."):
-            friendly = state.attributes.get("friendly_name", state.entity_id)
+            friendly = _sanitize_prompt_value(state.attributes.get("friendly_name", state.entity_id))
             script_lines.append(f"- {state.entity_id} | {friendly}")
         else:
             entity_count += 1
@@ -650,7 +671,7 @@ def _build_context(hass: HomeAssistant, user_name: str = "") -> tuple[str, dict[
         "low_battery_count": area_stats["low_battery_count"],
     }
 
-    user_name_line = f"The user's name is {user_name}." if user_name and user_name.strip() else ""
+    user_name_line = f"The user's name is {_sanitize_prompt_value(user_name)}." if user_name and user_name.strip() else ""
     context = SYSTEM_PROMPT_TEMPLATE.format(
         user_name_line=user_name_line,
         area_list=area_list,
@@ -1662,22 +1683,22 @@ class KyberView(HomeAssistantView):
         # Dashboard list from frontend (may be empty list if fetch failed)
         dash_lines = ["- Overview (default) — url_path: (default)"]
         for d in (dashboards or []):
-            title = d.get("title") or d.get("url_path", "?")
-            url_path = d.get("url_path", "")
-            mode = d.get("mode", "unknown")
+            title = _sanitize_prompt_value(d.get("title") or d.get("url_path", "?"))
+            url_path = _sanitize_prompt_value(d.get("url_path", ""))
+            mode = _sanitize_prompt_value(d.get("mode", "unknown"))
             if url_path:  # skip entries with no url_path to avoid duplicating default
                 dash_lines.append(f"- {title} — url_path: {url_path} — mode: {mode}")
         dashboard_section = "## Dashboards\n" + "\n".join(dash_lines) + "\n\n"
 
         # Custom Lovelace card resources
         if lovelace_resources:
-            resource_lines = [f"- {url}" for url in lovelace_resources]
+            resource_lines = [f"- {_sanitize_prompt_value(url)}" for url in lovelace_resources]
             dashboard_section += "## Custom card resources (installed via HACS or manually)\n" + "\n".join(resource_lines) + "\nWhen using custom cards use `type: custom:<card-name>` syntax.\n\n"
 
         # Current user info (always available — view requires auth)
         ha_user = request.get("hass_user")
         if ha_user:
-            user_display = ha_user.name or ha_user.id
+            user_display = _sanitize_prompt_value(ha_user.name or ha_user.id)
             user_role = "administrator" if ha_user.is_admin else "standard user"
             user_section = f"## Current user (the person you are talking to)\nYou are speaking with: {user_display} ({user_role})\n\n"
         else:
@@ -1795,10 +1816,10 @@ class KyberView(HomeAssistantView):
                 "If a fact looks wrong, ask the user."
             )
             for entry in relevant_knowledge:
-                cat = entry.get("category", "general")
-                subj = entry.get("subject", "")
-                content = entry.get("content", "")
-                tags = ",".join(entry.get("tags", []) or [])
+                cat = _sanitize_prompt_value(entry.get("category", "general"))
+                subj = _sanitize_prompt_value(entry.get("subject", ""))
+                content = _sanitize_prompt_value(entry.get("content", ""))
+                tags = ",".join(_sanitize_prompt_value(t) for t in (entry.get("tags", []) or []))
                 score = entry.get("_score")
                 src = entry.get("_source", "?")
                 score_note = f" [match: {round(float(score), 2)} via {src}]" if score is not None else ""
