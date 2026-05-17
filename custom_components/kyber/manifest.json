@@ -3,7 +3,7 @@
   "name": "Kyber",
   "codeowners": ["@pgroene"],
   "config_flow": true,
-  "dependencies": ["ollama", "ai_task"],
+  "dependencies": ["ai_task"],
   "documentation": "https://github.com/pgroene/kyber",
   "issue_tracker": "https://github.com/pgroene/kyber/issues",
   "iot_class": "local_polling",
