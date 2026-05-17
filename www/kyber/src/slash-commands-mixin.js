@@ -170,9 +170,13 @@ export const SlashMixin = (Base) => class extends Base {
       const cmd = cmdSubAc[1].toLowerCase();
       const partial = (cmdSubAc[2] || "").toLowerCase();
       const subs = CMD_SUBS[cmd] || [];
+      const helpData = _HELP_DATA[cmd === "knowledge" ? "memory" : cmd];
       const matches = subs
         .filter((s) => s.startsWith(partial))
-        .map((s) => ({ entity_id: `/${cmd} ${s}`, friendly_name: "" }));
+        .map((s) => {
+          const entry = (helpData?.cmds || []).find((c) => c.usage.match(new RegExp(`^\\/${cmd} ${s}\\b`)));
+          return { entity_id: `/${cmd} ${s}`, friendly_name: entry?.desc || "" };
+        });
       if (matches.length) {
         this._acItems = matches;
         this._acToken = val;
@@ -237,15 +241,16 @@ export const SlashMixin = (Base) => class extends Base {
     }
 
     // ── /session switch|delete <name> ─────────────────────────────────
-    const sessionArg = val.match(/^\/session\s+(switch)\s+(.*)$/i);
+    const sessionArg = val.match(/^\/session\s+(switch|delete)\s+(.*)$/i);
     if (sessionArg) {
+      const action = sessionArg[1].toLowerCase();
       const partial = (sessionArg[2] || "").toLowerCase();
       this._fetchAcSessions().then((sessions) => {
         const filtered = sessions
           .filter((s) => s.name.toLowerCase().includes(partial) || s.id.toLowerCase().includes(partial))
           .slice(0, 8)
           .map((s) => ({
-            entity_id: `/session switch ${s.name}`,
+            entity_id: `/session ${action} ${s.name}`,
             badge: s.id === this._activeSessionId ? "active" : null,
             friendly_name: `${s.message_count} msg${s.message_count !== 1 ? "s" : ""}`,
           }));
@@ -281,7 +286,7 @@ export const SlashMixin = (Base) => class extends Base {
       }
     }
 
-    // ── /automation|script|dashboard open|delete|rename <name> ────────
+    // ── /automation|script|dashboard open|delete <name> ──────────────
     const slashSub = val.match(/^\/(automation|script|dashboard|area)\s+(\w+)\s+(.*)$/i);
     if (slashSub) {
       const cmd = slashSub[1].toLowerCase();
@@ -292,19 +297,31 @@ export const SlashMixin = (Base) => class extends Base {
         if (cmd === "automation") {
           candidates = Object.values(this._hass.states || {})
             .filter((s) => s.entity_id.startsWith("automation."))
-            .map((s) => ({ entity_id: s.entity_id, friendly_name: s.attributes.friendly_name || "" }));
+            .map((s) => ({
+              entity_id: `/${cmd} ${action} ${s.attributes.friendly_name || s.entity_id}`,
+              friendly_name: s.entity_id,
+            }));
         } else if (cmd === "script") {
           candidates = Object.values(this._hass.states || {})
             .filter((s) => s.entity_id.startsWith("script."))
-            .map((s) => ({ entity_id: s.entity_id, friendly_name: s.attributes.friendly_name || "" }));
+            .map((s) => ({
+              entity_id: `/${cmd} ${action} ${s.attributes.friendly_name || s.entity_id}`,
+              friendly_name: s.entity_id,
+            }));
         } else if (cmd === "dashboard") {
           const panels = this._hass.panels || {};
           candidates = Object.values(panels)
             .filter((p) => p.component_name === "lovelace" && p.url_path && p.url_path !== "kyber")
-            .map((p) => ({ entity_id: p.url_path, friendly_name: p.title || "" }));
+            .map((p) => ({
+              entity_id: `/${cmd} ${action} ${p.title || p.url_path}`,
+              friendly_name: p.url_path,
+            }));
         } else if (cmd === "area") {
           candidates = Object.values(this._hass.areas || {})
-            .map((a) => ({ entity_id: a.area_id, friendly_name: a.name }));
+            .map((a) => ({
+              entity_id: `/${cmd} ${action} ${a.name}`,
+              friendly_name: a.area_id,
+            }));
         }
         const filtered = candidates.filter((c) =>
           c.entity_id.toLowerCase().includes(partial) ||
@@ -312,9 +329,9 @@ export const SlashMixin = (Base) => class extends Base {
         ).slice(0, 8);
         if (filtered.length) {
           this._acItems = filtered;
-          this._acToken = slashSub[3];
+          this._acToken = val;
           this._acIndex = -1;
-          this._buildAcList(false);
+          this._buildAcList(true);
           return;
         }
       }
