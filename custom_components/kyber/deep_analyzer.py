@@ -163,12 +163,14 @@ def _build_prompt(
     item: dict[str, Any],
     prompt_variant: int = 0,
     entity_names: dict[str, str] | None = None,
+    entity_areas: dict[str, str] | None = None,
 ) -> str:
     """Build a focused prompt that asks the AI for durable facts.
 
     ``prompt_variant`` selects one of the analytical lenses in ``_PROMPT_LENSES``
     so that multiple passes over the same automations produce complementary facts.
     ``entity_names`` maps entity_id → friendly_name for context enrichment.
+    ``entity_areas`` maps entity_id → area name (e.g. "badkamer") for room context.
     """
     if kind == "automation":
         ident = item.get("alias") or item.get("id") or "unnamed"
@@ -202,27 +204,33 @@ def _build_prompt(
     body_yaml = json.dumps(body, indent=2, ensure_ascii=False, default=str)
     body_yaml = _truncate(body_yaml)
 
-    # Build entity name context so the AI knows what entity_ids mean
+    # Build entity name + area context so the AI knows what entity_ids mean
     entity_context = ""
-    if entity_names:
+    if entity_names or entity_areas:
         entity_ids_in_config = list(dict.fromkeys(_extract_entity_ids(body)))
-        resolved = [
-            f"  {eid} = \"{entity_names[eid]}\""
-            for eid in entity_ids_in_config
-            if eid in entity_names
-        ]
+        resolved = []
+        for eid in entity_ids_in_config:
+            parts = []
+            if entity_names and eid in entity_names:
+                parts.append(f'"{entity_names[eid]}"')
+            if entity_areas and eid in entity_areas:
+                parts.append(f"area: {entity_areas[eid]}")
+            if parts:
+                resolved.append(f"  {eid} → {', '.join(parts)}")
         if resolved:
             entity_context = (
-                "\n--- entity names ---\n"
+                "\n--- entity context (use these specific room/area names in your facts) ---\n"
                 + "\n".join(resolved)
-                + "\n--- end entity names ---\n"
+                + "\n--- end entity context ---\n"
             )
 
     return (
         f"You are reviewing a Home Assistant {kind} called '{ident}'.\n"
         f"{lens['ask']}\n"
         "Infer DURABLE, NON-OBVIOUS facts — output ONLY facts relevant to this lens. "
-        "Skip generic observations ('there is an automation', 'it uses a trigger').\n\n"
+        "Skip generic observations ('there is an automation', 'it uses a trigger').\n"
+        "IMPORTANT: ALWAYS name the specific room/area (e.g. 'badkamer', 'woonkamer', 'slaapkamer'). "
+        "NEVER write 'the room' or 'the area' — use the exact area name from the entity context or entity_id segments.\n\n"
         "Output ONLY a JSON array. Each item: {\"category\": str, "
         "\"subject\": str, \"content\": str, \"tags\": [str], "
         "\"confidence\": float 0-1}. If nothing relevant, output [].\n\n"
@@ -361,12 +369,27 @@ async def analyze_pending(
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber deep_analyzer: read_blueprints failed: %s", err)
 
-    # Build entity_id → friendly_name lookup once for the whole run
+    # Build entity_id → friendly_name and entity_id → area_name lookups once for the whole run
     entity_names: dict[str, str] = {}
+    entity_areas: dict[str, str] = {}
+    from homeassistant.helpers import entity_registry as er, area_registry as areg, device_registry as dr
+    entity_reg = er.async_get(hass)
+    area_reg = areg.async_get(hass)
+    device_reg = dr.async_get(hass)
     for state in hass.states.async_all():
         friendly = state.attributes.get("friendly_name")
         if friendly:
             entity_names[state.entity_id] = friendly
+        # Resolve area: entity-level first, then device-level
+        reg_entry = entity_reg.async_get(state.entity_id)
+        area_id = reg_entry.area_id if reg_entry else None
+        if not area_id and reg_entry and reg_entry.device_id:
+            dev = device_reg.async_get(reg_entry.device_id)
+            area_id = dev.area_id if dev else None
+        if area_id:
+            area = area_reg.async_get_area(area_id)
+            if area:
+                entity_areas[state.entity_id] = area.name
 
     analyzed: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
@@ -387,7 +410,7 @@ async def analyze_pending(
         processed += 1
 
         try:
-            prompt = _build_prompt(kind, item, prompt_variant, entity_names=entity_names)
+            prompt = _build_prompt(kind, item, prompt_variant, entity_names=entity_names, entity_areas=entity_areas)
             raw = await _run_ai(hass, ai_entity_id, prompt)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber deep_analyzer: AI call failed for %s:%s: %s", kind, ident, err)

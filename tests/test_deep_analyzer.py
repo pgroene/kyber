@@ -121,3 +121,23 @@ def test_build_prompt_includes_alias_and_yaml_body():
     assert "Bedtime" in prompt
     assert "JSON array" in prompt
     assert "23:00" in prompt
+
+
+def test_build_prompt_includes_entity_area():
+    mod = _load_deep()
+    item = {
+        "id": "x2",
+        "alias": "Badkamer lights",
+        "trigger": [],
+        "action": [{"service": "light.turn_off", "target": {"entity_id": "light.group_badkamer_downlights"}}],
+    }
+    prompt = mod._build_prompt(
+        "automation",
+        item,
+        entity_names={"light.group_badkamer_downlights": "Badkamer Downlights"},
+        entity_areas={"light.group_badkamer_downlights": "Badkamer"},
+    )
+    assert "Badkamer" in prompt
+    assert "area: Badkamer" in prompt
+    # Prompt must explicitly warn the AI to not say "the room"
+    assert "NEVER write" in prompt or "NEVER" in prompt
