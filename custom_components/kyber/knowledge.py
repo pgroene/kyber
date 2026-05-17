@@ -85,12 +85,13 @@ class KnowledgeStore:
 
     # ── Embedding index helpers ──────────────────────────────────────
     def _entry_blob(self, entry: dict[str, Any]) -> str:
-        return " ".join([
-            entry.get("subject", ""),
-            entry.get("content", ""),
-            " ".join(entry.get("tags", []) or []),
-            entry.get("category", ""),
-        ])
+        parts = [
+            str(entry.get("subject") or ""),
+            str(entry.get("content") or ""),
+            " ".join(str(t) for t in (entry.get("tags") or []) if t is not None),
+            str(entry.get("category") or ""),
+        ]
+        return " ".join(p for p in parts if p)
 
     def _rebuild_index(self) -> None:
         """Recompute IDF and per-entry TF-IDF vectors over current corpus."""

@@ -189,15 +189,24 @@ The handler returns JSON to the frontend:
 
 ## 10. Frontend rendering
 
-`_appendAIResponse(text, yaml_blocks, plan)` renders the bubble. After it
-returns, the panel:
+`_appendAIResponse(text, yaml_blocks, plan)` renders the bubble. The chat panel
+stays clean — no rating widget, no debug-bundle button on individual messages.
+Per-turn metadata (`request_id`, `knowledge_used`, `auto_rating`) is stashed on
+`this._lastTurnMeta` for the Debug page.
 
-1. Attaches a **rating widget** (👍/👎) to the message if memory facts were
-   used.
-2. (Debug-mode only) Attaches a `⬇ debug` button that hits
-   `GET /api/kyber/debug/bundle?request_id=…` to download the zip.
-3. Refreshes the "Last turn" sub-tab of the **Kyber Debug** sidebar entry
-   if the user has it open.
+After the response renders, the panel:
+
+1. Refreshes the **Last turn** sub-tab of the **Kyber Debug** sidebar entry if
+   the user has it open.
+
+All feedback collection happens in the Debug page (`/kyber-debug`) → *Last
+turn* sub-tab, which now shows a prominent "How was this turn?" banner with:
+
+- 👍 / 👎 rating buttons that POST `/api/kyber/knowledge/feedback` for every
+  fact recalled this turn,
+- a `⬇ download bundle` button that hits
+  `GET /api/kyber/debug/bundle?request_id=…`,
+- an auto-rating chip (⚠) if the backend flagged the response automatically.
 
 ## 11. Debug bundle download
 
