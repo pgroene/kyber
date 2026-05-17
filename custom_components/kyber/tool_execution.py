@@ -160,12 +160,14 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
                     out[attr_key] = attrs[attr_key]
                 else:
                     missing_attr_fields.append(f)
-        # When any requested attribute fields were not found, include a hint
-        # listing the available attribute keys so the AI can retry with the right name.
-        if missing_attr_fields and attrs:
-            _DROP_HINT = {"friendly_name", "icon", "entity_picture", "attribution"}
-            available = [k for k in attrs if k not in _DROP_HINT]
+        # Always include available attribute keys when fields were specified,
+        # so the AI knows what else it can request — even if no field was missing.
+        # Only suppress this hint for entities with no useful extra attributes.
+        _DROP_HINT = {"friendly_name", "icon", "entity_picture", "attribution"}
+        available = [k for k in attrs if k not in _DROP_HINT]
+        if missing_attr_fields:
             out["_missing_fields"] = missing_attr_fields
+        if available:
             out["_available_attrs"] = available
         return out
 

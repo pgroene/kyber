@@ -145,6 +145,78 @@ def _make_hass(states: list[_State]):
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 class TestGetEntityStateAutoComplete:
+    """Tests that _available_attrs is always returned when fields are specified."""
+
+    def test_available_attrs_included_even_when_fields_found(self):
+        """Even if the requested field exists, _available_attrs should be included."""
+        sun_attrs = {
+            "next_rising": "2026-05-18T03:40:58+00:00",
+            "next_setting": "2026-05-18T20:00:00+00:00",
+            "elevation": 45.0,
+        }
+        hass = _make_hass([_State("sun.sun", "above_horizon", sun_attrs)])
+        result = json.loads(_execute_tool(hass, {
+            "name": "get_entity_state",
+            "entity_id": "sun.sun",
+            "fields": ["state"],
+        }))
+        assert "error" not in result
+        assert result["state"] == "above_horizon"
+        # Should always advertise what else is available
+        assert "_available_attrs" in result
+        assert "next_rising" in result["_available_attrs"]
+        assert "next_setting" in result["_available_attrs"]
+
+    def test_missing_fields_and_available_attrs_both_present(self):
+        """When a field is missing, both _missing_fields and _available_attrs appear."""
+        sun_attrs = {"next_rising": "06:00", "elevation": 10.0}
+        hass = _make_hass([_State("sun.sun", "above_horizon", sun_attrs)])
+        result = json.loads(_execute_tool(hass, {
+            "name": "get_entity_state",
+            "entity_id": "sun.sun",
+            "fields": ["state", "attributes.rise"],
+        }))
+        assert "_missing_fields" in result
+        assert "_available_attrs" in result
+        assert "next_rising" in result["_available_attrs"]
+
+    def test_attributes_prefix_stripped(self):
+        """'attributes.next_rising' is normalised to look up 'next_rising'."""
+        sun_attrs = {"next_rising": "03:40", "elevation": 5.0}
+        hass = _make_hass([_State("sun.sun", "above_horizon", sun_attrs)])
+        result = json.loads(_execute_tool(hass, {
+            "name": "get_entity_state",
+            "entity_id": "sun.sun",
+            "fields": ["attributes.next_rising"],
+        }))
+        assert "error" not in result
+        assert result.get("next_rising") == "03:40"
+        # Should NOT appear in _missing_fields
+        assert "_missing_fields" not in result or "attributes.next_rising" not in result.get("_missing_fields", [])
+
+    def test_no_attrs_no_hint(self):
+        """Entity with no attributes produces no _available_attrs key."""
+        hass = _make_hass([_State("input_boolean.test", "on")])
+        result = json.loads(_execute_tool(hass, {
+            "name": "get_entity_state",
+            "entity_id": "input_boolean.test",
+            "fields": ["state"],
+        }))
+        assert result["state"] == "on"
+        # No attributes → no hint (or empty list — either is fine)
+        available = result.get("_available_attrs", [])
+        assert available == []
+
+    def test_no_fields_no_hint(self):
+        """When fields is not specified, the full attrs are returned — no _available_attrs key."""
+        hass = _make_hass([_State("sun.sun", "above_horizon", {"next_rising": "06:00"})])
+        result = json.loads(_execute_tool(hass, {
+            "name": "get_entity_state",
+            "entity_id": "sun.sun",
+        }))
+        # Default (no fields) returns full attributes dict, not the hint format
+        assert "_available_attrs" not in result
+        assert "attributes" in result or "next_rising" in result.get("attributes", {})
     """Tests for entity_id auto-complete in get_entity_state."""
 
     def test_exact_entity_id_works(self):
