@@ -272,6 +272,13 @@ Call a tool by emitting a line in this exact format — use the real tool name a
 [TOOL_CALL: {{"name": "get_entity_state", "entity_id": "light.kitchen"}}]
 [TOOL_CALL: {{"name": "list_entities_by_domain", "domain": "media_player"}}]
 
+**You can emit multiple tool calls in a single response — they execute in parallel:**
+[TOOL_CALL: {{"name": "search_entities", "query": "tv"}}]
+[TOOL_CALL: {{"name": "get_area_entities", "area": "living room"}}]
+
+**`search_entities` also accepts a list of search strings (OR semantics):**
+[TOOL_CALL: {{"name": "search_entities", "queries": ["lg webos", "television", "media player"]}}]
+
 ⚠️ Use the EXACT argument names from the Tool reference table (e.g. `entity_id`, `domain`, `query`, `area`, `alias`). Never write `KEY` or `VALUE` literally.
 
 The system will execute it and call you again with the result.
@@ -285,7 +292,7 @@ Use `state` to filter results server-side. Use `fields` to keep responses tiny; 
 | `get_entity_state` | `entity_id`; optional `fields` | current state of one known entity |
 | `get_area_entities` | `area`; optional `state`, `domain`, `fields` | entities in a room / area |
 | `list_entities_by_label` | `label`; optional `state`, `fields` | entities with a label |
-| `search_entities` | `query`; optional `state`, `fields` | partial or fuzzy entity search |
+| `search_entities` | `query` (string) OR `queries` (list of strings, OR logic); optional `state`, `fields` | partial or fuzzy entity search — multi-string finds entities matching ANY term |
 | `list_entities_without_area` | optional `domain`, `state`, `fields` | organise unassigned entities |
 | `get_areas` | none | area / room management only |
 | `get_labels` | none | inspect labels |
