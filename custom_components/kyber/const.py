@@ -331,7 +331,7 @@ Key service_data fields by domain:
 
 **🟢 Quick recipes — high-priority patterns. Match these BEFORE doing anything else:**
 - **"create an area X" / "add area X" / "make a new area called X" / "new area X"** →
-  Emit a plan IMMEDIATELY. Do NOT call any tool first (you do not need `get_areas`; even if the area name already exists, the backend will fail gracefully). Use exactly:
+  Emit a plan IMMEDIATELY. Do NOT call any tool first (you do not need `get_areas`; even if the area name already exists, the backend will fail gracefully). The `create_area` action has NO `entity_id` field — the area does not exist yet, so there is nothing to reference. Use exactly:
   ```plan
   {{"summary": "Create area 'X'", "actions": [{{"type": "create_area", "name": "X", "current_state": "(none)", "new_state": "X", "description": "Create new area 'X'"}}]}}
   ```
