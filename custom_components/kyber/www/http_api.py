@@ -126,10 +126,43 @@ def _sanitize_prompt_value(text: str) -> str:
 _SYNTHESIS_INSTRUCTIONS = (
     "\n\n[SYSTEM: You already have all the data you need from the tool results "
     "shown above. Answer the user's question directly in plain text now. "
+    "IMPORTANT: If the tool results were empty or returned 0 entities/results, "
+    "do NOT invent entity names, states, or make up answers — honestly say you "
+    "couldn't find the information and suggest trying a more specific search. "
     "Do NOT output any [TOOL_CALL:] blocks — only a prose answer. "
     "List EVERY item from the results; do not truncate with '...' or 'and X more'.]\n"
     "Assistant:"
 )
+
+
+def _build_loop_redirect(tool_calls_filtered: list[tuple[str, dict]]) -> str | None:
+    """Build a system hint to redirect the model when it repeated tool calls.
+
+    Returns a string to append to the tool_exchange, or None if no targeted
+    redirect is available (fall through to synthesis in that case).
+    """
+    for _, call in tool_calls_filtered:
+        name = call.get("name", "")
+        if name == "get_area_entities":
+            area = call.get("area", "")
+            return (
+                f"\n[SYSTEM: get_area_entities(area='{area}') returned 0 entities — "
+                f"same empty result as the previous round. "
+                f"Do NOT call get_area_entities again. "
+                f"Follow the fallback rules: call search_entities(query='{area}') "
+                f"to find entities whose entity_id or friendly name contains this room word. "
+                f"If that also returns nothing, call search_knowledge(query='{area}').]\n"
+                f"Assistant:"
+            )
+        if name == "search_entities":
+            q = call.get("query") or ", ".join(call.get("queries") or [])
+            return (
+                f"\n[SYSTEM: search_entities for '{q}' returned the same result as the "
+                f"previous round. Try a different approach: broaden the search term, "
+                f"try search_knowledge(query='{q}'), or use list_entities_by_domain.]\n"
+                f"Assistant:"
+            )
+    return None
 
 
 # Regex that detects correction turns: user is clarifying a name mismatch.
@@ -462,6 +495,7 @@ class KyberView(HomeAssistantView):
         tool_log: list[dict[str, Any]] = []  # summary of tool calls for UI feedback
         executed_calls_cache: dict[str, str] = {}  # signature → result str (dedup across rounds)
         response_text = ""
+        _loop_redirect_given = False  # allow one redirect hint before falling back to synthesis
         _progress_emit(hass, request_id, {"type": "info", "message": f"Built context: {context_stats.get('entity_count', 0)} entities, {context_stats.get('area_count', 0)} areas"})
 
         # ── Quick-intent shortcut — skip the AI for trivially parseable requests
@@ -699,6 +733,19 @@ class KyberView(HomeAssistantView):
 
             # Stop early if model is looping (every call was a duplicate)
             if new_call_count == 0:
+                # First time: try a targeted redirect hint so the model can
+                # try a different tool before we fall back to synthesis.
+                if not _loop_redirect_given:
+                    redirect = _build_loop_redirect(tool_calls_filtered)
+                    if redirect is not None:
+                        _loop_redirect_given = True
+                        tool_exchange += redirect
+                        _progress_emit(hass, request_id, {
+                            "type": "info",
+                            "message": "Redirecting — trying alternative search approach.",
+                        })
+                        continue  # one more AI round with the redirect hint
+
                 _LOGGER.info("Kyber: all tool calls in round were duplicates; stopping loop")
                 _progress_emit(hass, request_id, {
                     "type": "info",

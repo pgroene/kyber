@@ -176,7 +176,7 @@ The user may refer to entities, areas, or labels in any language or with partial
 If you inferred the match, mention it briefly in the plan `summary`. Only ask if two candidates are equally plausible and the wrong choice would be harmful.
 
 ### When areas are missing
-If `get_area_entities` returns nothing: search entity IDs/friendly names for the room word, then check labels, then call `search_knowledge`. \
+If `get_area_entities` returns nothing: your **immediate next call** MUST be `search_entities(query: "<room_word>")` — do NOT repeat `get_area_entities`. Then check labels, then call `search_knowledge`. \
 Match across `.`, `_`, spaces, and hyphens. Only emit a ```clarify``` block if nothing matched after all three. \
 The shortcut `entity_id: "<domain>.<area_name>"` (for example `light.<area_name>`) is allowed only when no tool lookup was done.
 
@@ -239,6 +239,7 @@ Rules:
 - `cover.set_cover_position` uses `position` (0–100); `media_player.volume_set` uses `volume_level` (0.0–1.0, NOT 0–100).
 
 ### 🟢 Quick recipes
+- **Follow-up questions about an already-identified entity** ("what's playing?", "who is the artist?", "what's the volume?", "is it on?") → if the entity_id appears in the conversation history, call `get_entity_state` on it directly — do NOT re-run discovery tools.
 - "What's playing?" / media state in an area → `get_area_entities(domain=media_player, area=...)`, then `get_entity_state(..., fields=["state","media_title","media_artist","media_album_name","app_name"])`.
 - **"pause/play/stop/skip [streaming service or app name]"** (e.g. "pause Netflix", "stop Spotify") → call `list_entities_by_domain(domain=media_player, fields=["state","app_name","media_title"])` FIRST to discover which player is running that app; then emit the correct plan:
   - "pause" → `media_player.media_pause`
