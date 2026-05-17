@@ -32,16 +32,16 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=80";
+import { STYLES } from "./src/styles.js?v=81";
 
-import { UtilsMixin } from "./src/utils-mixin.js?v=80";
-import { SessionMixin } from "./src/session-mixin.js?v=80";
-import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=80";
-import { DebugMixin } from "./src/debug-mixin.js?v=80";
-import { SlashMixin } from "./src/slash-commands-mixin.js?v=80";
-import { EditorMixin } from "./src/editor-mixin.js?v=80";
-import { AIMixin } from "./src/ai-mixin.js?v=80";
-import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=80";
+import { UtilsMixin } from "./src/utils-mixin.js?v=81";
+import { SessionMixin } from "./src/session-mixin.js?v=81";
+import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=81";
+import { DebugMixin } from "./src/debug-mixin.js?v=81";
+import { SlashMixin } from "./src/slash-commands-mixin.js?v=81";
+import { EditorMixin } from "./src/editor-mixin.js?v=81";
+import { AIMixin } from "./src/ai-mixin.js?v=81";
+import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=81";
 
 // ---------------------------------------------------------------------------
 // Custom Element
