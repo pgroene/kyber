@@ -124,6 +124,33 @@ the model. This continues until either the model replies in prose or
 Each tool call adds an entry to `tool_log` with `name`, `args`, `status`,
 `ms`, and a small result preview.
 
+**Source-reader tools (v0.1.35+)** — the model can read raw automation /
+script / blueprint YAML via `list_automations` / `get_automation` /
+`list_scripts` / `get_script` / `list_blueprints` / `get_blueprint`. These
+read directly from `<config>/automations.yaml`, `<config>/scripts.yaml`
+and `<config>/blueprints/**/*.yaml`. They do NOT trigger AI analysis —
+they just hand the raw config to the chat model so it can answer
+"how does this automation work?" without re-implementing logic.
+
+## 5b. Deep analyzer (offline / on-demand)
+
+`/api/kyber/knowledge/analyze_deep` (POST) is a separate pipeline used to
+extract **durable facts about the home** from automations / scripts /
+blueprints. Each item is read, hashed (`source.content_hash`), and
+checked against `AnalysisMemo` — unchanged items are skipped.
+
+For each changed-or-new item (up to `limit`), the analyzer:
+1. Builds a focused prompt asking for non-obvious facts.
+2. Calls the AI task entity.
+3. Parses the JSON-array response and filters by confidence (≥ 0.55).
+4. Persists each fact via `KnowledgeStore.async_add` tagged with
+   `deep:<kind>` and `src:<ident>` so it can be found / re-rated later.
+5. Records the new hash + fact IDs in the memo store
+   (`kyber_analysis_memo`).
+
+Re-runs are cheap: unchanged items just bump the skip counter. The
+Debug → Memory sub-tab exposes this as a 🧬 "Deep analyze" button.
+
 ## 6. Response cleanup
 
 Models still sometimes leak narration or role-played tool calls. The
