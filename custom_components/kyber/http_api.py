@@ -78,33 +78,12 @@ from .knowledge_integration import (
     KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView,
 )
 from .api_utilities import (
-    _PROGRESS_KEY, _PROGRESS_MAX_AGE, _PROGRESS_MAX_ENTRIES,
+    _PROGRESS_KEY,
     _progress_emit, _progress_complete,
     KyberProgressView, KyberSaveView, _SUMMARIZE_SYSTEM_PROMPT, KyberSummarizeView,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-_DEBUG_MODE_KEY = "kyber_debug_mode"
-_DEBUG_MODE_DEFAULT = True
-
-
-def _get_debug_mode(hass: HomeAssistant) -> bool:
-    val = hass.data.get(_DEBUG_MODE_KEY)
-    if val is None:
-        return _DEBUG_MODE_DEFAULT
-    return bool(val)
-
-
-# Debug snapshot keys — in-memory only, purged on HA restart.
-_DEBUG_LAST_TURN_KEY = "kyber_debug_last_turn"
-_DEBUG_SNAPSHOTS_KEY = "kyber_debug_snapshots"  # request_id -> snapshot ring buffer
-_DEBUG_SNAPSHOTS_MAX = 50
-_DEBUG_TOOL_HISTORY_KEY = "kyber_debug_tool_history"
-_DEBUG_TOOL_HISTORY_MAX = 20
-_DEBUG_LOG_CAPTURE_KEY = "kyber_debug_log_capture"  # request_id -> list[dict]
-_DEBUG_LOG_CAPTURE_MAX_PER_TURN = 500
-
 
 def _sanitize_prompt_value(text: str) -> str:
     """Sanitize a user-supplied string before embedding it in the system prompt.
