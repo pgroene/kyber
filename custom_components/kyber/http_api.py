@@ -34,6 +34,21 @@ from .source import (
     read_blueprint as _src_read_blueprint,
 )
 from . import deep_analyzer as _deep
+from .response_processing import (
+    _YAML_BLOCK_RE, _PLAN_BLOCK_RE, _CLARIFY_BLOCK_RE, _TOOL_CALL_RE,
+    _TOOL_RESULT_STRIP_RE, _TOOL_RESULT_ECHO_RE, _TOOL_CALL_MAX_ROUNDS,
+    _BARE_FENCE_RE, _ACTION_TYPE_RE, _AUTOMATION_EDIT_RE,
+    _parse_tool_calls, _strip_tool_calls, _extract_yaml_blocks, _extract_plan_block,
+    _rewrap_bare_action_fences, _NARRATION_PATTERNS, _BARE_JSON_TOOL_RESULT_RE,
+    _strip_role_echo_prefix, _BRIGHTNESS_INTENT_RE, _DIM_INTENT_RE,
+    _augment_brightness_intent, _extract_clarify_block,
+)
+from .intent_and_context import (
+    _QUICK_CREATE_AREA_RE, _try_quick_intent,
+    _ACTION_KEYWORDS, _ACTION_RE_PATTERNS,
+    _classify_intent,
+    _build_home_state_by_area, _build_context,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -212,90 +227,6 @@ def _progress_complete(hass: HomeAssistant, request_id: str) -> None:
     entry["ts"] = time.time()
 
 
-_YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
-_PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
-_CLARIFY_BLOCK_RE = re.compile(r"```clarify\s*([\s\S]+?)\s*```", re.IGNORECASE)
-# Match [TOOL_CALL: ...] tolerating O/0 confusion from small models.
-# NOTE: Use .*? (not [^]]*?) so JSON arrays inside the body (e.g. "fields": ["x"])
-# are matched correctly — [^]]* would stop at the first ] inside the JSON.
-_TOOL_CALL_RE = re.compile(r"\[T[O0]{2}L[_\-]CALL:\s*(\{.*?\})\s*\]", re.DOTALL | re.IGNORECASE)
-# Match [TOOL_RESULT: ...] with same tolerance
-_TOOL_RESULT_STRIP_RE = re.compile(r"\[T[O0]{2}L[_\-]RESULT:[^\]]*?\][^\n]*\n?", re.IGNORECASE)
-_TOOL_RESULT_ECHO_RE = re.compile(r"\[T[O0]{2}L[_\-]RESULT:[^\]]*?\][^\n]*\n?.*?(?=\n\n|\Z)", re.DOTALL | re.IGNORECASE)
-_TOOL_CALL_MAX_ROUNDS = 5
-
-# ── Quick-intent shortcuts (sidestep the AI for trivially parseable requests) ──
-# Small models often loop on `get_areas` instead of emitting a `create_area`
-# plan because every example action in the prompt has an `entity_id` and they
-# don't realise create_area has none. For 100% unambiguous requests we
-# short-circuit the model entirely.
-
-_QUICK_CREATE_AREA_RE = re.compile(
-    r"^\s*(?:please\s+)?(?:can\s+you\s+)?"
-    r"(?:create|add|make|new)"
-    r"\s+(?:an?\s+|a\s+new\s+)?area"
-    r"\s+(?:called\s+|named\s+)?[\"'`]?([\w][\w\s\-]{0,50}?)[\"'`]?\s*[.!?]?\s*$",
-    re.IGNORECASE,
-)
-
-
-def _try_quick_intent(user_prompt: str) -> dict[str, Any] | None:
-    """Detect trivially parseable single-action requests.
-
-    Returns a dict suitable for emitting as the final response, or None.
-
-    Currently handles:
-      - "create (an?) area NAME"
-      - "add area NAME"
-      - "make a new area called NAME"
-
-    Multi-line prompts (e.g. "create an area Yard\\nmake it Dutch") are
-    intentionally skipped so the AI can process the extra instructions.
-    """
-    if not user_prompt:
-        return None
-    # If the user added extra instructions on additional lines (e.g.
-    # "create an area Yard\nmake it a dutch name"), skip the shortcut so
-    # the AI loop can honour those instructions (e.g. translating the name).
-    lines = [l for l in user_prompt.split("\n") if l.strip()]
-    if len(lines) > 1:
-        return None
-    text = user_prompt.strip()
-    m = _QUICK_CREATE_AREA_RE.match(text)
-    if m:
-        name = m.group(1).strip().strip("'\"`").strip()
-        if not name:
-            return None
-        # Reject obviously non-name tokens that a casual user wouldn't intend
-        if name.lower() in {"area", "the area", "new", "one"}:
-            return None
-        # Reject names that contain newlines (should have been caught above,
-        # but guard defensively against other multi-line edge cases).
-        if "\n" in name or "\r" in name:
-            return None
-        plan = {
-            "summary": f"Create area '{name}'",
-            "actions": [{
-                "type": "create_area",
-                "name": name,
-                "current_state": "(none)",
-                "new_state": name,
-                "description": f"Create new area '{name}'",
-            }],
-        }
-        response = (
-            f"I'll create a new area called **{name}**. "
-            "Approve the plan below to apply.\n\n"
-            "```plan\n" + json.dumps(plan) + "\n```"
-        )
-        return {
-            "response_text": response,
-            "intent": "action",
-            "shortcut": "quick_create_area",
-            "plan": plan,
-        }
-    return None
-
 
 # Appended to the tool-exchange when we need a plain-text synthesis pass
 # (model looped on tool calls and never wrote a prose answer).
@@ -308,28 +239,6 @@ _SYNTHESIS_INSTRUCTIONS = (
 )
 
 
-# Keywords that indicate the user wants to change/act on something (ACTION intent).
-# Anything else is INFORMATIONAL — the AI should just respond in plain text.
-_ACTION_KEYWORDS: frozenset[str] = frozenset({
-    "edit", "modify", "change", "update", "rename", "assign", "move",
-    "turn on", "turn off", "switch on", "switch off", "set", "create",
-    "delete", "remove", "add", "make", "enable", "disable", "fix", "open editor",
-    "open automation", "open script", "open dashboard", "adjust", "configure",
-    "schedule", "trigger", "automate", "dim", "brighten",
-    "lock", "unlock", "arm", "disarm",
-    "zet aan", "zet uit",  # Dutch on/off
-    "organise", "organize", "order my", "sort my", "clean up", "tidy",
-    "propose", "suggest changes", "suggest a plan",
-})
-
-# Regex patterns for split-word action intent (e.g. "turn those off", "switch it on")
-_ACTION_RE_PATTERNS: tuple = (
-    re.compile(r"\bturn\b.{0,30}\b(on|off)\b", re.IGNORECASE),
-    re.compile(r"\bswitch\b.{0,30}\b(on|off)\b", re.IGNORECASE),
-    re.compile(r"\b(on|off)\b.{0,30}\bturn\b", re.IGNORECASE),
-    re.compile(r"\bzet\b.{0,20}\b(aan|uit)\b", re.IGNORECASE),  # Dutch
-)
-
 # Regex that detects correction turns: user is clarifying a name mismatch.
 # Triggers the post-response learned-fact extraction pass.
 _CORRECTION_SIGNALS_RE = re.compile(
@@ -393,15 +302,6 @@ _RESPONSE_MODE_ACTION = (
     "<</RULES>>\n\n"
 )
 
-
-def _classify_intent(user_prompt: str) -> str:
-    """Return 'action' if the prompt requests a change, otherwise 'informational'."""
-    lower = user_prompt.lower()
-    if any(kw in lower for kw in _ACTION_KEYWORDS):
-        return "action"
-    if any(p.search(lower) for p in _ACTION_RE_PATTERNS):
-        return "action"
-    return "informational"
 _CHAT_HISTORY_STORE_VERSION = 1
 _CHAT_HISTORY_STORE_KEY = f"{DOMAIN}_chat_history"
 _CHAT_HISTORY_MAX_MESSAGES = 20
@@ -462,228 +362,6 @@ def _get_active_session(user_data: dict[str, Any]) -> tuple[str, dict[str, Any]]
     user_data["sessions"] = sessions
     user_data["active_session"] = sid
     return sid, session
-
-
-def _build_home_state_by_area(
-    hass: HomeAssistant,
-    entity_reg: er.EntityRegistry,
-    area_by_id: dict[str, str],
-) -> tuple[str, dict[str, Any]]:
-    """Build a per-area home state snapshot and aggregate stats."""
-    # area_name → collected metrics
-    area_data: dict[str, dict[str, Any]] = {}
-
-    def _area(name: str) -> dict[str, Any]:
-        if name not in area_data:
-            area_data[name] = {
-                "lights_on": 0, "lights_total": 0,
-                "presence": False,
-                "temps": [],
-                "media": [],
-                "open_windows": 0, "open_doors": 0,
-            }
-        return area_data[name]
-
-    unavailable_count = 0
-    low_battery_count = 0
-    total_lights_on = 0
-
-    for state in hass.states.async_all():
-        entity_id = state.entity_id
-        domain = entity_id.split(".")[0]
-        if domain in ("automation", "script", "scene", "group", "persistent_notification",
-                      "sun", "zone", "update", "event", "schedule"):
-            continue
-
-        if state.state == "unavailable":
-            unavailable_count += 1
-            continue
-
-        # Battery alerts (any entity with a battery_level attribute < 20%)
-        batt = state.attributes.get("battery_level") or state.attributes.get("battery")
-        if batt is not None:
-            try:
-                if float(batt) < 20:
-                    low_battery_count += 1
-            except (ValueError, TypeError):
-                pass
-
-        entry = entity_reg.async_get(entity_id)
-        area_id = entry.area_id if entry else None
-        area_name = area_by_id.get(area_id or "", "") if area_id else ""
-
-        if domain == "light":
-            if area_name:
-                d = _area(area_name)
-                d["lights_total"] += 1
-                if state.state == "on":
-                    d["lights_on"] += 1
-                    total_lights_on += 1
-            elif state.state == "on":
-                total_lights_on += 1
-
-        elif domain == "binary_sensor":
-            device_class = state.attributes.get("device_class", "")
-            if device_class in ("occupancy", "presence", "motion"):
-                if state.state == "on" and area_name:
-                    _area(area_name)["presence"] = True
-            elif device_class == "window" and state.state == "on" and area_name:
-                _area(area_name)["open_windows"] += 1
-            elif device_class == "door" and state.state == "on" and area_name:
-                _area(area_name)["open_doors"] += 1
-
-        elif domain == "person" and area_name:
-            if state.state not in ("not_home", "away", "unknown"):
-                _area(area_name)["presence"] = True
-
-        elif domain == "climate" and area_name:
-            temp = state.attributes.get("current_temperature")
-            if temp is not None:
-                try:
-                    _area(area_name)["temps"].append(float(temp))
-                except (ValueError, TypeError):
-                    pass
-
-        elif domain == "sensor" and area_name:
-            if state.attributes.get("device_class") == "temperature" and state.state not in ("unknown", "unavailable"):
-                try:
-                    _area(area_name)["temps"].append(float(state.state))
-                except (ValueError, TypeError):
-                    pass
-
-        elif domain == "media_player" and area_name:
-            if state.state not in ("idle", "off", "standby", "unavailable", "unknown"):
-                friendly = _sanitize_prompt_value(state.attributes.get("friendly_name", entity_id))
-                title = _sanitize_prompt_value(state.attributes.get("media_title", ""))
-                _area(area_name)["media"].append(f"{friendly}" + (f": {title}" if title else f" ({state.state})"))
-
-    # Format lines
-    lines: list[str] = []
-    for area_name in sorted(area_data.keys()):
-        d = area_data[area_name]
-        parts: list[str] = []
-        if d["lights_total"] > 0:
-            parts.append(f"💡 {d['lights_on']}/{d['lights_total']} lights on")
-        if d["presence"]:
-            parts.append("👤 occupied")
-        if d["temps"]:
-            avg_temp = sum(d["temps"]) / len(d["temps"])
-            parts.append(f"🌡 {avg_temp:.1f}°C")
-        for m in d["media"][:2]:
-            parts.append(f"📺 {m}")
-        if d["open_windows"]:
-            parts.append(f"🪟 {d['open_windows']} open")
-        if d["open_doors"]:
-            parts.append(f"🚪 {d['open_doors']} open")
-        if parts:
-            lines.append(f"  {area_name}: {' | '.join(parts)}")
-
-    alerts: list[str] = []
-    if unavailable_count:
-        alerts.append(f"{unavailable_count} unavailable")
-    if low_battery_count:
-        alerts.append(f"{low_battery_count} low battery")
-    if alerts:
-        lines.append(f"  ⚠️ Alerts: {', '.join(alerts)}")
-
-    home_state = "\n".join(lines) or "(no area state available)"
-    stats = {
-        "total_lights_on": total_lights_on,
-        "unavailable_count": unavailable_count,
-        "low_battery_count": low_battery_count,
-    }
-    return home_state, stats
-
-
-def _build_context(hass: HomeAssistant, user_name: str = "") -> tuple[str, dict[str, Any]]:
-    """Build a compact context string with domain stats + area home state."""
-    area_reg = ar.async_get(hass)
-    entity_reg = er.async_get(hass)
-    label_reg = lr.async_get(hass)
-
-    areas = area_reg.async_list_areas()
-    area_list = "\n".join(
-        f"- {_sanitize_prompt_value(a.name)} → {_sanitize_prompt_value(a.id)}"
-        for a in areas
-    ) or "(no areas)"
-    area_by_id = {a.id: _sanitize_prompt_value(a.name) for a in areas}
-
-    labels = label_reg.async_list_labels()
-    label_list = "\n".join(
-        f"- {_sanitize_prompt_value(lbl.label_id)} | {_sanitize_prompt_value(lbl.name)}"
-        for lbl in labels
-    ) or "(no labels)"
-
-    automation_lines: list[str] = []
-    script_lines: list[str] = []
-    domain_counts: dict[str, int] = {}
-
-    all_states = hass.states.async_all()
-    entity_count = 0
-
-    for state in sorted(all_states, key=lambda s: s.entity_id):
-        domain = state.entity_id.split(".")[0]
-        if state.entity_id.startswith("automation."):
-            friendly = _sanitize_prompt_value(state.attributes.get("friendly_name", state.entity_id))
-            config_id = _sanitize_prompt_value(state.attributes.get("id", state.entity_id))
-            automation_lines.append(f"- {state.entity_id} | {friendly} | config_id: {config_id}")
-        elif state.entity_id.startswith("script."):
-            friendly = _sanitize_prompt_value(state.attributes.get("friendly_name", state.entity_id))
-            script_lines.append(f"- {state.entity_id} | {friendly}")
-        else:
-            entity_count += 1
-            domain_counts[domain] = domain_counts.get(domain, 0) + 1
-
-    _AUTO_LIMIT = 50
-    _SCRIPT_LIMIT = 25
-    if len(automation_lines) > _AUTO_LIMIT:
-        automation_lines_shown = automation_lines[:_AUTO_LIMIT]
-        automation_lines_shown.append(
-            f"… and {len(automation_lines) - _AUTO_LIMIT} more (use list_automations tool to see all)"
-        )
-    else:
-        automation_lines_shown = automation_lines
-    if len(script_lines) > _SCRIPT_LIMIT:
-        script_lines_shown = script_lines[:_SCRIPT_LIMIT]
-        script_lines_shown.append(
-            f"… and {len(script_lines) - _SCRIPT_LIMIT} more (use list_scripts tool to see all)"
-        )
-    else:
-        script_lines_shown = script_lines
-
-    automation_list = "\n".join(automation_lines_shown) or "(no automations)"
-    script_list = "\n".join(script_lines_shown) or "(no scripts)"
-
-    # Domain stats: top 10 by count
-    sorted_domains = sorted(domain_counts.items(), key=lambda x: -x[1])
-    stats_parts = [f"{d}: {c}" for d, c in sorted_domains[:10]]
-    if len(sorted_domains) > 10:
-        stats_parts.append(f"… {len(sorted_domains) - 10} more domains")
-    entity_stats = f"{entity_count} total — {' | '.join(stats_parts)}"
-
-    # Per-area home state
-    home_state_by_area, area_stats = _build_home_state_by_area(hass, entity_reg, area_by_id)
-
-    context_stats: dict[str, Any] = {
-        "entity_count": entity_count,
-        "automation_count": len(automation_lines),
-        "area_count": len(areas),
-        "lights_on": area_stats["total_lights_on"],
-        "unavailable_count": area_stats["unavailable_count"],
-        "low_battery_count": area_stats["low_battery_count"],
-    }
-
-    user_name_line = f"The user's name is {_sanitize_prompt_value(user_name)}." if user_name and user_name.strip() else ""
-    context = SYSTEM_PROMPT_TEMPLATE.format(
-        user_name_line=user_name_line,
-        area_list=area_list,
-        label_list=label_list,
-        entity_stats=entity_stats,
-        home_state_by_area=home_state_by_area,
-        automation_list=automation_list,
-        script_list=script_list,
-    )
-    return context, context_stats
 
 
 def _tool_result_summary(call: dict[str, Any], result: Any) -> str:
@@ -845,7 +523,35 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             return json.dumps({"error": "Missing 'entity_id' argument"})
         state = hass.states.get(entity_id)
         if not state:
-            return json.dumps({"error": f"Entity '{entity_id}' not found"})
+            # Auto-complete: entity IDs always have format domain.name.
+            # If the caller omitted the domain (e.g. "sun" instead of "sun.sun"),
+            # try domain.name pattern and fuzzy search before returning an error.
+            original_id = entity_id
+            if "." not in entity_id:
+                # Try domain.domain (e.g. "sun" → "sun.sun", "zone" → "zone.home" won't match but "sun" will)
+                candidate = f"{entity_id}.{entity_id}"
+                state = hass.states.get(candidate)
+                if state:
+                    entity_id = candidate
+                else:
+                    # Fuzzy search: find entities whose entity_id or friendly name contains the query
+                    q = entity_id.lower()
+                    matches = [
+                        s.entity_id for s in hass.states.async_all()
+                        if q in s.entity_id.lower()
+                        or q in s.attributes.get("friendly_name", "").lower()
+                    ]
+                    if len(matches) == 1:
+                        entity_id = matches[0]
+                        state = hass.states.get(entity_id)
+                    elif matches:
+                        return json.dumps({
+                            "error": f"Entity '{original_id}' not found — entity IDs require domain prefix (format: domain.name). Did you mean one of: {matches[:5]}?"
+                        })
+            if not state:
+                return json.dumps({
+                    "error": f"Entity '{original_id}' not found — entity IDs require domain prefix (format: domain.name, e.g. 'sun.sun'). Use list_entities_by_domain or search_entities to find the correct ID."
+                })
         entry = entity_reg.async_get(entity_id)
         area_id = entry.area_id if entry else None
         area_name = None
@@ -1175,215 +881,6 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "valid_tools": valid_tools,
         "hint": hint,
     })
-
-
-def _parse_tool_calls(text: str) -> list[dict[str, Any]]:
-    """Extract all [TOOL_CALL: {...}] blocks from a response."""
-    calls = []
-    for m in _TOOL_CALL_RE.finditer(text):
-        try:
-            calls.append(json.loads(m.group(1)))
-        except (json.JSONDecodeError, ValueError):
-            pass
-    return calls
-
-
-def _strip_tool_calls(text: str) -> str:
-    """Remove [TOOL_CALL: ...] blocks from a response string."""
-    return _TOOL_CALL_RE.sub("", text).strip()
-
-
-def _extract_yaml_blocks(text: str) -> list[str]:
-    """Extract YAML code blocks from a markdown response string."""
-    return [match.group(1) for match in _YAML_BLOCK_RE.finditer(text)]
-
-
-def _extract_plan_block(text: str) -> dict | None:
-    """Extract the first ```plan``` JSON block from a response string."""
-    match = _PLAN_BLOCK_RE.search(text)
-    if not match:
-        return None
-    try:
-        return json.loads(match.group(1))
-    except (json.JSONDecodeError, ValueError):
-        return None
-
-
-_BARE_FENCE_RE = re.compile(r"```(?!plan|clarify|yaml|json)([a-z]*)\n([\s\S]+?)\n```", re.IGNORECASE)
-_ACTION_TYPE_RE = re.compile(r'"type"\s*:\s*"(call_service|assign_area|rename_entity|create_\w+|update_\w+|delete_\w+|add_knowledge|update_knowledge|delete_knowledge|open_dashboard|open_editor)"')
-
-# Detect user intent to edit an automation/script YAML — used to lazy-load editor guidance.
-_AUTOMATION_EDIT_RE = re.compile(
-    r'(?:'
-    r'(?:edit|modify|update|change|bewerk|aanpas|aanpassen|wijzig|open|pas\s+aan)'
-    r'.{0,80}(?:automat|script|flow)'
-    r'|'
-    r'(?:automat|script|flow).{0,80}'
-    r'(?:edit|modify|update|change|bewerk|aanpas|aanpassen|wijzig|open|pas\s+aan)'
-    r')',
-    re.I | re.S,
-)
-
-
-def _rewrap_bare_action_fences(text: str) -> str:
-    """Find bare ``` fences that contain a single JSON action object and
-    merge them into a single ```plan``` block at the bottom of the response.
-
-    The model occasionally emits each action in its own bare code fence
-    instead of wrapping them in a ``` ```plan ``` ``` block, which prevents
-    the frontend from showing the Execute button. We detect those, parse
-    them, drop the bare fences, and append a real plan block.
-    """
-    if _PLAN_BLOCK_RE.search(text):
-        return text  # already a real plan block
-    actions: list[dict] = []
-    leftover = text
-    for m in _BARE_FENCE_RE.finditer(text):
-        body = m.group(2).strip()
-        if not _ACTION_TYPE_RE.search(body):
-            continue
-        # Try direct JSON parse, then fall back to wrapping with [] if it's a
-        # comma-separated list, then to a {"actions":[...]} shape.
-        parsed: Any = None
-        for candidate in (body, f"[{body}]", "{\"actions\":[" + body + "]}"):
-            try:
-                parsed = json.loads(candidate)
-                break
-            except (json.JSONDecodeError, ValueError):
-                continue
-        if parsed is None:
-            continue
-        if isinstance(parsed, dict):
-            if "actions" in parsed and isinstance(parsed["actions"], list):
-                actions.extend([a for a in parsed["actions"] if isinstance(a, dict)])
-            else:
-                actions.append(parsed)
-        elif isinstance(parsed, list):
-            actions.extend([a for a in parsed if isinstance(a, dict)])
-        # Drop the bare fence from the running text
-        leftover = leftover.replace(m.group(0), "").strip()
-    if not actions:
-        return text
-    plan = {"actions": actions}
-    return leftover.rstrip() + "\n\n```plan\n" + json.dumps(plan, indent=2) + "\n```\n"
-
-
-# Patterns for narrated/role-played tool calling the model occasionally
-# emits as plain prose. Each is applied once on the response.
-_NARRATION_PATTERNS = [
-    # "For your request, I'll start by calling `list_entities_by_domain` for ..."
-    re.compile(r"(?:^|\n)\s*(?:For your request,?\s*)?I(?:'ll| will) (?:start by )?call(?:ing)?\s+`?[a-z_]+`?[^.\n]*\.\s*", re.IGNORECASE),
-    # "I'll call get_area_entities for the 'X' area:"
-    re.compile(r"(?:^|\n)\s*I(?:'ll| will) call\s+`?[a-z_]+`?[^.\n:]*[.:]?\s*", re.IGNORECASE),
-    # "The result will be: { ... }" (single line or with following JSON line)
-    re.compile(r"(?:^|\n)\s*The result(?:s)? (?:will be|is|was)\s*:?\s*\{[^\n]*\}?\n?", re.IGNORECASE),
-    # "Based on the result, I can see ..." / "Based on this result, ..."
-    re.compile(r"(?:^|\n)\s*Based on (?:the|this) results?,?\s*[^\n]*\.\s*", re.IGNORECASE),
-    # "After executing the tool call ..."
-    re.compile(r"(?:^|\n)\s*After (?:executing|running|making) the (?:tool )?call[^\n]*\.\s*", re.IGNORECASE),
-    # "Please let me know if this is what you were expecting." / "if this is acceptable."
-    re.compile(r"(?:^|\n)\s*Please let me know if (?:this is what|this is acceptable|you would like|you want)[^\n]*\.\s*", re.IGNORECASE),
-]
-
-
-# Bare JSON-object lines like '{"area": "Werkkamer", "entities": {}}'
-# that the model echoes back from tool results outside of any code fence.
-_BARE_JSON_TOOL_RESULT_RE = re.compile(
-    r"(?:^|\n)\s*\{(?:\"(?:area|entities|_truncated|_total_items|_returned_items|items|result|state|name)\"[^\n]*)\}\s*(?=\n|$)",
-    re.IGNORECASE,
-)
-
-
-def _strip_role_echo_prefix(text: str) -> str:
-    """Strip a leading 'User: ...\\nAssistant: ...' role-echo block that the
-    model sometimes prepends. Handles a multi-line user line and an optional
-    short assistant ack on the next line.
-    """
-    # Drop the leading "User: ..." line (up to first blank line or 'Assistant:')
-    text = re.sub(
-        r"\A\s*User:\s.*?(?=\n\s*Assistant:|\n\s*\n|\Z)",
-        "",
-        text,
-        flags=re.DOTALL,
-    ).lstrip()
-    # Drop the next "Assistant: ..." line (single line; the real answer follows after a blank line)
-    text = re.sub(
-        r"\A\s*Assistant:\s.*?(?=\n\s*\n|\Z)",
-        "",
-        text,
-        flags=re.DOTALL,
-    ).lstrip()
-    return text
-
-
-_BRIGHTNESS_INTENT_RE = re.compile(
-    r"\b(?:to\s+)?(?:max(?:imum)?|full(?:\s+brightness)?|brightest|100\s*%)\b",
-    re.IGNORECASE,
-)
-_DIM_INTENT_RE = re.compile(r"\b(?:dim(?:med)?|low(?:est)?|min(?:imum)?|10\s*%)\b", re.IGNORECASE)
-
-
-def _augment_brightness_intent(plan: dict | None, prompt: str) -> dict | None:
-    """If the user asked for 'max'/'full'/'brightest' and the plan has
-    ``light.turn_on`` actions without a brightness, inject
-    ``brightness_pct: 100``. Likewise add ``brightness_pct: 10`` for 'dim'.
-    """
-    if not plan or not isinstance(plan, dict):
-        return plan
-    actions = plan.get("actions") or []
-    if not isinstance(actions, list):
-        return plan
-    want_max = bool(_BRIGHTNESS_INTENT_RE.search(prompt or ""))
-    want_dim = bool(_DIM_INTENT_RE.search(prompt or ""))
-    if not (want_max or want_dim):
-        return plan
-    target_pct = 100 if want_max else 10
-    for action in actions:
-        if not isinstance(action, dict):
-            continue
-        if action.get("type") != "call_service":
-            continue
-        domain = (action.get("domain") or "").lower()
-        service = (action.get("service") or "").lower()
-        if domain != "light" or service != "turn_on":
-            continue
-        data = action.get("service_data") or action.get("data") or {}
-        if not isinstance(data, dict):
-            data = {}
-        if any(k in data for k in ("brightness", "brightness_pct", "brightness_step", "brightness_step_pct")):
-            continue
-        data["brightness_pct"] = target_pct
-        action["service_data"] = data
-        # Update description if it doesn't already mention brightness
-        desc = action.get("description", "")
-        if "brightness" not in desc.lower() and "%" not in desc:
-            action["description"] = (desc.rstrip(".") + f" at {target_pct}% brightness").strip()
-    return plan
-
-
-def _extract_clarify_block(text: str) -> dict | None:
-    """Extract a ```clarify``` block where the model asks the user a question.
-
-    Expected JSON shape:
-        {"question": "...", "options": ["opt1", "opt2"], "context": "optional"}
-    """
-    match = _CLARIFY_BLOCK_RE.search(text)
-    if not match:
-        return None
-    try:
-        data = json.loads(match.group(1))
-    except (json.JSONDecodeError, ValueError):
-        return None
-    if not isinstance(data, dict) or not data.get("question"):
-        return None
-    opts = data.get("options")
-    if opts is not None and not isinstance(opts, list):
-        opts = None
-    return {
-        "question": str(data["question"]),
-        "options": [str(o) for o in (opts or [])],
-        "context": str(data.get("context", "")),
-    }
 
 
 # Action types that change Home Assistant CONFIGURATION (registry/persistent

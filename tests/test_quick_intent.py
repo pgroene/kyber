@@ -12,13 +12,11 @@ from pathlib import Path
 
 
 def _load_helpers():
-    """Extract the helper + regex from http_api.py without importing HA."""
+    """Extract the helper + regex from intent_and_context.py without importing HA."""
     root = Path(__file__).resolve().parents[1]
-    src = (root / "custom_components" / "kyber" / "http_api.py").read_text(encoding="utf-8")
-    # Normalise line endings
+    src = (root / "custom_components" / "kyber" / "intent_and_context.py").read_text(encoding="utf-8")
     src = src.replace("\r\n", "\n")
     start = src.index("_QUICK_CREATE_AREA_RE = re.compile(")
-    # Find the end of _try_quick_intent (the next blank-line block AFTER it)
     func_start = src.index("def _try_quick_intent", start)
     end = src.index("\n\n\n", func_start)
     snippet = src[start:end]

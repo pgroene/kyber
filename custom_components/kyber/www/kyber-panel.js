@@ -1,5 +1,5 @@
 ﻿/**
- * Kyber â€” AI-powered Smart Home Assistant Panel
+ * Kyber — AI-powered Smart Home Assistant Panel
  *
  * A Home Assistant custom panel web component that provides:
  *   - Automation selector (loads from HA state machine)
@@ -66,16 +66,16 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     // Input history navigation (like a shell: Up/Down when no autocomplete)
     this._historyNav = -1; // -1 = not browsing
     this._historyDraft = ""; // saves the current draft when browsing starts
-    // Autopilot mode â€” auto-executes proposals without user clicking Execute
+    // Autopilot mode — auto-executes proposals without user clicking Execute
     this._autopilot = false;
     // Editor mode: "automation" | "dashboard"
     this._editorMode = "automation";
-    // Cached list of dashboards [{title, url_path, mode}] â€” fetched lazily
+    // Cached list of dashboards [{title, url_path, mode}] — fetched lazily
     this._dashboardList = null;
-    // Cached list of custom Lovelace resource URLs â€” fetched lazily
+    // Cached list of custom Lovelace resource URLs — fetched lazily
     this._lovelaceResources = undefined;
     this._historyRestored = false;
-    this._DEFAULT_GREETING = "Hi! Ask me anything about your smart home â€” I can manage entities, areas, labels, or open automations for editing.";
+    this._DEFAULT_GREETING = "Hi! Ask me anything about your smart home — I can manage entities, areas, labels, or open automations for editing.";
   }
 
   // HA sets this property when hass state changes
@@ -114,7 +114,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     if (!this._rendered) {
       this._render();
     } else if (this._mode === "debug") {
-      // HA reuses panel elements across navigation â€” re-fetch live backend data
+      // HA reuses panel elements across navigation — re-fetch live backend data
       // so memory/last-turn/status are always fresh when the user arrives.
       this._renderDebugTab(this._debugTab || "memory");
     }
@@ -138,10 +138,10 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
           <span class="editor-context-label editor-controls" id="editor-context-label"></span>
           <span class="editor-title editor-controls" id="editor-title">
             <select id="dashboard-select" class="dashboard-select" style="display:none"></select>
-            <button class="btn-new-dashboard editor-controls" id="btn-new-dashboard" style="display:none" title="Create a new dashboard">ï¼‹ New dashboard</button>
+            <button class="btn-new-dashboard editor-controls" id="btn-new-dashboard" style="display:none" title="Create a new dashboard">＋ New dashboard</button>
           </span>
           <button class="btn-save editor-controls" id="btn-save" disabled>Save</button>
-          <button class="btn-close-editor editor-controls" id="btn-close-editor">âœ• Close editor</button>
+          <button class="btn-close-editor editor-controls" id="btn-close-editor">✕ Close editor</button>
         </div>
         <div class="chat-pane">
           <div class="sidebar-brand">
@@ -150,33 +150,33 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <span class="session-label" id="session-indicator"></span>
             <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
             <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
-            <button class="btn-debug" id="btn-debug" title="Open debug / memory inspector">ðŸž</button>
+            <button class="btn-debug" id="btn-debug" title="Open debug / memory inspector">🐞</button>
           </div>
           <div class="chat-history" id="chat-history">
             <div class="chat-message assistant">${this._DEFAULT_GREETING}</div>
           </div>
           <div class="chat-input-area" style="position:relative;">
             <div class="autocomplete-list" id="ac-list"></div>
-            <textarea id="prompt-input" placeholder="Ask me anything about your smart homeâ€¦ (type / for commands)" rows="3"></textarea>
+            <textarea id="prompt-input" placeholder="Ask me anything about your smart home… (type / for commands)" rows="3"></textarea>
             <button class="btn-ask" id="btn-ask">Ask</button>
           </div>
         </div>
         <div class="debug-pane" id="debug-pane" hidden>
           <div class="debug-header">
-            <strong>ðŸž Kyber Debug</strong>
+            <strong>🐞 Kyber Debug</strong>
             <nav class="debug-tabs">
-              <button class="debug-tab active" data-debug-tab="memory">ðŸ§  Memory</button>
-              <button class="debug-tab" data-debug-tab="last_turn">ðŸ“¥ Last turn</button>
-              <button class="debug-tab" data-debug-tab="status">âš™ï¸ Status</button>
+              <button class="debug-tab active" data-debug-tab="memory">🧠 Memory</button>
+              <button class="debug-tab" data-debug-tab="last_turn">📥 Last turn</button>
+              <button class="debug-tab" data-debug-tab="status">⚙️ Status</button>
             </nav>
-            <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">â†»</button>
-            <button class="btn-debug-close" id="btn-debug-close" title="Back to chat">âœ•</button>
+            <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">↻</button>
+            <button class="btn-debug-close" id="btn-debug-close" title="Back to chat">✕</button>
           </div>
-          <div class="debug-body" id="debug-body"><em>Loadingâ€¦</em></div>
+          <div class="debug-body" id="debug-body"><em>Loading…</em></div>
         </div>
         <div class="editor-pane" id="editor-container"></div>
         <div class="status-bar" id="status-bar">
-          <span class="autopilot-badge" id="autopilot-badge">âš¡ Autopilot ON</span>
+          <span class="autopilot-badge" id="autopilot-badge">⚡ Autopilot ON</span>
           <span id="status-text"></span>
         </div>
       </div>
@@ -204,7 +204,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       this._debugTab = this._debugTab || "memory";
     }
 
-    // Fetch debug-mode flag from backend (async â€” layout already applied above)
+    // Fetch debug-mode flag from backend (async — layout already applied above)
     let debugEnabled = true; // default until we know
     try {
       const token = this._hass?.auth?.data?.access_token;
@@ -328,7 +328,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
         this._askAI();
       }
 
-      // â”€â”€ Shell-style input history (Up/Down when no autocomplete) â”€â”€â”€â”€â”€â”€
+      // ── Shell-style input history (Up/Down when no autocomplete) ──────
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         const userMsgs = this._chatHistory
           .filter((m) => m.role === "user")
@@ -352,7 +352,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
           e.preventDefault();
           if (this._historyNav === -1) return;
           if (this._historyNav >= userMsgs.length - 1) {
-            // Reached the end â€” restore draft
+            // Reached the end — restore draft
             this._historyNav = -1;
             textarea.value = this._historyDraft;
             this._historyDraft = "";
