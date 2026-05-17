@@ -14,10 +14,10 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
-    "@vitest/coverage-v8": "^2.0.0",
+    "@vitest/coverage-v8": "^4.1.6",
     "happy-dom": "^15.0.0",
     "jsdom": "^26.0.0",
     "serve": "^14.2.6",
-    "vitest": "^2.0.0"
+    "vitest": "^4.1.6"
   }
 }
