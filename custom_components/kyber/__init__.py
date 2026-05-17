@@ -45,7 +45,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
             sidebar_icon="mdi:robot",
-            module_url="/local/kyber/kyber-panel.js?v=50",
+            module_url="/local/kyber/kyber-panel.js?v=51",
             require_admin=True,
             config={
                 "ai_task_entity_id": config.get(CONF_AI_TASK_ENTITY_ID),

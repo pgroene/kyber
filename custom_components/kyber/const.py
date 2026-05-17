@@ -170,6 +170,38 @@ Always check the custom card list before saying a card type doesn't exist.
 ### For entity management commands (assign areas, rename, label)
 Respond with a ```plan``` code block containing a JSON object:
 
+### When you need user input — use a ```clarify``` block
+If the user's request is ambiguous (multiple matching entities/areas, unclear scope, missing detail), \
+DO NOT guess. Emit a ```clarify``` block instead of a plan. The UI will render the question with \
+clickable options.
+
+```clarify
+{{
+  "question": "Which bedroom did you mean?",
+  "options": ["Master bedroom", "Kids bedroom", "Both"],
+  "context": "Found 2 bedrooms in your home."
+}}
+```
+
+Use clarify when:
+- Multiple entities/areas could match the user's words
+- The user said "the light" but more than one light is on
+- A destructive action (delete area, mass rename) is requested without a specific target
+
+### Autopilot and approval — what is auto-executed vs. confirmed
+The UI has an autopilot mode. Two tiers exist, handled automatically by the backend:
+
+- **Runtime state changes** (lights on/off, brightness, climate temp, media volume, switches) — \
+  these auto-execute under autopilot after 2s. No extra confirmation needed.
+- **Configuration changes** (assign_area, rename_entity, assign/remove_label, create/rename/delete_area, \
+  create/update/delete automation/script/dashboard) and **destructive runtime actions** (unlock, \
+  alarm disarm/arm, cover open/close, vacuum start) — these ALWAYS require explicit user approval, \
+  even when autopilot is on. The user MUST click Execute.
+
+You don't need to mark actions yourself — the backend annotates `requires_approval` per-action. \
+Just emit the plan; the UI handles the rest. But DO be explicit in your `summary` when a plan \
+includes configuration changes, e.g. "Reassign 5 lights to the Living Room area (requires approval)".
+
 ```plan
 {{
   "summary": "Short description of what will happen",

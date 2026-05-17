@@ -1,6 +1,7 @@
 """HTTP API view for kyber: proxies AI completion requests."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -62,6 +63,7 @@ def _progress_complete(hass: HomeAssistant, request_id: str) -> None:
 
 _YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
+_CLARIFY_BLOCK_RE = re.compile(r"```clarify\s*([\s\S]+?)\s*```", re.IGNORECASE)
 # Match [TOOL_CALL: ...] tolerating O/0 confusion from small models
 _TOOL_CALL_RE = re.compile(r"\[T[O0]{2}L[_\-]CALL:\s*(\{[^]]*?\})\s*\]", re.DOTALL | re.IGNORECASE)
 # Match [TOOL_RESULT: ...] with same tolerance
@@ -617,6 +619,24 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         labels = label_reg.async_list_labels()
         return json.dumps({lbl.label_id: lbl.name for lbl in labels})
 
+    # call_service / assign_area / etc. are ACTIONS that belong in a plan
+    # block, not [TOOL_CALL:]s. If the model tries to use them as a tool,
+    # return a guidance error so it stops and emits a plan instead.
+    _ACTION_AS_TOOL = {
+        "call_service", "assign_area", "rename_entity", "assign_label",
+        "turn_on", "turn_off", "toggle", "service_call",
+        "create_area", "delete_area", "rename_area",
+    }
+    if name in _ACTION_AS_TOOL:
+        return json.dumps({
+            "error": f"'{name}' is NOT a tool — it is an ACTION.",
+            "guidance": (
+                "STOP calling tools. You already have what you need. "
+                "Emit a ```plan``` block with this action inside `actions`. "
+                "Do not call any more tools."
+            ),
+        })
+
     valid_tools = [
         "list_entities_by_domain", "get_entity_state", "get_area_entities",
         "list_entities_by_label", "search_entities", "list_entities_without_area",
@@ -659,6 +679,117 @@ def _extract_plan_block(text: str) -> dict | None:
         return json.loads(match.group(1))
     except (json.JSONDecodeError, ValueError):
         return None
+
+
+def _extract_clarify_block(text: str) -> dict | None:
+    """Extract a ```clarify``` block where the model asks the user a question.
+
+    Expected JSON shape:
+        {"question": "...", "options": ["opt1", "opt2"], "context": "optional"}
+    """
+    match = _CLARIFY_BLOCK_RE.search(text)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(1))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict) or not data.get("question"):
+        return None
+    opts = data.get("options")
+    if opts is not None and not isinstance(opts, list):
+        opts = None
+    return {
+        "question": str(data["question"]),
+        "options": [str(o) for o in (opts or [])],
+        "context": str(data.get("context", "")),
+    }
+
+
+# Action types that change Home Assistant CONFIGURATION (registry/persistent
+# data) and therefore must always require explicit user approval, even when
+# autopilot is enabled. Runtime state changes (call_service turn_on/off) can
+# auto-execute under autopilot; config changes cannot.
+_CONFIG_CHANGING_ACTION_TYPES: set[str] = {
+    "assign_area",
+    "rename_entity",
+    "assign_label",
+    "remove_label",
+    "create_area",
+    "rename_area",
+    "delete_area",
+    "create_label",
+    "rename_label",
+    "delete_label",
+    "create_automation",
+    "update_automation",
+    "delete_automation",
+    "create_script",
+    "update_script",
+    "delete_script",
+    "update_dashboard",
+    "create_dashboard",
+    "delete_dashboard",
+}
+
+# Domain.service combinations that are considered DESTRUCTIVE runtime actions
+# (locks, alarms, garage doors, etc.) and always require explicit approval.
+_DESTRUCTIVE_SERVICES: set[tuple[str, str]] = {
+    ("lock", "unlock"),
+    ("alarm_control_panel", "alarm_disarm"),
+    ("alarm_control_panel", "alarm_arm_away"),
+    ("alarm_control_panel", "alarm_arm_home"),
+    ("alarm_control_panel", "alarm_arm_night"),
+    ("alarm_control_panel", "alarm_trigger"),
+    ("cover", "open_cover"),
+    ("cover", "close_cover"),
+    ("vacuum", "start"),
+    ("vacuum", "return_to_base"),
+}
+
+
+def _action_requires_approval(action: dict) -> bool:
+    """Return True if this action must require explicit user approval.
+
+    Config-changing actions (assign_area, rename_entity, area/label CRUD,
+    automations, dashboards) always require approval. Destructive runtime
+    services (unlock, disarm alarm, cover open/close) also require approval.
+    Plain runtime state changes (light/switch turn_on/off, climate temp,
+    media volume) can auto-execute under autopilot.
+    """
+    if not isinstance(action, dict):
+        return False
+    atype = str(action.get("type", "")).lower()
+    if atype in _CONFIG_CHANGING_ACTION_TYPES:
+        return True
+    if atype == "call_service":
+        domain = str(action.get("domain", "")).lower()
+        service = str(action.get("service", "")).lower()
+        if (domain, service) in _DESTRUCTIVE_SERVICES:
+            return True
+    return False
+
+
+def _annotate_plan_approval(plan: dict | None) -> dict | None:
+    """Mark each action with `requires_approval` and set `requires_approval`
+    at the plan level if ANY action requires approval. The frontend must
+    block autopilot auto-execute when `plan.requires_approval` is true.
+    """
+    if not isinstance(plan, dict):
+        return plan
+    actions = plan.get("actions")
+    if not isinstance(actions, list):
+        return plan
+    any_requires = False
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        needs = _action_requires_approval(action)
+        action["requires_approval"] = needs
+        if needs:
+            any_requires = True
+    plan["requires_approval"] = any_requires
+    return plan
 
 
 def _build_service_undo(domain: str, service: str, entity_id: str, pre_state: Any) -> dict | None:
@@ -904,6 +1035,7 @@ class KyberView(HomeAssistantView):
         # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
         tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
         tool_log: list[dict[str, Any]] = []  # summary of tool calls for UI feedback
+        executed_calls_cache: dict[str, str] = {}  # signature → result str (dedup across rounds)
         response_text = ""
         _progress_emit(hass, request_id, {"type": "info", "message": f"Built context: {context_stats.get('entity_count', 0)} entities, {context_stats.get('area_count', 0)} areas"})
         for _round in range(_TOOL_CALL_MAX_ROUNDS):
@@ -954,6 +1086,20 @@ class KyberView(HomeAssistantView):
             if not tool_calls:
                 break  # no tool calls — final answer
 
+            # Dedup: within this round and against prior rounds.
+            seen_signatures: set[str] = set()
+            unique_calls = []
+            for call in tool_calls:
+                # Canonical signature: tool name + sorted args
+                sig_dict = {k: v for k, v in call.items() if k != "name"}
+                sig = json.dumps({"name": call.get("name", ""), "args": sig_dict}, sort_keys=True)
+                if sig in seen_signatures:
+                    _LOGGER.info("Kyber: skipping duplicate tool call %s", sig[:120])
+                    continue
+                seen_signatures.add(sig)
+                unique_calls.append((sig, call))
+            tool_calls_filtered = unique_calls
+
             # Execute tools and build result block
             clean_response = _strip_tool_calls(response_text)
             tool_results_block = ""
@@ -961,14 +1107,44 @@ class KyberView(HomeAssistantView):
             # Small models (8K window) choke on huge JSON payloads and forget
             # to continue. Truncate at ~6KB with a note.
             _MAX_TOOL_RESULT_CHARS = 6000
-            for call in tool_calls:
+            new_call_count = 0
+
+            # Emit tool_call progress events upfront, then execute uncached calls
+            # in parallel via the HA executor. Read-only tools (list_*, get_*) are
+            # safe to fan out; mutating actions go through plan blocks, not tools.
+            for sig, call in tool_calls_filtered:
                 _progress_emit(hass, request_id, {
                     "type": "tool_call",
                     "name": call.get("name", ""),
                     "args": {k: v for k, v in call.items() if k != "name"},
                 })
-                tool_result_str = _execute_tool(hass, call)
-                tool_result_data = json.loads(tool_result_str)
+
+            async def _run_one_tool(sig: str, call: dict) -> tuple[str, dict, str]:
+                if sig in executed_calls_cache:
+                    return sig, call, executed_calls_cache[sig]
+                result = await hass.async_add_executor_job(_execute_tool, hass, call)
+                return sig, call, result
+
+            tool_results_parallel = await asyncio.gather(
+                *[_run_one_tool(s, c) for s, c in tool_calls_filtered],
+                return_exceptions=True,
+            )
+
+            for idx, item in enumerate(tool_results_parallel):
+                sig_call = tool_calls_filtered[idx]
+                sig, call = sig_call
+                if isinstance(item, BaseException):
+                    _LOGGER.warning("Kyber: tool %s raised %s", call.get("name"), item)
+                    tool_result_str = json.dumps({"error": str(item)})
+                else:
+                    _, _, tool_result_str = item
+                    if sig not in executed_calls_cache:
+                        executed_calls_cache[sig] = tool_result_str
+                        new_call_count += 1
+                try:
+                    tool_result_data = json.loads(tool_result_str)
+                except json.JSONDecodeError:
+                    tool_result_data = {"error": "invalid_json", "raw": tool_result_str[:200]}
                 _LOGGER.debug("Tool call %s → %s chars", call.get("name"), len(tool_result_str))
 
                 # Build a short human-readable summary for the UI
@@ -1024,14 +1200,52 @@ class KyberView(HomeAssistantView):
             tool_exchange += f"{clean_response}\n{tool_results_block}\nAssistant:"
             _progress_emit(hass, request_id, {"type": "thinking", "stage": "follow_up"})
 
+            # Stop early if model is looping (every call was a duplicate)
+            if new_call_count == 0:
+                _LOGGER.info("Kyber: all tool calls in round were duplicates; stopping loop")
+                _progress_emit(hass, request_id, {
+                    "type": "info",
+                    "message": "Model repeated previous tool calls — stopping early.",
+                })
+                # Force a final response by appending a directive to the exchange
+                tool_exchange += (
+                    "\n[SYSTEM: You already called these tools. Do NOT call them again. "
+                    "Produce your final answer or plan block now.]\n"
+                )
+
         yaml_blocks = _extract_yaml_blocks(response_text)
         plan_block = _extract_plan_block(response_text)
+        clarify_block = _extract_clarify_block(response_text)
+
+        # Remove the raw clarify code block from the displayed response; UI renders it.
+        if clarify_block:
+            response_text = _CLARIFY_BLOCK_RE.sub("", response_text).strip()
 
         # Strip any [TOOL_RESULT: ...] or [T00L_RESULT: ...] lines the model echoed back.
         response_text = _TOOL_RESULT_STRIP_RE.sub("", response_text).strip()
+        # Also strip multi-line [TOOL_RESULT: ...] payloads (block form)
+        response_text = re.sub(
+            r"\[T[O0]{2}L[_\-]RESULT:[^\]]*\][^\n]*\n(?:.*?\n)*?(?=\n[A-Z]|\n\n|\Z)",
+            "",
+            response_text,
+            flags=re.IGNORECASE,
+        ).strip()
 
         # Strip any unparsed [TOOL_CALL: ...] / [T00L_CALL: ...] from the final response.
         response_text = _TOOL_CALL_RE.sub("", response_text).strip()
+
+        # Strip "User: ..." and "Assistant:" turn echoes
+        response_text = re.sub(r"^\s*User:\s.*?(?=\n\n|\Z)", "", response_text, flags=re.DOTALL).strip()
+        response_text = re.sub(r"^\s*Assistant:\s*", "", response_text, flags=re.MULTILINE).strip()
+
+        # Strip leftover bare JSON-result lines (e.g. {"_truncated": true, ...} or {"light.X": ...})
+        # that escaped the [TOOL_RESULT:] wrapper.
+        response_text = re.sub(
+            r"^\s*\{\"(?:_truncated|light\.|switch\.|sensor\.|result)[^\n]+\}\s*$",
+            "",
+            response_text,
+            flags=re.MULTILINE,
+        ).strip()
 
         # Strip [SYSTEM: ...] / [END SYSTEM] blocks the model echoed back.
         response_text = re.sub(r"\[SYSTEM:[^\]]*?\].*?\[END SYSTEM\]\s*", "", response_text, flags=re.DOTALL).strip()
@@ -1246,7 +1460,15 @@ class KyberView(HomeAssistantView):
                     )
 
         _progress_complete(hass, request_id)
-        return self.json({"response": response_text, "yaml_blocks": yaml_blocks, "plan": plan_block, "context_stats": context_stats, "tool_log": tool_log})
+        plan_block = _annotate_plan_approval(plan_block)
+        return self.json({
+            "response": response_text,
+            "yaml_blocks": yaml_blocks,
+            "plan": plan_block,
+            "clarify": clarify_block,
+            "context_stats": context_stats,
+            "tool_log": tool_log,
+        })
 
 
 class KyberProgressView(HomeAssistantView):
@@ -1609,6 +1831,33 @@ class KyberExecuteView(HomeAssistantView):
         actions: list[dict] = body.get("actions", [])
         if not actions:
             return self.json_message("Missing 'actions' field", HTTPStatus.BAD_REQUEST)
+
+        # Enforce explicit approval for config-changing/destructive actions.
+        # The client must POST `approved: true` to apply them. Autopilot
+        # auto-execute MUST set this to false (or omit it), in which case
+        # we refuse and instruct the UI to require a user click.
+        approved: bool = bool(body.get("approved", False))
+        if not approved:
+            blocked: list[dict] = []
+            for action in actions:
+                if _action_requires_approval(action):
+                    blocked.append({
+                        "type": action.get("type"),
+                        "entity_id": action.get("entity_id"),
+                        "domain": action.get("domain"),
+                        "service": action.get("service"),
+                        "reason": "Configuration / destructive action requires explicit user approval.",
+                    })
+            if blocked:
+                return self.json({
+                    "status": "approval_required",
+                    "blocked_actions": blocked,
+                    "message": (
+                        "These actions change Home Assistant configuration or are "
+                        "destructive and cannot be auto-executed. The user must click "
+                        "Execute to approve them."
+                    ),
+                }, status_code=HTTPStatus.FORBIDDEN)
 
         entity_reg = er.async_get(hass)
         label_reg = lr.async_get(hass)

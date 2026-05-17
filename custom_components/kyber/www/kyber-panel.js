@@ -403,6 +403,16 @@ const STYLES = `
     margin-bottom: 6px;
   }
 
+  .plan-approval-note {
+    background: rgba(255, 152, 0, 0.12);
+    border-left: 3px solid var(--warning-color, #ff9800);
+    color: var(--primary-text-color, #ddd);
+    padding: 8px 10px;
+    margin: 8px 0;
+    font-size: 12px;
+    border-radius: 4px;
+  }
+
   .plan-changes {
     list-style: none;
     margin: 0 0 10px 0;
@@ -2952,6 +2962,17 @@ class KyberPanel extends HTMLElement {
     );
     const hasExecutable = executableActions.length > 0;
 
+    // Split executable actions by approval requirement.
+    // Config/destructive actions (assign_area, rename_entity, lock unlock, etc.)
+    // ALWAYS need an explicit user click — autopilot cannot bypass them.
+    const approvalActions = executableActions.filter((a) => a.requires_approval === true);
+    const autoActions = executableActions.filter((a) => a.requires_approval !== true);
+    const requiresApproval = plan.requires_approval === true || approvalActions.length > 0;
+    const autopilotCanRun = this._autopilot && autoActions.length > 0;
+    const approvalBadge = requiresApproval
+      ? `<div class="plan-approval-note">🔒 ${approvalActions.length} action(s) change Home Assistant configuration and require your explicit approval.</div>`
+      : "";
+
     card.innerHTML = `
       <div class="plan-overview">
         <div class="plan-overview-label">📋 Proposal</div>
@@ -2961,7 +2982,8 @@ class KyberPanel extends HTMLElement {
       <ul class="plan-changes">${changeRows}</ul>
       ${missingWarning}
       ${warnings}
-      ${this._autopilot && hasExecutable
+      ${approvalBadge}
+      ${autopilotCanRun && !requiresApproval
         ? `<div class="plan-result" style="color:var(--warning-color,#ff9800);font-size:12px">⚡ Autopilot: executing in 2s…</div>`
         : `<button class="btn-execute"${hasExecutable ? "" : " disabled"}>✅ Execute${invalidEntities.size > 0 && hasExecutable ? ` (${executableActions.length} of ${(plan.actions || []).length})` : ""}</button>`
       }
@@ -2972,7 +2994,11 @@ class KyberPanel extends HTMLElement {
     const allResults = card.querySelectorAll(".plan-result");
     const resultEl = allResults[allResults.length - 1];
 
-    const doExecute = async () => {
+    // doExecute(opts): user click = approved:true (runs all incl. config changes).
+    // Autopilot path passes approved:false and only the safe subset.
+    const doExecute = async (opts = {}) => {
+      const approved = opts.approved !== false; // default: user-approved
+      const actionsToRun = opts.actions || executableActions;
       if (card.querySelector(".btn-execute")) {
         card.querySelector(".btn-execute").disabled = true;
       }
@@ -2986,8 +3012,15 @@ class KyberPanel extends HTMLElement {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ actions: executableActions }),
+          body: JSON.stringify({ actions: actionsToRun, approved }),
         });
+        if (resp.status === 403) {
+          const blocked = await resp.json().catch(() => ({}));
+          resultEl.textContent = `🔒 Approval required for ${(blocked.blocked_actions || []).length} action(s). Click Execute to approve.`;
+          resultEl.className = "plan-result";
+          if (card.querySelector(".btn-execute")) card.querySelector(".btn-execute").disabled = false;
+          return;
+        }
         const data = await resp.json();
         const failed = (data.results || []).filter((r) => r.status !== "ok");
         if (failed.length === 0) {
@@ -3064,12 +3097,19 @@ class KyberPanel extends HTMLElement {
     };
 
     if (card.querySelector(".btn-execute")) {
-      card.querySelector(".btn-execute").addEventListener("click", doExecute);
+      card.querySelector(".btn-execute").addEventListener("click", () => doExecute({ approved: true }));
     }
 
-    // Autopilot: auto-execute after 2s
-    if (this._autopilot && hasExecutable) {
-      setTimeout(() => doExecute(), 2000);
+    // Autopilot: only auto-execute the SAFE subset (runtime state changes).
+    // Config-changing/destructive actions always wait for explicit approval.
+    if (this._autopilot && autoActions.length > 0 && !requiresApproval) {
+      setTimeout(() => doExecute({ approved: false, actions: autoActions }), 2000);
+    } else if (this._autopilot && autoActions.length > 0 && requiresApproval) {
+      // Mixed plan: auto-run safe ones, leave Execute button for the rest.
+      setTimeout(() => {
+        resultEl.textContent = `⚡ Autopilot: running ${autoActions.length} safe action(s); config changes await your approval…`;
+        doExecute({ approved: false, actions: autoActions });
+      }, 2000);
     }
 
     return card;
