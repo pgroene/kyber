@@ -87,33 +87,12 @@ from .knowledge_integration import (
     KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView,
 )
 from .api_utilities import (
-    _PROGRESS_KEY, _PROGRESS_MAX_AGE, _PROGRESS_MAX_ENTRIES,
+    _PROGRESS_KEY,
     _progress_emit, _progress_complete,
     KyberProgressView, KyberSaveView, _SUMMARIZE_SYSTEM_PROMPT, KyberSummarizeView,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-_DEBUG_MODE_KEY = "kyber_debug_mode"
-_DEBUG_MODE_DEFAULT = True
-
-
-def _get_debug_mode(hass: HomeAssistant) -> bool:
-    val = hass.data.get(_DEBUG_MODE_KEY)
-    if val is None:
-        return _DEBUG_MODE_DEFAULT
-    return bool(val)
-
-
-# Debug snapshot keys — in-memory only, purged on HA restart.
-_DEBUG_LAST_TURN_KEY = "kyber_debug_last_turn"
-_DEBUG_SNAPSHOTS_KEY = "kyber_debug_snapshots"  # request_id -> snapshot ring buffer
-_DEBUG_SNAPSHOTS_MAX = 50
-_DEBUG_TOOL_HISTORY_KEY = "kyber_debug_tool_history"
-_DEBUG_TOOL_HISTORY_MAX = 20
-_DEBUG_LOG_CAPTURE_KEY = "kyber_debug_log_capture"  # request_id -> list[dict]
-_DEBUG_LOG_CAPTURE_MAX_PER_TURN = 500
-
 
 def _sanitize_prompt_value(text: str) -> str:
     """Sanitize a user-supplied string before embedding it in the system prompt.
@@ -285,6 +264,10 @@ class KyberView(HomeAssistantView):
         compacted_summary: str = body.get("compacted_summary", "").strip()
         editor_mode: str = body.get("editor_mode", "automation")
         request_id: str = str(body.get("request_id", "")).strip()
+        # Sanitize to safe alphanumeric + hyphen/underscore only.
+        # request_id is used as a dict key and appears in debug filenames,
+        # so we must prevent path-traversal and injection payloads.
+        request_id = re.sub(r"[^a-zA-Z0-9_\-]", "", request_id)[:64]
         if not request_id:
             import uuid as _uuid
             request_id = _uuid.uuid4().hex[:12]
@@ -561,7 +544,14 @@ class KyberView(HomeAssistantView):
                     f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
                 )
 
-            response_text = result.data if isinstance(result.data, str) else str(result.data)
+            response_text = result.data if isinstance(result.data, str) else (
+                str(result.data) if result.data is not None else ""
+            )
+            if not isinstance(result.data, str):
+                _LOGGER.warning(
+                    "Kyber: AI result.data is not str (type=%s); coerced to string",
+                    type(result.data).__name__,
+                )
             tool_calls = _parse_tool_calls(response_text)
 
             # Also handle plan blocks where the AI put tool calls inside actions
@@ -806,7 +796,7 @@ class KyberView(HomeAssistantView):
                         synth_text = (
                             synth_result.data
                             if isinstance(synth_result.data, str)
-                            else str(synth_result.data)
+                            else (str(synth_result.data) if synth_result.data is not None else "")
                         )
                         synth_text = _strip_tool_calls(synth_text).strip()
                         if synth_text:

@@ -320,7 +320,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         })
 
     if name == "get_area_entities":
-        area_query = call.get("area", "").strip().lower()
+        area_query = (call.get("area") or "").strip().lower()
         if not area_query:
             return json.dumps({"error": "Missing 'area' argument"})
         areas = area_reg.async_list_areas()
@@ -330,7 +330,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         )
         if not area_obj:
             return json.dumps({"error": f"Area '{area_query}' not found"})
-        domain_filter = call.get("domain", "").strip().lower()
+        domain_filter = (call.get("domain") or "").strip().lower()
         results = {}
         for entry in entity_reg.entities.values():
             if entry.area_id != area_obj.id:
@@ -348,7 +348,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         return json.dumps({"area": area_obj.name, "entities": results})
 
     if name == "list_entities_by_label":
-        label_query = call.get("label", "").strip().lower()
+        label_query = (call.get("label") or "").strip().lower()
         if not label_query:
             return json.dumps({"error": "Missing 'label' argument"})
         labels = label_reg.async_list_labels()
@@ -369,7 +369,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         return json.dumps({"label": label_obj.name, "entities": results})
 
     if name == "search_entities":
-        query = call.get("query", "").strip().lower()
+        query = (call.get("query") or "").strip().lower()
         # Support multi-query: `queries` accepts a list of strings; results are
         # merged (OR semantics — entity matches if ANY query matches it).
         queries_raw = call.get("queries")
@@ -430,7 +430,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         return json.dumps(final or {"info": f"No entities matching '{query_display}'"})
 
     if name == "list_entities_without_area":
-        domain_filter = call.get("domain", "").strip().lower()
+        domain_filter = (call.get("domain") or "").strip().lower()
         results = {}
         for entry in entity_reg.entities.values():
             if entry.area_id is not None:
@@ -470,7 +470,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         except (TypeError, ValueError):
             limit = 10
         # Caller must ensure store was loaded before; if not, return empty.
-        if not kstore._loaded:
+        if not kstore.is_loaded:
             return json.dumps({"entries": [], "_note": "knowledge store not yet loaded"})
         entries = kstore.search_sync(query=query, category=category, subject=subject, limit=limit)
         return json.dumps({"entries": entries, "count": len(entries)})
@@ -480,7 +480,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         eid = str(call.get("entity_id", "")).strip()
         if not eid:
             return json.dumps({"error": "Missing 'entity_id' argument"})
-        if not kstore._loaded:
+        if not kstore.is_loaded:
             return json.dumps({"entries": [], "_note": "knowledge store not yet loaded"})
         entries = kstore.get_for_entity_sync(eid)
         return json.dumps({"entity_id": eid, "entries": entries, "count": len(entries)})
@@ -644,10 +644,10 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         return json.dumps({"integrations": result, "count": len(result)})
 
     if name == "get_integration_entities":
-        integration = str(call.get("integration", "")).strip().lower()
+        integration = (call.get("integration") or "").strip().lower()
         if not integration:
             return json.dumps({"error": "Missing 'integration' argument"})
-        domain_filter = call.get("domain", "").strip().lower()
+        domain_filter = (call.get("domain") or "").strip().lower()
         results = {}
         for entry in entity_reg.entities.values():
             if (entry.platform or "").lower() != integration:

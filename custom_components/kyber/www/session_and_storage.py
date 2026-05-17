@@ -336,7 +336,7 @@ class KyberSessionsView(HomeAssistantView):
 
         try:
             body = await request.json()
-        except Exception:
+        except Exception:  # noqa: BLE001 — body is optional on DELETE
             body = {}
 
         data, user_data = await self._load_user(hass, user_id)

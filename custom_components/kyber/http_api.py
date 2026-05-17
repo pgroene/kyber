@@ -264,6 +264,10 @@ class KyberView(HomeAssistantView):
         compacted_summary: str = body.get("compacted_summary", "").strip()
         editor_mode: str = body.get("editor_mode", "automation")
         request_id: str = str(body.get("request_id", "")).strip()
+        # Sanitize to safe alphanumeric + hyphen/underscore only.
+        # request_id is used as a dict key and appears in debug filenames,
+        # so we must prevent path-traversal and injection payloads.
+        request_id = re.sub(r"[^a-zA-Z0-9_\-]", "", request_id)[:64]
         if not request_id:
             import uuid as _uuid
             request_id = _uuid.uuid4().hex[:12]
@@ -540,7 +544,14 @@ class KyberView(HomeAssistantView):
                     f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
                 )
 
-            response_text = result.data if isinstance(result.data, str) else str(result.data)
+            response_text = result.data if isinstance(result.data, str) else (
+                str(result.data) if result.data is not None else ""
+            )
+            if not isinstance(result.data, str):
+                _LOGGER.warning(
+                    "Kyber: AI result.data is not str (type=%s); coerced to string",
+                    type(result.data).__name__,
+                )
             tool_calls = _parse_tool_calls(response_text)
 
             # Also handle plan blocks where the AI put tool calls inside actions
@@ -785,7 +796,7 @@ class KyberView(HomeAssistantView):
                         synth_text = (
                             synth_result.data
                             if isinstance(synth_result.data, str)
-                            else str(synth_result.data)
+                            else (str(synth_result.data) if synth_result.data is not None else "")
                         )
                         synth_text = _strip_tool_calls(synth_text).strip()
                         if synth_text:
