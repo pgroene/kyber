@@ -42,6 +42,8 @@ async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -
     Uses force=True so the AI is called on every item regardless of whether
     the YAML has changed since the last run.
     """
+    import asyncio
+
     data = dict(entry.data)
     stored_version = int(data.get(CONF_INITIAL_LEARNING_VERSION, 0))
     if stored_version >= CURRENT_INITIAL_LEARNING_VERSION:
@@ -66,6 +68,24 @@ async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -
             ),
         ),
     )
+
+    # Wait for the AI task entity to become available (other integrations may
+    # load after Kyber). Retry for up to 60 seconds before giving up.
+    _LOGGER.warning(
+        "Kyber initial learning v%d: waiting for AI entity '%s'…",
+        CURRENT_INITIAL_LEARNING_VERSION,
+        ai_entity_id,
+    )
+    for _attempt in range(12):
+        if hass.states.get(ai_entity_id) is not None:
+            break
+        await asyncio.sleep(5)
+    else:
+        _LOGGER.warning(
+            "Kyber initial learning: AI entity '%s' not available after 60s — aborting",
+            ai_entity_id,
+        )
+        return
 
     _LOGGER.warning(
         "Kyber initial learning v%d starting — analyze=%s, deep_runs=%d, ai_entity=%s",

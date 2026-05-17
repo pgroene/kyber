@@ -11,7 +11,7 @@ CONF_INITIAL_DEEP_LEARNING_RUNS = "initial_deep_learning_runs"
 CONF_INITIAL_LEARNING_DONE = "initial_learning_done"
 CONF_INITIAL_LEARNING_VERSION = "initial_learning_version"
 # Bump this to trigger a re-run of initial learning on existing installs.
-CURRENT_INITIAL_LEARNING_VERSION = 2
+CURRENT_INITIAL_LEARNING_VERSION = 3
 
 DEFAULT_MAX_TOKENS = 2048
 DEFAULT_ENABLE_DEBUG_VIEWS = False
