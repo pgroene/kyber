@@ -2887,6 +2887,176 @@ class KyberDebugBundleView(HomeAssistantView):
         )
 
 
+
+
+class KyberBugReportView(HomeAssistantView):
+    """Generate an AI-drafted GitHub issue from a debug turn snapshot.
+
+    POST /api/kyber/debug/bug-report
+    Body: { request_id, what_asked, what_expected, what_happened, include_bundle }
+    Returns: { title, body, similar_issues }
+    """
+
+    url = "/api/kyber/debug/bug-report"
+    name = "api:kyber:debug:bug_report"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        import re as _re
+        from collections import OrderedDict
+        from urllib.parse import quote as _quote
+
+        hass: HomeAssistant = request.app["hass"]
+        try:
+            body = await request.json()
+        except Exception:
+            return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
+
+        rid = (body.get("request_id") or "").strip()
+        what_asked = (body.get("what_asked") or "").strip()
+        what_expected = (body.get("what_expected") or "").strip()
+        what_happened = (body.get("what_happened") or "").strip()
+        include_bundle = bool(body.get("include_bundle", True))
+
+        if not (what_asked or what_happened):
+            return self.json_message("Provide at least what_asked or what_happened", HTTPStatus.BAD_REQUEST)
+
+        snaps = hass.data.get(_DEBUG_SNAPSHOTS_KEY)
+        snap: dict | None = None
+        if rid and isinstance(snaps, OrderedDict):
+            snap = snaps.get(rid)
+        if snap is None:
+            snap = hass.data.get(_DEBUG_LAST_TURN_KEY)
+
+        entity_id = ""
+        entries = hass.config_entries.async_entries(DOMAIN)
+        if entries:
+            first = entries[0]
+            entity_id = str(first.options.get(CONF_AI_TASK_ENTITY_ID) or first.data.get(CONF_AI_TASK_ENTITY_ID, ""))
+        if not entity_id:
+            return self.json_message("No AI task entity configured", HTTPStatus.BAD_REQUEST)
+
+        bundle_summary = _build_redacted_bundle_summary(snap) if include_bundle and snap else ""
+
+        prompt_parts = [
+            "Generate a concise GitHub issue report for the Kyber Home Assistant integration.",
+            "Respond with EXACTLY this format (no extra text before or after):",
+            "",
+            "TITLE: <one-line issue title, max 80 chars, no markdown>",
+            "BODY:",
+            "<the full GitHub issue body in markdown>",
+            "",
+            "The body must include: ## Summary, ## Steps to reproduce, ## Expected behavior,",
+            "## Actual behavior, and (if bundle data is provided) ## Debug info.",
+            "",
+            "User description:",
+            f"**What was asked / typed:** {what_asked or '(not provided)'}",
+            f"**What was expected:** {what_expected or '(not provided)'}",
+            f"**What actually happened:** {what_happened or '(not provided)'}",
+        ]
+        if bundle_summary:
+            prompt_parts += ["", "Debug bundle summary (PII has been redacted):", bundle_summary]
+
+        try:
+            result = await async_generate_data(
+                hass,
+                task_name=f"{DOMAIN}_bug_report",
+                entity_id=entity_id,
+                instructions="\n".join(prompt_parts),
+            )
+            raw = result.data if isinstance(result.data, str) else str(result.data)
+        except Exception as exc:
+            return self.json_message(f"AI generation failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+
+        title, body_lines, in_body = "", [], False
+        for line in raw.strip().splitlines():
+            if not in_body and line.startswith("TITLE:"):
+                title = line[len("TITLE:"):].strip()
+            elif not in_body and line.strip() == "BODY:":
+                in_body = True
+            elif in_body:
+                body_lines.append(line)
+        if not title:
+            title = f"bug: {(what_asked or what_happened)[:70]}"
+        body_md = "\n".join(body_lines).strip() or raw.strip()
+
+        similar: list[dict] = []
+        try:
+            import aiohttp as _aiohttp
+            stopwords = {"when", "with", "this", "that", "from", "into", "does", "kyber"}
+            words = [w for w in _re.split(r"\W+", (title + " " + what_happened).lower())
+                     if len(w) > 4 and w not in stopwords]
+            q = _quote(" ".join(words[:6]) + " repo:pgroene/kyber")
+            search_url = f"https://api.github.com/search/issues?q={q}&per_page=3"
+            async with _aiohttp.ClientSession() as sess:
+                async with sess.get(
+                    search_url,
+                    headers={"Accept": "application/vnd.github.v3+json"},
+                    timeout=_aiohttp.ClientTimeout(total=6),
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        similar = [
+                            {"number": i["number"], "title": i["title"], "url": i["html_url"], "state": i["state"]}
+                            for i in data.get("items", [])[:3]
+                        ]
+        except Exception:
+            pass
+
+        return self.json({"title": title, "body": body_md, "similar_issues": similar})
+
+
+def _build_redaction_map(snap: dict) -> dict[str, str]:
+    """Build {token: redacted-N} map from entity IDs in the snap."""
+    import re as _re
+    tokens: list[str] = []
+    seen: set[str] = set()
+
+    def _add(tok: str) -> None:
+        tok = tok.strip()
+        if len(tok) < 3 or tok.lower() in {"the", "and", "for", "are", "not", "can", "get", "set"}:
+            return
+        if tok not in seen:
+            seen.add(tok)
+            tokens.append(tok)
+
+    for entry in snap.get("tool_log") or []:
+        for m in _re.finditer(r"\b[a-z_]+\.[a-z0-9_]+\b", str(entry)):
+            _add(m.group(0))
+            for part in _re.split(r"[._]", m.group(0)):
+                if len(part) >= 4 and not part.isdigit():
+                    _add(part)
+    for field in ("instructions_used", "expanded_prompt"):
+        for m in _re.finditer(r"\b[a-z_]+\.[a-z0-9_]+\b", snap.get(field) or ""):
+            _add(m.group(0))
+    return {t: f"***redacted-{i + 1}***" for i, t in enumerate(sorted(tokens, key=len, reverse=True))}
+
+
+def _build_redacted_bundle_summary(snap: dict) -> str:
+    """Short redacted summary of key snap fields for the AI prompt."""
+    rmap = _build_redaction_map(snap)
+
+    def _r(text: str) -> str:
+        for tok, rep in rmap.items():
+            text = text.replace(tok, rep)
+        return text
+
+    lines = [
+        f"- Kyber version: {snap.get('kyber_version', '?')}",
+        f"- Intent: {snap.get('intent', '?')}",
+        f"- Prompt size: {snap.get('char_count', '?')} chars",
+        f"- Response time: {snap.get('elapsed_ms', '?')} ms",
+        f"- Tool calls: {len(snap.get('tool_log') or [])}",
+    ]
+    for entry in (snap.get("tool_log") or [])[:6]:
+        lines.append(f"  - {entry.get('name', '?')}: {entry.get('status', '?')}")
+    response = (snap.get("response_text") or "")[:600]
+    if response:
+        lines.append(f"- AI response snippet: {_r(response)}")
+    for rec in (snap.get("logs") or []):
+        if rec.get("level") in ("WARNING", "ERROR"):
+            lines.append(f"- Log {rec['level']}: {_r(rec.get('message', ''))}")
+    return "\n".join(lines)
 class KyberDebugModeView(HomeAssistantView):
     """Get/set the debug-mode flag used by the panel.
 

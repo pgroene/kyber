@@ -464,6 +464,42 @@ const STYLES = `
   .dbg-turn-feedback .tf-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); }
   .dbg-turn-feedback .tf-btn:disabled { opacity: 0.4; cursor: default; }
   .dbg-turn-feedback .tf-btn.tf-bundle { font-size: 12px; margin-left: auto; }
+  .dbg-turn-feedback .tf-btn.tf-bug-report { font-size: 12px; }
+  /* Bug report modal */
+  .bug-report-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9999;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .bug-report-dialog {
+    background: var(--card-background-color, #1e1e2e);
+    border: 1px solid var(--divider-color, #444);
+    border-radius: 12px; padding: 24px; width: 560px; max-width: 95vw;
+    max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    display: flex; flex-direction: column; gap: 14px;
+    color: var(--primary-text-color, #e0e0e0);
+  }
+  .bug-report-dialog h3 { margin: 0; font-size: 16px; }
+  .bug-report-dialog label { font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+  .bug-report-dialog textarea {
+    background: var(--secondary-background-color, #2a2a3e);
+    border: 1px solid var(--divider-color, #444); border-radius: 6px;
+    color: inherit; padding: 8px; font-size: 13px; resize: vertical; font-family: inherit;
+  }
+  .bug-report-dialog textarea:focus { outline: none; border-color: var(--primary-color, #4a9eff); }
+  .bug-report-checkbox { flex-direction: row !important; align-items: center; gap: 8px !important; }
+  .bug-report-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .bug-report-actions button { padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; border: none; }
+  .bug-report-btn-submit { background: var(--primary-color, #4a9eff); color: #fff; }
+  .bug-report-btn-submit:disabled { opacity: 0.5; cursor: default; }
+  .bug-report-btn-cancel { background: var(--secondary-background-color, #2a2a3e); color: inherit; border: 1px solid var(--divider-color, #444) !important; }
+  .bug-report-similar { font-size: 12px; }
+  .bug-report-similar a { color: var(--primary-color, #4a9eff); }
+  .bug-report-result-title input {
+    width: 100%; background: var(--secondary-background-color, #2a2a3e);
+    border: 1px solid var(--divider-color, #444); border-radius: 6px;
+    color: inherit; padding: 8px; font-size: 13px; box-sizing: border-box;
+  }
+  .bug-report-spinner { text-align: center; padding: 24px; font-size: 14px; }
   .dbg-turn-feedback .tf-auto { color: var(--warning-color, #ff9800); font-size: 11px; }
   .dbg-turn-feedback .tf-status { color: var(--secondary-text-color, #aaa); font-size: 11px; }
   .dbg-turn-feedback .tf-status.ok { color: var(--success-color, #4caf50); }
@@ -1722,7 +1758,112 @@ class KyberPanel extends HTMLElement {
     }
   }
 
-  async _submitTurnFeedback(rating, knowledgeIds, btnsRoot) {
+        async _openBugReportFlow(requestId, btn) {
+          const token = this._hass.auth.data.access_token;
+          const shadow = this.shadowRoot;
+
+          // Build and mount the overlay
+          const overlay = document.createElement("div");
+          overlay.className = "bug-report-overlay";
+          overlay.innerHTML = `
+            <div class="bug-report-dialog" id="br-dialog">
+              <h3>🐛 Create Bug Report</h3>
+              <label>What did you ask Kyber?
+                <textarea id="br-asked" rows="2" placeholder="e.g. Turn on the kitchen lights"></textarea>
+              </label>
+              <label>What did you expect to happen?
+                <textarea id="br-expected" rows="2" placeholder="e.g. Kitchen lights turn on"></textarea>
+              </label>
+              <label>What actually happened?
+                <textarea id="br-happened" rows="3" placeholder="e.g. Nothing happened / wrong room / error message"></textarea>
+              </label>
+              <label class="bug-report-checkbox">
+                <input type="checkbox" id="br-include-bundle" checked>
+                Include debug bundle summary (PII will be redacted)
+              </label>
+              <div class="bug-report-actions">
+                <button class="bug-report-btn-cancel" id="br-cancel">Cancel</button>
+                <button class="bug-report-btn-submit" id="br-submit">Generate report →</button>
+              </div>
+            </div>`;
+          shadow.appendChild(overlay);
+
+          const close = () => overlay.remove();
+          overlay.querySelector("#br-cancel").addEventListener("click", close);
+          overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+          overlay.querySelector("#br-submit").addEventListener("click", async () => {
+            const asked = overlay.querySelector("#br-asked").value.trim();
+            const expected = overlay.querySelector("#br-expected").value.trim();
+            const happened = overlay.querySelector("#br-happened").value.trim();
+            const includeBundle = overlay.querySelector("#br-include-bundle").checked;
+
+            if (!asked && !happened) {
+              overlay.querySelector("#br-happened").focus();
+              return;
+            }
+
+            // Step 2: spinner
+            const dlg = overlay.querySelector("#br-dialog");
+            dlg.innerHTML = `<div class="bug-report-spinner">⏳ Generating bug report…</div>`;
+
+            let data;
+            try {
+              const resp = await fetch("/api/kyber/debug/bug-report", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ request_id: requestId, what_asked: asked, what_expected: expected, what_happened: happened, include_bundle: includeBundle }),
+              });
+              if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+              data = await resp.json();
+            } catch (err) {
+              dlg.innerHTML = `<h3>🐛 Bug Report</h3><p style="color:var(--error-color,#f44)">Failed: ${this._escapeHtml(err.message)}</p><div class="bug-report-actions"><button class="bug-report-btn-cancel" id="br-cancel2">Close</button></div>`;
+              dlg.querySelector("#br-cancel2").addEventListener("click", close);
+              return;
+            }
+
+            // Step 3: review
+            const similar = (data.similar_issues || []);
+            const similarHtml = similar.length
+              ? `<div class="bug-report-similar"><strong>Similar open issues:</strong><ul style="margin:4px 0 0;padding-left:18px">${similar.map(i => `<li><a href="${this._escapeHtml(i.url)}" target="_blank">#${i.number} ${this._escapeHtml(i.title)}</a> [${i.state}]</li>`).join("")}</ul></div>`
+              : "";
+
+            const encodedTitle = encodeURIComponent(data.title || "");
+            const encodedBody = encodeURIComponent(data.body || "");
+            const ghUrl = `https://github.com/pgroene/kyber/issues/new?title=${encodedTitle}&body=${encodedBody}`;
+
+            dlg.innerHTML = `
+              <h3>🐛 Review Bug Report</h3>
+              ${similarHtml}
+              <label class="bug-report-result-title">Title
+                <input type="text" id="br-title" value="${this._escapeHtml(data.title || "")}">
+              </label>
+              <label>Body (markdown)
+                <textarea id="br-body" rows="12">${this._escapeHtml(data.body || "")}</textarea>
+              </label>
+              <div class="bug-report-actions">
+                <button class="bug-report-btn-cancel" id="br-close">Close</button>
+                <button class="bug-report-btn-submit" id="br-copy">📋 Copy</button>
+                <button class="bug-report-btn-submit" id="br-open-gh">Open on GitHub ↗</button>
+              </div>`;
+
+            dlg.querySelector("#br-close").addEventListener("click", close);
+            dlg.querySelector("#br-copy").addEventListener("click", () => {
+              const title = dlg.querySelector("#br-title").value;
+              const body = dlg.querySelector("#br-body").value;
+              navigator.clipboard.writeText(`## ${title}\n\n${body}`).then(() => {
+                const btn2 = dlg.querySelector("#br-copy");
+                btn2.textContent = "✓ Copied!";
+                setTimeout(() => { btn2.textContent = "📋 Copy"; }, 2000);
+              });
+            });
+            dlg.querySelector("#br-open-gh").addEventListener("click", () => {
+              const t = encodeURIComponent(dlg.querySelector("#br-title").value);
+              const b = encodeURIComponent(dlg.querySelector("#br-body").value);
+              window.open(`https://github.com/pgroene/kyber/issues/new?title=${t}&body=${b}`, "_blank");
+            });
+          });
+        }(rating, knowledgeIds, btnsRoot) {
     const status = btnsRoot.querySelector(".tf-status");
     btnsRoot.querySelectorAll(".tf-btn-rate").forEach((b) => (b.disabled = true));
     try {
@@ -2262,6 +2403,7 @@ class KyberPanel extends HTMLElement {
         ${autoNote}
         <span class="tf-status"></span>
         <button class="tf-btn tf-bundle" title="Download a zip with the full snapshot + logs of this turn" ${snap.request_id ? "" : "disabled"}>⬇ download bundle</button>
+        <button class="tf-btn tf-bug-report" title="Create a GitHub bug report from this turn" ${snap.request_id ? "" : "disabled"}>🐛 bug report</button>
       </div>`;
     body.innerHTML = `
       ${feedbackBar}
@@ -2299,6 +2441,8 @@ class KyberPanel extends HTMLElement {
       bar.querySelector(".tf-down")?.addEventListener("click", () => this._submitTurnFeedback(2, knowledgeIds, bar));
       const dl = bar.querySelector(".tf-bundle");
       if (dl && reqId) dl.addEventListener("click", () => this._downloadDebugBundle(reqId, dl));
+      const br = bar.querySelector(".tf-bug-report");
+      if (br && reqId) br.addEventListener("click", () => this._openBugReportFlow(reqId, br));
     }
     if (picked.length > 0) {
       const list = body.querySelector("#dbg-picked-list");
