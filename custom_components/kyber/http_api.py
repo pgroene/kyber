@@ -27,6 +27,13 @@ except ImportError:  # HA < 2025.2 (test environments)
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, SYSTEM_PROMPT_TEMPLATE
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
 from .analyzer import analyze_automations as _analyze_automations
+from .source import (
+    read_automations as _src_read_automations,
+    read_scripts as _src_read_scripts,
+    read_blueprints as _src_read_blueprints,
+    read_blueprint as _src_read_blueprint,
+)
+from . import deep_analyzer as _deep
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -847,6 +854,114 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         result["proposals"] = proposals
         return json.dumps(result)
 
+    # ── Automation / script / blueprint source readers ────────────────
+    # Expose the *raw* YAML configs so the model can deeply reason about
+    # trigger/condition/action structures (not just state attributes).
+    if name == "list_automations":
+        try:
+            items = _src_read_automations(hass)
+        except Exception as err:  # noqa: BLE001
+            return json.dumps({"error": f"Read failed: {err}"})
+        out = [{
+            "id": it.get("id"),
+            "alias": it.get("alias"),
+            "mode": it.get("mode"),
+            "num_triggers": it.get("num_triggers"),
+            "num_actions": it.get("num_actions"),
+            "description": it.get("description"),
+        } for it in items]
+        return json.dumps({"automations": out, "count": len(out)})
+
+    if name == "get_automation":
+        wanted = str(call.get("id") or call.get("alias") or call.get("entity_id") or "").strip()
+        if not wanted:
+            return json.dumps({"error": "Missing 'id' (or 'alias') argument"})
+        try:
+            items = _src_read_automations(hass)
+        except Exception as err:  # noqa: BLE001
+            return json.dumps({"error": f"Read failed: {err}"})
+        # Match by id (exact), then alias (case-insensitive), then entity_id suffix
+        match = None
+        for it in items:
+            if str(it.get("id", "")) == wanted:
+                match = it
+                break
+        if not match:
+            for it in items:
+                if str(it.get("alias", "")).lower() == wanted.lower():
+                    match = it
+                    break
+        if not match:
+            # entity_id form: automation.<slug>
+            slug = wanted.split(".", 1)[-1].lower()
+            for it in items:
+                a = str(it.get("alias", "")).lower().replace(" ", "_")
+                if a == slug:
+                    match = it
+                    break
+        if not match:
+            return json.dumps({"error": f"Automation '{wanted}' not found"})
+        return json.dumps(match, default=str)
+
+    if name == "list_scripts":
+        try:
+            items = _src_read_scripts(hass)
+        except Exception as err:  # noqa: BLE001
+            return json.dumps({"error": f"Read failed: {err}"})
+        out = [{
+            "id": it.get("id"),
+            "alias": it.get("alias"),
+            "mode": it.get("mode"),
+            "num_steps": it.get("num_steps"),
+            "description": it.get("description"),
+        } for it in items]
+        return json.dumps({"scripts": out, "count": len(out)})
+
+    if name == "get_script":
+        wanted = str(call.get("id") or call.get("alias") or call.get("entity_id") or "").strip()
+        if not wanted:
+            return json.dumps({"error": "Missing 'id' (or 'alias') argument"})
+        try:
+            items = _src_read_scripts(hass)
+        except Exception as err:  # noqa: BLE001
+            return json.dumps({"error": f"Read failed: {err}"})
+        match = None
+        for it in items:
+            if str(it.get("id", "")) == wanted:
+                match = it
+                break
+        if not match:
+            for it in items:
+                if str(it.get("alias", "")).lower() == wanted.lower():
+                    match = it
+                    break
+        if not match:
+            slug = wanted.split(".", 1)[-1].lower()
+            for it in items:
+                if str(it.get("id", "")).lower() == slug:
+                    match = it
+                    break
+        if not match:
+            return json.dumps({"error": f"Script '{wanted}' not found"})
+        return json.dumps(match, default=str)
+
+    if name == "list_blueprints":
+        try:
+            items = _src_read_blueprints(hass)
+        except Exception as err:  # noqa: BLE001
+            return json.dumps({"error": f"Read failed: {err}"})
+        return json.dumps({"blueprints": items, "count": len(items)})
+
+    if name == "get_blueprint":
+        path = str(call.get("path") or "").strip()
+        if not path:
+            return json.dumps({"error": "Missing 'path' argument"})
+        try:
+            data = _src_read_blueprint(hass, path)
+        except Exception as err:  # noqa: BLE001
+            return json.dumps({"error": f"Read failed: {err}"})
+        return json.dumps(data, default=str)
+
     # call_service / assign_area / etc. are ACTIONS that belong in a plan
     # block, not [TOOL_CALL:]s. If the model tries to use them as a tool,
     # return a guidance error so it stops and emits a plan instead.
@@ -871,6 +986,9 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "list_entities_by_label", "search_entities", "list_entities_without_area",
         "get_areas", "get_labels",
         "search_knowledge", "get_entity_notes", "analyze_automations",
+        "list_automations", "get_automation",
+        "list_scripts", "get_script",
+        "list_blueprints", "get_blueprint",
     ]
     # If the bogus "tool" name looks like a word from a user request (e.g.
     # they typed "create an area outside" and the model called tool
@@ -2152,7 +2270,65 @@ class KyberKnowledgeAnalyzeView(HomeAssistantView):
         return self.json({"status": "ok", "saved": saved, "count": len(saved)})
 
 
-class KyberKnowledgeFeedbackView(HomeAssistantView):
+class KyberKnowledgeDeepAnalyzeView(HomeAssistantView):
+    """AI-driven deep analyzer for automations / scripts / blueprints.
+
+    Each item is hashed; unchanged items are skipped. Up to `limit` changed
+    items are sent to the AI per run, which proposes durable facts about
+    the home that the item implies. Accepted facts are saved into the
+    KnowledgeStore tagged with `deep:<kind>` + `src:<ident>`.
+
+    GET  /api/kyber/knowledge/analyze_deep        → memo status (what's been analyzed)
+    POST /api/kyber/knowledge/analyze_deep        → run a sweep
+       body: {kinds?: ["automation","script","blueprint"],
+              limit?: int = 5,
+              force?: bool = false}
+    """
+
+    url = "/api/kyber/knowledge/analyze_deep"
+    name = "api:kyber:knowledge:analyze_deep"
+    requires_auth = True
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        self._config = config
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        status = await _deep.memo_status(hass)
+        return self.json(status)
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        ai_entity_id: str = self._config.get(CONF_AI_TASK_ENTITY_ID, "")
+        if not ai_entity_id:
+            return self.json_message("AI task entity not configured", HTTPStatus.SERVICE_UNAVAILABLE)
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            body = {}
+        kinds = body.get("kinds") or ["automation", "script", "blueprint"]
+        if not isinstance(kinds, list):
+            kinds = ["automation", "script", "blueprint"]
+        try:
+            limit = int(body.get("limit", 5))
+        except (TypeError, ValueError):
+            limit = 5
+        limit = max(1, min(50, limit))
+        force = bool(body.get("force", False))
+        try:
+            result = await _deep.analyze_pending(
+                hass,
+                ai_entity_id=ai_entity_id,
+                kinds=kinds,
+                limit=limit,
+                force=force,
+            )
+        except HomeAssistantError as err:
+            return self.json_message(f"AI error: {err}", HTTPStatus.SERVICE_UNAVAILABLE)
+        return self.json({"status": "ok", **result})
+
+
+
     """Record user (or auto) feedback on a chat response, applied to the
     knowledge entries that were injected into that turn's context.
 

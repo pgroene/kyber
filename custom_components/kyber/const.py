@@ -371,6 +371,12 @@ All entity tools also support an optional `fields` argument: a list of property 
 | `list_entities_without_area` | _(none)_ | `domain`, `state`, `fields` | [TOOL_CALL: {{"name": "list_entities_without_area", "domain": "light"}}] |
 | `get_areas` | _(none)_ | _(none)_ | [TOOL_CALL: {{"name": "get_areas"}}] |
 | `get_labels` | _(none)_ | _(none)_ | [TOOL_CALL: {{"name": "get_labels"}}] |
+| `list_automations` | _(none)_ | _(none)_ | [TOOL_CALL: {{"name": "list_automations"}}] |
+| `get_automation` | `id` _or_ `alias` | _(none)_ | [TOOL_CALL: {{"name": "get_automation", "alias": "Sunset lights"}}] |
+| `list_scripts` | _(none)_ | _(none)_ | [TOOL_CALL: {{"name": "list_scripts"}}] |
+| `get_script` | `id` _or_ `alias` | _(none)_ | [TOOL_CALL: {{"name": "get_script", "id": "morning_routine"}}] |
+| `list_blueprints` | _(none)_ | _(none)_ | [TOOL_CALL: {{"name": "list_blueprints"}}] |
+| `get_blueprint` | `path` | _(none)_ | [TOOL_CALL: {{"name": "get_blueprint", "path": "blueprints/automation/foo/bar.yaml"}}] |
 
 **`state` filter examples:**
 - "lights that are on" → `{{"name": "list_entities_by_domain", "domain": "light", "state": "on"}}`

@@ -2111,6 +2111,7 @@ class KyberPanel extends HTMLElement {
         </label>
         <button id="dbg-mem-add">➕ Add fact</button>
         <button id="dbg-mem-analyze">🔍 Analyze my home</button>
+        <button id="dbg-mem-deep-analyze" title="AI-driven deep analysis of automations/scripts/blueprints with content-hash memoization">🧬 Deep analyze</button>
       </div>
       <div class="kn-list">${filtered.map((e) => this._renderKnowledgeRow(e, categories)).join("")}</div>
     `;
@@ -2126,6 +2127,34 @@ class KyberPanel extends HTMLElement {
     body.querySelector("#dbg-mem-analyze").addEventListener("click", async () => {
       this._toggleDebugPane(false);
       await this._handleKnowledgeCommand("analyze");
+    });
+    body.querySelector("#dbg-mem-deep-analyze").addEventListener("click", async () => {
+      const btn = body.querySelector("#dbg-mem-deep-analyze");
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "🧬 Analyzing…";
+      try {
+        const token = this._hass.auth.data.access_token;
+        const r = await fetch("/api/kyber/knowledge/analyze_deep", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ limit: 5 }),
+        });
+        const j = await r.json();
+        if (!r.ok) {
+          alert("Deep analyze failed: " + (j.message || r.statusText));
+        } else {
+          const analyzed = (j.analyzed || []).length;
+          const newFacts = (j.analyzed || []).reduce((n, a) => n + (a.fact_ids || []).length, 0);
+          alert(`Deep analyze: ${analyzed} items processed, ${newFacts} new facts added, ${j.skipped_unchanged || 0} unchanged (skipped).`);
+        }
+      } catch (err) {
+        alert("Deep analyze error: " + err);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+        this._renderDebugTab("memory");
+      }
     });
     this._wireKnowledgeRowEvents(body, filtered, categories);
   }
