@@ -35,7 +35,7 @@ from .source import (
 )
 from . import deep_analyzer as _deep
 from .response_processing import (
-    _YAML_BLOCK_RE, _PLAN_BLOCK_RE, _CLARIFY_BLOCK_RE, _TOOL_CALL_RE,
+    _YAML_BLOCK_RE, _PLAN_BLOCK_RE, _CLARIFY_BLOCK_RE,
     _TOOL_RESULT_STRIP_RE, _TOOL_RESULT_ECHO_RE, _TOOL_CALL_MAX_ROUNDS,
     _BARE_FENCE_RE, _ACTION_TYPE_RE, _AUTOMATION_EDIT_RE,
     _parse_tool_calls, _strip_tool_calls, _extract_yaml_blocks, _extract_plan_block,
@@ -659,8 +659,8 @@ class KyberView(HomeAssistantView):
             flags=re.IGNORECASE,
         ).strip()
 
-        # Strip any unparsed [TOOL_CALL: ...] / [T00L_CALL: ...] from the final response.
-        response_text = _TOOL_CALL_RE.sub("", response_text).strip()
+        # Strip any unparsed tool calls in any format from the final response.
+        response_text = _strip_tool_calls(response_text)
 
         # Strip "User: ..." and "Assistant:" turn echoes (anywhere, not just at start)
         response_text = re.sub(r"^\s*User:\s.*?(?=\n\n|\Z)", "", response_text, flags=re.DOTALL).strip()
