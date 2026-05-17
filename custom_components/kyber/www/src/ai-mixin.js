@@ -45,7 +45,7 @@ export const AIMixin = (Base) => class extends Base {
               </label>
               <div class="bug-report-bundle-name">Bundle: <code>${this._escapeHtml(`kyber-debug-${requestId}.zip`)}</code></div>
               <label class="bug-report-checkbox">
-                <input type="checkbox" id="br-include-bundle" checked>
+                <input type="checkbox" id="br-include-bundle">
                 Include debug bundle summary (PII will be redacted)
               </label>
               <div class="bug-report-actions">

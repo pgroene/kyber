@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { gotoHarness } from "./helpers.js";
 
 test.describe("Debug bug report dialog", () => {
-  test("opens with upload logs checked by default", async ({ page }) => {
+  test("opens with upload logs unchecked by default", async ({ page }) => {
     await gotoHarness(page);
 
     await page.evaluate(async () => {
@@ -10,7 +10,7 @@ test.describe("Debug bug report dialog", () => {
     });
 
     await expect(page.locator("#br-submit")).toBeVisible();
-    await expect(page.locator("#br-include-bundle")).toBeChecked();
+    await expect(page.locator("#br-include-bundle")).not.toBeChecked();
     await expect(page.locator(".bug-report-bundle-name")).toContainText("kyber-debug-req-123.zip");
 
     await page.screenshot({ path: "screenshots/debug-bug-report-dialog.png" });
