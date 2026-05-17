@@ -191,15 +191,25 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
 
     def _project_entity(eid: str, st, entry=None) -> dict:
         """Return a dict for an entity using the active fields_set, or the
-        default {name, state} projection when no fields were requested.
+        default {name, state, domain, device_class?} projection when no fields
+        were requested.
+
+        device_class is always included when present so the AI can distinguish
+        between entity sub-types (e.g. binary_sensor with device_class=occupancy
+        vs device_class=door).  It is omitted when absent to keep responses lean.
         """
         attrs = st.attributes if st else {}
         domain = eid.split(".")[0]
         if fields_set is None:
-            return {
+            row: dict = {
                 "name": attrs.get("friendly_name", eid),
                 "state": st.state if st else "unknown",
+                "domain": domain,
             }
+            dc = attrs.get("device_class")
+            if dc:
+                row["device_class"] = dc
+            return row
         out: dict = {}
         missing_attr_fields: list[str] = []
         for f in fields_set:
