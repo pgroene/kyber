@@ -414,6 +414,16 @@ const STYLES = `
   }
 
   /* Rating widget on assistant messages */
+  .kyber-debug-bundle {
+    position: absolute; top: 4px; right: 6px;
+    background: transparent; border: 1px solid var(--divider-color, #444);
+    color: var(--secondary-text-color, #888); font-size: 10px;
+    padding: 1px 6px; border-radius: 3px; cursor: pointer; opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .chat-message.assistant { position: relative; }
+  .chat-message.assistant:hover .kyber-debug-bundle { opacity: 0.85; }
+  .kyber-debug-bundle:hover { opacity: 1 !important; color: var(--primary-color); border-color: var(--primary-color); }
   .kyber-rating {
     margin-top: 8px;
     padding-top: 6px;
@@ -1587,6 +1597,49 @@ class KyberPanel extends HTMLElement {
   // ────────────────────────────────────────────────────────────────────
   // Knowledge / memory panel
   // ────────────────────────────────────────────────────────────────────
+  _attachDebugBundleButton(requestId) {
+    const history = this.shadowRoot.getElementById("chat-history");
+    if (!history || !requestId) return;
+    const messages = history.querySelectorAll(".chat-message.assistant");
+    const last = messages[messages.length - 1];
+    if (!last || last.querySelector(".kyber-debug-bundle")) return;
+    const btn = document.createElement("button");
+    btn.className = "kyber-debug-bundle";
+    btn.title = "Download debug bundle for this turn — share with Kyber maintainer";
+    btn.textContent = "⬇ debug";
+    btn.setAttribute("data-request-id", requestId);
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      this._downloadDebugBundle(requestId, btn);
+    });
+    last.appendChild(btn);
+  }
+
+  async _downloadDebugBundle(requestId, btn) {
+    const token = this._hass.auth.data.access_token;
+    const orig = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "⏳ packing…"; }
+    try {
+      const resp = await fetch(`/api/kyber/debug/bundle?request_id=${encodeURIComponent(requestId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `kyber-debug-${requestId}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      if (btn) btn.textContent = "✓ downloaded";
+      setTimeout(() => { if (btn) { btn.textContent = orig; btn.disabled = false; } }, 1500);
+    } catch (err) {
+      if (btn) { btn.textContent = `⚠ ${err.message}`; btn.disabled = false; }
+    }
+  }
+
   _attachRatingWidget(knowledgeIds, autoRating) {
     const history = this.shadowRoot.getElementById("chat-history");
     if (!history) return;
@@ -3451,6 +3504,11 @@ class KyberPanel extends HTMLElement {
         this._addChatHistory("assistant", textOnly);
       }
       this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null);
+
+      // Attach a per-turn debug-bundle download button to the latest assistant msg.
+      if (data.request_id) {
+        this._attachDebugBundleButton(data.request_id);
+      }
 
       // Attach rating widget if any knowledge entries were used to ground this response
       if (data.knowledge_used && data.knowledge_used.length > 0) {
