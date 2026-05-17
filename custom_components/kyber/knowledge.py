@@ -158,8 +158,9 @@ class KnowledgeStore:
             self._index_dirty = True
             _LOGGER.info("Kyber knowledge: loaded %d entries", len(self._entries))
 
-    async def _persist(self) -> None:
-        self._index_dirty = True
+    async def _persist(self, *, invalidate_index: bool = False) -> None:
+        if invalidate_index:
+            self._index_dirty = True
         await self._store.async_save({"entries": self._entries})
 
     async def async_add(
@@ -194,7 +195,7 @@ class KnowledgeStore:
             "hits": 0,
         }
         self._entries[entry_id] = entry
-        await self._persist()
+        await self._persist(invalidate_index=True)
         return entry
 
     async def async_update(self, entry_id: str, **changes: Any) -> dict[str, Any] | None:
@@ -204,22 +205,26 @@ class KnowledgeStore:
             return None
         allowed = {"category", "subject", "content", "tags", "confidence",
                    "source", "provenance", "user_rating"}
+        index_fields = {"category", "subject", "content", "tags"}
+        invalidate_index = False
         for k, v in changes.items():
             if k in allowed:
                 if k == "confidence":
                     v = max(0.0, min(1.0, float(v)))
                 elif k == "user_rating":
                     v = max(0, min(5, int(v)))
+                if entry.get(k) != v and k in index_fields:
+                    invalidate_index = True
                 entry[k] = v
         entry["updated"] = int(time.time())
-        await self._persist()
+        await self._persist(invalidate_index=invalidate_index)
         return entry
 
     async def async_delete(self, entry_id: str) -> bool:
         await self.async_load()
         if entry_id in self._entries:
             del self._entries[entry_id]
-            await self._persist()
+            await self._persist(invalidate_index=True)
             return True
         return False
 
