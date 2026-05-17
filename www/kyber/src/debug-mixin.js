@@ -425,9 +425,22 @@ export const DebugMixin = (Base) => class extends Base {
     const data = await resp.json();
     const k = data.knowledge || {};
     const lt = data.last_turn;
+    const ep = data.explorer_progress || {};
     const catRows = Object.entries(k.by_category || {}).map(([cat, n]) =>
       `<tr><td><code>${this._escapeHtml(cat)}</code></td><td>${n}</td></tr>`,
     ).join("");
+    const epStatus = ep.status || "idle";
+    const epRunning = epStatus === "phase1_summaries" || epStatus === "phase2_entities" || epStatus === "starting";
+    const epDone = ep.done ?? 0;
+    const epTotal = ep.total ?? 0;
+    const epPct = epTotal > 0 ? Math.round((epDone / epTotal) * 100) : 0;
+    const epLabel = epRunning
+      ? (ep.phase === "summaries" ? `Indexing integrations… (${epStatus})` : `Indexing entities ${epDone} / ${epTotal} (${epPct}%)`)
+      : epStatus === "done" ? `Complete — ${epDone} entities indexed`
+      : "Not yet started";
+    const epProgressBar = epTotal > 0
+      ? `<progress value="${epDone}" max="${epTotal}" style="width:100%;margin-top:4px"></progress>` : "";
+
     body.innerHTML = `
       <h3>Runtime</h3>
       <table class="dbg-kv">
@@ -443,6 +456,13 @@ export const DebugMixin = (Base) => class extends Base {
         <tr><th>Total hits</th><td>${k.total_hits ?? 0}</td></tr>
       </table>
       ${catRows ? `<h4>By category</h4><table class="dbg-kv">${catRows}</table>` : ""}
+      <h3>Entity Explorer</h3>
+      <table class="dbg-kv">
+        <tr><th>Status</th><td>${this._escapeHtml(epLabel)}</td></tr>
+        ${ep.current_platform ? `<tr><th>Current</th><td><code>${this._escapeHtml(ep.current_platform)}</code></td></tr>` : ""}
+        ${ep.started_at ? `<tr><th>Started</th><td>${new Date(ep.started_at * 1000).toLocaleTimeString()}</td></tr>` : ""}
+      </table>
+      ${epProgressBar}
       <h3>Last turn</h3>
       ${lt ? `
         <table class="dbg-kv">
@@ -453,6 +473,16 @@ export const DebugMixin = (Base) => class extends Base {
         </table>
       ` : "<em>No turn captured yet.</em>"}
     `;
+
+    // Auto-refresh while explorer is running
+    if (epRunning) {
+      if (!this._explorerStatusTimer) {
+        this._explorerStatusTimer = setInterval(() => this._renderDebugStatus(body), 3000);
+      }
+    } else if (this._explorerStatusTimer) {
+      clearInterval(this._explorerStatusTimer);
+      this._explorerStatusTimer = null;
+    }
   }
 
   _getDeepLearningRuns(root) {

@@ -152,6 +152,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
             <button class="btn-debug" id="btn-debug" title="Open debug / memory inspector">🐞</button>
           </div>
+          <div id="explorer-banner" class="explorer-banner" style="display:none">🔍 <span id="explorer-banner-text">Exploring your home…</span></div>
           <div class="chat-history" id="chat-history">
             <div class="chat-message assistant">${this._DEFAULT_GREETING}</div>
           </div>
@@ -224,10 +225,13 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     if (this._mode === "debug") {
       this._renderDebugTab(this._debugTab);
     }
+    // Start explorer banner polling in chat mode
+    if (this._mode !== "debug") {
+      this._startExplorerBannerPolling();
+    }
   }
 
 
-  _bindEvents(shadow) {
     shadow.getElementById("btn-save").addEventListener("click", () => {
       if (this._editorMode === "dashboard") {
         this._saveDashboard();

@@ -921,6 +921,40 @@ export const AIMixin = (Base) => class extends Base {
     console.debug("[kyber] progress polling stopped after", polls, "polls");
   }
 
+  _startExplorerBannerPolling() {
+    this._checkExplorerBanner();
+    if (this._explorerBannerTimer) clearInterval(this._explorerBannerTimer);
+    this._explorerBannerTimer = setInterval(() => this._checkExplorerBanner(), 5000);
+  }
+
+  async _checkExplorerBanner() {
+    try {
+      const token = this._hass?.auth?.data?.access_token;
+      if (!token) return;
+      const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const ep = data.explorer_progress || {};
+      const banner = this.shadowRoot?.getElementById("explorer-banner");
+      const textEl = this.shadowRoot?.getElementById("explorer-banner-text");
+      if (!banner) return;
+      const running = ["starting", "phase1_summaries", "phase2_entities"].includes(ep.status);
+      if (running) {
+        const done = ep.done ?? 0;
+        const total = ep.total ?? 0;
+        const pct = total > 0 ? ` (${done} / ${total})` : "";
+        if (textEl) textEl.textContent = `Exploring your home${pct}…`;
+        banner.style.display = "";
+      } else {
+        banner.style.display = "none";
+        if (this._explorerBannerTimer) {
+          clearInterval(this._explorerBannerTimer);
+          this._explorerBannerTimer = null;
+        }
+      }
+    } catch (_) { /* non-critical */ }
+  }
+
   _hideThinking() {
     this.shadowRoot?.getElementById("kyber-thinking-bubble")?.remove();
   }

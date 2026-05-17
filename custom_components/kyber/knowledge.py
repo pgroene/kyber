@@ -179,6 +179,7 @@ class KnowledgeStore:
         confidence: float = 1.0,
         provenance: str = "",
         user_rating: int = 0,
+        _save: bool = True,
     ) -> dict[str, Any]:
         await self.async_load()
         if category not in CATEGORIES:
@@ -200,8 +201,15 @@ class KnowledgeStore:
             "hits": 0,
         }
         self._entries[entry_id] = entry
-        await self._persist(invalidate_index=True)
+        if _save:
+            await self._persist(invalidate_index=True)
+        else:
+            self._index_dirty = True
         return entry
+
+    async def async_force_save(self) -> None:
+        """Flush pending in-memory entries to disk. Use after bulk async_add(_save=False) calls."""
+        await self._persist(invalidate_index=False)
 
     async def async_update(self, entry_id: str, **changes: Any) -> dict[str, Any] | None:
         await self.async_load()

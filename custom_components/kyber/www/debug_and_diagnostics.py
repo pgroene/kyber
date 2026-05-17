@@ -33,6 +33,9 @@ _DEBUG_TOOL_HISTORY_MAX = 20
 _DEBUG_LOG_CAPTURE_KEY = "kyber_debug_log_capture"
 _DEBUG_LOG_CAPTURE_MAX_PER_TURN = 500
 
+# Key for background explorer progress (written by integration_explorer.py)
+EXPLORER_PROGRESS_KEY = "kyber_explorer_progress"
+
 
 def _get_debug_mode(hass: HomeAssistant) -> bool:
     val = hass.data.get(_DEBUG_MODE_KEY)
@@ -230,6 +233,7 @@ class KyberDebugStatusView(HomeAssistantView):
                 "approx_tokens": snap.get("approx_tokens") if snap else None,
             } if snap else None,
             "tool_history_size": len(hass.data.get(_DEBUG_TOOL_HISTORY_KEY, []) or []),
+            "explorer_progress": hass.data.get(EXPLORER_PROGRESS_KEY),
         })
 
 

@@ -142,6 +142,14 @@ export const STYLES = `
     background: var(--border-color);
   }
 
+  .explorer-banner {
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--primary-color, #03a9f4);
+    background: color-mix(in srgb, var(--primary-color, #03a9f4) 12%, transparent);
+    border-left: 3px solid var(--primary-color, #03a9f4);
+  }
+
   .chat-history {
     flex: 1;
     overflow-y: auto;

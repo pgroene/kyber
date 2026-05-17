@@ -45,7 +45,7 @@ export const AIMixin = (Base) => class extends Base {
               </label>
               <div class="bug-report-bundle-name">Bundle: <code>${this._escapeHtml(`kyber-debug-${requestId}.zip`)}</code></div>
               <label class="bug-report-checkbox">
-                <input type="checkbox" id="br-include-bundle" checked>
+                <input type="checkbox" id="br-include-bundle">
                 Include debug bundle summary (PII will be redacted)
               </label>
               <div class="bug-report-actions">
@@ -328,7 +328,7 @@ export const AIMixin = (Base) => class extends Base {
       if (textOnly) {
         this._addChatHistory("assistant", textOnly);
       }
-      this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null, data.learned_fact || null);
+      this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null, data.learned_fact || null, data.clarify || null);
 
       // Per-turn metadata is captured for the Debug tab ("Last turn") instead
       // of being attached to the chat message. The chat panel stays clean;
@@ -538,8 +538,49 @@ export const AIMixin = (Base) => class extends Base {
     history.scrollTop = history.scrollHeight;
   }
 
-  _appendAIResponse(fullText, yamlBlocks, plan, learnedFact = null) {
+  _appendAIResponse(fullText, yamlBlocks, plan, learnedFact = null, clarify = null) {
     const history = this.shadowRoot.getElementById("chat-history");
+
+    // Render clarify block: question + option buttons.
+    // Shown INSTEAD of (or before) prose when the AI emits a clarify block.
+    if (clarify && clarify.question) {
+      const clarifyCard = document.createElement("div");
+      clarifyCard.className = "chat-message assistant clarify-card";
+
+      if (clarify.context) {
+        const ctx = document.createElement("p");
+        ctx.className = "clarify-context";
+        ctx.textContent = clarify.context;
+        clarifyCard.appendChild(ctx);
+      }
+
+      const q = document.createElement("p");
+      q.className = "clarify-question";
+      q.textContent = clarify.question;
+      clarifyCard.appendChild(q);
+
+      if (Array.isArray(clarify.options) && clarify.options.length > 0) {
+        const chipRow = document.createElement("div");
+        chipRow.className = "suggestion-chips";
+        clarify.options.forEach((label) => {
+          const btn = document.createElement("button");
+          btn.className = "suggestion-chip";
+          btn.textContent = label;
+          btn.addEventListener("click", () => {
+            const input = this.shadowRoot.getElementById("prompt-input");
+            if (input) input.value = label;
+            clarifyCard.remove();
+            this._askAI();
+          });
+          chipRow.appendChild(btn);
+        });
+        clarifyCard.appendChild(chipRow);
+      }
+
+      history.appendChild(clarifyCard);
+      history.scrollTop = history.scrollHeight;
+      return; // clarify card replaces the normal prose rendering
+    }
 
     // Show the text portion (strip yaml/plan blocks for cleaner display)
     const textOnly = fullText
@@ -878,6 +919,40 @@ export const AIMixin = (Base) => class extends Base {
       await new Promise((res) => setTimeout(res, 200));
     }
     console.debug("[kyber] progress polling stopped after", polls, "polls");
+  }
+
+  _startExplorerBannerPolling() {
+    this._checkExplorerBanner();
+    if (this._explorerBannerTimer) clearInterval(this._explorerBannerTimer);
+    this._explorerBannerTimer = setInterval(() => this._checkExplorerBanner(), 5000);
+  }
+
+  async _checkExplorerBanner() {
+    try {
+      const token = this._hass?.auth?.data?.access_token;
+      if (!token) return;
+      const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const ep = data.explorer_progress || {};
+      const banner = this.shadowRoot?.getElementById("explorer-banner");
+      const textEl = this.shadowRoot?.getElementById("explorer-banner-text");
+      if (!banner) return;
+      const running = ["starting", "phase1_summaries", "phase2_entities"].includes(ep.status);
+      if (running) {
+        const done = ep.done ?? 0;
+        const total = ep.total ?? 0;
+        const pct = total > 0 ? ` (${done} / ${total})` : "";
+        if (textEl) textEl.textContent = `Exploring your home${pct}…`;
+        banner.style.display = "";
+      } else {
+        banner.style.display = "none";
+        if (this._explorerBannerTimer) {
+          clearInterval(this._explorerBannerTimer);
+          this._explorerBannerTimer = null;
+        }
+      }
+    } catch (_) { /* non-critical */ }
   }
 
   _hideThinking() {
