@@ -1070,7 +1070,13 @@ class KyberPanel extends HTMLElement {
       } catch (e) { this._mode = "chat"; }
     }
     console.log("[CopilotAssist] connectedCallback - mode:", this._mode);
-    if (!this._rendered) this._render();
+    if (!this._rendered) {
+      this._render();
+    } else if (this._mode === "debug") {
+      // HA reuses panel elements across navigation — re-fetch live backend data
+      // so memory/last-turn/status are always fresh when the user arrives.
+      this._renderDebugTab(this._debugTab || "memory");
+    }
   }
 
   _render() {
