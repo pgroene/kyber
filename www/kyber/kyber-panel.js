@@ -80,11 +80,16 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
 
   // HA sets this property when hass state changes
   set hass(hass) {
+    const wasAuthed = !!this._hass?.auth?.data?.access_token;
     this._hass = hass;
     if (!this._rendered) {
       this._render();
-    } else if (!this._historyRestored) {
-      this._restorePersistedHistory();
+    } else {
+      if (!this._historyRestored) this._restorePersistedHistory();
+      // When auth token first becomes available and panel is already rendered, load memory count
+      if (!wasAuthed && hass?.auth?.data?.access_token) {
+        this._loadMemoryCount();
+      }
     }
   }
 
@@ -151,6 +156,8 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <span>Kyber Assistant</span>
             <span class="session-label" id="session-indicator"></span>
             <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
+            <button class="memory-badge" id="memory-badge" title="Memory facts — click to preview recalled facts">🧠 <span id="memory-count">…</span></button>
+            <span class="autopilot-badge" id="autopilot-badge">⚡ Autopilot</span>
             <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
             <button class="btn-debug" id="btn-debug" title="Open debug / memory inspector">🐞</button>
           </div>
@@ -179,8 +186,12 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
         </div>
         <div class="editor-pane" id="editor-container"></div>
         <div class="status-bar" id="status-bar">
-          <span class="autopilot-badge" id="autopilot-badge">⚡ Autopilot ON</span>
           <span id="status-text"></span>
+        </div>
+        <div class="memory-popover" id="memory-popover" hidden>
+          <div class="memory-popover-header">🧠 Recalled this turn</div>
+          <div class="memory-popover-body" id="memory-popover-body"><em>No facts recalled.</em></div>
+          <div class="memory-popover-footer"><button id="btn-memory-view-all">View all in Memory tab →</button></div>
         </div>
       </div>
     `;
@@ -222,6 +233,8 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     this._debugEnabled = debugEnabled;
     const btnDebug = shadow.getElementById("btn-debug");
     if (btnDebug) btnDebug.style.display = debugEnabled ? "" : "none";
+    // Load initial memory count so the badge shows a real number at startup
+    this._loadMemoryCount();
 
     // Now render debug tab content (needs hass + debug flag confirmed)
     if (this._mode === "debug") {
@@ -273,6 +286,14 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     });
     shadow.getElementById("btn-debug-close").addEventListener("click", () => this._toggleDebugPane(false));
     shadow.getElementById("btn-debug-refresh").addEventListener("click", () => this._renderDebugTab(this._debugTab || "memory"));
+    shadow.getElementById("memory-badge").addEventListener("click", () => this._toggleMemoryPopover());
+    shadow.getElementById("btn-memory-view-all").addEventListener("click", () => {
+      this._closeMemoryPopover();
+      try {
+        window.history.pushState({}, "", "/kyber-debug");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      } catch (e) { window.location.href = "/kyber-debug"; }
+    });
     shadow.querySelectorAll(".debug-tab").forEach((b) => {
       b.addEventListener("click", () => {
         shadow.querySelectorAll(".debug-tab").forEach((x) => x.classList.remove("active"));

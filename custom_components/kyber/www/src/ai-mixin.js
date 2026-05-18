@@ -339,6 +339,15 @@ export const AIMixin = (Base) => class extends Base {
         auto_rating: data.auto_rating || null,
         ts: Date.now(),
       };
+      // Update memory badge: pulse if knowledge was recalled; increment if new fact learned
+      {
+        const recalledCount = (data.knowledge_used || []).length;
+        const newFactLearned = !!data.learned_fact;
+        const newCount = newFactLearned ? (this._memoryCount || 0) + 1 : this._memoryCount;
+        if (recalledCount > 0 || newFactLearned) {
+          this._updateMemoryBadge(newCount, recalledCount > 0);
+        }
+      }
       // Auto-refresh debug 'Last turn' pane if it is currently open
       const debugPane = this.shadowRoot.getElementById("debug-pane");
       if (debugPane && !debugPane.hasAttribute("hidden") && this._debugTab === "last_turn") {

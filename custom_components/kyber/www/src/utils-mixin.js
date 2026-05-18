@@ -140,4 +140,100 @@ export const UtilsMixin = (Base) => class extends Base {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
   }
+
+  /** Fetch the knowledge count from the backend and init the badge. */
+  async _loadMemoryCount() {
+    try {
+      const token = this._hass?.auth?.data?.access_token;
+      if (!token) return;
+      const resp = await fetch("/api/kyber/knowledge", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      this._updateMemoryBadge((data.entries || []).length, false);
+    } catch { /* non-fatal — badge stays at … */ }
+  }
+
+  /**
+   * Update the memory badge count and optionally trigger the recall pulse.
+   * @param {number|null} count  - total fact count (null = leave as-is)
+   * @param {boolean}     recalled - true = pulse the badge this turn
+   */
+  _updateMemoryBadge(count, recalled = false) {
+    if (count != null) this._memoryCount = count;
+    const badge = this.shadowRoot?.getElementById("memory-badge");
+    const countEl = this.shadowRoot?.getElementById("memory-count");
+    if (!badge || !countEl) return;
+    countEl.textContent = this._memoryCount != null ? String(this._memoryCount) : "…";
+    if (recalled) {
+      // Force animation restart even if class is already present
+      badge.classList.remove("memory-badge--recalled");
+      void badge.offsetWidth; // reflow
+      badge.classList.add("memory-badge--recalled");
+      clearTimeout(this._memRecallTimeout);
+      // 2 iterations × 1.5s + small buffer
+      this._memRecallTimeout = setTimeout(
+        () => badge.classList.remove("memory-badge--recalled"),
+        3200,
+      );
+    }
+  }
+
+  /** Show or hide the memory popover, positioning it below the badge. */
+  _toggleMemoryPopover() {
+    const popover = this.shadowRoot?.getElementById("memory-popover");
+    const badge = this.shadowRoot?.getElementById("memory-badge");
+    if (!popover || !badge) return;
+    if (!popover.hasAttribute("hidden")) {
+      this._closeMemoryPopover();
+      return;
+    }
+    // Position using fixed coords so overflow:hidden on .chat-pane doesn't clip it
+    const rect = badge.getBoundingClientRect();
+    popover.style.top = `${rect.bottom + 4}px`;
+    popover.style.left = `${rect.left}px`;
+    popover.removeAttribute("hidden");
+    this._renderMemoryPopoverContent();
+    // Close when user clicks outside (composedPath handles shadow DOM)
+    const closeHandler = (e) => {
+      const path = e.composedPath ? e.composedPath() : [];
+      if (!path.includes(badge) && !path.includes(popover)) {
+        this._closeMemoryPopover();
+        document.removeEventListener("click", closeHandler, true);
+      }
+    };
+    this._memPopoverCloseHandler = closeHandler;
+    setTimeout(() => document.addEventListener("click", closeHandler, true), 0);
+  }
+
+  _closeMemoryPopover() {
+    const popover = this.shadowRoot?.getElementById("memory-popover");
+    if (popover) popover.setAttribute("hidden", "");
+    if (this._memPopoverCloseHandler) {
+      document.removeEventListener("click", this._memPopoverCloseHandler, true);
+      this._memPopoverCloseHandler = null;
+    }
+  }
+
+  /** Populate the popover body with the knowledge recalled this turn (or a fallback). */
+  _renderMemoryPopoverContent() {
+    const body = this.shadowRoot?.getElementById("memory-popover-body");
+    if (!body) return;
+    const recalled = this._lastTurnMeta?.knowledge_used || [];
+    if (recalled.length === 0) {
+      body.innerHTML = '<span style="color:var(--secondary-text-color,#888);font-size:11px">No facts recalled this turn.</span>';
+      return;
+    }
+    body.innerHTML = recalled
+      .map(
+        (e) => `
+        <div class="memory-popover-entry">
+          <span class="mem-cat">${this._escapeHtml(e.category || "general")}</span>
+          ${e.subject ? ` · <strong>${this._escapeHtml(e.subject)}</strong>` : ""}
+          <div>${this._escapeHtml((e.content || "").slice(0, 140))}${(e.content || "").length > 140 ? "…" : ""}</div>
+        </div>`,
+      )
+      .join("");
+  }
 };

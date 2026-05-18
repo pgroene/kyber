@@ -940,6 +940,98 @@ export const STYLES = `
     50% { opacity: 0.6; }
   }
 
+  /* ── Memory badge ──────────────────────────────────────────────── */
+  .memory-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: color-mix(in srgb, var(--accent, #03a9f4) 15%, transparent);
+    color: var(--accent, #03a9f4);
+    border: 1px solid color-mix(in srgb, var(--accent, #03a9f4) 40%, transparent);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+    outline: none;
+  }
+
+  .memory-badge:hover {
+    background: color-mix(in srgb, var(--accent, #03a9f4) 28%, transparent);
+  }
+
+  .memory-badge--recalled {
+    animation: pulse-memory 1.5s ease-in-out 2;
+  }
+
+  @keyframes pulse-memory {
+    0%, 100% { opacity: 1; box-shadow: none; }
+    50%       { opacity: 0.75; box-shadow: 0 0 10px color-mix(in srgb, var(--accent, #03a9f4) 70%, transparent); }
+  }
+
+  /* ── Memory popover (position:fixed — escapes overflow:hidden parents) ── */
+  .memory-popover {
+    position: fixed;
+    z-index: 10000;
+    background: var(--card-background-color, #2c2c2e);
+    border: 1px solid var(--border-color, #3a3a3c);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.35);
+    min-width: 260px;
+    max-width: 380px;
+    font-size: 12px;
+  }
+
+  .memory-popover-header {
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    border-bottom: 1px solid var(--border-color, #3a3a3c);
+    color: var(--text-color, #f5f5f5);
+  }
+
+  .memory-popover-body {
+    padding: 8px 12px;
+    max-height: 200px;
+    overflow-y: auto;
+    color: var(--text-color, #f5f5f5);
+  }
+
+  .memory-popover-entry {
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border-color, #3a3a3c);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .memory-popover-entry:last-child { border-bottom: none; }
+
+  .mem-cat {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--accent, #03a9f4);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .memory-popover-footer {
+    padding: 6px 12px;
+    border-top: 1px solid var(--border-color, #3a3a3c);
+  }
+
+  .memory-popover-footer button {
+    background: none;
+    border: none;
+    color: var(--accent, #03a9f4);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .memory-popover-footer button:hover { text-decoration: underline; }
+
   .loading-spinner {
     display: inline-block;
     width: 14px;
