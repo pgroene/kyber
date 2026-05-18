@@ -332,8 +332,29 @@ def _resolve_debug_enabled(entry: ConfigEntry) -> bool:
     return True
 
 
+_NARRATOR_ONLY_KEYS: frozenset[str] = frozenset({CONF_NARRATOR_MAX_BATCH})
+
+
 async def _update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the entry whenever options change so panel registration follows."""
+    """Reload the entry when options change — but skip reload for narrator-only tweaks.
+
+    Changing CONF_NARRATOR_MAX_BATCH while the narrator is running would cancel
+    the background task; the new run then finds all entities already narrated and
+    exits immediately.  The batch size is read at the start of each narrator run,
+    so we can safely absorb those changes without a reload.
+    """
+    old_opts = entry.options or {}
+    # HA passes the new values in entry.options before calling this listener,
+    # so we compare against the previous snapshot stored in entry.data.
+    changed_keys = {
+        k for k in set(old_opts) | set(entry.data)
+        if old_opts.get(k) != entry.data.get(k)
+    }
+    if changed_keys and changed_keys.issubset(_NARRATOR_ONLY_KEYS):
+        _LOGGER.debug(
+            "Kyber: narrator-only options changed %s — skipping reload", changed_keys
+        )
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -383,7 +404,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
             sidebar_icon="mdi:robot",
-            module_url="/local/kyber/kyber-panel.js?v=102",
+            module_url="/local/kyber/kyber-panel.js?v=103",
         )
     except Exception:  # noqa: BLE001
         _LOGGER.debug("Panel registration skipped (test environment)")
@@ -398,7 +419,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
                 webcomponent_name="kyber-panel",
                 sidebar_title="Kyber Debug",
                 sidebar_icon="mdi:bug",
-                module_url="/local/kyber/kyber-panel.js?v=102",
+                module_url="/local/kyber/kyber-panel.js?v=103",
                 config={"mode": "debug"},
             )
         except Exception:  # noqa: BLE001
