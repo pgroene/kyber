@@ -180,6 +180,17 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Kyber: integration explorer failed: %s", err)
 
+    # Index dashboard entities — gives the narrator human-readable card names
+    # for cryptic entity IDs (e.g. switch.0xa4c138... → "Espresso").
+    try:
+        from .dashboard_indexer import async_index_dashboard_entities, get_dashboard_entity_names
+        await async_index_dashboard_entities(hass)
+        dashboard_names = get_dashboard_entity_names(hass)
+        _LOGGER.info("Kyber: dashboard indexer found %d named entities", len(dashboard_names))
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Kyber: dashboard indexer failed: %s", err)
+        dashboard_names = {}
+
     # Phase 3: AI narrator — only if an AI task entity is configured.
     ai_entity_id = str((entry.data or {}).get(CONF_AI_TASK_ENTITY_ID, "")).strip()
     if not ai_entity_id:
@@ -198,7 +209,9 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
                 kstore = _gks(hass)
                 entity_reg = _er.async_get(hass)
                 narrator_stats = await async_narrate_entities(
-                    hass, kstore, entity_reg, ai_entity_id, max_batch=max_batch
+                    hass, kstore, entity_reg, ai_entity_id,
+                    max_batch=max_batch,
+                    dashboard_names=dashboard_names,
                 )
                 errors = narrator_stats.get("errors", 0)
                 _LOGGER.info(

@@ -23,6 +23,8 @@ _LOGGER = logging.getLogger(__name__)
 
 # Key under hass.data where the indexed result is stored.
 DASHBOARD_ENTITIES_KEY = "kyber_dashboard_entities"
+# Key under hass.data where the entity→label map is stored.
+DASHBOARD_ENTITY_NAMES_KEY = "kyber_dashboard_entity_names"
 
 # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -31,17 +33,18 @@ async def async_index_dashboard_entities(hass: Any) -> dict[str, list[str]]:
     """Return a mapping of dashboard_slug → sorted list of entity_ids.
 
     Runs synchronous file I/O in the executor so the event loop is not blocked.
-    The result is also cached under hass.data[DASHBOARD_ENTITIES_KEY].
+    Results are cached under hass.data[DASHBOARD_ENTITIES_KEY] (entity lists)
+    and hass.data[DASHBOARD_ENTITY_NAMES_KEY] (entity_id → human label map).
     """
     config_dir: str = hass.config.config_dir
-    result: dict[str, list[str]] = await hass.async_add_executor_job(
-        _index_sync, config_dir
-    )
+    result, names = await hass.async_add_executor_job(_index_sync, config_dir)
     hass.data[DASHBOARD_ENTITIES_KEY] = result
+    hass.data[DASHBOARD_ENTITY_NAMES_KEY] = names
     total = sum(len(v) for v in result.values())
     _LOGGER.info(
-        "Kyber dashboard indexer: %d entity references across %d dashboard(s): %s",
+        "Kyber dashboard indexer: %d entity references (%d named) across %d dashboard(s): %s",
         total,
+        len(names),
         len(result),
         list(result.keys()),
     )
@@ -51,9 +54,15 @@ async def async_index_dashboard_entities(hass: Any) -> dict[str, list[str]]:
 # ── Synchronous scanning helpers ───────────────────────────────────────────
 
 
-def _index_sync(config_dir: str) -> dict[str, list[str]]:
-    """Scan dashboard files synchronously (called via executor)."""
+def _index_sync(config_dir: str) -> tuple[dict[str, list[str]], dict[str, str]]:
+    """Scan dashboard files synchronously (called via executor).
+
+    Returns:
+        entities: dashboard_slug → sorted list of entity_ids
+        names:    entity_id → human-readable label from card name/title
+    """
     result: dict[str, list[str]] = {}
+    names: dict[str, str] = {}
 
     # 1. UI-managed dashboards: .storage/lovelace and .storage/lovelace.*
     storage_path = Path(config_dir) / ".storage"
@@ -69,38 +78,41 @@ def _index_sync(config_dir: str) -> dict[str, list[str]]:
                 entities = _extract_entities(config)
                 if entities:
                     result[title] = sorted(entities)
+                names.update(_extract_entity_names(config))
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("Kyber dashboard indexer: skipping %s — %s", f, err)
 
     # 2. YAML-managed root dashboard
     root_yaml = Path(config_dir) / "ui-lovelace.yaml"
     if root_yaml.is_file():
-        entities = _parse_yaml_file(root_yaml)
+        entities, file_names = _parse_yaml_file(root_yaml)
         if entities:
             result["ui-lovelace"] = sorted(entities)
+        names.update(file_names)
 
     # 3. YAML-managed dashboard directory
     lovelace_dir = Path(config_dir) / "lovelace"
     if lovelace_dir.is_dir():
         for yf in sorted(lovelace_dir.glob("*.yaml")):
-            entities = _parse_yaml_file(yf)
+            entities, file_names = _parse_yaml_file(yf)
             if entities:
                 result[yf.stem] = sorted(entities)
+            names.update(file_names)
 
-    return result
+    return result, names
 
 
-def _parse_yaml_file(path: Path) -> set[str]:
-    """Parse a YAML dashboard file and return the set of entity IDs found."""
+def _parse_yaml_file(path: Path) -> tuple[set[str], dict[str, str]]:
+    """Parse a YAML dashboard file and return (entity_ids, entity_names)."""
     try:
         import yaml  # HA ships with PyYAML
         with open(path, encoding="utf-8") as fp:
             config = yaml.safe_load(fp)
         if isinstance(config, dict):
-            return _extract_entities(config)
+            return _extract_entities(config), _extract_entity_names(config)
     except Exception as err:  # noqa: BLE001
         _LOGGER.debug("Kyber dashboard indexer: could not parse %s — %s", path, err)
-    return set()
+    return set(), {}
 
 
 # ── Recursive entity extraction ────────────────────────────────────────────
@@ -138,6 +150,49 @@ def _extract_entities(obj: Any) -> set[str]:
     return entities
 
 
+def _extract_entity_names(obj: Any, _names: "dict[str, str] | None" = None) -> dict[str, str]:
+    """Recursively walk a Lovelace config and return {entity_id: human_label}.
+
+    Captures the card-level ``name:`` or ``title:`` that the user wrote next to
+    an entity reference.  First name encountered wins (most-specific card wins).
+    """
+    if _names is None:
+        _names = {}
+    if isinstance(obj, dict):
+        label_raw = obj.get("name") or obj.get("title")
+        label = label_raw.strip() if isinstance(label_raw, str) and label_raw.strip() else None
+
+        # Single-entity card: {entity: "switch.x", name: "Espresso"}
+        eid = obj.get("entity")
+        if isinstance(eid, str) and _looks_like_entity(eid) and label:
+            _names.setdefault(eid, label)
+
+        # entities list items with inline name override
+        ents = obj.get("entities")
+        if isinstance(ents, list):
+            for item in ents:
+                if isinstance(item, dict):
+                    item_eid = item.get("entity")
+                    item_label_raw = item.get("name") or item.get("title")
+                    item_label = (
+                        item_label_raw.strip()
+                        if isinstance(item_label_raw, str) and item_label_raw.strip()
+                        else None
+                    )
+                    if isinstance(item_eid, str) and _looks_like_entity(item_eid) and item_label:
+                        _names.setdefault(item_eid, item_label)
+
+        # Recurse into all nested structures
+        for val in obj.values():
+            if isinstance(val, (dict, list)):
+                _extract_entity_names(val, _names)
+    elif isinstance(obj, list):
+        for item in obj:
+            _extract_entity_names(item, _names)
+    return _names
+
+
+
 def _looks_like_entity(val: str) -> bool:
     """Return True if val looks like a real entity_id (domain.name)."""
     if "." not in val:
@@ -160,3 +215,8 @@ def get_all_dashboard_entities(hass: Any) -> set[str]:
     for entities in data.values():
         result.update(entities)
     return result
+
+
+def get_dashboard_entity_names(hass: Any) -> dict[str, str]:
+    """Return {entity_id: human_label} for entities with a named card on any dashboard."""
+    return dict(hass.data.get(DASHBOARD_ENTITY_NAMES_KEY) or {})
