@@ -37,7 +37,7 @@ _LOGGER = logging.getLogger(__name__)
 
 NARRATOR_STATS_KEY = "kyber_narrator_stats"
 
-_NARRATOR_VERSION = 1
+_NARRATOR_VERSION = 2
 _NARRATOR_VERSION_TAG = f"narrator-v{_NARRATOR_VERSION}"
 
 # Imported at module level so tests can stub via sys.modules before load.
