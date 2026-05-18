@@ -84,7 +84,10 @@ def main():
 
     # Check working tree is clean (except manifest.json which we'll write)
     dirty = run(["git", "status", "--porcelain"], check=False)
-    dirty_lines = [l for l in dirty.splitlines() if not l.strip().endswith("manifest.json")]
+    dirty_lines = [l for l in dirty.splitlines()
+                   if not l.strip().endswith("manifest.json")
+                   and not l.strip().endswith("__init__.py")
+                   and not l.strip().endswith("release.py")]
     if dirty_lines:
         print("Working tree is dirty (non-manifest changes). Commit or stash first:", file=sys.stderr)
         for l in dirty_lines:
@@ -99,6 +102,20 @@ def main():
         MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"  manifest.json: {old_ver} → {new_ver}")
 
+    # Bump the JS cache-bust version string in __init__.py (?v=N → ?v=N+1)
+    init_file = ROOT / "custom_components" / "kyber" / "__init__.py"
+    init_text = init_file.read_text()
+    js_ver_match = re.search(r"kyber-panel\.js\?v=(\d+)", init_text)
+    if js_ver_match:
+        old_js_ver = int(js_ver_match.group(1))
+        new_js_ver = old_js_ver + 1
+        init_text = re.sub(r"kyber-panel\.js\?v=\d+", f"kyber-panel.js?v={new_js_ver}", init_text)
+        if not args.dry_run:
+            init_file.write_text(init_text)
+        print(f"  kyber-panel.js cache bust: ?v={old_js_ver} → ?v={new_js_ver}")
+    else:
+        print("  WARNING: could not find kyber-panel.js?v= in __init__.py", file=sys.stderr)
+
     # Sync www mirror
     if not args.dry_run:
         run([sys.executable, str(ROOT / "scripts" / "sync_www.py")])
@@ -109,7 +126,13 @@ def main():
         return
 
     # Commit + tag + push
-    run(["git", "add", str(MANIFEST), str(ROOT / "custom_components" / "kyber" / "www" / "manifest.json")])
+    files_to_add = [
+        str(MANIFEST),
+        str(ROOT / "custom_components" / "kyber" / "www" / "manifest.json"),
+        str(ROOT / "custom_components" / "kyber" / "__init__.py"),
+        str(ROOT / "custom_components" / "kyber" / "www" / "__init__.py"),
+    ]
+    run(["git", "add"] + files_to_add)
     run(["git", "commit", "-m", f"chore: release {tag}\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"])
     run(["git", "tag", tag])
     run(["git", "push", "--no-verify"])
