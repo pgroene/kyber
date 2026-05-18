@@ -639,6 +639,10 @@ async def _run_ai_loop(
 
     May raise HomeAssistantError if the AI provider fails.
     """
+    # Qwen3 thinking mode emits <think>…</think> blocks that break plan/tool parsing.
+    if "qwen3" in entity_id.lower():
+        instructions = "/no_think\n" + instructions
+
     # Tool-calling loop — the AI may request live HA data via [TOOL_CALL: {...}]
     # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
     tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
@@ -695,6 +699,10 @@ async def _run_ai_loop(
                 "Kyber: AI result.data is not str (type=%s); coerced to string",
                 type(result.data).__name__,
             )
+        # Strip Qwen3 <think>…</think> blocks in case they appear despite /no_think.
+        if "<think>" in response_text:
+            import re as _re
+            response_text = _re.sub(r"<think>.*?</think>", "", response_text, flags=_re.DOTALL).strip()
         tool_calls = _parse_tool_calls(response_text)
 
         # Also handle plan blocks where the AI put tool calls inside actions

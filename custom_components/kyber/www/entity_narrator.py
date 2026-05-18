@@ -286,13 +286,20 @@ def _calc_batch_size(contexts: list[str], max_batch: int) -> int:
 
 async def _run_ai(hass: "HomeAssistant", ai_entity_id: str, prompt: str) -> str:
     from homeassistant.components.ai_task import async_generate_data  # type: ignore[import]
+    # Qwen3 thinking mode emits <think>…</think> blocks that break JSON parsing.
+    if "qwen3" in ai_entity_id.lower():
+        prompt = "/no_think\n" + prompt
     result = await async_generate_data(
         hass,
         task_name="kyber_narrator",
         entity_id=ai_entity_id,
         instructions=prompt,
     )
-    return result.data if isinstance(result.data, str) else str(result.data)
+    raw = result.data if isinstance(result.data, str) else str(result.data)
+    # Strip <think>…</think> blocks in case they appear despite /no_think.
+    if "<think>" in raw:
+        raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+    return raw
 
 
 def _init_stats() -> dict[str, Any]:
