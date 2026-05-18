@@ -547,7 +547,9 @@ async def _inject_knowledge_into_instructions(
         for entry in relevant_knowledge:
             cat = _sanitize_prompt_value(entry.get("category", "general"))
             subj = _sanitize_prompt_value(entry.get("subject", ""), max_len=80)
-            content = _sanitize_prompt_value(entry.get("content", ""), max_len=400)
+            # Procedures and device_chains can be longer; everything else capped at 400.
+            _content_cap = 800 if cat in ("procedure", "device_chain") else 400
+            content = _sanitize_prompt_value(entry.get("content", ""), max_len=_content_cap)
             tags = ",".join(_sanitize_prompt_value(t) for t in (entry.get("tags", []) or []))
             score = entry.get("_score")
             src = entry.get("_source", "?")
