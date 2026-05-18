@@ -255,8 +255,11 @@ def parse_batch_response_v3(raw: str, entity_ids: list[str]) -> dict[str, dict]:
                 desc = obj.get("description", "")
                 search_terms = obj.get("search_terms", [])
                 device_type = obj.get("device_type", "")
-                # Validate: description must contain entity_id
-                if eid in desc:
+                if desc:
+                    # Ensure entity_id appears in description for downstream indexing.
+                    # Don't reject if missing — the id-mapping already anchors the entity.
+                    if eid not in desc:
+                        desc = f"{desc} [{eid}]"
                     result[eid] = {
                         "description": desc,
                         "search_terms": [str(t) for t in search_terms if t],
@@ -524,7 +527,10 @@ async def async_narrate_entities(
                     search_terms = []
                     device_type = ""
                 dash_label = _dash_names.get(eid)
-                if description and eid in description:
+                # v3: entity_id is already appended to description by parse_batch_response_v3 if missing.
+                # v2: description must contain entity_id for ordering validation.
+                accepted = bool(description) and (use_v3 or eid in description)
+                if accepted:
                     stats["accepted"] += 1
                     tags = [eid, domain, _NARRATOR_VERSION_TAG]
                     if device_type:

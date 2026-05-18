@@ -323,6 +323,12 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
         f"{automation_count} automations · {script_count} scripts · {entity_stats}"
     )
 
+    # Compact area list — model needs this to call get_area_entities with the right area_id.
+    areas_block = "**Areas:** " + ", ".join(
+        f"{_sanitize_prompt_value(a.name, max_len=60)} ({_sanitize_prompt_value(a.id, max_len=60)})"
+        for a in sorted(areas, key=lambda a: a.name)
+    ) if areas else ""
+
     tz_name = str(getattr(hass.config, "time_zone", "UTC") or "UTC")
     timezone_block = f"**Timezone:** {tz_name} — display all times in this timezone, not UTC.\n"
 
@@ -337,6 +343,7 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
 
     context = SYSTEM_PROMPT_TEMPLATE.format(
         home_summary=home_summary,
+        areas_block=("\n" + areas_block) if areas_block else "",
         timezone_block=timezone_block,
         notable_state_block=notable_state_block,
     )

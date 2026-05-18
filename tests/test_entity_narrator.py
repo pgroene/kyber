@@ -254,10 +254,12 @@ class TestParseBatchResponseV3:
         assert result["sensor.foo"]["device_type"] == "temperature sensor"
         assert "light.bar" in result
 
-    def test_rejects_description_missing_entity_id(self):
+    def test_appends_entity_id_when_missing_from_description(self):
         raw = '{"id": 1, "description": "This is a sensor in the kitchen.", "search_terms": [], "device_type": "sensor"}'
         result = _NARRATOR.parse_batch_response_v3(raw, ["sensor.foo"])
-        assert result == {}
+        # Entity_id appended in brackets so it remains searchable.
+        assert "sensor.foo" in result
+        assert result["sensor.foo"]["description"] == "This is a sensor in the kitchen. [sensor.foo]"
 
     def test_empty_response(self):
         result = _NARRATOR.parse_batch_response_v3("", ["sensor.foo"])

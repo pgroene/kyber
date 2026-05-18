@@ -178,7 +178,7 @@ For entity IDs (like light.xyz) or current states (on/off/temperature), ALWAYS c
 
 ## Home Assistant Context
 
-{home_summary}
+{home_summary}{areas_block}
 {timezone_block}{notable_state_block}
 ---
 
@@ -259,6 +259,7 @@ Rules:
 - `cover.set_cover_position` uses `position` (0–100); `media_player.volume_set` uses `volume_level` (0.0–1.0, NOT 0–100).
 
 ### 🟢 Quick recipes
+- **Turn on/off lights in a room** ("doe de lichten in [room] uit", "turn off lights in [room]") → FIRST call `get_area_entities(area="<room>", domain="light")` — NEVER call `get_entity_state` with a guessed entity_id first. After getting results, emit `call_service(domain=light, service=turn_off/turn_on, service_data={"area_id":"<area_id>"})` for all lights at once using the `area_id` from the **Areas** list above.
 - **Follow-up questions about an already-identified entity** ("what's playing?", "who is the artist?", "what's the volume?", "is it on?") → if the entity_id appears in the conversation history, call `get_entity_state` on it directly — do NOT re-run discovery tools.
 - "What's playing?" / media state in an area → `get_area_entities(domain=media_player, area=...)`, then `get_entity_state(..., fields=["state","media_title","media_artist","media_album_name","app_name"])`.
 - **Media player controls** (pause/play/stop/skip/mute/volume/shuffle/repeat/source/group) → find the entity first (`search_entities` or `list_entities_by_domain(domain=media_player)`), then call `get_domain_docs(domain=media_player)` for exact service + param names. ⚠️ NEVER use `turn_off` when the user says "pause" or "stop".
