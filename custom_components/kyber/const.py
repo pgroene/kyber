@@ -3,6 +3,7 @@
 DOMAIN = "kyber"
 
 CONF_AI_TASK_ENTITY_ID = "ai_task_entity_id"
+CONF_NARRATOR_AI_TASK_ENTITY_ID = "narrator_ai_task_entity_id"
 CONF_MAX_TOKENS = "max_tokens"
 CONF_ENABLE_DEBUG_VIEWS = "enable_debug_views"
 CONF_USER_NAME = "user_name"

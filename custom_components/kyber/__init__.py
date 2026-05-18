@@ -11,6 +11,7 @@ from homeassistant.components.panel_custom import async_register_panel
 
 from .const import (
     CONF_AI_TASK_ENTITY_ID,
+    CONF_NARRATOR_AI_TASK_ENTITY_ID,
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_INITIAL_LEARNING_DONE,
@@ -201,6 +202,7 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
     if ai_entity_id:
         config = {**entry.data, **(entry.options or {})}
         max_batch = int(config.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH))
+        narrator_ai_entity_id = str(config.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip() or ai_entity_id
         _NARRATOR_RETRY_DELAY = 600   # 10 minutes between retries
         _NARRATOR_MAX_RETRIES = 3
         for attempt in range(1 + _NARRATOR_MAX_RETRIES):
@@ -211,7 +213,7 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
                 kstore = _gks(hass)
                 entity_reg = _er.async_get(hass)
                 narrator_stats = await async_narrate_entities(
-                    hass, kstore, entity_reg, ai_entity_id,
+                    hass, kstore, entity_reg, narrator_ai_entity_id,
                     max_batch=max_batch,
                     dashboard_names=dashboard_names,
                 )

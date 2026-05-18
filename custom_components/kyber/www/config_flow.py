@@ -16,6 +16,7 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_AI_TASK_ENTITY_ID,
+    CONF_NARRATOR_AI_TASK_ENTITY_ID,
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_MAX_TOKENS,
@@ -107,6 +108,7 @@ def _build_options_schema(
     run_initial_analyze: bool = DEFAULT_RUN_INITIAL_ANALYZE,
     deep_learning_runs: int = DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
     narrator_max_batch: int = DEFAULT_NARRATOR_MAX_BATCH,
+    narrator_ai_entity: str = "",
 ) -> vol.Schema:
     """Step-2 / options schema: all settings except entity."""
     return vol.Schema(
@@ -127,6 +129,12 @@ def _build_options_schema(
                 selector.NumberSelectorConfig(
                     min=1, max=50, step=1, mode=selector.NumberSelectorMode.SLIDER
                 )
+            ),
+            vol.Optional(
+                CONF_NARRATOR_AI_TASK_ENTITY_ID,
+                default=narrator_ai_entity,
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="ai_task")
             ),
         }
     )
@@ -188,6 +196,9 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_NARRATOR_MAX_BATCH: int(
                         user_input.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)
                     ),
+                    CONF_NARRATOR_AI_TASK_ENTITY_ID: str(
+                        user_input.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")
+                    ).strip(),
                 },
             )
 
@@ -234,6 +245,9 @@ class KyberOptionsFlow(OptionsFlow):
                 CONF_NARRATOR_MAX_BATCH: int(
                     user_input.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)
                 ),
+                CONF_NARRATOR_AI_TASK_ENTITY_ID: str(
+                    user_input.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")
+                ).strip(),
             })
 
         entity_id = _get(CONF_AI_TASK_ENTITY_ID, "")
@@ -251,6 +265,7 @@ class KyberOptionsFlow(OptionsFlow):
             run_initial_analyze=bool(_get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),
             deep_learning_runs=int(_get(CONF_INITIAL_DEEP_LEARNING_RUNS, DEFAULT_INITIAL_DEEP_LEARNING_RUNS)),
             narrator_max_batch=int(_get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)),
+            narrator_ai_entity=str(_get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")),
         )
 
         return self.async_show_form(step_id="init", data_schema=schema)
