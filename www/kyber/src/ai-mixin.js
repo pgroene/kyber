@@ -956,10 +956,22 @@ export const AIMixin = (Base) => class extends Base {
         }
         if (textEl) textEl.textContent = text;
         banner.style.display = "";
-        if (learningBadge) learningBadge.style.display = "flex";
+        if (learningBadge) {
+          learningBadge.style.display = "flex";
+          learningBadge.style.opacity = "1";
+          learningBadge.title = text;
+        }
       } else {
         banner.style.display = "none";
-        if (learningBadge) learningBadge.style.display = "none";
+        // Badge stays visible but dimmed — shows last-run info.
+        if (learningBadge) {
+          learningBadge.style.display = "flex";
+          learningBadge.style.opacity = "0.35";
+          const lastRun = ep.updated_at
+            ? `Last learning run: ${new Date(ep.updated_at * 1000).toLocaleTimeString()}`
+            : "Learning complete";
+          learningBadge.title = lastRun;
+        }
         // Keep timer running — exploration may start later in the session.
       }
     } catch (_) { /* non-critical */ }

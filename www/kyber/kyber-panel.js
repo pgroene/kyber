@@ -142,7 +142,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
           </span>
           <button class="btn-save editor-controls" id="btn-save" disabled>Save</button>
           <button class="btn-close-editor editor-controls" id="btn-close-editor">✕ Close editor</button>
-          <span class="learning-badge" id="learning-badge" style="display:none" title="Still learning about your home…">🧠</span>
+          <span class="learning-badge" id="learning-badge" style="display:flex;opacity:0.35" title="Still learning about your home…">🧠</span>
         </div>
         <div id="explorer-banner" class="explorer-banner" style="display:none">🔍 <span id="explorer-banner-text">Exploring your home…</span></div>
         <div class="chat-pane">
