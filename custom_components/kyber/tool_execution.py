@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -77,6 +78,111 @@ TOOL_ALIASES: dict[str, str] = {
     "query_ai_task": "run_ai_task",
     "ask_ollama": "run_ai_task",
 }
+
+
+def _alias_phrase_score(query: str, alias: str) -> float:
+    """Score how well query matches alias using phrase-priority scoring.
+
+    Returns:
+      1.0 — exact phrase match (query == alias)
+      0.8 — all query words present in alias (query is subset)
+      0.5 — any query word (>=4 chars) present in alias
+      0.0 — no match
+    """
+    q = query.lower().strip()
+    a = alias.lower().strip()
+    if q == a:
+        return 1.0
+    q_words = q.split()
+    a_words = a.split()
+    # All query words found in alias words
+    if all(w in a_words for w in q_words):
+        return 0.8
+    # Any meaningful query word (>=4 chars) found in alias
+    if any(w in a for w in q_words if len(w) >= 4):
+        return 0.5
+    # Also check if alias words appear in query (reverse overlap)
+    if any(w in q for w in a_words if len(w) >= 4):
+        return 0.3
+    return 0.0
+
+
+def _search_entity_aliases(
+    hass,
+    query_list: list,
+    kstore,
+) -> dict:
+    """Search entity_alias knowledge entries for entities matching the query phrases.
+
+    Returns a results dict in the same format as the main search_entities results.
+    Only returns results with score >= 0.3. Single-token matches (score < 0.5) are
+    suppressed unless they are the only candidates.
+    """
+    if kstore is None:
+        return {}
+    if not kstore.is_loaded:
+        return {}
+
+    # Gather all entity_alias entries
+    alias_scores: dict[str, float] = {}  # entity_id -> best score
+    alias_notes: dict[str, str] = {}     # entity_id -> matched alias phrase
+
+    for entry in kstore._entries.values():
+        if entry.get("category") != "entity_alias":
+            continue
+        subject = entry.get("subject", "")  # the alias phrase
+        content = entry.get("content", "")  # the entity_id
+        if not subject or not content:
+            continue
+        entity_id = content.strip()
+
+        # Score this alias against each query
+        best = 0.0
+        best_alias = ""
+        for q in query_list:
+            score = _alias_phrase_score(q, subject)
+            if score > best:
+                best = score
+                best_alias = subject
+
+        if best > 0.0:
+            if best > alias_scores.get(entity_id, 0.0):
+                alias_scores[entity_id] = best
+                alias_notes[entity_id] = best_alias
+
+    if not alias_scores:
+        return {}
+
+    # Filter: suppress low-score (token-only) matches if better matches exist
+    max_score = max(alias_scores.values())
+    threshold = 0.3 if max_score < 0.5 else 0.4
+
+    results = {}
+    for entity_id, score in sorted(alias_scores.items(), key=lambda x: -x[1]):
+        if score < threshold:
+            continue
+        state = hass.states.get(entity_id)
+        if state is None:
+            continue
+        from homeassistant.helpers import area_registry as _ar
+        from homeassistant.helpers import entity_registry as _er
+        _area_reg = _ar.async_get(hass)
+        _entity_reg = _er.async_get(hass)
+        attrs = state.attributes if state else {}
+        domain = entity_id.split(".")[0]
+        proj = {
+            "name": attrs.get("friendly_name", entity_id),
+            "state": state.state if state else "unknown",
+            "domain": domain,
+        }
+        dc = attrs.get("device_class")
+        if dc:
+            proj["device_class"] = dc
+        proj["domain"] = entity_id.split(".")[0]
+        proj["_alias_match"] = f"found via alias: '{alias_notes[entity_id]}' → {entity_id}"
+        results[entity_id] = proj
+
+    return results
 
 
 def resolve_tool_call(call: dict[str, Any]) -> dict[str, Any]:
@@ -415,6 +521,11 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
                 if all(w in target for w in q_words):
                     matched = True
                     break
+                # 3. Token split: split entity_id on _ and . and check if any query word matches any token
+                entity_tokens = re.split(r'[._]', entity_lower)
+                if any(w in entity_tokens for w in q_words if len(w) >= 4):
+                    matched = True
+                    break
             if not matched:
                 continue
             if not _state_matches(state, state_filter):
@@ -423,6 +534,11 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             if fields_set is None:
                 projection["domain"] = state.entity_id.split(".")[0]
             results[state.entity_id] = projection
+
+        # ALIAS FALLTHROUGH: when no direct match found, check entity_alias knowledge entries
+        if not results:
+            kstore_ref = get_knowledge_store(hass)
+            results = _search_entity_aliases(hass, query_list, kstore_ref)
 
         # Sort by domain priority (most-controllable first), then entity_id.
         # This must run AFTER the loop so all matching entities are collected.

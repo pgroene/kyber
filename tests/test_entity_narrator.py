@@ -41,6 +41,14 @@ def _load_narrator():
     ie_stub.EXPLORER_PROGRESS_KEY = "kyber_explorer_progress"  # type: ignore[attr-defined]
     sys.modules["custom_components.kyber.integration_explorer"] = ie_stub
 
+    # Stub language_hints so detect_home_language can import without HA package resolution.
+    lh_stub = types.ModuleType("custom_components.kyber.language_hints")
+    lh_stub.LANGUAGE_HINTS = {}  # type: ignore[attr-defined]
+    lh_stub.detect_language = lambda text: "en"  # type: ignore[attr-defined]
+    lh_stub.get_hints_for_language = lambda lang_code: []  # type: ignore[attr-defined]
+    lh_stub.language_display_name = lambda lang_code: lang_code  # type: ignore[attr-defined]
+    sys.modules.setdefault("custom_components.kyber.language_hints", lh_stub)
+
     spec = importlib.util.spec_from_file_location(
         "custom_components.kyber.entity_narrator",
         ROOT / "custom_components" / "kyber" / "entity_narrator.py",
@@ -164,7 +172,7 @@ class TestBuildBatchPrompt:
         pairs = [("sensor.foo", "entity_id: sensor.foo\narea: Kitchen")]
         prompt = _NARRATOR.build_batch_prompt(pairs)
         assert "RULES" in prompt
-        assert "VERBATIM" in prompt
+        assert "verbatim" in prompt
 
     def test_contains_entity_ids(self):
         pairs = [
@@ -177,11 +185,23 @@ class TestBuildBatchPrompt:
         assert "Entity 1" in prompt
         assert "Entity 2" in prompt
 
-    def test_numbered_reply_instruction(self):
+    def test_json_format_instruction(self):
         pairs = [("sensor.a", "ctx_a"), ("sensor.b", "ctx_b")]
         prompt = _NARRATOR.build_batch_prompt(pairs)
-        assert "1." in prompt
-        assert "2." in prompt
+        assert "JSON" in prompt
+        assert "search_terms" in prompt
+        assert "device_type" in prompt
+
+    def test_home_lang_hint_included(self):
+        pairs = [("sensor.a", "ctx_a")]
+        prompt = _NARRATOR.build_batch_prompt(pairs, home_lang="nl", devices_hint="lamp = light")
+        assert "nl" in prompt
+        assert "lamp = light" in prompt
+
+    def test_home_lang_no_hint(self):
+        pairs = [("sensor.a", "ctx_a")]
+        prompt = _NARRATOR.build_batch_prompt(pairs, home_lang="nl")
+        assert "nl" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +233,46 @@ class TestParseBatchResponse:
         result = _NARRATOR.parse_batch_response(raw, ["sensor.a", "sensor.b"])
         assert "sensor.a" in result
         assert "sensor.b" not in result
+
+
+# ---------------------------------------------------------------------------
+# parse_batch_response_v3
+# ---------------------------------------------------------------------------
+
+class TestParseBatchResponseV3:
+    def test_parses_json_lines(self):
+        raw = (
+            '{"id": 1, "description": "sensor.foo is the kitchen temperature sensor.", '
+            '"search_terms": ["kitchen temp", "temperature"], "device_type": "temperature sensor"}\n'
+            '{"id": 2, "description": "light.bar is the living room lamp.", '
+            '"search_terms": ["living room light", "bar lamp"], "device_type": "light"}'
+        )
+        result = _NARRATOR.parse_batch_response_v3(raw, ["sensor.foo", "light.bar"])
+        assert "sensor.foo" in result
+        assert result["sensor.foo"]["description"] == "sensor.foo is the kitchen temperature sensor."
+        assert result["sensor.foo"]["search_terms"] == ["kitchen temp", "temperature"]
+        assert result["sensor.foo"]["device_type"] == "temperature sensor"
+        assert "light.bar" in result
+
+    def test_rejects_description_missing_entity_id(self):
+        raw = '{"id": 1, "description": "This is a sensor in the kitchen.", "search_terms": [], "device_type": "sensor"}'
+        result = _NARRATOR.parse_batch_response_v3(raw, ["sensor.foo"])
+        assert result == {}
+
+    def test_empty_response(self):
+        result = _NARRATOR.parse_batch_response_v3("", ["sensor.foo"])
+        assert result == {}
+
+    def test_non_json_lines_ignored(self):
+        raw = "1. sensor.foo is a sensor.\n" + '{"id": 2, "description": "light.bar is a light.", "search_terms": [], "device_type": "light"}'
+        result = _NARRATOR.parse_batch_response_v3(raw, ["sensor.foo", "light.bar"])
+        assert "sensor.foo" not in result
+        assert "light.bar" in result
+
+    def test_out_of_range_id_ignored(self):
+        raw = '{"id": 5, "description": "sensor.foo is something.", "search_terms": [], "device_type": "sensor"}'
+        result = _NARRATOR.parse_batch_response_v3(raw, ["sensor.foo"])
+        assert result == {}
 
 
 # ---------------------------------------------------------------------------
