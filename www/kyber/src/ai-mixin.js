@@ -937,16 +937,29 @@ export const AIMixin = (Base) => class extends Base {
       const ep = data.explorer_progress || {};
       const banner = this.shadowRoot?.getElementById("explorer-banner");
       const textEl = this.shadowRoot?.getElementById("explorer-banner-text");
+      const learningBadge = this.shadowRoot?.getElementById("learning-badge");
       if (!banner) return;
-      const running = ["starting", "phase1_summaries", "phase2_entities"].includes(ep.status);
+      const exploring = ["starting", "phase1_summaries", "phase2_entities"].includes(ep.status);
+      const narrating = ep.status === "narrator";
+      const running = exploring || narrating;
       if (running) {
-        const done = ep.done ?? 0;
-        const total = ep.total ?? 0;
-        const pct = total > 0 ? ` (${done} / ${total})` : "";
-        if (textEl) textEl.textContent = `Exploring your home${pct}…`;
+        let text;
+        if (narrating) {
+          const done = ep.narrator_done ?? 0;
+          const total = ep.narrator_total ?? 0;
+          const current = ep.narrator_current ? ` — ${ep.narrator_current}` : "";
+          text = `Learning your home${total > 0 ? ` (${done} / ${total})` : ""}${current}…`;
+        } else {
+          const done = ep.done ?? 0;
+          const total = ep.total ?? 0;
+          text = `Exploring your home${total > 0 ? ` (${done} / ${total})` : ""}…`;
+        }
+        if (textEl) textEl.textContent = text;
         banner.style.display = "";
+        if (learningBadge) learningBadge.style.display = "flex";
       } else {
         banner.style.display = "none";
+        if (learningBadge) learningBadge.style.display = "none";
         if (this._explorerBannerTimer) {
           clearInterval(this._explorerBannerTimer);
           this._explorerBannerTimer = null;

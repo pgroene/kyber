@@ -19,10 +19,12 @@ from .const import (
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_MAX_TOKENS,
+    CONF_NARRATOR_MAX_BATCH,
     CONF_RUN_INITIAL_ANALYZE,
     DEFAULT_ENABLE_DEBUG_VIEWS,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_NARRATOR_MAX_BATCH,
     DEFAULT_RUN_INITIAL_ANALYZE,
     DOMAIN,
     MODEL_CONTEXT_SIZES,
@@ -104,6 +106,7 @@ def _build_options_schema(
     enable_debug: bool = DEFAULT_ENABLE_DEBUG_VIEWS,
     run_initial_analyze: bool = DEFAULT_RUN_INITIAL_ANALYZE,
     deep_learning_runs: int = DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
+    narrator_max_batch: int = DEFAULT_NARRATOR_MAX_BATCH,
 ) -> vol.Schema:
     """Step-2 / options schema: all settings except entity."""
     return vol.Schema(
@@ -117,6 +120,14 @@ def _build_options_schema(
                 CONF_INITIAL_DEEP_LEARNING_RUNS,
                 default=deep_learning_runs,
             ): vol.All(int, vol.Range(min=1, max=10)),
+            vol.Optional(
+                CONF_NARRATOR_MAX_BATCH,
+                default=narrator_max_batch,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=50, step=1, mode=selector.NumberSelectorMode.SLIDER
+                )
+            ),
         }
     )
 
@@ -174,6 +185,9 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
                             DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
                         )
                     ),
+                    CONF_NARRATOR_MAX_BATCH: int(
+                        user_input.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)
+                    ),
                 },
             )
 
@@ -217,6 +231,9 @@ class KyberOptionsFlow(OptionsFlow):
                 CONF_INITIAL_DEEP_LEARNING_RUNS: int(
                     user_input.get(CONF_INITIAL_DEEP_LEARNING_RUNS, DEFAULT_INITIAL_DEEP_LEARNING_RUNS)
                 ),
+                CONF_NARRATOR_MAX_BATCH: int(
+                    user_input.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)
+                ),
             })
 
         entity_id = _get(CONF_AI_TASK_ENTITY_ID, "")
@@ -233,6 +250,7 @@ class KyberOptionsFlow(OptionsFlow):
             enable_debug=bool(_get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)),
             run_initial_analyze=bool(_get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),
             deep_learning_runs=int(_get(CONF_INITIAL_DEEP_LEARNING_RUNS, DEFAULT_INITIAL_DEEP_LEARNING_RUNS)),
+            narrator_max_batch=int(_get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)),
         )
 
         return self.async_show_form(step_id="init", data_schema=schema)

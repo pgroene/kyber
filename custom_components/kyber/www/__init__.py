@@ -15,9 +15,11 @@ from .const import (
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_INITIAL_LEARNING_DONE,
     CONF_INITIAL_LEARNING_VERSION,
+    CONF_NARRATOR_MAX_BATCH,
     CONF_RUN_INITIAL_ANALYZE,
     CURRENT_INITIAL_LEARNING_VERSION,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
+    DEFAULT_NARRATOR_MAX_BATCH,
     DEFAULT_RUN_INITIAL_ANALYZE,
     DOMAIN,
 )
@@ -180,19 +182,29 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
 
     # Phase 3: AI narrator — only if an AI task entity is configured.
     ai_entity_id = str((entry.data or {}).get(CONF_AI_TASK_ENTITY_ID, "")).strip()
+    if not ai_entity_id:
+        config = {**entry.data, **(entry.options or {})}
+        ai_entity_id = str(config.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
     if ai_entity_id:
+        config = {**entry.data, **(entry.options or {})}
+        max_batch = int(config.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH))
         try:
             from .entity_narrator import async_narrate_entities
             from .knowledge import get_knowledge_store as _gks
             from homeassistant.helpers import entity_registry as _er
             kstore = _gks(hass)
             entity_reg = _er.async_get(hass)
-            narrator_stats = await async_narrate_entities(hass, kstore, entity_reg, ai_entity_id)
+            narrator_stats = await async_narrate_entities(
+                hass, kstore, entity_reg, ai_entity_id, max_batch=max_batch
+            )
             _LOGGER.info(
-                "Kyber: narrator complete — %d accepted, %d rejected, %d errors",
-                narrator_stats.get("accepted_first", 0) + narrator_stats.get("accepted_retry", 0),
-                narrator_stats.get("rejected", 0),
+                "Kyber: narrator complete — %d accepted, %d low-quality, "
+                "%d parse failures, %d errors (batch_size=%d)",
+                narrator_stats.get("accepted", 0),
+                narrator_stats.get("low_quality", 0),
+                narrator_stats.get("parse_failures", 0),
                 narrator_stats.get("errors", 0),
+                narrator_stats.get("batch_size_used", 0),
             )
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber: entity narrator failed: %s", err)

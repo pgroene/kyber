@@ -455,11 +455,14 @@ export const DebugMixin = (Base) => class extends Base {
 
     // Narrator stats summary
     const nsTotal = ns.total ?? 0;
-    const nsAccepted = (ns.accepted_first ?? 0) + (ns.accepted_retry ?? 0);
+    const nsAccepted = ns.accepted ?? 0;
+    const nsLowQuality = ns.low_quality ?? 0;
     const nsPct = nsTotal > 0 ? Math.round((nsAccepted / nsTotal) * 100) : 0;
+    const nsBatchSize = ns.batch_size_used ?? 0;
     const nsLabel = nsTotal > 0
-      ? `${nsAccepted} accepted (${nsPct}%) · ${ns.rejected ?? 0} fallback · ${ns.errors ?? 0} errors`
+      ? `${nsAccepted} accepted (${nsPct}%) · ${nsLowQuality} low-quality · ${ns.errors ?? 0} errors`
       : "Not yet run";
+    const narratorRunning = epStatus === "narrator";
 
     body.innerHTML = `
       <h3>Runtime</h3>
@@ -483,16 +486,19 @@ export const DebugMixin = (Base) => class extends Base {
         ${ep.started_at ? `<tr><th>Started</th><td>${new Date(ep.started_at * 1000).toLocaleTimeString()}</td></tr>` : ""}
       </table>
       ${epProgressBar}
-      ${epStatus === "narrator" ? narratorProgressBar : ""}
+      ${narratorRunning ? narratorProgressBar : ""}
       <h3>AI Narrator</h3>
       <table class="dbg-kv">
-        <tr><th>Status</th><td>${this._escapeHtml(nsLabel)}</td></tr>
+        <tr><th>Status</th><td>${narratorRunning ? `<span class="narrator-live">🧠 Running…</span>` : this._escapeHtml(nsLabel)}</td></tr>
+        ${narratorRunning && ep.narrator_current ? `<tr><th>Working on</th><td><code>${this._escapeHtml(ep.narrator_current)}</code></td></tr>` : ""}
         ${ns.last_run ? `<tr><th>Last run</th><td>${this._escapeHtml(ns.last_run)}</td></tr>` : ""}
         ${nsTotal > 0 ? `
-          <tr><th>Accepted (1st try)</th><td>${ns.accepted_first ?? 0}</td></tr>
-          <tr><th>Accepted (retry)</th><td>${ns.accepted_retry ?? 0}</td></tr>
-          <tr><th>Fallback (all failed)</th><td>${ns.rejected ?? 0}</td></tr>
+          <tr><th>Accepted</th><td>${nsAccepted} (${nsPct}%)</td></tr>
+          <tr><th>Low-quality</th><td>${nsLowQuality}</td></tr>
+          <tr><th>Parse failures</th><td>${ns.parse_failures ?? 0}</td></tr>
           <tr><th>Errors</th><td>${ns.errors ?? 0}</td></tr>
+          <tr><th>Batches</th><td>${ns.batches ?? 0}</td></tr>
+          <tr><th>Batch size used</th><td>${nsBatchSize}</td></tr>
         ` : ""}
       </table>
       <h3>Last turn</h3>
@@ -507,7 +513,7 @@ export const DebugMixin = (Base) => class extends Base {
     `;
 
     // Auto-refresh while explorer or narrator is running
-    if (epRunning) {
+    if (epRunning || narratorRunning) {
       if (!this._explorerStatusTimer) {
         this._explorerStatusTimer = setInterval(() => this._renderDebugStatus(body), 3000);
       }

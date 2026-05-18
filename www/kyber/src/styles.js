@@ -918,6 +918,11 @@ export const STYLES = `
   .status-bar.success { color: var(--success); }
   .status-bar.error   { color: var(--danger); }
 
+  .narrator-live {
+    color: var(--primary-color, #03a9f4);
+    animation: pulse-learning 2.4s ease-in-out infinite;
+  }
+
   .autopilot-badge {
     display: none;
     align-items: center;
@@ -938,6 +943,19 @@ export const STYLES = `
   @keyframes pulse-autopilot {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.6; }
+  }
+
+  .learning-badge {
+    display: none;
+    align-items: center;
+    font-size: 14px;
+    cursor: default;
+    animation: pulse-learning 2.4s ease-in-out infinite;
+  }
+
+  @keyframes pulse-learning {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
   }
 
   .loading-spinner {

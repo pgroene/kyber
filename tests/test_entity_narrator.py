@@ -156,60 +156,89 @@ class TestBuildEntityContext:
 
 
 # ---------------------------------------------------------------------------
-# build_generation_prompt
+# build_batch_prompt
 # ---------------------------------------------------------------------------
 
-class TestBuildGenerationPrompt:
-    def test_contains_strict_rules(self):
-        ctx = "entity_id: sensor.foo\nfriendly_name: Foo"
-        prompt = _NARRATOR.build_generation_prompt(ctx)
-        assert "STRICT RULES" in prompt
+class TestBuildBatchPrompt:
+    def test_contains_rules(self):
+        pairs = [("sensor.foo", "entity_id: sensor.foo\narea: Kitchen")]
+        prompt = _NARRATOR.build_batch_prompt(pairs)
+        assert "RULES" in prompt
         assert "VERBATIM" in prompt
 
-    def test_contains_context(self):
-        ctx = "entity_id: sensor.abc\narea: Woonkamer"
-        prompt = _NARRATOR.build_generation_prompt(ctx)
+    def test_contains_entity_ids(self):
+        pairs = [
+            ("sensor.abc", "entity_id: sensor.abc\narea: Woonkamer"),
+            ("light.xyz", "entity_id: light.xyz\narea: Slaapkamer"),
+        ]
+        prompt = _NARRATOR.build_batch_prompt(pairs)
         assert "sensor.abc" in prompt
-        assert "Woonkamer" in prompt
+        assert "light.xyz" in prompt
+        assert "Entity 1" in prompt
+        assert "Entity 2" in prompt
+
+    def test_numbered_reply_instruction(self):
+        pairs = [("sensor.a", "ctx_a"), ("sensor.b", "ctx_b")]
+        prompt = _NARRATOR.build_batch_prompt(pairs)
+        assert "1." in prompt
+        assert "2." in prompt
 
 
 # ---------------------------------------------------------------------------
-# build_verification_prompt
+# parse_batch_response
 # ---------------------------------------------------------------------------
 
-class TestBuildVerificationPrompt:
-    def test_contains_yes_or_no_instruction(self):
-        prompt = _NARRATOR.build_verification_prompt("source", "description")
-        assert "yes" in prompt.lower()
-        assert "no" in prompt.lower()
+class TestParseBatchResponse:
+    def test_parses_numbered_list(self):
+        raw = (
+            "1. sensor.foo is the kitchen temperature sensor.\n"
+            "2. light.bar is the living room lamp."
+        )
+        result = _NARRATOR.parse_batch_response(raw, ["sensor.foo", "light.bar"])
+        assert result["sensor.foo"] == "sensor.foo is the kitchen temperature sensor."
+        assert result["light.bar"] == "light.bar is the living room lamp."
 
-    def test_contains_source_and_description(self):
-        prompt = _NARRATOR.build_verification_prompt("MY SOURCE", "MY DESC")
-        assert "MY SOURCE" in prompt
-        assert "MY DESC" in prompt
+    def test_skips_out_of_range_numbers(self):
+        raw = "1. sensor.foo description.\n5. out.of.range description."
+        result = _NARRATOR.parse_batch_response(raw, ["sensor.foo"])
+        assert "sensor.foo" in result
+        assert len(result) == 1
+
+    def test_empty_response(self):
+        result = _NARRATOR.parse_batch_response("", ["sensor.foo"])
+        assert result == {}
+
+    def test_partial_response(self):
+        raw = "1. sensor.a is good.\n"
+        result = _NARRATOR.parse_batch_response(raw, ["sensor.a", "sensor.b"])
+        assert "sensor.a" in result
+        assert "sensor.b" not in result
 
 
 # ---------------------------------------------------------------------------
-# is_hallucinated
+# _calc_batch_size
 # ---------------------------------------------------------------------------
 
-class TestIsHallucinated:
-    def test_no_answer(self):
-        assert _NARRATOR.is_hallucinated("no") is False
-        assert _NARRATOR.is_hallucinated("No") is False
-        assert _NARRATOR.is_hallucinated("NO.") is False
+class TestCalcBatchSize:
+    def test_typical_contexts(self):
+        # ~200-char contexts should give a batch_size well above 1
+        contexts = ["x" * 200] * 10
+        size = _NARRATOR._calc_batch_size(contexts, max_batch=20)
+        assert 1 <= size <= 20
 
-    def test_yes_answer(self):
-        assert _NARRATOR.is_hallucinated("yes") is True
-        assert _NARRATOR.is_hallucinated("Yes.") is True
+    def test_respects_max_batch(self):
+        contexts = ["x" * 50] * 10  # small contexts → formula says big number
+        size = _NARRATOR._calc_batch_size(contexts, max_batch=5)
+        assert size <= 5
 
-    def test_unclear_answer_is_conservative(self):
-        assert _NARRATOR.is_hallucinated("maybe") is True
-        assert _NARRATOR.is_hallucinated("") is True
-        assert _NARRATOR.is_hallucinated("I'm not sure") is True
+    def test_empty_contexts_fallback(self):
+        size = _NARRATOR._calc_batch_size([], max_batch=20)
+        assert 1 <= size <= 20
 
-    def test_no_with_extra_text(self):
-        assert _NARRATOR.is_hallucinated("no, the description is accurate") is False
+    def test_huge_contexts_gives_small_batch(self):
+        contexts = ["x" * 5000] * 5  # very large contexts
+        size = _NARRATOR._calc_batch_size(contexts, max_batch=50)
+        assert size >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -267,8 +296,8 @@ def _device_reg_mock():
 
 
 @pytest.mark.asyncio
-async def test_generate_and_verify_first_pass():
-    """AI returns good description on first try â†’ accepted_first incremented."""
+async def test_batch_accepted():
+    """AI returns descriptions with entity_ids → accepted stat incremented."""
     mod = _NARRATOR
     eid = "binary_sensor.0x00124b00_occupancy"
     hass = _make_hass()
@@ -283,18 +312,19 @@ async def test_generate_and_verify_first_pass():
         patch.object(mod, "asyncio") as mock_asyncio,
     ):
         mock_asyncio.sleep = AsyncMock()
-        mock_ai.side_effect = [f"This is {eid} in the bedroom.", "no"]
+        # One batch call — reply contains entity_id
+        mock_ai.return_value = f"1. {eid} is an occupancy sensor in the bedroom."
         stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
 
-    assert stats["accepted_first"] == 1
-    assert stats["accepted_retry"] == 0
-    assert stats["rejected"] == 0
+    assert stats["accepted"] == 1
+    assert stats["low_quality"] == 0
     assert stats["errors"] == 0
+    assert stats["batches"] == 1
 
 
 @pytest.mark.asyncio
-async def test_generate_retry_on_yes():
-    """First verify returns yes â†’ retry â†’ second verify returns no â†’ accepted_retry."""
+async def test_batch_low_quality_when_entity_id_missing():
+    """Description missing entity_id → stored as low_quality."""
     mod = _NARRATOR
     eid = "binary_sensor.0x00124b00_occupancy"
     hass = _make_hass()
@@ -309,22 +339,25 @@ async def test_generate_retry_on_yes():
         patch.object(mod, "asyncio") as mock_asyncio,
     ):
         mock_asyncio.sleep = AsyncMock()
-        mock_ai.side_effect = [
-            f"Attempt 1 {eid}", "yes",
-            f"Attempt 2 {eid}", "no",
-        ]
+        # Description does NOT contain entity_id
+        mock_ai.return_value = "1. This is a motion sensor in the bedroom."
         stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
 
-    assert stats["accepted_first"] == 0
-    assert stats["accepted_retry"] == 1
-    assert stats["rejected"] == 0
+    assert stats["low_quality"] == 1
+    assert stats["accepted"] == 0
+    # Low-quality entry should be stored (for skipping re-runs)
+    lq_calls = [
+        c for c in kstore.async_add.call_args_list
+        if "low_quality" in (c.kwargs.get("tags") or [])
+    ]
+    assert len(lq_calls) == 1
 
 
 @pytest.mark.asyncio
-async def test_generate_fallback_after_3_failures():
-    """All three verify calls return yes â†’ rejected (template fallback)."""
+async def test_batch_ai_error_increments_errors():
+    """AI call raises → errors counter incremented, nothing stored."""
     mod = _NARRATOR
-    eid = "binary_sensor.0x00124b00_occupancy"
+    eid = "binary_sensor.0xabcdef_occupancy"
     hass = _make_hass()
     hass.states.get = MagicMock(return_value=_make_state(eid))
     kstore = _make_kstore()
@@ -337,16 +370,10 @@ async def test_generate_fallback_after_3_failures():
         patch.object(mod, "asyncio") as mock_asyncio,
     ):
         mock_asyncio.sleep = AsyncMock()
-        mock_ai.side_effect = [
-            f"Attempt {eid} 1", "yes",
-            f"Attempt {eid} 2", "yes",
-            f"Attempt {eid} 3", "yes",
-        ]
+        mock_ai.side_effect = RuntimeError("AI unavailable")
         stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
 
-    assert stats["rejected"] == 1
-    assert stats["accepted_first"] == 0
-    assert stats["accepted_retry"] == 0
+    assert stats["errors"] >= 1
     narrator_calls = [
         c for c in kstore.async_add.call_args_list
         if c.kwargs.get("source") == "entity_narrator"
@@ -355,36 +382,8 @@ async def test_generate_fallback_after_3_failures():
 
 
 @pytest.mark.asyncio
-async def test_entity_id_must_be_in_description():
-    """Generated description missing entity_id â†’ treated as failed attempt (retry)."""
-    mod = _NARRATOR
-    eid = "binary_sensor.0x00124b00_occupancy"
-    hass = _make_hass()
-    hass.states.get = MagicMock(return_value=_make_state(eid))
-    kstore = _make_kstore()
-    entity_reg = _make_entity_reg(eid)
-
-    with (
-        patch.object(mod, "_run_ai", new_callable=AsyncMock) as mock_ai,
-        patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
-        patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
-        patch.object(mod, "asyncio") as mock_asyncio,
-    ):
-        mock_asyncio.sleep = AsyncMock()
-        mock_ai.side_effect = [
-            "This entity is a motion sensor in the bedroom.",  # no entity_id â†’ skip
-            f"This is {eid} in the bedroom.",                  # entity_id present
-            "no",                                              # verify
-        ]
-        stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
-
-    assert stats["accepted_retry"] == 1
-    assert stats["rejected"] == 0
-
-
-@pytest.mark.asyncio
-async def test_stats_tracking():
-    """Stats dict is updated correctly across mix of pass/fail entities."""
+async def test_batch_multi_entity_stats():
+    """Two entities in one batch: one accepted, one low-quality."""
     mod = _NARRATOR
     eid1 = "binary_sensor.0xaabbcc_occupancy"
     eid2 = "binary_sensor.0xddeeff_occupancy"
@@ -409,17 +408,95 @@ async def test_stats_tracking():
         patch.object(mod, "asyncio") as mock_asyncio,
     ):
         mock_asyncio.sleep = AsyncMock()
-        mock_ai.side_effect = [
-            f"This is {eid1}.", "no",                       # eid1: accepted first
-            f"missing {eid2}", "yes",
-            f"missing {eid2}", "yes",
-            f"missing {eid2}", "yes",                       # eid2: rejected
-        ]
-        stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
+        # Both in one batch (default max_batch=20 > 2), eid1 accepted, eid2 missing entity_id
+        mock_ai.return_value = (
+            f"1. {eid1} is an occupancy sensor.\n"
+            "2. This is a motion sensor."  # missing eid2
+        )
+        stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test", max_batch=20)
 
     assert stats["total"] == 2
-    assert stats["accepted_first"] == 1
-    assert stats["rejected"] == 1
+    assert stats["accepted"] == 1
+    assert stats["low_quality"] == 1
+    assert stats["batches"] == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_parse_failure_flag():
+    """When fewer than half descriptions parse → parse_failures incremented."""
+    mod = _NARRATOR
+    eids = [f"binary_sensor.0x{i:08x}_occupancy" for i in range(10)]
+    hass = _make_hass()
+    hass.states.get = MagicMock(side_effect=lambda eid: _make_state(eid) if eid in eids else None)
+    kstore = _make_kstore()
+
+    entries = {}
+    for eid in eids:
+        e = MagicMock()
+        e.entity_id = eid
+        e.device_id = None
+        e.area_id = None
+        e.device_class = "occupancy"
+        entries[eid] = e
+    entity_reg = MagicMock()
+    entity_reg.entities = entries
+
+    with (
+        patch.object(mod, "_run_ai", new_callable=AsyncMock) as mock_ai,
+        patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
+        patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
+        patch.object(mod, "asyncio") as mock_asyncio,
+    ):
+        mock_asyncio.sleep = AsyncMock()
+        # Only 2 lines for 10 entities → parse failure
+        mock_ai.return_value = "1. First one.\n2. Second one."
+        stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test", max_batch=20)
+
+    assert stats["parse_failures"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_batch_size_respected():
+    """max_batch=2 with 4 entities → 2 batches, 2 AI calls."""
+    mod = _NARRATOR
+    eids = [f"binary_sensor.0x{i:08x}_occupancy" for i in range(4)]
+    hass = _make_hass()
+    hass.states.get = MagicMock(side_effect=lambda eid: _make_state(eid) if eid in eids else None)
+    kstore = _make_kstore()
+
+    entries = {}
+    for eid in eids:
+        e = MagicMock()
+        e.entity_id = eid
+        e.device_id = None
+        e.area_id = None
+        e.device_class = "occupancy"
+        entries[eid] = e
+    entity_reg = MagicMock()
+    entity_reg.entities = entries
+
+    ai_calls = []
+
+    async def _fake_ai(hass, ai_id, prompt):
+        ai_calls.append(prompt)
+        # Return description for first two lines
+        lines = []
+        for i, eid in enumerate(eids[:2], start=1):
+            if eid in prompt:
+                lines.append(f"{i}. {eid} is a sensor.")
+        return "\n".join(lines) if lines else "1. no match."
+
+    with (
+        patch.object(mod, "_run_ai", new=_fake_ai),
+        patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
+        patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
+        patch.object(mod, "asyncio") as mock_asyncio,
+    ):
+        mock_asyncio.sleep = AsyncMock()
+        stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test", max_batch=2)
+
+    assert stats["batches"] == 2
+    assert len(ai_calls) == 2
 
 
 @pytest.mark.asyncio
@@ -439,7 +516,7 @@ async def test_stats_persisted_to_knowledge_store():
         patch.object(mod, "asyncio") as mock_asyncio,
     ):
         mock_asyncio.sleep = AsyncMock()
-        mock_ai.side_effect = [f"This is {eid}.", "no"]
+        mock_ai.return_value = f"1. {eid} is a sensor."
         await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
 
     stats_calls = [
@@ -451,7 +528,7 @@ async def test_stats_persisted_to_knowledge_store():
 
 @pytest.mark.asyncio
 async def test_ai_call_error_falls_back():
-    """Exception during AI generation â†’ errors counter incremented, no narrator entry stored."""
+    """Exception during AI batch call → errors counter incremented, no narrator entry stored."""
     mod = _NARRATOR
     eid = "binary_sensor.0xabcdef_occupancy"
     hass = _make_hass()

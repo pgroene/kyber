@@ -10,6 +10,7 @@ CONF_RUN_INITIAL_ANALYZE = "run_initial_analyze"
 CONF_INITIAL_DEEP_LEARNING_RUNS = "initial_deep_learning_runs"
 CONF_INITIAL_LEARNING_DONE = "initial_learning_done"
 CONF_INITIAL_LEARNING_VERSION = "initial_learning_version"
+CONF_NARRATOR_MAX_BATCH = "narrator_max_batch"
 # Bump this to trigger a re-run of initial learning on existing installs.
 CURRENT_INITIAL_LEARNING_VERSION = 3
 
@@ -17,6 +18,7 @@ DEFAULT_MAX_TOKENS = 2048
 DEFAULT_ENABLE_DEBUG_VIEWS = False
 DEFAULT_RUN_INITIAL_ANALYZE = True
 DEFAULT_INITIAL_DEEP_LEARNING_RUNS = 10
+DEFAULT_NARRATOR_MAX_BATCH = 20
 
 # ── Tuning constants ──────────────────────────────────────────────────────────
 # Shared limits used across backend modules:
