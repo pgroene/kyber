@@ -183,10 +183,12 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
     # Index dashboard entities — gives the narrator human-readable card names
     # for cryptic entity IDs (e.g. switch.0xa4c138... → "Espresso").
     try:
-        from .dashboard_indexer import async_index_dashboard_entities, get_dashboard_entity_names
+        from .dashboard_indexer import async_index_dashboard_entities, get_dashboard_entity_names, async_store_dashboard_labels
         await async_index_dashboard_entities(hass)
         dashboard_names = get_dashboard_entity_names(hass)
-        _LOGGER.info("Kyber: dashboard indexer found %d named entities", len(dashboard_names))
+        kstore = get_knowledge_store(hass)
+        label_count = await async_store_dashboard_labels(hass, kstore)
+        _LOGGER.info("Kyber: dashboard indexer found %d named entities, stored %d label entries", len(dashboard_names), label_count)
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Kyber: dashboard indexer failed: %s", err)
         dashboard_names = {}
@@ -381,7 +383,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
             sidebar_icon="mdi:robot",
-            module_url="/local/kyber/kyber-panel.js?v=97",
+            module_url="/local/kyber/kyber-panel.js?v=98",
         )
     except Exception:  # noqa: BLE001
         _LOGGER.debug("Panel registration skipped (test environment)")
@@ -396,7 +398,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
                 webcomponent_name="kyber-panel",
                 sidebar_title="Kyber Debug",
                 sidebar_icon="mdi:bug",
-                module_url="/local/kyber/kyber-panel.js?v=97",
+                module_url="/local/kyber/kyber-panel.js?v=98",
                 config={"mode": "debug"},
             )
         except Exception:  # noqa: BLE001
