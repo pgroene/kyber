@@ -155,7 +155,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <span class="session-label" id="session-indicator"></span>
             <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
             <button class="memory-badge" id="memory-badge" title="Memory facts — click to preview recalled facts">🧠 <span id="memory-count">…</span></button>
-            <span class="autopilot-badge" id="autopilot-badge">⚡ Autopilot</span>
+            <button class="autopilot-badge" id="autopilot-badge" title="Toggle autopilot — auto-executes safe proposals">⚡ Autopilot</button>
             <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
             <button class="btn-debug" id="btn-debug" title="Open debug / memory inspector">🐞</button>
           </div>
@@ -288,6 +288,16 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     shadow.getElementById("btn-debug-close").addEventListener("click", () => this._toggleDebugPane(false));
     shadow.getElementById("btn-debug-refresh").addEventListener("click", () => this._renderDebugTab(this._debugTab || "memory"));
     shadow.getElementById("memory-badge").addEventListener("click", () => this._toggleMemoryPopover());
+    shadow.getElementById("autopilot-badge").addEventListener("click", () => {
+      this._autopilot = !this._autopilot;
+      this._updateAutopilotBadge();
+      this._appendMessage(
+        this._autopilot
+          ? "⚡ Autopilot is now ON — proposals will execute automatically."
+          : "Autopilot is now OFF — you'll review proposals before executing.",
+        "assistant",
+      );
+    });
     shadow.getElementById("btn-memory-view-all").addEventListener("click", () => {
       this._closeMemoryPopover();
       try {

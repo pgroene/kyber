@@ -919,21 +919,34 @@ export const STYLES = `
   .status-bar.error   { color: var(--danger); }
 
   .autopilot-badge {
-    display: none;
+    display: flex;
     align-items: center;
     gap: 4px;
-    background: #ff6b00;
-    color: white;
+    background: transparent;
+    color: var(--secondary-text-color, #888);
+    border: 1px solid var(--border-color, #3a3a3c);
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     padding: 2px 7px;
     border-radius: 10px;
-    animation: pulse-autopilot 2s ease-in-out infinite;
+    opacity: 0.4;
+    cursor: pointer;
+    transition: opacity 0.2s, background 0.2s, color 0.2s, border-color 0.2s;
+    white-space: nowrap;
+    outline: none;
   }
 
-  .autopilot-badge.active { display: flex; }
+  .autopilot-badge:hover { opacity: 0.7; }
+
+  .autopilot-badge.active {
+    background: #ff6b00;
+    color: white;
+    border-color: #ff6b00;
+    opacity: 1;
+    animation: pulse-autopilot 2s ease-in-out infinite;
+  }
 
   @keyframes pulse-autopilot {
     0%, 100% { opacity: 1; }

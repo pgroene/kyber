@@ -17,7 +17,7 @@ export const STYLES = `
 
   .container {
     display: grid;
-    grid-template-rows: 56px auto 1fr;
+    grid-template-rows: 56px 1fr;
     grid-template-columns: 1fr;
     height: 100%;
     position: relative;
@@ -31,27 +31,12 @@ export const STYLES = `
 
   .toolbar {
     grid-column: 1 / -1;
-    grid-row: 1;
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 0 16px;
     border-bottom: 1px solid var(--border-color);
     background: var(--sidebar-bg);
-  }
-
-  .explorer-banner {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    padding: 6px 12px;
-    font-size: 12px;
-    color: var(--primary-color, #03a9f4);
-    background: color-mix(in srgb, var(--primary-color, #03a9f4) 12%, transparent);
-    border-left: 3px solid var(--primary-color, #03a9f4);
-  }
-
-  .chat-pane, .debug-pane {
-    grid-row: 3;
   }
 
   .toolbar h2 {
@@ -155,6 +140,14 @@ export const STYLES = `
 
   .sidebar-brand .btn-clear-history:hover {
     background: var(--border-color);
+  }
+
+  .explorer-banner {
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--primary-color, #03a9f4);
+    background: color-mix(in srgb, var(--primary-color, #03a9f4) 12%, transparent);
+    border-left: 3px solid var(--primary-color, #03a9f4);
   }
 
   .chat-history {
@@ -925,27 +918,35 @@ export const STYLES = `
   .status-bar.success { color: var(--success); }
   .status-bar.error   { color: var(--danger); }
 
-  .narrator-live {
-    color: var(--primary-color, #03a9f4);
-    animation: pulse-learning 2.4s ease-in-out infinite;
-  }
-
   .autopilot-badge {
-    display: none;
+    display: flex;
     align-items: center;
     gap: 4px;
-    background: #ff6b00;
-    color: white;
+    background: transparent;
+    color: var(--secondary-text-color, #888);
+    border: 1px solid var(--border-color, #3a3a3c);
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     padding: 2px 7px;
     border-radius: 10px;
-    animation: pulse-autopilot 2s ease-in-out infinite;
+    opacity: 0.4;
+    cursor: pointer;
+    transition: opacity 0.2s, background 0.2s, color 0.2s, border-color 0.2s;
+    white-space: nowrap;
+    outline: none;
   }
 
-  .autopilot-badge.active { display: flex; }
+  .autopilot-badge:hover { opacity: 0.7; }
+
+  .autopilot-badge.active {
+    background: #ff6b00;
+    color: white;
+    border-color: #ff6b00;
+    opacity: 1;
+    animation: pulse-autopilot 2s ease-in-out infinite;
+  }
 
   @keyframes pulse-autopilot {
     0%, 100% { opacity: 1; }
@@ -1043,105 +1044,6 @@ export const STYLES = `
   }
 
   .memory-popover-footer button:hover { text-decoration: underline; }
-
-  .learning-badge {
-    display: none;
-    align-items: center;
-    font-size: 14px;
-    cursor: default;
-    margin-left: auto;
-    transition: opacity 0.4s ease;
-  }
-
-  .learning-badge.is-learning {
-    animation: pulse-learning 1.2s ease-in-out infinite;
-  }
-
-  @keyframes pulse-learning {
-    0%, 100% { opacity: 1; transform: scale(1.1); }
-    50%       { opacity: 0.4; transform: scale(0.88); }
-  }
-
-  /* ── Status page alerts & health ─────────────────────────────── */
-  .status-alert {
-    padding: 8px 12px;
-    border-radius: 6px;
-    margin-bottom: 8px;
-    font-size: 13px;
-    line-height: 1.4;
-  }
-
-  .status-alert--error {
-    background: rgba(207, 102, 121, 0.15);
-    border-left: 3px solid var(--danger);
-    color: var(--danger);
-  }
-
-  .status-alert--warn {
-    background: rgba(255, 167, 38, 0.12);
-    border-left: 3px solid #ffa726;
-    color: #ffa726;
-  }
-
-  .status-health {
-    font-size: 12px;
-    font-weight: normal;
-    margin-left: 6px;
-    vertical-align: middle;
-  }
-
-  .status-health--ok { color: var(--success); }
-  .status-health--warn { color: #ffa726; }
-  .status-health--error { color: var(--danger); }
-
-  .status-bar-wrap {
-    margin: 6px 0 10px;
-  }
-
-  .status-bar {
-    display: flex;
-    height: 8px;
-    border-radius: 4px;
-    overflow: hidden;
-    background: var(--border-color);
-  }
-
-  .status-bar-fill--ok  { background: var(--success); }
-  .status-bar-fill--warn { background: #ffa726; }
-
-  .status-bar-label {
-    display: block;
-    font-size: 11px;
-    color: var(--text-color);
-    opacity: 0.7;
-    margin-top: 3px;
-  }
-
-  .status-live-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 0 4px;
-    font-size: 13px;
-  }
-
-  .status-live-entity {
-    font-size: 12px;
-    background: var(--sidebar-bg);
-    padding: 1px 6px;
-    border-radius: 4px;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .status-live-pct {
-    font-size: 11px;
-    opacity: 0.6;
-    min-width: 32px;
-    text-align: right;
-  }
 
   .loading-spinner {
     display: inline-block;
