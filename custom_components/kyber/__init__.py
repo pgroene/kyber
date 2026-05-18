@@ -188,26 +188,41 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
     if ai_entity_id:
         config = {**entry.data, **(entry.options or {})}
         max_batch = int(config.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH))
-        try:
-            from .entity_narrator import async_narrate_entities
-            from .knowledge import get_knowledge_store as _gks
-            from homeassistant.helpers import entity_registry as _er
-            kstore = _gks(hass)
-            entity_reg = _er.async_get(hass)
-            narrator_stats = await async_narrate_entities(
-                hass, kstore, entity_reg, ai_entity_id, max_batch=max_batch
-            )
-            _LOGGER.info(
-                "Kyber: narrator complete — %d accepted, %d low-quality, "
-                "%d parse failures, %d errors (batch_size=%d)",
-                narrator_stats.get("accepted", 0),
-                narrator_stats.get("low_quality", 0),
-                narrator_stats.get("parse_failures", 0),
-                narrator_stats.get("errors", 0),
-                narrator_stats.get("batch_size_used", 0),
-            )
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Kyber: entity narrator failed: %s", err)
+        _NARRATOR_RETRY_DELAY = 600   # 10 minutes between retries
+        _NARRATOR_MAX_RETRIES = 3
+        for attempt in range(1 + _NARRATOR_MAX_RETRIES):
+            try:
+                from .entity_narrator import async_narrate_entities
+                from .knowledge import get_knowledge_store as _gks
+                from homeassistant.helpers import entity_registry as _er
+                kstore = _gks(hass)
+                entity_reg = _er.async_get(hass)
+                narrator_stats = await async_narrate_entities(
+                    hass, kstore, entity_reg, ai_entity_id, max_batch=max_batch
+                )
+                errors = narrator_stats.get("errors", 0)
+                _LOGGER.info(
+                    "Kyber: narrator complete (attempt %d) — %d accepted, %d low-quality, "
+                    "%d parse failures, %d errors (batch_size=%d)",
+                    attempt + 1,
+                    narrator_stats.get("accepted", 0),
+                    narrator_stats.get("low_quality", 0),
+                    narrator_stats.get("parse_failures", 0),
+                    errors,
+                    narrator_stats.get("batch_size_used", 0),
+                )
+                if errors == 0 or attempt >= _NARRATOR_MAX_RETRIES:
+                    break
+                _LOGGER.warning(
+                    "Kyber: narrator had %d errors — retrying in %ds (attempt %d/%d)…",
+                    errors, _NARRATOR_RETRY_DELAY, attempt + 1, _NARRATOR_MAX_RETRIES,
+                )
+                await asyncio.sleep(_NARRATOR_RETRY_DELAY)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Kyber: entity narrator failed (attempt %d): %s", attempt + 1, err)
+                if attempt < _NARRATOR_MAX_RETRIES:
+                    await asyncio.sleep(_NARRATOR_RETRY_DELAY)
+                break
 
 
 async def _async_seed_language_hints(hass: HomeAssistant) -> None:
