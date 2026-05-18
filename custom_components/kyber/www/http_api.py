@@ -49,7 +49,7 @@ from .response_processing import (
     _TOOL_RESULT_STRIP_RE, _TOOL_RESULT_ECHO_RE, _TOOL_CALL_MAX_ROUNDS,
     _BARE_FENCE_RE, _ACTION_TYPE_RE, _AUTOMATION_EDIT_RE,
     _parse_tool_calls, _strip_tool_calls, _extract_yaml_blocks, _extract_plan_block,
-    _rewrap_bare_action_fences, _NARRATION_PATTERNS, _BARE_JSON_TOOL_RESULT_RE,
+    _rewrap_bare_action_fences, _normalize_json_plan_blocks, _NARRATION_PATTERNS, _BARE_JSON_TOOL_RESULT_RE,
     _strip_role_echo_prefix, _BRIGHTNESS_INTENT_RE, _DIM_INTENT_RE,
     _augment_brightness_intent, _extract_clarify_block, _strip_plan_block,
 )
@@ -259,7 +259,9 @@ def _truncate_tool_result(data: Any, budget: int) -> str:
 _RESPONSE_MODE_INFORMATIONAL = (
     "<<RULES — never echo or quote these>>\n"
     "INFORMATIONAL mode:\n"
-    "- Areas/labels/automations/scripts are in context → answer directly from there.\n"
+    "⚠️ The 'Plans and approval' section above DOES NOT APPLY here. Do NOT use any code block at all.\n"
+    "- Areas/labels/automations/scripts are in context → write them out as plain text bullets NOW. "
+    "Do NOT say 'I listed them' or summarise — actually write each item line by line.\n"
     "- Entity IDs/states not in context → output [TOOL_CALL:{\"name\":\"...\"}] immediately, nothing else.\n"
     "- If question is about a SPECIFIC state (e.g. 'lights that are on', 'open doors'), ADD a \"state\" filter to the tool call (e.g. \"state\":\"on\"). This returns only matching items — list ALL of them.\n"
     "- After tool result: list EVERY SINGLE item from the result. If result has 83 items, output 83 bullets. NEVER stop at 5/10/20. NEVER write '...' or 'and more'.\n"
@@ -272,7 +274,7 @@ _RESPONSE_MODE_INFORMATIONAL = (
     "'problems/issues' → binary_sensor with state='on'; 'alarms' → domain='alarm_control_panel'.\n"
     "- Do NOT output a clarify block. There is always a tool that can answer. If unsure of the domain, call search_entities(query='<keyword>').\n"
     "- No preamble. No footer. No 'What would you like to do?' No 'Please let me know'.\n"
-    "- Do NOT output a plan block.\n"
+    "- Do NOT output a plan block, json code block, or ANY code fence with summary/actions/warnings fields. Plain text and tool calls ONLY.\n"
     "<</RULES>>\n\n"
 )
 
@@ -924,6 +926,9 @@ def _extract_response_components(
     # Rewrap bare ``` JSON action fences as a ```plan``` block so the
     # frontend can render an Execute button. This MUST run before plan extraction.
     response_text = _rewrap_bare_action_fences(response_text)
+    # Normalize ```json plan-shaped blocks (AI uses wrong language tag to
+    # "avoid" the plan block rule but still returns plan structure).
+    response_text = _normalize_json_plan_blocks(response_text)
 
     yaml_blocks = _extract_yaml_blocks(response_text)
     plan_block = _extract_plan_block(response_text)
@@ -1027,6 +1032,8 @@ def _extract_response_components(
     # open_editor or open_dashboard plan, drop it.
     # Also drop create/delete/update action plans for informational queries
     # (e.g. "what areas do I have" should never become "create_area outside").
+    # Also drop empty-actions plans (AI returned plan JSON with summary but no
+    # actions — it "summarised" the answer instead of writing it out).
     if intent == "informational" and plan_block:
         has_editor = plan_block.get("open_editor") or plan_block.get("open_dashboard")
         mutating_action_types = {
@@ -1036,13 +1043,21 @@ def _extract_response_components(
         }
         actions = plan_block.get("actions", [])
         has_mutating = any(a.get("type") in mutating_action_types for a in actions)
-        if has_editor or has_mutating:
+        # An empty-actions plan for an informational query is a hallucination:
+        # the AI returned a plan-shaped "summary" without actually listing content.
+        has_empty_plan = not actions and not has_editor
+        if has_editor or has_mutating or has_empty_plan:
             _LOGGER.warning(
-                "Kyber: dropping spurious action plan for informational query: %r (types: %s)",
+                "Kyber: dropping spurious %s plan for informational query: %r (types: %s)",
+                "empty" if has_empty_plan else "action",
                 user_prompt[:80],
                 [a.get("type") for a in actions],
             )
             plan_block = None
+            # Also strip the plan block from response_text so the user doesn't
+            # see raw JSON (for empty-actions plans this would otherwise be
+            # the only content — a blank response is handled below).
+            response_text = _strip_plan_block(response_text)
 
     # Remove plan block from displayed response — do this AFTER the informational
     # guard so that a dropped plan doesn't leave response_text empty (the raw plan

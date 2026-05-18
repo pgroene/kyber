@@ -178,6 +178,8 @@ def _strip_plan_block(text: str) -> str:
 
 
 _BARE_FENCE_RE = re.compile(r"```(?!plan|clarify|yaml|json)([a-z]*)\n([\s\S]+?)\n```", re.IGNORECASE)
+# Matches ```json blocks — used to detect plan-shaped JSON emitted with wrong language tag.
+_JSON_BLOCK_RE = re.compile(r"```json\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _ACTION_TYPE_RE = re.compile(r'"type"\s*:\s*"(call_service|assign_area|rename_entity|create_\w+|update_\w+|delete_\w+|add_knowledge|update_knowledge|delete_knowledge|open_dashboard|open_editor)"')
 
 # Detect user intent to edit an automation/script YAML — used to lazy-load editor guidance.
@@ -191,6 +193,30 @@ _AUTOMATION_EDIT_RE = re.compile(
     r')',
     re.I | re.S,
 )
+
+
+def _normalize_json_plan_blocks(text: str) -> str:
+    """Rewrap ```json blocks that are plan-shaped as ```plan blocks.
+
+    The AI occasionally emits the plan JSON inside a ```json fence instead of
+    a ```plan fence (attempting to "comply" with "do not output a plan block"
+    while still using the plan structure).  This makes them invisible to
+    _extract_plan_block and bypasses the informational guard.  Convert them here
+    so the rest of the pipeline handles them correctly.
+    """
+    if _PLAN_BLOCK_RE.search(text):
+        return text  # already a real plan block
+
+    for m in _JSON_BLOCK_RE.finditer(text):
+        body = m.group(1).strip()
+        try:
+            obj = json.loads(body)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        # Plan shape: has "summary" key and "actions" list (even if empty)
+        if isinstance(obj, dict) and "summary" in obj and "actions" in obj:
+            return text.replace(m.group(0), f"```plan\n{body}\n```")
+    return text
 
 
 def _rewrap_bare_action_fences(text: str) -> str:
