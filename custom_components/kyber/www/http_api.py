@@ -164,8 +164,13 @@ def _build_loop_redirect(tool_calls_filtered: list[tuple[str, dict]]) -> str | N
             q = call.get("query") or ", ".join(call.get("queries") or [])
             return (
                 f"\n[SYSTEM: search_entities for '{q}' returned the same result as the "
-                f"previous round. Try a different approach: broaden the search term, "
-                f"try search_knowledge(query='{q}'), or use list_entities_by_domain.]\n"
+                f"previous round. Do NOT call search_entities again with the same term. "
+                f"Required next steps: "
+                f"(1) call search_knowledge(query='{q}') to check stored aliases — "
+                f"the entity may be known by a different name; "
+                f"(2) if still nothing, call list_entities_by_domain with the most likely "
+                f"domain (e.g. domain='switch' for appliances, domain='light' for lights). "
+                f"Do NOT pivot to a different topic or device.]\n"
                 f"Assistant:"
             )
     return None

@@ -22,6 +22,7 @@ knowledge store so the debug panel can display them across restarts.
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import logging
 import re
 import time
@@ -37,7 +38,7 @@ _LOGGER = logging.getLogger(__name__)
 
 NARRATOR_STATS_KEY = "kyber_narrator_stats"
 
-_NARRATOR_VERSION = 2
+_NARRATOR_VERSION = 3
 _NARRATOR_VERSION_TAG = f"narrator-v{_NARRATOR_VERSION}"
 
 # Imported at module level so tests can stub via sys.modules before load.
@@ -94,6 +95,36 @@ def is_interesting(
     return False
 
 
+def detect_home_language(hass) -> tuple[str, str]:
+    """Detect dominant language of entity friendly names.
+    Returns (lang_code, device_vocab_hint) where lang_code is e.g. 'nl' or 'en'.
+    """
+    from .language_hints import LANGUAGE_HINTS, detect_language
+    # Sample up to 200 friendly names
+    names = []
+    for state in hass.states.async_all():
+        fn = state.attributes.get("friendly_name", "")
+        if fn:
+            names.append(fn)
+        if len(names) >= 200:
+            break
+    if not names:
+        return "en", ""
+    # Vote by running detect_language on each name
+    votes: dict[str, int] = {}
+    for name in names:
+        lang = detect_language(name)
+        votes[lang] = votes.get(lang, 0) + 1
+    dominant = max(votes, key=lambda k: votes[k])
+    if dominant == "en":
+        return "en", ""
+    # Get the {lang}_devices hint content for the narrator
+    lang_info = LANGUAGE_HINTS.get(dominant, {})
+    hints = lang_info.get("hints", [])
+    devices_hint = next((h.content for h in hints if h.subject.endswith("_devices")), "")
+    return dominant, devices_hint
+
+
 def build_entity_context(
     entity_id: str,
     name: str,
@@ -142,10 +173,9 @@ def build_entity_context(
     return "\n".join(lines)
 
 
-def build_batch_prompt(entity_pairs: list[tuple[str, str]]) -> str:
+def build_batch_prompt(entity_pairs: list[tuple[str, str]], home_lang: str = "en", devices_hint: str = "") -> str:
     """Build a single prompt asking the AI to describe all entities in the batch.
-
-    *entity_pairs* is a list of (entity_id, context_string).
+    Returns a JSON array with description, search_terms, and device_type per entity.
     """
     count = len(entity_pairs)
     blocks = []
@@ -153,23 +183,39 @@ def build_batch_prompt(entity_pairs: list[tuple[str, str]]) -> str:
         blocks.append(f"--- Entity {i}: {eid} ---\n{ctx}")
     entities_text = "\n\n".join(blocks)
 
+    lang_instruction = ""
+    if home_lang != "en" and devices_hint:
+        lang_instruction = (
+            f"\n- The home's primary language is '{home_lang}'. "
+            f"Include search_terms in BOTH English AND '{home_lang}'. "
+            f"Device vocabulary for '{home_lang}': {devices_hint}"
+        )
+    elif home_lang != "en":
+        lang_instruction = (
+            f"\n- The home's primary language is '{home_lang}'. "
+            f"Include search_terms in BOTH English AND '{home_lang}'."
+        )
+
     return (
         "You are building a knowledge base for a Home Assistant smart home.\n"
-        f"Write exactly one 1-2 sentence description for EACH of the {count} entities below.\n\n"
-        "RULES (apply to every description):\n"
+        f"For EACH of the {count} entities below, output a JSON object on ONE line.\n\n"
+        "Each JSON object must have exactly these fields:\n"
+        '  "id": <1-based integer matching entity number>\n'
+        '  "description": <1-2 sentence factual description — MUST contain the entity_id verbatim>\n'
+        '  "search_terms": <list of 3-8 common names/phrases a user might say to refer to this device>\n'
+        '  "device_type": <canonical English device type, e.g. "coffee maker", "motion sensor", "light switch">\n\n'
+        "RULES:\n"
         "- Use ONLY information explicitly stated in each entity's data. No guessing.\n"
-        "- Include the entity_id VERBATIM in the description.\n"
-        "- If a dashboard_label is present, it is the user's own name for this device — "
-        "use it as the primary human-readable name in the description.\n"
-        "- Include the area/room name if present.\n"
-        "- Include device manufacturer and model if present.\n"
-        "- Write in English.\n\n"
-        f"Reply with EXACTLY {count} numbered lines and nothing else:\n"
-        "1. <description for entity 1>\n"
-        "2. <description for entity 2>\n"
+        "- description MUST include the entity_id verbatim.\n"
+        "- search_terms: include common names, synonyms, brand names if known. Include phrases (2-3 words), not just single words.\n"
+        "- search_terms: if dashboard_label is present, include it as the first search term.\n"
+        f"- search_terms: always include English terms.{lang_instruction}\n"
+        "- device_type: one short English phrase describing what kind of device this is.\n\n"
+        f"Reply with EXACTLY {count} lines, each a valid JSON object, nothing else:\n"
+        '{{"id": 1, "description": "...", "search_terms": ["term1", "term2"], "device_type": "..."}}\n'
         f"... up to {count}.\n\n"
         f"{entities_text}\n\n"
-        "Numbered descriptions:"
+        "JSON output:"
     )
 
 
@@ -190,6 +236,34 @@ def parse_batch_response(raw: str, entity_ids: list[str]) -> dict[str, str]:
             eid = entity_ids[idx]
             desc = text.strip()
             result[eid] = desc  # caller validates entity_id presence
+    return result
+
+
+def parse_batch_response_v3(raw: str, entity_ids: list[str]) -> dict[str, dict]:
+    """Parse JSON-per-line AI response into {entity_id: {description, search_terms, device_type}}.
+    Falls back to empty dict for unparseable lines.
+    Only keeps entries whose description contains the entity_id verbatim.
+    """
+    result: dict[str, dict] = {}
+    lines = [line.strip() for line in raw.splitlines() if line.strip().startswith("{")]
+    for line in lines:
+        try:
+            obj = _json.loads(line)
+            idx = int(obj.get("id", 0)) - 1
+            if 0 <= idx < len(entity_ids):
+                eid = entity_ids[idx]
+                desc = obj.get("description", "")
+                search_terms = obj.get("search_terms", [])
+                device_type = obj.get("device_type", "")
+                # Validate: description must contain entity_id
+                if eid in desc:
+                    result[eid] = {
+                        "description": desc,
+                        "search_terms": [str(t) for t in search_terms if t],
+                        "device_type": str(device_type),
+                    }
+        except (ValueError, KeyError, TypeError):
+            continue
     return result
 
 
@@ -247,6 +321,9 @@ async def async_narrate_entities(
     stats = _init_stats()
     stats["last_run"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     hass.data[NARRATOR_STATS_KEY] = stats
+
+    home_lang, devices_hint = detect_home_language(hass)
+    _LOGGER.info("Kyber narrator: detected home language '%s'", home_lang)
 
     await kstore.async_load()
 
@@ -407,13 +484,21 @@ async def async_narrate_entities(
         stats["batches"] += 1
 
         # Single AI call for the whole batch.
-        descriptions: dict[str, str] = {}
+        descriptions_v3: dict[str, dict] = {}
+        descriptions_v2: dict[str, str] = {}
+        use_v3 = False
         ai_failed = False
         try:
-            prompt = build_batch_prompt([(r[0], r[6]) for r in batch_rows])
+            prompt = build_batch_prompt([(r[0], r[6]) for r in batch_rows], home_lang=home_lang, devices_hint=devices_hint)
             raw = await _run_ai(hass, ai_entity_id, prompt)
-            descriptions = parse_batch_response(raw, entity_ids)
-            parsed_count = sum(1 for eid in entity_ids if eid in descriptions and eid in descriptions[eid])
+            v3_result = parse_batch_response_v3(raw, entity_ids)
+            if v3_result:
+                use_v3 = True
+                descriptions_v3 = v3_result
+                parsed_count = sum(1 for eid in entity_ids if eid in descriptions_v3)
+            else:
+                descriptions_v2 = parse_batch_response(raw, entity_ids)
+                parsed_count = sum(1 for eid in entity_ids if eid in descriptions_v2 and eid in descriptions_v2[eid])
             if parsed_count < len(batch) // 2:
                 stats["parse_failures"] += 1
                 _LOGGER.warning(
@@ -429,11 +514,21 @@ async def async_narrate_entities(
         # Skip entirely on AI error (temporary failure — entity will be retried next run).
         if not ai_failed:
             for eid, name, domain, device_class, area_name, manufacturer, _ in batch_rows:
-                description = descriptions.get(eid, "")
+                if use_v3:
+                    info = descriptions_v3.get(eid, {})
+                    description = info.get("description", "")
+                    search_terms = info.get("search_terms", [])
+                    device_type = info.get("device_type", "")
+                else:
+                    description = descriptions_v2.get(eid, "")
+                    search_terms = []
+                    device_type = ""
                 dash_label = _dash_names.get(eid)
                 if description and eid in description:
                     stats["accepted"] += 1
                     tags = [eid, domain, _NARRATOR_VERSION_TAG]
+                    if device_type:
+                        tags.append(device_type)
                     if device_class:
                         tags.append(device_class)
                     if area_name:
@@ -456,6 +551,20 @@ async def async_narrate_entities(
                         )
                     except Exception as store_err:  # noqa: BLE001
                         _LOGGER.warning("Kyber narrator: store failed for %s: %s", eid, store_err)
+                    # Store each search_term as a separate entity_alias knowledge entry.
+                    for term in search_terms:
+                        try:
+                            await kstore.async_add(
+                                "entity_alias",
+                                eid,
+                                subject=term,
+                                tags=[eid, "narrator-v3", "search_alias"],
+                                source="entity_narrator",
+                                confidence=0.8,
+                                _save=False,
+                            )
+                        except Exception as alias_err:  # noqa: BLE001
+                            _LOGGER.warning("Kyber narrator: alias store failed for %s/%s: %s", eid, term, alias_err)
                 else:
                     # Mark as low-quality so re-runs skip it and search ignores it.
                     stats["low_quality"] += 1
