@@ -103,7 +103,7 @@ export const AIMixin = (Base) => class extends Base {
               : "";
             const noBundleNote = data.bundle_available === false
               ? `<div class="bug-report-bundle-name" style="color:var(--warning-color,#f90)">⚠ Debug snapshot not available — bundle data was not included. Attach the zip file manually after opening the issue.</div>`
-              : `<div class="bug-report-bundle-name" style="color:var(--success-color,#4caf50)">📎 After opening the issue on GitHub, attach the <code>${this._escapeHtml(`kyber-debug-${requestId}.zip`)}</code> file.</div>`;
+              : `<div class="bug-report-bundle-name" style="color:var(--success-color,#4caf50)">📎 After opening the issue on GitHub, attach the <a href="#" id="br-bundle-download-link"><code>${this._escapeHtml(`kyber-debug-${requestId}.zip`)}</code></a> file.</div>`;
 
             const encodedTitle = encodeURIComponent(data.title || "");
             const encodedBody = encodeURIComponent(data.body || "");
@@ -127,6 +127,10 @@ export const AIMixin = (Base) => class extends Base {
               </div>`;
 
             dlg.querySelector("#br-close").addEventListener("click", close);
+            dlg.querySelector("#br-bundle-download-link")?.addEventListener("click", (ev) => {
+              ev.preventDefault();
+              this._downloadDebugBundle(requestId);
+            });
             dlg.querySelector("#br-download")?.addEventListener("click", () => {
               this._downloadDebugBundle(requestId, dlg.querySelector("#br-download"));
             });
