@@ -133,7 +133,13 @@ class KnowledgeStore:
     async def async_semantic_search(
         self, query: str, *, limit: int = 8, min_score: float = 0.05
     ) -> list[dict[str, Any]]:
-        """Return top-N entries ranked by cosine similarity over TF-IDF."""
+        """Return top-N entries ranked by cosine similarity over TF-IDF.
+
+        Area/entity_id exact-match boost: when a query token exactly matches an
+        area tag or entity_id segment in an entry, the score is boosted so that
+        e.g. "slaapkamer" returns slaapkamer facts above woonkamer facts even when
+        both have similar TF-IDF weights.
+        """
         await self.async_load()
         if not query or not self._entries:
             return []
@@ -142,11 +148,23 @@ class KnowledgeStore:
             return []
         if self._index_dirty:
             self._rebuild_index()
+
+        # Pre-compute query word set for exact-match boost.
+        query_words = set(_TOKEN_RE.findall(query.lower()))
+
         scored: list[tuple[float, dict[str, Any]]] = []
         for eid, vec in self._vectors.items():
             sim = _cosine(qv, vec)
             if sim >= min_score:
                 entry = dict(self._entries[eid])
+                # Boost when a query word exactly matches an area tag or entity_id segment.
+                if query_words:
+                    tags = set(t.lower() for t in (entry.get("tags") or []) if t)
+                    subject = (entry.get("subject") or "").lower()
+                    subject_tokens = set(_TOKEN_RE.findall(subject))
+                    exact_hits = len(query_words & (tags | subject_tokens))
+                    if exact_hits:
+                        sim = min(1.0, sim + 0.12 * exact_hits)
                 entry["_score"] = round(sim, 4)
                 scored.append((sim, entry))
         scored.sort(key=lambda p: p[0], reverse=True)

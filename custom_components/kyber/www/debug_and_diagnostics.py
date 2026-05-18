@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
 from .knowledge import get_store as get_knowledge_store
+from .entity_narrator import NARRATOR_STATS_KEY
 
 try:
     from homeassistant.components.ai_task import async_generate_data
@@ -234,6 +235,7 @@ class KyberDebugStatusView(HomeAssistantView):
             } if snap else None,
             "tool_history_size": len(hass.data.get(_DEBUG_TOOL_HISTORY_KEY, []) or []),
             "explorer_progress": hass.data.get(EXPLORER_PROGRESS_KEY),
+            "narrator_stats": hass.data.get(NARRATOR_STATS_KEY),
         })
 
 

@@ -36,7 +36,7 @@ from .source import (
 
 _LOGGER = logging.getLogger(__name__)
 
-_MIN_CONFIDENCE = 0.55
+_MIN_CONFIDENCE = 0.65
 _MAX_FACTS_PER_ITEM = 6
 
 # Hard cap on raw config sent to AI (chars). Beyond this we truncate.
@@ -164,6 +164,7 @@ def _build_prompt(
     prompt_variant: int = 0,
     entity_names: dict[str, str] | None = None,
     entity_areas: dict[str, str] | None = None,
+    entity_devices: dict[str, tuple[str | None, str | None]] | None = None,
 ) -> str:
     """Build a focused prompt that asks the AI for durable facts.
 
@@ -171,6 +172,7 @@ def _build_prompt(
     so that multiple passes over the same automations produce complementary facts.
     ``entity_names`` maps entity_id → friendly_name for context enrichment.
     ``entity_areas`` maps entity_id → area name (e.g. "badkamer") for room context.
+    ``entity_devices`` maps entity_id → (manufacturer, model) from device registry.
     """
     if kind == "automation":
         ident = item.get("alias") or item.get("id") or "unnamed"
@@ -204,9 +206,9 @@ def _build_prompt(
     body_yaml = json.dumps(body, indent=2, ensure_ascii=False, default=str)
     body_yaml = _truncate(body_yaml)
 
-    # Build entity name + area context so the AI knows what entity_ids mean
+    # Build entity name + area + device context so the AI knows what entity_ids mean
     entity_context = ""
-    if entity_names or entity_areas:
+    if entity_names or entity_areas or entity_devices:
         entity_ids_in_config = list(dict.fromkeys(_extract_entity_ids(body)))
         resolved = []
         for eid in entity_ids_in_config:
@@ -215,6 +217,11 @@ def _build_prompt(
                 parts.append(f'"{entity_names[eid]}"')
             if entity_areas and eid in entity_areas:
                 parts.append(f"area: {entity_areas[eid]}")
+            if entity_devices and eid in entity_devices:
+                mfr, mdl = entity_devices[eid]
+                if mfr or mdl:
+                    device_info = " ".join(p for p in (mfr, mdl) if p)
+                    parts.append(f"device: {device_info}")
             if parts:
                 resolved.append(f"  {eid} → {', '.join(parts)}")
         if resolved:
@@ -369,9 +376,10 @@ async def analyze_pending(
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber deep_analyzer: read_blueprints failed: %s", err)
 
-    # Build entity_id → friendly_name and entity_id → area_name lookups once for the whole run
+    # Build entity_id → friendly_name, area_name, and (manufacturer, model) lookups once.
     entity_names: dict[str, str] = {}
     entity_areas: dict[str, str] = {}
+    entity_devices: dict[str, tuple[str | None, str | None]] = {}
     from homeassistant.helpers import entity_registry as er, area_registry as areg, device_registry as dr
     entity_reg = er.async_get(hass)
     area_reg = areg.async_get(hass)
@@ -390,6 +398,16 @@ async def analyze_pending(
             area = area_reg.async_get_area(area_id)
             if area:
                 entity_areas[state.entity_id] = area.name
+        # Device manufacturer + model
+        if reg_entry and reg_entry.device_id:
+            dev = device_reg.async_get(reg_entry.device_id)
+            if dev:
+                entity_devices[state.entity_id] = (dev.manufacturer, dev.model)
+
+    # Build a set of all known entity_ids for fact validation.
+    all_entity_ids: set[str] = {
+        state.entity_id for state in hass.states.async_all()
+    }
 
     analyzed: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
@@ -410,7 +428,7 @@ async def analyze_pending(
         processed += 1
 
         try:
-            prompt = _build_prompt(kind, item, prompt_variant, entity_names=entity_names, entity_areas=entity_areas)
+            prompt = _build_prompt(kind, item, prompt_variant, entity_names=entity_names, entity_areas=entity_areas, entity_devices=entity_devices)
             raw = await _run_ai(hass, ai_entity_id, prompt)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber deep_analyzer: AI call failed for %s:%s: %s", kind, ident, err)
@@ -419,6 +437,14 @@ async def analyze_pending(
 
         facts = _parse_facts(raw)
         facts = [f for f in facts if f["confidence"] >= _MIN_CONFIDENCE]
+
+        # For the "entity relationships" lens, discard facts that don't reference
+        # at least one real entity_id (they are likely hallucinated or too vague).
+        if prompt_variant % len(_PROMPT_LENSES) == 6:  # entity_relationships lens
+            facts = [
+                f for f in facts
+                if any(eid in f["content"] for eid in all_entity_ids)
+            ]
 
         fact_ids: list[str] = []
         for f in facts:

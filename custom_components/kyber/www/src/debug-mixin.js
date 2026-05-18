@@ -426,20 +426,35 @@ export const DebugMixin = (Base) => class extends Base {
     const k = data.knowledge || {};
     const lt = data.last_turn;
     const ep = data.explorer_progress || {};
+    const ns = data.narrator_stats || {};
     const catRows = Object.entries(k.by_category || {}).map(([cat, n]) =>
       `<tr><td><code>${this._escapeHtml(cat)}</code></td><td>${n}</td></tr>`,
     ).join("");
     const epStatus = ep.status || "idle";
-    const epRunning = epStatus === "phase1_summaries" || epStatus === "phase2_entities" || epStatus === "starting";
+    const epRunning = epStatus === "phase1_summaries" || epStatus === "phase2_entities" || epStatus === "starting" || epStatus === "narrator";
     const epDone = ep.done ?? 0;
     const epTotal = ep.total ?? 0;
     const epPct = epTotal > 0 ? Math.round((epDone / epTotal) * 100) : 0;
-    const epLabel = epRunning
-      ? (ep.phase === "summaries" ? `Indexing integrations… (${epStatus})` : `Indexing entities ${epDone} / ${epTotal} (${epPct}%)`)
-      : epStatus === "done" ? `Complete — ${epDone} entities indexed`
-      : "Not yet started";
+    const narratorDone = ep.narrator_done ?? 0;
+    const narratorTotal = ep.narrator_total ?? 0;
+    const epLabel = epStatus === "narrator"
+      ? `AI narrator ${narratorDone} / ${narratorTotal}…`
+      : epRunning
+        ? (ep.phase === "summaries" ? `Indexing integrations… (${epStatus})` : `Indexing entities ${epDone} / ${epTotal} (${epPct}%)`)
+        : epStatus === "done" ? `Complete — ${epDone} entities indexed`
+        : "Not yet started";
     const epProgressBar = epTotal > 0
       ? `<progress value="${epDone}" max="${epTotal}" style="width:100%;margin-top:4px"></progress>` : "";
+    const narratorProgressBar = narratorTotal > 0
+      ? `<progress value="${narratorDone}" max="${narratorTotal}" style="width:100%;margin-top:4px"></progress>` : "";
+
+    // Narrator stats summary
+    const nsTotal = ns.total ?? 0;
+    const nsAccepted = (ns.accepted_first ?? 0) + (ns.accepted_retry ?? 0);
+    const nsPct = nsTotal > 0 ? Math.round((nsAccepted / nsTotal) * 100) : 0;
+    const nsLabel = nsTotal > 0
+      ? `${nsAccepted} accepted (${nsPct}%) · ${ns.rejected ?? 0} fallback · ${ns.errors ?? 0} errors`
+      : "Not yet run";
 
     body.innerHTML = `
       <h3>Runtime</h3>
@@ -463,6 +478,18 @@ export const DebugMixin = (Base) => class extends Base {
         ${ep.started_at ? `<tr><th>Started</th><td>${new Date(ep.started_at * 1000).toLocaleTimeString()}</td></tr>` : ""}
       </table>
       ${epProgressBar}
+      ${epStatus === "narrator" ? narratorProgressBar : ""}
+      <h3>AI Narrator</h3>
+      <table class="dbg-kv">
+        <tr><th>Status</th><td>${this._escapeHtml(nsLabel)}</td></tr>
+        ${ns.last_run ? `<tr><th>Last run</th><td>${this._escapeHtml(ns.last_run)}</td></tr>` : ""}
+        ${nsTotal > 0 ? `
+          <tr><th>Accepted (1st try)</th><td>${ns.accepted_first ?? 0}</td></tr>
+          <tr><th>Accepted (retry)</th><td>${ns.accepted_retry ?? 0}</td></tr>
+          <tr><th>Fallback (all failed)</th><td>${ns.rejected ?? 0}</td></tr>
+          <tr><th>Errors</th><td>${ns.errors ?? 0}</td></tr>
+        ` : ""}
+      </table>
       <h3>Last turn</h3>
       ${lt ? `
         <table class="dbg-kv">
@@ -474,7 +501,7 @@ export const DebugMixin = (Base) => class extends Base {
       ` : "<em>No turn captured yet.</em>"}
     `;
 
-    // Auto-refresh while explorer is running
+    // Auto-refresh while explorer or narrator is running
     if (epRunning) {
       if (!this._explorerStatusTimer) {
         this._explorerStatusTimer = setInterval(() => this._renderDebugStatus(body), 3000);

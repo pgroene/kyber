@@ -155,11 +155,14 @@ async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -
     )
 
 
-async def _async_explore_integrations(hass: HomeAssistant) -> None:
+async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Background task: explore all loaded integrations and store knowledge facts.
 
     Waits a short grace period so HA finishes loading other integrations before
     we scan the entity registry. Idempotent — skips already-explored ones.
+
+    After Phase 1+2 completes, fires Phase 3 (entity narrator) if an AI
+    task entity is configured.
     """
     import asyncio
     from homeassistant.helpers import entity_registry as er
@@ -174,6 +177,25 @@ async def _async_explore_integrations(hass: HomeAssistant) -> None:
         _LOGGER.info("Kyber: integration explorer stored facts for %d integrations", count)
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Kyber: integration explorer failed: %s", err)
+
+    # Phase 3: AI narrator — only if an AI task entity is configured.
+    ai_entity_id = str((entry.data or {}).get(CONF_AI_TASK_ENTITY_ID, "")).strip()
+    if ai_entity_id:
+        try:
+            from .entity_narrator import async_narrate_entities
+            from .knowledge import get_knowledge_store as _gks
+            from homeassistant.helpers import entity_registry as _er
+            kstore = _gks(hass)
+            entity_reg = _er.async_get(hass)
+            narrator_stats = await async_narrate_entities(hass, kstore, entity_reg, ai_entity_id)
+            _LOGGER.info(
+                "Kyber: narrator complete — %d accepted, %d rejected, %d errors",
+                narrator_stats.get("accepted_first", 0) + narrator_stats.get("accepted_retry", 0),
+                narrator_stats.get("rejected", 0),
+                narrator_stats.get("errors", 0),
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Kyber: entity narrator failed: %s", err)
 
 
 async def _async_seed_language_hints(hass: HomeAssistant) -> None:
@@ -344,7 +366,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     # Explore all loaded integrations and store capability knowledge facts.
     # Runs in the background after startup so it doesn't block the UI.
     # Idempotent: skips integrations that already have auto-discovered facts.
-    hass.async_create_task(_async_explore_integrations(hass))
+    hass.async_create_task(_async_explore_integrations(hass, entry))
 
     entry.async_on_unload(entry.add_update_listener(_update_listener))
 
