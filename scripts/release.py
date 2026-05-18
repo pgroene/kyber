@@ -63,7 +63,7 @@ def parse_args():
 
 def _get_token() -> str:
     """Return GitHub token from env or git remote URL."""
-    token = _get_token()
+    token = os.environ.get("GITHUB_TOKEN", "")
     if token:
         return token
     # Fall back to token embedded in git remote URL
