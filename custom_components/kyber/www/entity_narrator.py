@@ -106,6 +106,7 @@ def build_entity_context(
     manufacturer: str | None,
     model: str | None,
     siblings: list[tuple[str, str]],
+    dashboard_label: str | None = None,
 ) -> str:
     """Build a structured context string from all available data sources.
 
@@ -114,6 +115,8 @@ def build_entity_context(
     lines: list[str] = []
     lines.append(f"entity_id: {entity_id}")
     lines.append(f"friendly_name: {name}")
+    if dashboard_label:
+        lines.append(f"dashboard_label: {dashboard_label}")
     lines.append(f"domain: {domain}")
     if device_class:
         lines.append(f"device_class: {device_class}")
@@ -156,6 +159,8 @@ def build_batch_prompt(entity_pairs: list[tuple[str, str]]) -> str:
         "RULES (apply to every description):\n"
         "- Use ONLY information explicitly stated in each entity's data. No guessing.\n"
         "- Include the entity_id VERBATIM in the description.\n"
+        "- If a dashboard_label is present, it is the user's own name for this device — "
+        "use it as the primary human-readable name in the description.\n"
         "- Include the area/room name if present.\n"
         "- Include device manufacturer and model if present.\n"
         "- Write in English.\n\n"
@@ -233,6 +238,7 @@ async def async_narrate_entities(
     ai_entity_id: str,
     *,
     max_batch: int = 20,
+    dashboard_names: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Phase 3: AI-generated descriptions for interesting entities.
 
@@ -312,6 +318,10 @@ async def async_narrate_entities(
 
         candidates.append((eid, state, reg_entry, area_name, manufacturer, model, siblings))
 
+    # Sort so dashboard entities (known human names) are narrated first — highest value.
+    _dash_names: dict[str, str] = dashboard_names or {}
+    candidates.sort(key=lambda row: (0 if row[0] in _dash_names else 1))
+
     total = len(candidates)
     _LOGGER.info("Kyber narrator: %d entities to narrate", total)
 
@@ -348,6 +358,7 @@ async def async_narrate_entities(
             manufacturer=manufacturer,
             model=model,
             siblings=siblings,
+            dashboard_label=_dash_names.get(eid),
         ))
     batch_size = _calc_batch_size(sample_ctxs, max_batch)
     stats["batch_size_used"] = batch_size
@@ -384,6 +395,7 @@ async def async_narrate_entities(
                 manufacturer=manufacturer,
                 model=model,
                 siblings=siblings,
+                dashboard_label=_dash_names.get(eid),
             )
             batch_rows.append((eid, name, domain, device_class, area_name, manufacturer, entity_ctx))
 
@@ -418,6 +430,7 @@ async def async_narrate_entities(
         if not ai_failed:
             for eid, name, domain, device_class, area_name, manufacturer, _ in batch_rows:
                 description = descriptions.get(eid, "")
+                dash_label = _dash_names.get(eid)
                 if description and eid in description:
                     stats["accepted"] += 1
                     tags = [eid, domain, _NARRATOR_VERSION_TAG]
@@ -427,6 +440,9 @@ async def async_narrate_entities(
                         tags.append(area_name.lower())
                     if manufacturer:
                         tags.append(manufacturer.lower())
+                    # Dashboard label as a tag makes it directly searchable by human name.
+                    if dash_label:
+                        tags.append(dash_label.lower())
                     try:
                         await kstore.async_add(
                             "general",
