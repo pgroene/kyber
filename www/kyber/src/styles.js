@@ -958,6 +958,87 @@ export const STYLES = `
     50% { opacity: 0.5; transform: scale(0.85); }
   }
 
+  /* ── Status page alerts & health ─────────────────────────────── */
+  .status-alert {
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  .status-alert--error {
+    background: rgba(207, 102, 121, 0.15);
+    border-left: 3px solid var(--danger);
+    color: var(--danger);
+  }
+
+  .status-alert--warn {
+    background: rgba(255, 167, 38, 0.12);
+    border-left: 3px solid #ffa726;
+    color: #ffa726;
+  }
+
+  .status-health {
+    font-size: 12px;
+    font-weight: normal;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+
+  .status-health--ok { color: var(--success); }
+  .status-health--warn { color: #ffa726; }
+  .status-health--error { color: var(--danger); }
+
+  .status-bar-wrap {
+    margin: 6px 0 10px;
+  }
+
+  .status-bar {
+    display: flex;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--border-color);
+  }
+
+  .status-bar-fill--ok  { background: var(--success); }
+  .status-bar-fill--warn { background: #ffa726; }
+
+  .status-bar-label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-color);
+    opacity: 0.7;
+    margin-top: 3px;
+  }
+
+  .status-live-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0 4px;
+    font-size: 13px;
+  }
+
+  .status-live-entity {
+    font-size: 12px;
+    background: var(--sidebar-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .status-live-pct {
+    font-size: 11px;
+    opacity: 0.6;
+    min-width: 32px;
+    text-align: right;
+  }
+
   .loading-spinner {
     display: inline-block;
     width: 14px;

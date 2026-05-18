@@ -960,10 +960,7 @@ export const AIMixin = (Base) => class extends Base {
       } else {
         banner.style.display = "none";
         if (learningBadge) learningBadge.style.display = "none";
-        if (this._explorerBannerTimer) {
-          clearInterval(this._explorerBannerTimer);
-          this._explorerBannerTimer = null;
-        }
+        // Keep timer running — exploration may start later in the session.
       }
     } catch (_) { /* non-critical */ }
   }

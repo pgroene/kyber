@@ -457,14 +457,65 @@ export const DebugMixin = (Base) => class extends Base {
     const nsTotal = ns.total ?? 0;
     const nsAccepted = ns.accepted ?? 0;
     const nsLowQuality = ns.low_quality ?? 0;
+    const nsErrors = ns.errors ?? 0;
+    const nsParseFailures = ns.parse_failures ?? 0;
     const nsPct = nsTotal > 0 ? Math.round((nsAccepted / nsTotal) * 100) : 0;
     const nsBatchSize = ns.batch_size_used ?? 0;
-    const nsLabel = nsTotal > 0
-      ? `${nsAccepted} accepted (${nsPct}%) · ${nsLowQuality} low-quality · ${ns.errors ?? 0} errors`
-      : "Not yet run";
     const narratorRunning = epStatus === "narrator";
 
+    // Health indicator for narrator
+    let narratorHealth = "";
+    if (nsTotal > 0) {
+      if (nsErrors > 0 || nsParseFailures > 2) {
+        narratorHealth = `<span class="status-health status-health--error">⚠️ Issues detected</span>`;
+      } else if (nsLowQuality > nsAccepted * 0.3) {
+        narratorHealth = `<span class="status-health status-health--warn">⚠️ High low-quality rate</span>`;
+      } else {
+        narratorHealth = `<span class="status-health status-health--ok">✅ Healthy</span>`;
+      }
+    }
+
+    // Error / warning alert banners
+    const alerts = [];
+    if (nsErrors > 0) {
+      alerts.push(`<div class="status-alert status-alert--error">
+        ❌ <strong>${nsErrors} AI error${nsErrors > 1 ? "s" : ""}</strong> during narrator run —
+        affected entities will be retried on next restart.
+      </div>`);
+    }
+    if (nsParseFailures > 0) {
+      alerts.push(`<div class="status-alert status-alert--warn">
+        ⚠️ <strong>${nsParseFailures} parse failure${nsParseFailures > 1 ? "s" : ""}</strong> —
+        AI response format was unexpected; those entities are marked low-quality.
+      </div>`);
+    }
+    if (nsLowQuality > 0 && nsPct < 50 && nsTotal > 5) {
+      alerts.push(`<div class="status-alert status-alert--warn">
+        ⚠️ Acceptance rate is <strong>${nsPct}%</strong> — consider switching to a more capable model or reducing batch size.
+      </div>`);
+    }
+
+    // Acceptance rate bar
+    const acceptBar = nsTotal > 0 ? `
+      <div class="status-bar-wrap" title="${nsAccepted} accepted / ${nsTotal} total">
+        <div class="status-bar">
+          <div class="status-bar-fill status-bar-fill--ok" style="width:${nsPct}%"></div>
+          ${nsLowQuality > 0 ? `<div class="status-bar-fill status-bar-fill--warn" style="width:${Math.round(nsLowQuality/nsTotal*100)}%"></div>` : ""}
+        </div>
+        <span class="status-bar-label">${nsAccepted} accepted · ${nsLowQuality} low-quality · ${nsErrors} errors</span>
+      </div>` : "";
+
+    // Currently working on (live during narrator)
+    const narratorLiveRow = narratorRunning && ep.narrator_current
+      ? `<div class="status-live-row">
+           <span class="narrator-live">🧠 Working on:</span>
+           <code class="status-live-entity">${this._escapeHtml(ep.narrator_current)}</code>
+           ${narratorTotal > 0 ? `<span class="status-live-pct">${Math.round(narratorDone/narratorTotal*100)}%</span>` : ""}
+         </div>`
+      : "";
+
     body.innerHTML = `
+      ${alerts.join("")}
       <h3>Runtime</h3>
       <table class="dbg-kv">
         <tr><th>AI Task entity</th><td><code>${this._escapeHtml(data.ai_task_entity || "—")}</code></td></tr>
@@ -487,20 +538,19 @@ export const DebugMixin = (Base) => class extends Base {
       </table>
       ${epProgressBar}
       ${narratorRunning ? narratorProgressBar : ""}
-      <h3>AI Narrator</h3>
+      ${narratorLiveRow}
+      <h3>AI Narrator ${narratorHealth}</h3>
       <table class="dbg-kv">
-        <tr><th>Status</th><td>${narratorRunning ? `<span class="narrator-live">🧠 Running…</span>` : this._escapeHtml(nsLabel)}</td></tr>
-        ${narratorRunning && ep.narrator_current ? `<tr><th>Working on</th><td><code>${this._escapeHtml(ep.narrator_current)}</code></td></tr>` : ""}
+        <tr><th>Status</th><td>${narratorRunning
+          ? `<span class="narrator-live">🧠 Learning your home${narratorTotal > 0 ? ` (${narratorDone} / ${narratorTotal})` : ""}…</span>`
+          : nsTotal > 0 ? `${nsTotal} entities processed` : "Not yet run"
+        }</td></tr>
         ${ns.last_run ? `<tr><th>Last run</th><td>${this._escapeHtml(ns.last_run)}</td></tr>` : ""}
         ${nsTotal > 0 ? `
-          <tr><th>Accepted</th><td>${nsAccepted} (${nsPct}%)</td></tr>
-          <tr><th>Low-quality</th><td>${nsLowQuality}</td></tr>
-          <tr><th>Parse failures</th><td>${ns.parse_failures ?? 0}</td></tr>
-          <tr><th>Errors</th><td>${ns.errors ?? 0}</td></tr>
-          <tr><th>Batches</th><td>${ns.batches ?? 0}</td></tr>
-          <tr><th>Batch size used</th><td>${nsBatchSize}</td></tr>
+          <tr><th>Batch size</th><td>${nsBatchSize} entities/call · ${ns.batches ?? 0} batches</td></tr>
         ` : ""}
       </table>
+      ${acceptBar}
       <h3>Last turn</h3>
       ${lt ? `
         <table class="dbg-kv">
