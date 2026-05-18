@@ -313,6 +313,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
 
     debug_enabled = _resolve_debug_enabled(entry)
     hass.data[_DEBUG_MODE_KEY] = debug_enabled
+    # Store AI entity ID so the debug status endpoint can display it.
+    hass.data["kyber_ai_task_entity"] = config.get(CONF_AI_TASK_ENTITY_ID, "")
 
     hass.http.register_view(KyberView(config))
     hass.http.register_view(KyberProgressView())

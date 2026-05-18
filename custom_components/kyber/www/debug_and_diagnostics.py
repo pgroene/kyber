@@ -10,7 +10,7 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
+from .const import DOMAIN
 from .knowledge import get_store as get_knowledge_store
 from .entity_narrator import NARRATOR_STATS_KEY
 
@@ -210,13 +210,7 @@ class KyberDebugStatusView(HomeAssistantView):
                 flagged += 1
             total_hits += int(e.get("hits", 0) or 0)
         snap = hass.data.get(_DEBUG_LAST_TURN_KEY)
-        # Find the configured AI Task entity from any entry in hass.data[DOMAIN]
-        entries = hass.data.get(DOMAIN, {})
-        ai_task_entity = ""
-        if isinstance(entries, dict) and entries:
-            first = next(iter(entries.values()), None)
-            if isinstance(first, dict):
-                ai_task_entity = str(first.get(CONF_AI_TASK_ENTITY_ID, ""))
+        ai_task_entity = str(hass.data.get("kyber_ai_task_entity", ""))
         return self.json({
             "ai_task_entity": ai_task_entity,
             "knowledge": {
