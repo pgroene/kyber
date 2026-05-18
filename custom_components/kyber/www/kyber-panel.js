@@ -169,6 +169,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
               <button class="debug-tab active" data-debug-tab="memory">🧠 Memory</button>
               <button class="debug-tab" data-debug-tab="last_turn">📥 Last turn</button>
               <button class="debug-tab" data-debug-tab="status">⚙️ Status</button>
+              <button class="debug-tab" data-debug-tab="tests">🧪 Tests</button>
             </nav>
             <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">↻</button>
             <button class="btn-debug-close" id="btn-debug-close" title="Back to chat">✕</button>

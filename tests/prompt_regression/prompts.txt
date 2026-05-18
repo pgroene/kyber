@@ -1,0 +1,6 @@
+# one question per line — drop here to batch-capture test cases from the live HA instance
+# Use the "📋 Drop prompts.txt" button in the debug panel "🧪 Tests" tab
+# Example:
+# hoe warm is het in de slaapkamer?
+# welke lampen zijn aan in de woonkamer?
+# zet de wekker voor morgen 7 uur

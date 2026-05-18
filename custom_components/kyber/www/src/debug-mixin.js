@@ -27,6 +27,8 @@ export const DebugMixin = (Base) => class extends Base {
         await this._renderDebugLastTurn(body);
       } else if (tab === "status") {
         await this._renderDebugStatus(body);
+      } else if (tab === "tests") {
+        await this._renderDebugTests(body);
       }
     } catch (err) {
       body.innerHTML = `<div class="debug-error">Error: ${this._escapeHtml(err.message)}</div>`;
@@ -362,6 +364,7 @@ export const DebugMixin = (Base) => class extends Base {
         <span class="tf-status"></span>
         <button class="tf-btn tf-bundle" title="Download a zip with the full snapshot + logs of this turn" ${snap.request_id ? "" : "disabled"}>⬇ download bundle</button>
         <button class="tf-btn tf-bug-report" title="Create a GitHub bug report from this turn" ${snap.request_id ? "" : "disabled"}>🐛 bug report</button>
+        <button class="tf-btn tf-capture-test" title="Capture this turn as a prompt regression test case" ${snap.request_id ? "" : "disabled"}>📋 capture test</button>
       </div>`;
     body.innerHTML = `
       ${feedbackBar}
@@ -401,6 +404,8 @@ export const DebugMixin = (Base) => class extends Base {
       if (dl && reqId) dl.addEventListener("click", () => this._downloadDebugBundle(reqId, dl));
       const br = bar.querySelector(".tf-bug-report");
       if (br && reqId) br.addEventListener("click", () => this._openBugReportFlow(reqId, br));
+      const ct = bar.querySelector(".tf-capture-test");
+      if (ct && reqId) ct.addEventListener("click", () => this._openCaptureTestModal(snap, ct));
     }
     if (picked.length > 0) {
       const list = body.querySelector("#dbg-picked-list");
@@ -591,5 +596,236 @@ export const DebugMixin = (Base) => class extends Base {
     } catch (_) {
       return false;
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 🧪 Tests tab — prompt regression explorer
+  // ---------------------------------------------------------------------------
+
+  async _renderDebugTests(body) {
+    const token = this._hass.auth.data.access_token;
+    body.innerHTML = `<em>Loading test cases…</em>`;
+    let data;
+    try {
+      const resp = await fetch("/api/kyber/prompt_tests", { headers: { Authorization: `Bearer ${token}` } });
+      data = await resp.json();
+    } catch (e) {
+      body.innerHTML = `<div class="debug-error">Could not load test cases: ${this._escapeHtml(e.message)}</div>`;
+      return;
+    }
+    const cases = data.cases || [];
+    const totalPassed = cases.reduce((s, c) => s + (c.last_run?.passed || 0), 0);
+    const totalAsserts = cases.reduce((s, c) => s + ((c.last_run?.passed || 0) + (c.last_run?.failed || 0)), 0);
+    const pct = totalAsserts ? Math.round(100 * totalPassed / totalAsserts) : null;
+    const failing = cases.filter(c => c.last_run?.failed > 0).length;
+
+    body.innerHTML = `
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <button id="dbg-tests-run-all" class="btn-primary" style="font-size:0.85rem;padding:5px 14px">▶ Run all</button>
+        <button id="dbg-tests-regenerate" class="btn-secondary" style="font-size:0.85rem;padding:5px 14px" title="Re-run all test questions on live HA to refresh snapshots">🔄 Regenerate</button>
+        <label style="font-size:0.8rem;color:var(--secondary-text-color);cursor:pointer" title="Drop prompts.txt to batch-capture test cases">
+          📁 <input id="dbg-tests-prompts-file" type="file" accept=".txt" style="display:none">batch capture
+        </label>
+        <span style="margin-left:auto;font-size:0.85rem;color:var(--secondary-text-color)" id="dbg-tests-status">
+          ${pct !== null ? `${pct}% passing (${totalPassed}/${totalAsserts}) · ${failing} failing` : 'No runs yet'}
+        </span>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:10px" id="dbg-tests-filter">
+        <button class="filter-btn active" data-filter="all">All (${cases.length})</button>
+        <button class="filter-btn" data-filter="fail">Failing (${failing})</button>
+        <button class="filter-btn" data-filter="pass">Passing (${cases.length - failing})</button>
+      </div>
+      <div id="dbg-tests-table"></div>
+    `;
+
+    this._renderTestsTable(body, cases, "all");
+
+    // Filter buttons
+    body.querySelectorAll(".filter-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        body.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        this._renderTestsTable(body, cases, btn.dataset.filter);
+      });
+    });
+
+    // Run all
+    body.querySelector("#dbg-tests-run-all").addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      e.target.textContent = "⏳ Running…";
+      const statusEl = body.querySelector("#dbg-tests-status");
+      if (statusEl) statusEl.textContent = "Running assertions…";
+      try {
+        const r = await fetch("/api/kyber/prompt_tests/run", {
+          method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const result = await r.json();
+        if (statusEl) {
+          const s = result.summary || {};
+          statusEl.textContent = `${Math.round((s.score || 0) * 100)}% passing (${s.passed}/${s.total_assertions}) · v${s.version} · ${s.model}`;
+        }
+        // Refresh
+        await this._renderDebugTests(body);
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+        e.target.disabled = false;
+        e.target.textContent = "▶ Run all";
+      }
+    });
+
+    // Regenerate
+    body.querySelector("#dbg-tests-regenerate").addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      e.target.textContent = "⏳ Regenerating…";
+      try {
+        await fetch("/api/kyber/prompt_tests/regenerate", {
+          method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        e.target.textContent = "✅ Done";
+        setTimeout(() => { e.target.textContent = "🔄 Regenerate"; e.target.disabled = false; }, 2000);
+      } catch (err) {
+        e.target.textContent = "❌ Error";
+        e.target.disabled = false;
+      }
+    });
+  }
+
+  _renderTestsTable(body, cases, filter) {
+    const table = body.querySelector("#dbg-tests-table");
+    if (!table) return;
+    const filtered = cases.filter(c => {
+      if (filter === "fail") return c.last_run?.failed > 0;
+      if (filter === "pass") return c.last_run && c.last_run.failed === 0;
+      return true;
+    });
+    if (filtered.length === 0) {
+      table.innerHTML = `<em style="color:var(--secondary-text-color)">No test cases found. Use 📋 Capture test in the Last turn tab to add some.</em>`;
+      return;
+    }
+    table.innerHTML = filtered.map((c, i) => {
+      const run = c.last_run;
+      const passed = run?.passed ?? "—";
+      const total = run ? (run.passed + run.failed) : "—";
+      const score = run ? `${passed}/${total}` : "—";
+      const icon = !run ? "🆕" : run.failed === 0 ? "✅" : "⚠️";
+      const ms = run?.latency_ms ? `${run.latency_ms}ms` : "—";
+      const model = run?.model || "—";
+      const version = run?.version || "—";
+      const at = run?.ran_at ? new Date(run.ran_at).toLocaleDateString() : "—";
+      return `
+        <div class="dbg-test-row" data-idx="${i}" style="border:1px solid var(--divider-color);border-radius:6px;margin-bottom:6px;overflow:hidden">
+          <div style="display:flex;gap:10px;align-items:center;padding:8px 12px;cursor:pointer;background:var(--card-background-color)" onclick="this.closest('.dbg-test-row').querySelector('.dbg-test-detail').toggleAttribute('hidden')">
+            <span style="font-size:1.1em">${icon}</span>
+            <span style="flex:1;font-weight:500">${this._escapeHtml(c.label || c.id)}</span>
+            <span style="color:var(--secondary-text-color);font-size:0.8rem">${score}</span>
+            <span style="color:var(--secondary-text-color);font-size:0.8rem">${ms}</span>
+            <span style="color:var(--secondary-text-color);font-size:0.8rem">${model}</span>
+            <span style="color:var(--secondary-text-color);font-size:0.8rem">${version}</span>
+            <span style="color:var(--secondary-text-color);font-size:0.8rem">${at}</span>
+          </div>
+          <div class="dbg-test-detail" hidden style="padding:10px 14px;background:var(--secondary-background-color);font-size:0.85rem">
+            <div style="margin-bottom:6px;color:var(--secondary-text-color)">❓ ${this._escapeHtml(c.question || "")}</div>
+            ${run ? `
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+                ${(run.assertion_details || []).map(a => `<span style="padding:2px 8px;border-radius:12px;font-size:0.8rem;font-weight:600;background:${a.passed ? '#16532440' : '#7f1d1d40'};color:${a.passed ? '#22c55e' : '#ef4444'};border:1px solid ${a.passed ? '#22c55e44' : '#ef444444'}">${a.passed ? '✅' : '❌'} ${this._escapeHtml(a.type)}: ${this._escapeHtml(String(a.value))}</span>`).join("")}
+              </div>
+              <pre style="background:#0a0c14;border-radius:4px;padding:8px;font-size:0.78rem;overflow-x:auto;white-space:pre-wrap;max-height:200px">${this._escapeHtml(run.response || "")}</pre>
+            ` : `<em>Not yet run. Click "▶ Run all" to execute.</em>`}
+          </div>
+        </div>`;
+    }).join("");
+  }
+
+  // ---------------------------------------------------------------------------
+  // 📋 Capture test modal
+  // ---------------------------------------------------------------------------
+
+  _openCaptureTestModal(snap, triggerBtn) {
+    const existing = this.shadowRoot.getElementById("capture-test-overlay");
+    if (existing) existing.remove();
+
+    const defaultContains = this._extractKeywords(snap.response_text || "");
+    const overlay = document.createElement("div");
+    overlay.id = "capture-test-overlay";
+    overlay.style.cssText = "position:fixed;inset:0;background:#00000099;z-index:9999;display:flex;align-items:center;justify-content:center";
+    overlay.innerHTML = `
+      <div style="background:var(--card-background-color);border-radius:10px;padding:24px;max-width:520px;width:90%;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px #0006">
+        <h3 style="margin:0 0 16px">📋 Capture regression test</h3>
+        <label style="font-size:0.85rem;display:block;margin-bottom:4px">Label</label>
+        <input id="ct-label" type="text" value="${this._escapeAttr(snap.intent || "New test")}"
+          style="width:100%;box-sizing:border-box;padding:6px 10px;border-radius:6px;border:1px solid var(--divider-color);background:var(--secondary-background-color);color:var(--primary-text-color);font-size:0.9rem;margin-bottom:12px">
+        <label style="font-size:0.85rem;display:block;margin-bottom:4px">Response must contain (comma-separated)</label>
+        <input id="ct-contains" type="text" value="${this._escapeAttr(defaultContains.join(", "))}"
+          style="width:100%;box-sizing:border-box;padding:6px 10px;border-radius:6px;border:1px solid var(--divider-color);background:var(--secondary-background-color);color:var(--primary-text-color);font-size:0.9rem;margin-bottom:12px">
+        <label style="font-size:0.85rem;display:block;margin-bottom:4px">Response must NOT contain (comma-separated)</label>
+        <input id="ct-not-contains" type="text" placeholder="unknown, error, ..."
+          style="width:100%;box-sizing:border-box;padding:6px 10px;border-radius:6px;border:1px solid var(--divider-color);background:var(--secondary-background-color);color:var(--primary-text-color);font-size:0.9rem;margin-bottom:12px">
+        <label style="font-size:0.85rem;display:block;margin-bottom:4px">Describe the ideal response (for documentation)</label>
+        <textarea id="ct-ideal" rows="3" placeholder="The AI should mention the temperature and the correct room name…"
+          style="width:100%;box-sizing:border-box;padding:6px 10px;border-radius:6px;border:1px solid var(--divider-color);background:var(--secondary-background-color);color:var(--primary-text-color);font-size:0.9rem;margin-bottom:16px;resize:vertical"></textarea>
+        <div id="ct-status" style="font-size:0.85rem;margin-bottom:12px;min-height:20px"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button id="ct-cancel" class="btn-secondary" style="padding:6px 16px">Cancel</button>
+          <button id="ct-save" class="btn-primary" style="padding:6px 16px">💾 Save test case</button>
+        </div>
+      </div>`;
+
+    this.shadowRoot.appendChild(overlay);
+
+    overlay.querySelector("#ct-cancel").addEventListener("click", () => overlay.remove());
+
+    overlay.querySelector("#ct-save").addEventListener("click", async () => {
+      const saveBtn = overlay.querySelector("#ct-save");
+      const statusEl = overlay.querySelector("#ct-status");
+      const label = overlay.querySelector("#ct-label").value.trim() || "Unnamed test";
+      const contains = overlay.querySelector("#ct-contains").value.split(",").map(s => s.trim()).filter(Boolean);
+      const notContains = overlay.querySelector("#ct-not-contains").value.split(",").map(s => s.trim()).filter(Boolean);
+      const ideal = overlay.querySelector("#ct-ideal").value.trim();
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = "⏳ Saving…";
+
+      const token = this._hass.auth.data.access_token;
+      try {
+        const resp = await fetch("/api/kyber/prompt_tests/capture", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            request_id: snap.request_id || "",
+            snap: snap,
+            label,
+            ideal_description: ideal,
+            assertions: {
+              response_contains: contains,
+              response_not_contains: notContains,
+              intent: snap.intent || undefined,
+            },
+          }),
+        });
+        const result = await resp.json();
+        if (result.error) throw new Error(result.error);
+        statusEl.innerHTML = `✅ Saved as <code>${this._escapeHtml(result.id)}</code>`;
+        saveBtn.textContent = "✅ Saved";
+        setTimeout(() => overlay.remove(), 2000);
+      } catch (err) {
+        statusEl.innerHTML = `❌ ${this._escapeHtml(err.message)}`;
+        saveBtn.disabled = false;
+        saveBtn.textContent = "💾 Save test case";
+      }
+    });
+  }
+
+  _extractKeywords(responseText) {
+    // Extract potentially meaningful tokens: entity IDs, numbers, quoted values
+    const keywords = [];
+    // Entity IDs
+    const entityIds = responseText.match(/[a-z_]+\.[a-z0-9_]+/g) || [];
+    keywords.push(...entityIds.slice(0, 3));
+    // Numbers (temperatures, percentages etc.)
+    const nums = responseText.match(/\b\d+(?:[.,]\d+)?(?:\s*[°%])?/g) || [];
+    keywords.push(...nums.slice(0, 2));
+    return [...new Set(keywords)].slice(0, 5);
   }
 };

@@ -91,6 +91,10 @@ from .api_utilities import (
     _progress_emit, _progress_complete,
     KyberProgressView, KyberSaveView, _SUMMARIZE_SYSTEM_PROMPT, KyberSummarizeView,
 )
+from .prompt_regression_api import (
+    KyberPromptTestsView, KyberPromptTestsRunView,
+    KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
