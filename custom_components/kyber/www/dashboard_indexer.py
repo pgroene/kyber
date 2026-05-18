@@ -220,3 +220,49 @@ def get_all_dashboard_entities(hass: Any) -> set[str]:
 def get_dashboard_entity_names(hass: Any) -> dict[str, str]:
     """Return {entity_id: human_label} for entities with a named card on any dashboard."""
     return dict(hass.data.get(DASHBOARD_ENTITY_NAMES_KEY) or {})
+
+
+async def async_store_dashboard_labels(hass: Any, kstore: Any) -> int:
+    """Store each named dashboard entity as its own knowledge entry.
+
+    Entries use source="dashboard_indexer" so they are never overwritten by
+    the narrator or other sources.  On every call the old dashboard_indexer
+    entries are removed first so renamed/removed cards are kept in sync.
+
+    Returns the number of entries written.
+    """
+    await kstore.async_load()
+
+    # Remove all previous dashboard_indexer entries (full refresh).
+    old_ids = [
+        eid for eid, e in kstore._entries.items()
+        if e.get("source") == "dashboard_indexer"
+    ]
+    for old_id in old_ids:
+        await kstore.async_delete(old_id)
+
+    names: dict[str, str] = get_dashboard_entity_names(hass)
+    if not names:
+        return 0
+
+    for entity_id, label in names.items():
+        domain = entity_id.split(".")[0]
+        content = (
+            f"{entity_id} is labelled '{label}' on the user's dashboard."
+        )
+        await kstore.async_add(
+            "entity_alias",
+            content,
+            subject=entity_id,
+            tags=[entity_id, domain, label.lower(), "dashboard"],
+            source="dashboard_indexer",
+            confidence=0.95,
+            provenance="dashboard card name",
+            _save=False,
+        )
+
+    await kstore.async_force_save()
+    _LOGGER.info(
+        "Kyber dashboard indexer: stored %d label entries in knowledge store", len(names)
+    )
+    return len(names)
