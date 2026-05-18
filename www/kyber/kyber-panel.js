@@ -142,18 +142,18 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
           </span>
           <button class="btn-save editor-controls" id="btn-save" disabled>Save</button>
           <button class="btn-close-editor editor-controls" id="btn-close-editor">✕ Close editor</button>
+          <span class="learning-badge" id="learning-badge" style="display:none" title="Still learning about your home…">🧠</span>
         </div>
+        <div id="explorer-banner" class="explorer-banner" style="display:none">🔍 <span id="explorer-banner-text">Exploring your home…</span></div>
         <div class="chat-pane">
           <div class="sidebar-brand">
             <img id="kyber-sidebar-icon" class="brand-icon" src="/local/kyber/icon.png" alt="Kyber icon">
             <span>Kyber Assistant</span>
             <span class="session-label" id="session-indicator"></span>
             <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
-            <span class="learning-badge" id="learning-badge" style="display:none" title="Still learning about your home…">🧠</span>
             <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
             <button class="btn-debug" id="btn-debug" title="Open debug / memory inspector">🐞</button>
           </div>
-          <div id="explorer-banner" class="explorer-banner" style="display:none">🔍 <span id="explorer-banner-text">Exploring your home…</span></div>
           <div class="chat-history" id="chat-history">
             <div class="chat-message assistant">${this._DEFAULT_GREETING}</div>
           </div>
@@ -227,10 +227,8 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     if (this._mode === "debug") {
       this._renderDebugTab(this._debugTab);
     }
-    // Start explorer banner polling in chat mode
-    if (this._mode !== "debug") {
-      this._startExplorerBannerPolling();
-    }
+    // Always start explorer banner polling — visible in both chat and debug mode
+    this._startExplorerBannerPolling();
   }
 
   _bindEvents(shadow) {

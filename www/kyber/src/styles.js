@@ -17,7 +17,7 @@ export const STYLES = `
 
   .container {
     display: grid;
-    grid-template-rows: 56px 1fr;
+    grid-template-rows: 56px auto 1fr;
     grid-template-columns: 1fr;
     height: 100%;
     position: relative;
@@ -31,12 +31,27 @@ export const STYLES = `
 
   .toolbar {
     grid-column: 1 / -1;
+    grid-row: 1;
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 0 16px;
     border-bottom: 1px solid var(--border-color);
     background: var(--sidebar-bg);
+  }
+
+  .explorer-banner {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--primary-color, #03a9f4);
+    background: color-mix(in srgb, var(--primary-color, #03a9f4) 12%, transparent);
+    border-left: 3px solid var(--primary-color, #03a9f4);
+  }
+
+  .chat-pane, .debug-pane {
+    grid-row: 3;
   }
 
   .toolbar h2 {
@@ -140,14 +155,6 @@ export const STYLES = `
 
   .sidebar-brand .btn-clear-history:hover {
     background: var(--border-color);
-  }
-
-  .explorer-banner {
-    padding: 6px 12px;
-    font-size: 12px;
-    color: var(--primary-color, #03a9f4);
-    background: color-mix(in srgb, var(--primary-color, #03a9f4) 12%, transparent);
-    border-left: 3px solid var(--primary-color, #03a9f4);
   }
 
   .chat-history {
@@ -950,6 +957,7 @@ export const STYLES = `
     align-items: center;
     font-size: 14px;
     cursor: default;
+    margin-left: auto;
     animation: pulse-learning 2.4s ease-in-out infinite;
   }
 
