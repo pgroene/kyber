@@ -322,6 +322,9 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
         f"{automation_count} automations · {script_count} scripts · {entity_stats}"
     )
 
+    tz_name = str(getattr(hass.config, "time_zone", "UTC") or "UTC")
+    timezone_block = f"**Timezone:** {tz_name} — display all times in this timezone, not UTC.\n"
+
     context_stats: dict[str, Any] = {
         "entity_count": entity_count,
         "automation_count": automation_count,
@@ -333,6 +336,7 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
 
     context = SYSTEM_PROMPT_TEMPLATE.format(
         home_summary=home_summary,
+        timezone_block=timezone_block,
         notable_state_block=notable_state_block,
     )
     context_stats["prompt_chars"] = len(context)
