@@ -80,7 +80,7 @@ def _get_token() -> str:
     return ""
 
 
-
+def main():
     args = parse_args()
 
     if args.github_release_only:
