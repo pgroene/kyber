@@ -10,7 +10,7 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
+from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
 from .knowledge import get_store as get_knowledge_store
 from .entity_narrator import NARRATOR_STATS_KEY
 

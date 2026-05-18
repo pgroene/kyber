@@ -559,7 +559,16 @@ async def _inject_knowledge_into_instructions(
                 + (f"  (tags: {tags})" if tags else "")
                 + score_note
             )
-        instructions = instructions + "\n" + "\n".join(kn_lines) + "\n"
+        # Inject BEFORE the final "User:" turn so the model sees the facts as
+        # context/system data, not as its own response already started.
+        # Appending after "Assistant:" caused the model to treat the knowledge
+        # header as its own output and continue hallucinating format tokens.
+        _kn_section = "\n" + "\n".join(kn_lines) + "\n"
+        _inject_pt = instructions.rfind("\nUser:")
+        if _inject_pt != -1:
+            instructions = instructions[:_inject_pt] + _kn_section + instructions[_inject_pt:]
+        else:
+            instructions = instructions + _kn_section
         await kstore.async_record_hit([e["id"] for e in relevant_knowledge])
 
     # Inject language-specific vocabulary hints when the user writes in a
@@ -592,7 +601,13 @@ async def _inject_knowledge_into_instructions(
             ]
             for hint_entry in _lang_hints:
                 lang_lines.append(f"- {hint_entry.get('content', '')}")
-            instructions = instructions + "\n" + "\n".join(lang_lines) + "\n"
+            # Same as knowledge: inject before the final "User:" turn.
+            _lang_section = "\n" + "\n".join(lang_lines) + "\n"
+            _inject_pt = instructions.rfind("\nUser:")
+            if _inject_pt != -1:
+                instructions = instructions[:_inject_pt] + _lang_section + instructions[_inject_pt:]
+            else:
+                instructions = instructions + _lang_section
         else:
             _LOGGER.debug(
                 "Kyber: language '%s' detected but no vocabulary hints found in knowledge store "
