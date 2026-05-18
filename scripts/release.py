@@ -57,11 +57,36 @@ def parse_args():
     group.add_argument("--major", action="store_true", help="Major bump")
     group.add_argument("--version", help="Explicit version (e.g. 1.2.3)")
     p.add_argument("--dry-run", action="store_true", help="Print what would happen, don't act")
+    p.add_argument("--github-release-only", metavar="TAG", help="Only create GitHub release for an existing tag (e.g. v0.1.116)")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
+
+    if args.github_release_only:
+        tag = args.github_release_only
+        if not tag.startswith("v"):
+            tag = f"v{tag}"
+        token = os.environ.get("GITHUB_TOKEN", "")
+        if not token:
+            print("ERROR: set GITHUB_TOKEN first", file=sys.stderr)
+            sys.exit(1)
+        import urllib.request
+        payload = json.dumps({
+            "tag_name": tag, "name": tag,
+            "body": f"Release {tag}", "draft": False, "prerelease": False,
+        }).encode()
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{REPO}/releases",
+            data=payload,
+            headers={"Authorization": f"token {token}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            release = json.loads(resp.read())
+        print(f"✅ GitHub release created: {release['html_url']}")
+        return
 
     if args.version:
         m = re.match(r"^(\d+)\.(\d+)\.(\d+)$", args.version)
