@@ -958,12 +958,16 @@ export const STYLES = `
     font-size: 14px;
     cursor: default;
     margin-left: auto;
-    animation: pulse-learning 2.4s ease-in-out infinite;
+    transition: opacity 0.4s ease;
+  }
+
+  .learning-badge.is-learning {
+    animation: pulse-learning 1.2s ease-in-out infinite;
   }
 
   @keyframes pulse-learning {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.85); }
+    0%, 100% { opacity: 1; transform: scale(1.1); }
+    50%       { opacity: 0.4; transform: scale(0.88); }
   }
 
   /* ── Status page alerts & health ─────────────────────────────── */

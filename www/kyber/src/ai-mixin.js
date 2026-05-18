@@ -959,6 +959,7 @@ export const AIMixin = (Base) => class extends Base {
         if (learningBadge) {
           learningBadge.style.display = "flex";
           learningBadge.style.opacity = "1";
+          learningBadge.classList.add("is-learning");
           learningBadge.title = text;
         }
       } else {
@@ -967,6 +968,7 @@ export const AIMixin = (Base) => class extends Base {
         if (learningBadge) {
           learningBadge.style.display = "flex";
           learningBadge.style.opacity = "0.35";
+          learningBadge.classList.remove("is-learning");
           const lastRun = ep.updated_at
             ? `Last learning run: ${new Date(ep.updated_at * 1000).toLocaleTimeString()}`
             : "Learning complete";
