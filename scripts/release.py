@@ -80,6 +80,49 @@ def _get_token() -> str:
     return ""
 
 
+def _build_release_notes(tag: str, prev_tag: str | None) -> str:
+    """Generate release notes from git commits between prev_tag and HEAD."""
+    if prev_tag:
+        log_range = f"{prev_tag}..HEAD"
+    else:
+        log_range = "HEAD"
+    raw = run(
+        ["git", "log", log_range, "--pretty=format:%s", "--no-merges"],
+        check=False,
+    )
+    lines = [l.strip() for l in raw.splitlines() if l.strip()]
+    # Filter out bare chore: release lines
+    lines = [l for l in lines if not re.match(r"^chore: release v", l)]
+
+    if not lines:
+        return f"Release {tag}"
+
+    # Group by conventional commit type
+    groups: dict[str, list[str]] = {"feat": [], "fix": [], "other": []}
+    for line in lines:
+        if line.startswith("feat"):
+            groups["feat"].append(re.sub(r"^feat(\(.+?\))?:\s*", "", line))
+        elif line.startswith("fix"):
+            groups["fix"].append(re.sub(r"^fix(\(.+?\))?:\s*", "", line))
+        else:
+            # Skip chore/docs/refactor/test lines to keep notes clean
+            if not re.match(r"^(chore|docs|refactor|test|style|ci|build):", line):
+                groups["other"].append(line)
+
+    parts: list[str] = []
+    if groups["feat"]:
+        parts.append("### ✨ What's new\n" + "\n".join(f"- {l}" for l in groups["feat"]))
+    if groups["fix"]:
+        parts.append("### 🐛 Fixes\n" + "\n".join(f"- {l}" for l in groups["fix"]))
+    if groups["other"]:
+        parts.append("### 🔧 Other\n" + "\n".join(f"- {l}" for l in groups["other"]))
+
+    if not parts:
+        return f"Release {tag}"
+
+    return "\n\n".join(parts)
+
+
 def main():
     args = parse_args()
 
@@ -92,19 +135,39 @@ def main():
             print("ERROR: set GITHUB_TOKEN first", file=sys.stderr)
             sys.exit(1)
         import urllib.request
-        payload = json.dumps({
-            "tag_name": tag, "name": tag,
-            "body": f"Release {tag}", "draft": False, "prerelease": False,
-        }).encode()
-        req = urllib.request.Request(
-            f"https://api.github.com/repos/{REPO}/releases",
-            data=payload,
-            headers={"Authorization": f"token {token}", "Content-Type": "application/json"},
-            method="POST",
-        )
+        # Find the tag before this one for release notes range
+        all_tags = run(["git", "tag", "--list", "v*", "--sort=-version:refname"], check=False).splitlines()
+        tag_idx = next((i for i, t in enumerate(all_tags) if t.strip() == tag), None)
+        prev = all_tags[tag_idx + 1].strip() if tag_idx is not None and tag_idx + 1 < len(all_tags) else None
+        notes = _build_release_notes(tag, prev)
+        headers = {"Authorization": f"token {token}", "Content-Type": "application/json"}
+        # Try to find existing release first
+        existing_id = None
+        try:
+            req = urllib.request.Request(
+                f"https://api.github.com/repos/{REPO}/releases/tags/{tag}",
+                headers=headers, method="GET",
+            )
+            with urllib.request.urlopen(req) as resp:
+                existing_id = json.loads(resp.read()).get("id")
+        except Exception:
+            pass
+        payload = json.dumps({"tag_name": tag, "name": tag, "body": notes, "draft": False, "prerelease": False}).encode()
+        if existing_id:
+            req = urllib.request.Request(
+                f"https://api.github.com/repos/{REPO}/releases/{existing_id}",
+                data=payload, headers=headers, method="PATCH",
+            )
+            action = "updated"
+        else:
+            req = urllib.request.Request(
+                f"https://api.github.com/repos/{REPO}/releases",
+                data=payload, headers=headers, method="POST",
+            )
+            action = "created"
         with urllib.request.urlopen(req) as resp:
             release = json.loads(resp.read())
-        print(f"✅ GitHub release created: {release['html_url']}")
+        print(f"✅ GitHub release {action}: {release['html_url']}")
         return
 
     if args.version:
@@ -124,6 +187,9 @@ def main():
         new_ver = f"{major}.{minor}.{patch}"
 
     tag = f"v{new_ver}"
+    # Capture previous tag BEFORE we create the new one (used for release notes)
+    prev_version_tag = run(["git", "tag", "--list", "v*", "--sort=-version:refname"], check=False).splitlines()
+    prev_version_tag = prev_version_tag[0].strip() if prev_version_tag else None
     print(f"Releasing {tag} …")
 
     # Check working tree is clean (except manifest.json which we'll write)
@@ -187,10 +253,11 @@ def main():
     token = _get_token()
     if token:
         import urllib.request
+        notes = _build_release_notes(tag, prev_version_tag)
         payload = json.dumps({
             "tag_name": tag,
             "name": tag,
-            "body": f"Release {tag}",
+            "body": notes,
             "draft": False,
             "prerelease": False,
         }).encode()
