@@ -157,15 +157,16 @@ export const UtilsMixin = (Base) => class extends Base {
 
   /**
    * Update the memory badge count and optionally trigger the recall pulse.
-   * @param {number|null} count  - total fact count (null = leave as-is)
-   * @param {boolean}     recalled - true = pulse the badge this turn
+   * @param {number|null} count    - total fact count (null = leave as-is)
+   * @param {number}      recalled - number of facts recalled this turn (0 = no pulse)
    */
-  _updateMemoryBadge(count, recalled = false) {
+  _updateMemoryBadge(count, recalled = 0) {
     if (count != null) this._memoryCount = count;
     const badge = this.shadowRoot?.getElementById("memory-badge");
     const countEl = this.shadowRoot?.getElementById("memory-count");
     if (!badge || !countEl) return;
-    countEl.textContent = this._memoryCount != null ? String(this._memoryCount) : "…";
+    const total = this._memoryCount != null ? String(this._memoryCount) : "…";
+    countEl.textContent = recalled > 0 ? `${recalled}/${total}` : total;
     if (recalled) {
       // Force animation restart even if class is already present
       badge.classList.remove("memory-badge--recalled");

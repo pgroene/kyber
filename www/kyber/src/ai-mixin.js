@@ -345,7 +345,7 @@ export const AIMixin = (Base) => class extends Base {
         const newFactLearned = !!data.learned_fact;
         const newCount = newFactLearned ? (this._memoryCount || 0) + 1 : this._memoryCount;
         if (recalledCount > 0 || newFactLearned) {
-          this._updateMemoryBadge(newCount, recalledCount > 0);
+          this._updateMemoryBadge(newCount, recalledCount);
         }
       }
       // Auto-refresh debug 'Last turn' pane if it is currently open
@@ -946,44 +946,20 @@ export const AIMixin = (Base) => class extends Base {
       const ep = data.explorer_progress || {};
       const banner = this.shadowRoot?.getElementById("explorer-banner");
       const textEl = this.shadowRoot?.getElementById("explorer-banner-text");
-      const learningBadge = this.shadowRoot?.getElementById("learning-badge");
       if (!banner) return;
-      const exploring = ["starting", "phase1_summaries", "phase2_entities"].includes(ep.status);
-      const narrating = ep.status === "narrator";
-      const running = exploring || narrating;
+      const running = ["starting", "phase1_summaries", "phase2_entities"].includes(ep.status);
       if (running) {
-        let text;
-        if (narrating) {
-          const done = ep.narrator_done ?? 0;
-          const total = ep.narrator_total ?? 0;
-          const current = ep.narrator_current ? ` — ${ep.narrator_current}` : "";
-          text = `Learning your home${total > 0 ? ` (${done} / ${total})` : ""}${current}…`;
-        } else {
-          const done = ep.done ?? 0;
-          const total = ep.total ?? 0;
-          text = `Exploring your home${total > 0 ? ` (${done} / ${total})` : ""}…`;
-        }
-        if (textEl) textEl.textContent = text;
+        const done = ep.done ?? 0;
+        const total = ep.total ?? 0;
+        const pct = total > 0 ? ` (${done} / ${total})` : "";
+        if (textEl) textEl.textContent = `Exploring your home${pct}…`;
         banner.style.display = "";
-        if (learningBadge) {
-          learningBadge.style.display = "flex";
-          learningBadge.style.opacity = "1";
-          learningBadge.classList.add("is-learning");
-          learningBadge.title = text;
-        }
       } else {
         banner.style.display = "none";
-        // Badge stays visible but dimmed — shows last-run info.
-        if (learningBadge) {
-          learningBadge.style.display = "flex";
-          learningBadge.style.opacity = "0.35";
-          learningBadge.classList.remove("is-learning");
-          const lastRun = ep.updated_at
-            ? `Last learning run: ${new Date(ep.updated_at * 1000).toLocaleTimeString()}`
-            : "Learning complete";
-          learningBadge.title = lastRun;
+        if (this._explorerBannerTimer) {
+          clearInterval(this._explorerBannerTimer);
+          this._explorerBannerTimer = null;
         }
-        // Keep timer running — exploration may start later in the session.
       }
     } catch (_) { /* non-critical */ }
   }

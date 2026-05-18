@@ -345,7 +345,7 @@ export const AIMixin = (Base) => class extends Base {
         const newFactLearned = !!data.learned_fact;
         const newCount = newFactLearned ? (this._memoryCount || 0) + 1 : this._memoryCount;
         if (recalledCount > 0 || newFactLearned) {
-          this._updateMemoryBadge(newCount, recalledCount > 0);
+          this._updateMemoryBadge(newCount, recalledCount);
         }
       }
       // Auto-refresh debug 'Last turn' pane if it is currently open
