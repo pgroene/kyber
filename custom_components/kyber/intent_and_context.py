@@ -13,12 +13,15 @@ from homeassistant.helpers import label_registry as lr
 from .const import SYSTEM_PROMPT_TEMPLATE
 
 
-def _sanitize_prompt_value(text: str) -> str:
+def _sanitize_prompt_value(text: str, max_len: int = 0) -> str:
     """Sanitize a user-supplied string before embedding it in the system prompt."""
     if not isinstance(text, str):
         return str(text) if text is not None else ""
     cleaned = re.sub(r"[\x00-\x1f\x7f]+", " ", text)
-    return cleaned.strip()
+    cleaned = cleaned.strip()
+    if max_len > 0 and len(cleaned) > max_len:
+        cleaned = cleaned[:max_len]
+    return cleaned
 
 
 _QUICK_CREATE_AREA_RE = re.compile(
@@ -228,9 +231,7 @@ def _build_home_state_by_area(
 
         elif domain == "media_player" and area_name:
             if state.state not in ("idle", "off", "standby", "unavailable", "unknown"):
-                friendly = _sanitize_prompt_value(state.attributes.get("friendly_name", entity_id))
-                title = _sanitize_prompt_value(state.attributes.get("media_title", ""))
-                _area(area_name)["media"].append(f"{friendly}" + (f": {title}" if title else f" ({state.state})"))
+                _area(area_name)["media"].append(state.state)  # only state string, no entity names or titles
 
     # Format lines
     lines: list[str] = []
@@ -244,8 +245,8 @@ def _build_home_state_by_area(
         if d["temps"]:
             avg_temp = sum(d["temps"]) / len(d["temps"])
             parts.append(f"🌡 {avg_temp:.1f}°C")
-        for m in d["media"][:2]:
-            parts.append(f"📺 {m}")
+        if d["media"]:
+            parts.append(f"📺 {len(d['media'])} playing")
         if d["open_windows"]:
             parts.append(f"🪟 {d['open_windows']} open")
         if d["open_doors"]:
@@ -278,10 +279,10 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
 
     areas = area_reg.async_list_areas()
     area_list = "\n".join(
-        f"- {_sanitize_prompt_value(a.name)} → {_sanitize_prompt_value(a.id)}"
+        f"- {_sanitize_prompt_value(a.name, max_len=60)} → {_sanitize_prompt_value(a.id, max_len=60)}"
         for a in areas
     ) or "(no areas)"
-    area_by_id = {a.id: _sanitize_prompt_value(a.name) for a in areas}
+    area_by_id = {a.id: _sanitize_prompt_value(a.name, max_len=60) for a in areas}
 
     labels = label_reg.async_list_labels()
 
