@@ -61,14 +61,33 @@ def parse_args():
     return p.parse_args()
 
 
-def main():
+def _get_token() -> str:
+    """Return GitHub token from env or git remote URL."""
+    token = _get_token()
+    if token:
+        return token
+    # Fall back to token embedded in git remote URL
+    try:
+        remote = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True, text=True
+        ).stdout.strip()
+        m = re.search(r"https://([^@]+)@github\.com", remote)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return ""
+
+
+
     args = parse_args()
 
     if args.github_release_only:
         tag = args.github_release_only
         if not tag.startswith("v"):
             tag = f"v{tag}"
-        token = os.environ.get("GITHUB_TOKEN", "")
+        token = _get_token()
         if not token:
             print("ERROR: set GITHUB_TOKEN first", file=sys.stderr)
             sys.exit(1)
@@ -165,7 +184,7 @@ def main():
     print(f"  pushed {tag}")
 
     # GitHub release
-    token = os.environ.get("GITHUB_TOKEN", "")
+    token = _get_token()
     if token:
         import urllib.request
         payload = json.dumps({
@@ -195,3 +214,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
