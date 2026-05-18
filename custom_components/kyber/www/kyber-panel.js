@@ -231,7 +231,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     }
   }
 
-
+  _bindEvents(shadow) {
     shadow.getElementById("btn-save").addEventListener("click", () => {
       if (this._editorMode === "dashboard") {
         this._saveDashboard();
