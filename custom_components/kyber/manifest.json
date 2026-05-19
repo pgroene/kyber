@@ -1,17 +1,19 @@
 {
-  "domain": "kyber",
-  "name": "Kyber",
-  "codeowners": [
-    "@pgroene"
-  ],
-  "config_flow": true,
-  "dependencies": [
-    "ai_task"
-  ],
-  "documentation": "https://github.com/pgroene/kyber",
-  "issue_tracker": "https://github.com/pgroene/kyber/issues",
-  "iot_class": "local_polling",
-  "requirements": [],
-  "homeassistant": "2025.2.0",
-  "version": "0.1.172"
+    "domain":  "kyber",
+    "name":  "Kyber",
+    "codeowners":  [
+                       "@pgroene"
+                   ],
+    "config_flow":  true,
+    "dependencies":  [
+                         "ai_task"
+                     ],
+    "documentation":  "https://github.com/pgroene/kyber",
+    "issue_tracker":  "https://github.com/pgroene/kyber/issues",
+    "iot_class":  "local_polling",
+    "requirements":  [
+
+                     ],
+    "homeassistant":  "2025.2.0",
+    "version":  "0.1.173"
 }

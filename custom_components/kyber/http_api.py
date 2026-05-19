@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from http import HTTPStatus
 from typing import Any
 
@@ -686,6 +687,72 @@ async def _inject_knowledge_into_instructions(
     return instructions, relevant_knowledge
 
 
+async def _check_ollama_health(hass: Any, entity_id: str) -> dict:
+    """Check Ollama health and queue via /api/ps.
+
+    Returns a dict with keys:
+      - entity_state: str  (HA state of the AI entity, e.g. "idle"/"unavailable")
+      - entity_attrs: dict (AI entity state attributes)
+      - ollama_url: str | None
+      - running_models: list (from /api/ps)
+      - queue_depth: int   (number of pending requests, if available)
+      - reachable: bool    (whether Ollama responded to /api/ps)
+      - error: str | None  (error message if unreachable)
+    """
+    import aiohttp
+
+    result: dict = {
+        "entity_state": "unknown",
+        "entity_attrs": {},
+        "ollama_url": None,
+        "running_models": [],
+        "queue_depth": 0,
+        "reachable": False,
+        "error": None,
+    }
+
+    # 1. Check HA entity state
+    state = hass.states.get(entity_id)
+    if state:
+        result["entity_state"] = state.state
+        result["entity_attrs"] = dict(state.attributes)
+
+    # 2. Try to find the Ollama URL from HA config entries
+    ollama_url: str | None = None
+    try:
+        for entry in hass.config_entries.async_entries("ollama"):
+            data = dict(entry.data or {})
+            url = data.get("url") or data.get("base_url") or data.get("host")
+            if url:
+                ollama_url = url.rstrip("/")
+                break
+    except Exception:  # noqa: BLE001
+        pass
+    result["ollama_url"] = ollama_url
+
+    if not ollama_url:
+        result["error"] = "Could not determine Ollama URL from config entries"
+        return result
+
+    # 3. Hit /api/ps for running models + queue depth
+    try:
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(f"{ollama_url}/api/ps") as resp:
+                if resp.status == 200:
+                    ps_data = await resp.json()
+                    result["reachable"] = True
+                    result["running_models"] = ps_data.get("models", [])
+                else:
+                    result["error"] = f"Ollama /api/ps returned HTTP {resp.status}"
+    except aiohttp.ClientConnectorError as err:
+        result["error"] = f"Ollama unreachable: {err}"
+    except Exception as err:  # noqa: BLE001
+        result["error"] = f"Ollama health check failed: {err}"
+
+    return result
+
+
 async def _run_ai_loop(
     hass: Any,
     entity_id: str,
@@ -703,6 +770,58 @@ async def _run_ai_loop(
     # Qwen3 thinking mode emits <think>…</think> blocks that break plan/tool parsing.
     if "qwen3" in entity_id.lower():
         instructions = "/no_think\n" + instructions
+
+    # ── Pre-flight: log entity state + check Ollama health ───────────────────
+    _entity_state = hass.states.get(entity_id)
+    _entity_state_str = _entity_state.state if _entity_state else "not_found"
+    _entity_attrs = dict(_entity_state.attributes) if _entity_state else {}
+    _model_name = (
+        _entity_attrs.get("model_id") or _entity_attrs.get("model")
+        or _entity_attrs.get("model_name") or entity_id
+    )
+    _LOGGER.info(
+        "Kyber: AI pre-flight — entity=%s state=%s model=%s",
+        entity_id, _entity_state_str, _model_name,
+    )
+    _progress_emit(hass, request_id, {
+        "type": "info",
+        "message": f"Model: {_model_name} (entity state: {_entity_state_str})",
+    })
+
+    # Warn immediately if the entity is unavailable
+    if _entity_state_str in ("unavailable", "unknown", "not_found"):
+        _LOGGER.warning(
+            "Kyber: AI entity '%s' is %s — request will likely fail",
+            entity_id, _entity_state_str,
+        )
+        _progress_emit(hass, request_id, {
+            "type": "warning",
+            "message": f"⚠️ AI entity '{entity_id}' is {_entity_state_str}. Ollama may be offline.",
+        })
+
+    # Check Ollama health asynchronously (non-blocking — we still proceed)
+    _health = await _check_ollama_health(hass, entity_id)
+    if _health.get("error"):
+        _LOGGER.warning("Kyber: Ollama health check: %s", _health["error"])
+        _progress_emit(hass, request_id, {
+            "type": "warning",
+            "message": f"⚠️ Ollama: {_health['error']}",
+        })
+    else:
+        _running = _health.get("running_models", [])
+        _model_names = [m.get("name", "?") for m in _running]
+        _LOGGER.info(
+            "Kyber: Ollama reachable — %d model(s) loaded: %s",
+            len(_running), ", ".join(_model_names) or "none",
+        )
+        _progress_emit(hass, request_id, {
+            "type": "info",
+            "message": (
+                f"Ollama: {len(_running)} model(s) active"
+                + (f" ({', '.join(_model_names)})" if _model_names else "")
+            ),
+        })
+    # ─────────────────────────────────────────────────────────────────────────
 
     # Determine the actual context window for this AI entity (reads num_ctx / context_length
     # from entity state attributes, falls back to model-name lookup, then DEFAULT_MAX_TOKENS).
@@ -766,6 +885,7 @@ async def _run_ai_loop(
             "type": "info",
             "message": f"Asking AI (round {_round + 1})\u2026",
         })
+        _t_start = time.monotonic()
         try:
             result = await async_generate_data(
                 hass,
@@ -774,19 +894,43 @@ async def _run_ai_loop(
                 instructions=loop_instructions,
             )
         except HomeAssistantError as err:
-            _LOGGER.error("AI task failed: %s", err)
+            _elapsed_ms = int((time.monotonic() - _t_start) * 1000)
+            _LOGGER.error(
+                "Kyber: AI call FAILED after %dms — entity=%s round=%d prompt_tokens~%d error=%s",
+                _elapsed_ms, entity_id, _round + 1, _prompt_tokens_est, err,
+            )
             _progress_emit(hass, request_id, {"type": "error", "message": str(err)})
             _progress_complete(hass, request_id)
             raise
         except Exception as err:  # noqa: BLE001
-            _LOGGER.error("AI task unexpected error (type=%s): %s", type(err).__name__, err)
+            _elapsed_ms = int((time.monotonic() - _t_start) * 1000)
+            _LOGGER.error(
+                "Kyber: AI call FAILED after %dms — entity=%s round=%d prompt_tokens~%d type=%s error=%s",
+                _elapsed_ms, entity_id, _round + 1, _prompt_tokens_est, type(err).__name__, err,
+            )
             _progress_emit(hass, request_id, {"type": "error", "message": str(err)})
             _progress_complete(hass, request_id)
             raise HomeAssistantError(f"AI task error: {err}") from err
 
+        _elapsed_ms = int((time.monotonic() - _t_start) * 1000)
         response_text = result.data if isinstance(result.data, str) else (
             str(result.data) if result.data is not None else ""
         )
+        _resp_tokens_est = len(response_text) // 4
+        _LOGGER.info(
+            "Kyber: AI call OK — entity=%s round=%d elapsed=%dms "
+            "prompt_tokens~%d resp_tokens~%d total_tokens~%d",
+            entity_id, _round + 1, _elapsed_ms,
+            _prompt_tokens_est, _resp_tokens_est, _prompt_tokens_est + _resp_tokens_est,
+        )
+        _progress_emit(hass, request_id, {
+            "type": "timing",
+            "message": f"⏱ {_elapsed_ms}ms · ~{_prompt_tokens_est + _resp_tokens_est:,} tokens",
+            "elapsed_ms": _elapsed_ms,
+            "prompt_tokens": _prompt_tokens_est,
+            "resp_tokens": _resp_tokens_est,
+            "round": _round + 1,
+        })
         if not isinstance(result.data, str):
             _LOGGER.warning(
                 "Kyber: AI result.data is not str (type=%s); coerced to string",
@@ -1054,18 +1198,24 @@ async def _run_ai_loop(
                     synth_prompt = synth_prompt[:_MAX_INSTRUCTIONS_CHARS]
                 try:
                     _progress_emit(hass, request_id, {"type": "thinking", "stage": "synthesize"})
+                    _t_synth = time.monotonic()
                     synth_result = await async_generate_data(
                         hass,
                         task_name=f"{DOMAIN}_complete",
                         entity_id=entity_id,
                         instructions=synth_prompt,
                     )
+                    _synth_ms = int((time.monotonic() - _t_synth) * 1000)
                     synth_text = (
                         synth_result.data
                         if isinstance(synth_result.data, str)
                         else (str(synth_result.data) if synth_result.data is not None else "")
                     )
                     synth_text = _strip_tool_calls(synth_text).strip()
+                    _LOGGER.info(
+                        "Kyber: synthesis pass OK — elapsed=%dms resp_tokens~%d",
+                        _synth_ms, len(synth_text) // 4,
+                    )
                     if synth_text:
                         response_text = synth_text
                 except Exception as _synth_err:  # noqa: BLE001
@@ -1618,6 +1768,11 @@ class KyberView(HomeAssistantView):
         finally:
             _debug_detach_log_capture(_debug_log_handler)
             hass.data[_CHAT_BUSY_KEY] = False
+        _total_ms = int((_time.time() - _turn_started_at) * 1000)
+        _LOGGER.info(
+            "Kyber: request complete — total=%dms entity=%s intent=%s",
+            _total_ms, entity_id, intent,
+        )
         return self.json({
             "response": response_text,
             "yaml_blocks": yaml_blocks,
@@ -1629,6 +1784,7 @@ class KyberView(HomeAssistantView):
             "auto_rating": auto_rating,
             "request_id": request_id,
             "learned_fact": learned_fact,
+            "elapsed_ms": _total_ms,
         })
 
 
