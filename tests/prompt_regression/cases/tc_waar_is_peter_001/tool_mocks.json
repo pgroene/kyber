@@ -1,0 +1,27 @@
+[
+  {
+    "tool": "get_entity_state",
+    "args": {"entity_id": "person.peter"},
+    "response": {
+      "entity_id": "person.peter",
+      "state": "home",
+      "friendly_name": "Peter",
+      "attributes": {
+        "in_zones": ["zone.home"],
+        "device_trackers": ["device_tracker.sm_a556b"],
+        "source": "person.peter"
+      }
+    }
+  },
+  {
+    "tool": "get_entity_state",
+    "args": {"entity_id": "device_tracker.phone_peter"},
+    "response": {
+      "entity_id": "device_tracker.phone_peter",
+      "state": "not_home",
+      "friendly_name": "peter phone",
+      "attributes": {}
+    },
+    "_note": "This is a stale secondary tracker — person.peter is the authoritative source"
+  }
+]

@@ -1,0 +1,24 @@
+{
+  "id": "tc_waar_is_peter_001",
+  "label": "Waar is Peter? (L1: home/thuis)",
+  "version_added": "0.1.137",
+  "tags": ["location", "person", "dutch", "informational"],
+  "description": "Basic location query for Peter. Minimum passing bar: model reports Peter is home. The home state has person.peter=home. Device tracker phone_peter=not_home (different tracker — should NOT be used as ground truth).",
+  "input": {
+    "question": "Waar is Peter?",
+    "intent": "informational"
+  },
+  "expected_output": {
+    "intent": "informational",
+    "language": "nl",
+    "response_contains": ["thuis", "home"],
+    "response_not_contains": ["not_home", "not home", "I don't know", "weet niet"]
+  },
+  "baseline_response": "Peter is thuis.",
+  "ideal_result_description": "Responds in Dutch. Reports Peter is home (person.peter = home). Does NOT report 'not_home' based on the stale device_tracker.phone_peter — that tracker is not the primary source. Bonus: mentions the werkkamer (see tc_peter_werkkamer_002).",
+  "notes": {
+    "entity_person_peter": "person.peter = home (primary source)",
+    "entity_tracker": "device_tracker.phone_peter = not_home (secondary/stale — should be ignored)",
+    "next_level": "tc_peter_werkkamer_002 — using binary_sensor.presence_werkkamer_304_presence to pinpoint room"
+  }
+}

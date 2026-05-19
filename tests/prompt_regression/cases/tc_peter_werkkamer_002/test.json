@@ -1,0 +1,26 @@
+{
+  "id": "tc_peter_werkkamer_002",
+  "label": "Waar is Peter precies? (L2: werkkamer via presence)",
+  "version_added": "0.1.137",
+  "tags": ["location", "person", "presence", "dutch", "informational", "aspirational"],
+  "description": "Advanced location query. The model should use binary_sensor.presence_werkkamer_304_presence=on to infer Peter is in the werkkamer, not just 'home'. This requires the model to reason about room-level presence sensors. Marked aspirational — current versions may only say 'thuis'.",
+  "input": {
+    "question": "Waar is Peter precies?",
+    "intent": "informational"
+  },
+  "expected_output": {
+    "intent": "informational",
+    "language": "nl",
+    "response_contains": ["werkkamer"],
+    "response_not_contains": ["not_home", "weet niet", "geen idee"]
+  },
+  "baseline_response": "Peter is thuis, waarschijnlijk in de werkkamer (bewegingssensor actief).",
+  "ideal_result_description": "Reports Peter is home AND in the werkkamer, reasoning from binary_sensor.presence_werkkamer_304_presence = on. The model needs to: (1) get person.peter=home, (2) look up presence sensors per room, (3) find werkkamer presence is 'on', (4) conclude Peter is likely there.",
+  "notes": {
+    "entity_person_peter": "person.peter = home",
+    "entity_werkkamer_presence": "binary_sensor.presence_werkkamer_304_presence = on (occupancy, device_class: occupancy)",
+    "challenge": "Model must proactively look up room presence sensors — not injected by default",
+    "data_quality": "Only 62 of 1278 entities have area_id — werkkamer presence sensors are in the area registry",
+    "prerequisite": "tc_waar_is_peter_001 must pass first"
+  }
+}

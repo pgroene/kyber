@@ -1,0 +1,31 @@
+{
+  "id": "tc_koffie_espresso_001",
+  "label": "Ik wil koffie → zet espresso aan",
+  "version_added": "0.1.137",
+  "tags": ["action", "espresso", "dutch", "semantic-matching", "cross-lingual"],
+  "description": "User asks for coffee in Dutch. Model must map 'koffie' → espresso machine → switch.0xa4c138d5f4f912f2 (onoff_keuken_espresso_304) and turn it on. Tests cross-lingual/semantic knowledge retrieval: 'koffie' and 'espresso' share no tokens.",
+  "input": {
+    "question": "Ik wil koffie",
+    "intent": "action"
+  },
+  "expected_output": {
+    "intent": "action",
+    "language": "nl",
+    "response_contains": ["espresso"],
+    "response_not_contains": ["I don't know", "weet niet", "geen entiteit"],
+    "tool_calls_expected": ["switch.turn_on"]
+  },
+  "baseline_response": "Ik zet de espressomachine aan.",
+  "ideal_result_description": "Turns on switch.0xa4c138d5f4f912f2 (onoff_keuken_espresso_304 = the espresso machine power switch) and confirms in Dutch. Mapping requires: 'koffie' → 'espresso' via LLM query expansion or memory alias → finding the correct switch entity (not the lamp or status input_texts). The memory has multiple 'espresso' aliases pointing to input_text status entities — model must find the actual power switch.",
+  "notes": {
+    "target_entity": "switch.0xa4c138d5f4f912f2 (friendly_name: onoff_keuken_espresso_304)",
+    "wrong_entities": [
+      "input_text.ai_espresso_is_on (status display, not a control)",
+      "input_text.ai_espresso_preheating_is_on (status display)",
+      "switch.onoff_keuken_lamp_espresso_307 (lamp near machine, not the machine)"
+    ],
+    "memory_aliases": "Many 'espresso' entity_alias entries point to input_text status entities — model must distinguish control vs status",
+    "semantic_gap": "User says 'koffie' (Dutch: coffee), entity names contain 'espresso' — requires cross-lingual matching",
+    "query_expansion": "LLM query expansion should bridge koffie→espresso (v0.1.136+)"
+  }
+}

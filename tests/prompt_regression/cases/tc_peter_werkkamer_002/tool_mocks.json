@@ -1,0 +1,40 @@
+[
+  {
+    "tool": "get_entity_state",
+    "args": {"entity_id": "person.peter"},
+    "response": {
+      "entity_id": "person.peter",
+      "state": "home",
+      "friendly_name": "Peter",
+      "attributes": {"in_zones": ["zone.home"]}
+    }
+  },
+  {
+    "tool": "get_area_entities",
+    "args": {"area_id": "werkkamer"},
+    "response": [
+      {"entity_id": "binary_sensor.presence_werkkamer_304_presence", "state": "on", "domain": "binary_sensor", "friendly_name": "presence_werkkamer_304 Occupancy", "attributes": {"device_class": "occupancy"}},
+      {"entity_id": "climate.werkkamer", "state": "heat", "domain": "climate", "friendly_name": "Werkkamer"},
+      {"entity_id": "media_player.werkkamer_music_2", "state": "playing", "domain": "media_player", "friendly_name": "werkkamer_music"},
+      {"entity_id": "light.downlight_werkkamer_118", "state": "unknown", "domain": "light"},
+      {"entity_id": "switch.adaptive_lighting_werkkamer", "state": "on", "domain": "switch"}
+    ]
+  },
+  {
+    "tool": "get_areas",
+    "args": {},
+    "response": [
+      {"area_id": "badkamer", "name": "Badkamer"},
+      {"area_id": "eetkamer", "name": "Eetkamer"},
+      {"area_id": "entree", "name": "Entree"},
+      {"area_id": "gastenkamer", "name": "Gastenkamer"},
+      {"area_id": "keuken", "name": "Keuken"},
+      {"area_id": "slaapkamer", "name": "Slaapkamer"},
+      {"area_id": "slaapkamer_fedde", "name": "Slaapkamer Fedde"},
+      {"area_id": "slaapkamer_lobke", "name": "Slaapkamer Lobke"},
+      {"area_id": "wasruimte", "name": "Wasruimte"},
+      {"area_id": "werkkamer", "name": "Werkkamer"},
+      {"area_id": "zitkamer", "name": "Zitkamer"}
+    ]
+  }
+]

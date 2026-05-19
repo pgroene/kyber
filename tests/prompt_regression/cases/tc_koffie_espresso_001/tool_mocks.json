@@ -1,0 +1,37 @@
+[
+  {
+    "tool": "list_entities_by_domain",
+    "args": {"domain": "switch"},
+    "response": [
+      {"entity_id": "switch.0xa4c138d5f4f912f2", "state": "off", "friendly_name": "onoff_keuken_espresso_304", "domain": "switch", "area_id": null},
+      {"entity_id": "switch.onoff_keuken_lamp_espresso_307", "state": "off", "friendly_name": "onoff_keuken_lamp_espresso_307", "domain": "switch", "area_id": null},
+      {"entity_id": "input_boolean.auto_turnoff_espresso", "state": "on", "friendly_name": "Auto turn off espresso", "domain": "input_boolean"}
+    ]
+  },
+  {
+    "tool": "get_entity_state",
+    "args": {"entity_id": "switch.0xa4c138d5f4f912f2"},
+    "response": {
+      "entity_id": "switch.0xa4c138d5f4f912f2",
+      "state": "off",
+      "friendly_name": "onoff_keuken_espresso_304",
+      "domain": "switch"
+    }
+  },
+  {
+    "tool": "switch.turn_on",
+    "args": {"entity_id": "switch.0xa4c138d5f4f912f2"},
+    "response": {"result": "ok"}
+  },
+  {
+    "tool": "get_entity_state",
+    "args": {"entity_id": "input_text.ai_espresso_is_on"},
+    "response": {
+      "entity_id": "input_text.ai_espresso_is_on",
+      "state": "Off",
+      "friendly_name": "Washing Machine Running",
+      "domain": "input_text",
+      "_note": "This is a status display entity, NOT a control — should not be used for turn_on"
+    }
+  }
+]

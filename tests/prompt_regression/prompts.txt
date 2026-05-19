@@ -4,3 +4,10 @@
 # hoe warm is het in de slaapkamer?
 # welke lampen zijn aan in de woonkamer?
 # zet de wekker voor morgen 7 uur
+
+# Location / presence
+Waar is Peter?
+Waar is Peter precies?
+
+# Cross-lingual / semantic action
+Ik wil koffie

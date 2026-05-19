@@ -1,0 +1,1934 @@
+[
+  {
+    "id": "ce800c901a06",
+    "category": "entity_alias",
+    "subject": "espresso machine preheating is on",
+    "content": "When user searches for 'espresso machine preheating is on', the matching entity is: input_text.ai_espresso_preheating_is_on",
+    "tags": [
+      "espresso",
+      "machine",
+      "preheating",
+      "is",
+      "on",
+      "input_text.ai_espresso_preheating_is_on"
+    ],
+    "source": "search_alias_auto",
+    "provenance": "",
+    "confidence": 0.7,
+    "user_rating": 0,
+    "created": 1779124029,
+    "updated": 1779124029,
+    "hits": 1,
+    "triage": {
+      "recommend": "good",
+      "reason": "entity_alias_with_entity_id",
+      "test_prompt": "Can you turn on the espresso machine preheating is on?"
+    }
+  },
+  {
+    "id": "dd75a16cd587",
+    "category": "entity_alias",
+    "subject": "espresso",
+    "content": "When user searches for 'espresso', the matching entity is: input_text.ai_espresso_preheating_is_on",
+    "tags": [
+      "espresso",
+      "input_text.ai_espresso_preheating_is_on"
+    ],
+    "source": "search_alias_auto",
+    "provenance": "",
+    "confidence": 0.7,
+    "user_rating": 0,
+    "created": 1779124090,
+    "updated": 1779124090,
+    "hits": 0,
+    "triage": {
+      "recommend": "good",
+      "reason": "entity_alias_with_entity_id",
+      "test_prompt": "Can you turn on the espresso?"
+    }
+  },
+  {
+    "id": "29d4a73c5090",
+    "category": "entity_alias",
+    "subject": "espresso",
+    "content": "When user searches for 'espresso', the matching entity is: input_text.ai_espresso_is_on",
+    "tags": [
+      "espresso",
+      "input_text.ai_espresso_is_on"
+    ],
+    "source": "search_alias_auto",
+    "provenance": "",
+    "confidence": 0.7,
+    "user_rating": 0,
+    "created": 1779124090,
+    "updated": 1779124090,
+    "hits": 0,
+    "triage": {
+      "recommend": "good",
+      "reason": "entity_alias_with_entity_id",
+      "test_prompt": "Can you turn on the espresso?"
+    }
+  },
+  {
+    "id": "40809988c119",
+    "category": "entity_alias",
+    "subject": "espresso machine",
+    "content": "When user searches for 'espresso machine', the matching entities are: input_text.ai_espresso_is_on, input_text.ai_espresso_preheating_is_on",
+    "tags": [
+      "espresso",
+      "machine",
+      "input_text.ai_espresso_is_on",
+      "input_text.ai_espresso_preheating_is_on"
+    ],
+    "source": "search_alias_auto",
+    "provenance": "",
+    "confidence": 0.7,
+    "user_rating": 0,
+    "created": 1779124106,
+    "updated": 1779124106,
+    "hits": 0,
+    "triage": {
+      "recommend": "good",
+      "reason": "entity_alias_with_entity_id",
+      "test_prompt": "Can you turn on the espresso machine?"
+    }
+  },
+  {
+    "id": "23806c5c4a9e",
+    "category": "entity_alias",
+    "subject": "preheating espresso",
+    "content": "When user searches for 'preheating espresso', the matching entity is: input_text.ai_espresso_preheating_is_on",
+    "tags": [
+      "preheating",
+      "espresso",
+      "input_text.ai_espresso_preheating_is_on"
+    ],
+    "source": "search_alias_auto",
+    "provenance": "",
+    "confidence": 0.7,
+    "user_rating": 0,
+    "created": 1779124416,
+    "updated": 1779124416,
+    "hits": 0,
+    "triage": {
+      "recommend": "good",
+      "reason": "entity_alias_with_entity_id",
+      "test_prompt": "Can you turn on the preheating espresso?"
+    }
+  },
+  {
+    "id": "d82589ac8228",
+    "category": "entity_alias",
+    "subject": "sensor.onoff_keuken_espresso_304_power",
+    "content": "sensor.onoff_keuken_espresso_304_power is labelled 'Espresso' on the user's dashboard.",
+    "tags": [
+      "sensor.onoff_keuken_espresso_304_power",
+      "sensor",
+      "espresso",
+      "dashboard"
+    ],
+    "source": "dashboard_indexer",
+    "provenance": "dashboard card name",
+    "confidence": 0.95,
+    "user_rating": 0,
+    "created": 1779166947,
+    "updated": 1779166947,
+    "hits": 0,
+    "triage": {
+      "recommend": "good",
+      "reason": "entity_alias_with_entity_id",
+      "test_prompt": "Can you turn on the sensor.onoff_keuken_espresso_304_power?"
+    }
+  },
+  {
+    "id": "32c49838fcf8",
+    "category": "entity_alias",
+    "subject": "switch.0xa4c138d5f4f912f2",
+    "content": "switch.0xa4c138d5f4f912f2 is labelled 'Espresso' on the user's dashboard.",
+    "tags": [
+      "switch.0xa4c138d5f4f912f2",
+      "switch",
+      "espresso",
+      "dashboard"
+    ],
+    "source": "dashboard_indexer",
+    "provenance": "dashboard card name",
+    "confidence": 0.95,
+    "user_rating": 0,
+    "created": 1779166947,
+    "updated": 1779166947,
+    "hits": 0,
+    "triage": {
+      "recommend": "good",
+      "reason": "entity_alias_with_entity_id",
+      "test_prompt": "Can you turn on the switch.0xa4c138d5f4f912f2?"
+    }
+  },
+  {
+    "id": "ee3c8caf18c0",
+    "category": "general",
+    "subject": "timer.timer_autoturnoff_espresso",
+    "content": "timer \"autoturnoff esspresso\" [timer.timer_autoturnoff_espresso], state: idle. Integration: timer. Use get_entity_state(\"timer.timer_autoturnoff_espresso\") to get current value.",
+    "tags": [
+      "timer.timer_autoturnoff_espresso",
+      "timer",
+      "timer",
+      "autoturnoff",
+      "esspresso",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118210,
+    "updated": 1779118210,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "6200563e5fa6",
+    "category": "general",
+    "subject": "input_boolean.auto_turnoff_espresso",
+    "content": "input_boolean \"Auto turn off espresso\" [input_boolean.auto_turnoff_espresso], state: on. Integration: input_boolean. Use get_entity_state(\"input_boolean.auto_turnoff_espresso\") to get current value.",
+    "tags": [
+      "input_boolean.auto_turnoff_espresso",
+      "input_boolean",
+      "input_boolean",
+      "auto",
+      "turn",
+      "off",
+      "espresso",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118211,
+    "updated": 1779118211,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "7b0145b26c0e",
+    "category": "general",
+    "subject": "switch.0xa4c138d5f4f912f2",
+    "content": "switch \"onoff_keuken_espresso_304\" [switch.0xa4c138d5f4f912f2]. Integration: mqtt. Use get_entity_state(\"switch.0xa4c138d5f4f912f2\") to get current value.",
+    "tags": [
+      "switch.0xa4c138d5f4f912f2",
+      "mqtt",
+      "switch",
+      "schakelaar",
+      "aan",
+      "uit",
+      "onoff",
+      "keuken",
+      "espresso",
+      "304",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "51c2d42822ef",
+    "category": "general",
+    "subject": "sensor.0xa4c138d5f4f912f2_current",
+    "content": "sensor \"onoff_keuken_espresso_304 Current\" [sensor.0xa4c138d5f4f912f2_current] (A), device_class: current. Integration: mqtt. Use get_entity_state(\"sensor.0xa4c138d5f4f912f2_current\") to get current value.",
+    "tags": [
+      "sensor.0xa4c138d5f4f912f2_current",
+      "mqtt",
+      "sensor",
+      "current",
+      "stroom",
+      "ampere",
+      "onoff",
+      "keuken",
+      "espresso",
+      "304",
+      "current",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "37e34795e267",
+    "category": "general",
+    "subject": "sensor.0xa4c138d5f4f912f2_voltage",
+    "content": "sensor \"onoff_keuken_espresso_304 Voltage\" [sensor.0xa4c138d5f4f912f2_voltage] (V), device_class: voltage. Integration: mqtt. Use get_entity_state(\"sensor.0xa4c138d5f4f912f2_voltage\") to get current value.",
+    "tags": [
+      "sensor.0xa4c138d5f4f912f2_voltage",
+      "mqtt",
+      "sensor",
+      "voltage",
+      "spanning",
+      "volt",
+      "onoff",
+      "keuken",
+      "espresso",
+      "304",
+      "voltage",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "693c132205c6",
+    "category": "general",
+    "subject": "select.0xa4c138d5f4f912f2_power_outage_memory",
+    "content": "select \"onoff_keuken_espresso_304 Power outage memory\" [select.0xa4c138d5f4f912f2_power_outage_memory]. Integration: mqtt. Use get_entity_state(\"select.0xa4c138d5f4f912f2_power_outage_memory\") to get current value.",
+    "tags": [
+      "select.0xa4c138d5f4f912f2_power_outage_memory",
+      "mqtt",
+      "select",
+      "onoff",
+      "keuken",
+      "espresso",
+      "304",
+      "power",
+      "outage",
+      "memory",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "d0fa2158ce3b",
+    "category": "general",
+    "subject": "switch.onoff_keuken_lamp_espresso_307",
+    "content": "switch \"onoff_keuken_lamp_espresso_307\" [switch.onoff_keuken_lamp_espresso_307]. Integration: mqtt. Use get_entity_state(\"switch.onoff_keuken_lamp_espresso_307\") to get current value.",
+    "tags": [
+      "switch.onoff_keuken_lamp_espresso_307",
+      "mqtt",
+      "switch",
+      "schakelaar",
+      "aan",
+      "uit",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "f8c686133ece",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_countdown",
+    "content": "sensor \"sensor.onoff_keuken_lamp_espresso_307_countdown\" [sensor.onoff_keuken_lamp_espresso_307_countdown]. Integration: mqtt. Use get_entity_state(\"sensor.onoff_keuken_lamp_espresso_307_countdown\") to get current value.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_countdown",
+      "mqtt",
+      "sensor",
+      "sensor",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "countdown",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "07bb5ef247ea",
+    "category": "general",
+    "subject": "number.onoff_keuken_lamp_espresso_307_countdown",
+    "content": "number \"number.onoff_keuken_lamp_espresso_307_countdown\" [number.onoff_keuken_lamp_espresso_307_countdown]. Integration: mqtt. Use get_entity_state(\"number.onoff_keuken_lamp_espresso_307_countdown\") to get current value.",
+    "tags": [
+      "number.onoff_keuken_lamp_espresso_307_countdown",
+      "mqtt",
+      "number",
+      "number",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "countdown",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "407219712cd1",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_power_outage_memory",
+    "content": "sensor \"sensor.onoff_keuken_lamp_espresso_307_power_outage_memory\" [sensor.onoff_keuken_lamp_espresso_307_power_outage_memory]. Integration: mqtt. Use get_entity_state(\"sensor.onoff_keuken_lamp_espresso_307_power_outage_memory\") to get current value.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_power_outage_memory",
+      "mqtt",
+      "sensor",
+      "sensor",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "power",
+      "outage",
+      "memory",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "b5bbf15289a0",
+    "category": "general",
+    "subject": "select.onoff_keuken_lamp_espresso_307_power_outage_memory",
+    "content": "select \"select.onoff_keuken_lamp_espresso_307_power_outage_memory\" [select.onoff_keuken_lamp_espresso_307_power_outage_memory]. Integration: mqtt. Use get_entity_state(\"select.onoff_keuken_lamp_espresso_307_power_outage_memory\") to get current value.",
+    "tags": [
+      "select.onoff_keuken_lamp_espresso_307_power_outage_memory",
+      "mqtt",
+      "select",
+      "select",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "power",
+      "outage",
+      "memory",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "b4a8110d7ead",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_indicator_mode",
+    "content": "sensor \"sensor.onoff_keuken_lamp_espresso_307_indicator_mode\" [sensor.onoff_keuken_lamp_espresso_307_indicator_mode]. Integration: mqtt. Use get_entity_state(\"sensor.onoff_keuken_lamp_espresso_307_indicator_mode\") to get current value.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_indicator_mode",
+      "mqtt",
+      "sensor",
+      "sensor",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "indicator",
+      "mode",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "84ded3d7fbf0",
+    "category": "general",
+    "subject": "select.onoff_keuken_lamp_espresso_307_indicator_mode",
+    "content": "select \"select.onoff_keuken_lamp_espresso_307_indicator_mode\" [select.onoff_keuken_lamp_espresso_307_indicator_mode]. Integration: mqtt. Use get_entity_state(\"select.onoff_keuken_lamp_espresso_307_indicator_mode\") to get current value.",
+    "tags": [
+      "select.onoff_keuken_lamp_espresso_307_indicator_mode",
+      "mqtt",
+      "select",
+      "select",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "indicator",
+      "mode",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "bf66d527d2f6",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_power",
+    "content": "sensor \"sensor.onoff_keuken_lamp_espresso_307_power\" [sensor.onoff_keuken_lamp_espresso_307_power]. Integration: mqtt. Use get_entity_state(\"sensor.onoff_keuken_lamp_espresso_307_power\") to get current value.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_power",
+      "mqtt",
+      "sensor",
+      "sensor",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "power",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "0cb7d95ae89b",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_current",
+    "content": "sensor \"sensor.onoff_keuken_lamp_espresso_307_current\" [sensor.onoff_keuken_lamp_espresso_307_current]. Integration: mqtt. Use get_entity_state(\"sensor.onoff_keuken_lamp_espresso_307_current\") to get current value.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_current",
+      "mqtt",
+      "sensor",
+      "sensor",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "current",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "c9eacf51c527",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_voltage",
+    "content": "sensor \"sensor.onoff_keuken_lamp_espresso_307_voltage\" [sensor.onoff_keuken_lamp_espresso_307_voltage]. Integration: mqtt. Use get_entity_state(\"sensor.onoff_keuken_lamp_espresso_307_voltage\") to get current value.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_voltage",
+      "mqtt",
+      "sensor",
+      "sensor",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "voltage",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "8b0e4799607d",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_energy",
+    "content": "sensor \"onoff_keuken_lamp_espresso_307 Energy\" [sensor.onoff_keuken_lamp_espresso_307_energy] (kWh), device_class: energy. Integration: mqtt. Use get_entity_state(\"sensor.onoff_keuken_lamp_espresso_307_energy\") to get current value.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_energy",
+      "mqtt",
+      "sensor",
+      "energy",
+      "energie",
+      "verbruik",
+      "elektriciteit",
+      "stroom",
+      "kwh",
+      "prijs",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "energy",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "aea8bd390d7f",
+    "category": "general",
+    "subject": "lock.onoff_keuken_lamp_espresso_307_child_lock",
+    "content": "lock \"lock.onoff_keuken_lamp_espresso_307_child_lock\" [lock.onoff_keuken_lamp_espresso_307_child_lock]. Integration: mqtt. Use get_entity_state(\"lock.onoff_keuken_lamp_espresso_307_child_lock\") to get current value.",
+    "tags": [
+      "lock.onoff_keuken_lamp_espresso_307_child_lock",
+      "mqtt",
+      "lock",
+      "slot",
+      "deur",
+      "vergrendeld",
+      "lock",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "child",
+      "lock",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "db85a09c597e",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_linkquality",
+    "content": "sensor \"sensor.onoff_keuken_lamp_espresso_307_linkquality\" [sensor.onoff_keuken_lamp_espresso_307_linkquality]. Integration: mqtt. Use get_entity_state(\"sensor.onoff_keuken_lamp_espresso_307_linkquality\") to get current value.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_linkquality",
+      "mqtt",
+      "sensor",
+      "sensor",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "linkquality",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "781ae7762276",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_update_state",
+    "content": "sensor \"sensor.onoff_keuken_lamp_espresso_307_update_state\" [sensor.onoff_keuken_lamp_espresso_307_update_state]. Integration: mqtt. Use get_entity_state(\"sensor.onoff_keuken_lamp_espresso_307_update_state\") to get current value.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_update_state",
+      "mqtt",
+      "sensor",
+      "sensor",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "update",
+      "state",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "d147c641f9a5",
+    "category": "general",
+    "subject": "binary_sensor.onoff_keuken_lamp_espresso_307_update_available",
+    "content": "binary_sensor \"binary_sensor.onoff_keuken_lamp_espresso_307_update_available\" [binary_sensor.onoff_keuken_lamp_espresso_307_update_available]. Integration: mqtt. Use get_entity_state(\"binary_sensor.onoff_keuken_lamp_espresso_307_update_available\") to get current value.",
+    "tags": [
+      "binary_sensor.onoff_keuken_lamp_espresso_307_update_available",
+      "mqtt",
+      "binary_sensor",
+      "binary",
+      "sensor",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "update",
+      "available",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118216,
+    "updated": 1779118216,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "358f6a88a45e",
+    "category": "general",
+    "subject": "update.onoff_keuken_lamp_espresso_307",
+    "content": "update \"update.onoff_keuken_lamp_espresso_307\" [update.onoff_keuken_lamp_espresso_307]. Integration: mqtt. Use get_entity_state(\"update.onoff_keuken_lamp_espresso_307\") to get current value.",
+    "tags": [
+      "update.onoff_keuken_lamp_espresso_307",
+      "mqtt",
+      "update",
+      "update",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118217,
+    "updated": 1779118217,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "6ab1a7c5c2c9",
+    "category": "general",
+    "subject": "light.onoff_keuken_lamp_espresso_307",
+    "content": "light \"onoff_keuken_lamp_espresso_307\" [light.onoff_keuken_lamp_espresso_307]. Integration: switch_as_x. Use get_entity_state(\"light.onoff_keuken_lamp_espresso_307\") to get current value.",
+    "tags": [
+      "light.onoff_keuken_lamp_espresso_307",
+      "switch_as_x",
+      "light",
+      "lamp",
+      "licht",
+      "verlichting",
+      "dimmen",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118217,
+    "updated": 1779118217,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "86139f104b9d",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_espresso_304_energy",
+    "content": "sensor \"onoff_keuken_espresso_304 Energy\" [sensor.onoff_keuken_espresso_304_energy] (kWh), device_class: energy. Integration: mqtt. Use get_entity_state(\"sensor.onoff_keuken_espresso_304_energy\") to get current value.",
+    "tags": [
+      "sensor.onoff_keuken_espresso_304_energy",
+      "mqtt",
+      "sensor",
+      "energy",
+      "energie",
+      "verbruik",
+      "elektriciteit",
+      "stroom",
+      "kwh",
+      "prijs",
+      "onoff",
+      "keuken",
+      "espresso",
+      "304",
+      "energy",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118219,
+    "updated": 1779118219,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "2a701b3c0d11",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_espresso_304_power",
+    "content": "sensor \"onoff_keuken_espresso_304 Power\" [sensor.onoff_keuken_espresso_304_power] (W), device_class: power. Integration: mqtt. Use get_entity_state(\"sensor.onoff_keuken_espresso_304_power\") to get current value.",
+    "tags": [
+      "sensor.onoff_keuken_espresso_304_power",
+      "mqtt",
+      "sensor",
+      "power",
+      "vermogen",
+      "watt",
+      "verbruik",
+      "onoff",
+      "keuken",
+      "espresso",
+      "304",
+      "power",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118220,
+    "updated": 1779118220,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "5dd2405082a5",
+    "category": "general",
+    "subject": "button.switch_espresso_603_battery_replaced",
+    "content": "button \"switch_zitkamer_tv_603 Battery replaced\" [button.switch_espresso_603_battery_replaced]. Integration: battery_notes. Use get_entity_state(\"button.switch_espresso_603_battery_replaced\") to get current value.",
+    "tags": [
+      "button.switch_espresso_603_battery_replaced",
+      "battery_notes",
+      "button",
+      "switch",
+      "zitkamer",
+      "603",
+      "battery",
+      "replaced",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118226,
+    "updated": 1779118226,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "029746a24685",
+    "category": "general",
+    "subject": "sensor.switch_espresso_603_battery_type",
+    "content": "sensor \"switch_zitkamer_tv_603 Battery type\" [sensor.switch_espresso_603_battery_type], state: CR2032. Integration: battery_notes. Use get_entity_state(\"sensor.switch_espresso_603_battery_type\") to get current value.",
+    "tags": [
+      "sensor.switch_espresso_603_battery_type",
+      "battery_notes",
+      "sensor",
+      "switch",
+      "zitkamer",
+      "603",
+      "battery",
+      "type",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118226,
+    "updated": 1779118226,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "931f238403cb",
+    "category": "general",
+    "subject": "sensor.switch_espresso_603_battery_last_replaced",
+    "content": "sensor \"switch_zitkamer_tv_603 Battery last replaced\" [sensor.switch_espresso_603_battery_last_replaced], device_class: timestamp, state: 2024-12-29T08:41:15+00:00. Integration: battery_notes. Use get_entity_state(\"sensor.switch_espresso_603_battery_last_replaced\") to get current value.",
+    "tags": [
+      "sensor.switch_espresso_603_battery_last_replaced",
+      "battery_notes",
+      "sensor",
+      "timestamp",
+      "switch",
+      "zitkamer",
+      "603",
+      "battery",
+      "last",
+      "replaced",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118226,
+    "updated": 1779118226,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "8c1674587576",
+    "category": "general",
+    "subject": "switch.onoff_keuken_lamp_espresso_307_child_lock",
+    "content": "switch \"switch.onoff_keuken_lamp_espresso_307_child_lock\" [switch.onoff_keuken_lamp_espresso_307_child_lock]. Integration: mqtt. Use get_entity_state(\"switch.onoff_keuken_lamp_espresso_307_child_lock\") to get current value.",
+    "tags": [
+      "switch.onoff_keuken_lamp_espresso_307_child_lock",
+      "mqtt",
+      "switch",
+      "schakelaar",
+      "aan",
+      "uit",
+      "switch",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "child",
+      "lock",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118227,
+    "updated": 1779118227,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "6da1059466fa",
+    "category": "general",
+    "subject": "button.switch_espresso_606_identify",
+    "content": "button \"button.switch_espresso_606_identify\" [button.switch_espresso_606_identify]. Integration: mqtt. Use get_entity_state(\"button.switch_espresso_606_identify\") to get current value.",
+    "tags": [
+      "button.switch_espresso_606_identify",
+      "mqtt",
+      "button",
+      "button",
+      "switch",
+      "espresso",
+      "606",
+      "identify",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118227,
+    "updated": 1779118227,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "f8b98ef0798f",
+    "category": "general",
+    "subject": "sensor.switch_espresso_606_battery",
+    "content": "sensor \"sensor.switch_espresso_606_battery\" [sensor.switch_espresso_606_battery]. Integration: mqtt. Use get_entity_state(\"sensor.switch_espresso_606_battery\") to get current value.",
+    "tags": [
+      "sensor.switch_espresso_606_battery",
+      "mqtt",
+      "sensor",
+      "sensor",
+      "switch",
+      "espresso",
+      "606",
+      "battery",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118227,
+    "updated": 1779118227,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "6f0aa29b5652",
+    "category": "general",
+    "subject": "sensor.switch_espresso_606_linkquality",
+    "content": "sensor \"sensor.switch_espresso_606_linkquality\" [sensor.switch_espresso_606_linkquality]. Integration: mqtt. Use get_entity_state(\"sensor.switch_espresso_606_linkquality\") to get current value.",
+    "tags": [
+      "sensor.switch_espresso_606_linkquality",
+      "mqtt",
+      "sensor",
+      "sensor",
+      "switch",
+      "espresso",
+      "606",
+      "linkquality",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118227,
+    "updated": 1779118227,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "19ca9d1f0cf3",
+    "category": "general",
+    "subject": "update.switch_espresso_606",
+    "content": "update \"update.switch_espresso_606\" [update.switch_espresso_606]. Integration: mqtt. Use get_entity_state(\"update.switch_espresso_606\") to get current value.",
+    "tags": [
+      "update.switch_espresso_606",
+      "mqtt",
+      "update",
+      "update",
+      "switch",
+      "espresso",
+      "606",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118227,
+    "updated": 1779118227,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "66e22d092d30",
+    "category": "general",
+    "subject": "button.switch_espresso_606_battery_replaced",
+    "content": "button \"0xdc8e95fffe89d0c7 Battery replaced\" [button.switch_espresso_606_battery_replaced], state: 2025-11-19T05:24:49.297202+00:00. Integration: battery_notes. Use get_entity_state(\"button.switch_espresso_606_battery_replaced\") to get current value.",
+    "tags": [
+      "button.switch_espresso_606_battery_replaced",
+      "battery_notes",
+      "button",
+      "0xdc8e95fffe89d0c7",
+      "battery",
+      "replaced",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118229,
+    "updated": 1779118229,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "a225a45b76e9",
+    "category": "general",
+    "subject": "sensor.switch_espresso_606_battery_type",
+    "content": "sensor \"0xdc8e95fffe89d0c7 Battery type\" [sensor.switch_espresso_606_battery_type], state: CR2032. Integration: battery_notes. Use get_entity_state(\"sensor.switch_espresso_606_battery_type\") to get current value.",
+    "tags": [
+      "sensor.switch_espresso_606_battery_type",
+      "battery_notes",
+      "sensor",
+      "0xdc8e95fffe89d0c7",
+      "battery",
+      "type",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118229,
+    "updated": 1779118229,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "250f97b0e3bb",
+    "category": "general",
+    "subject": "sensor.switch_espresso_606_battery_last_replaced",
+    "content": "sensor \"0xdc8e95fffe89d0c7 Battery last replaced\" [sensor.switch_espresso_606_battery_last_replaced], device_class: timestamp, state: 2025-11-19T05:24:49+00:00. Integration: battery_notes. Use get_entity_state(\"sensor.switch_espresso_606_battery_last_replaced\") to get current value.",
+    "tags": [
+      "sensor.switch_espresso_606_battery_last_replaced",
+      "battery_notes",
+      "sensor",
+      "timestamp",
+      "0xdc8e95fffe89d0c7",
+      "battery",
+      "last",
+      "replaced",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118229,
+    "updated": 1779118229,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "f1537a50d787",
+    "category": "general",
+    "subject": "update.onoff_keuken_espresso_304",
+    "content": "update \"update.onoff_keuken_espresso_304\" [update.onoff_keuken_espresso_304]. Integration: mqtt. Use get_entity_state(\"update.onoff_keuken_espresso_304\") to get current value.",
+    "tags": [
+      "update.onoff_keuken_espresso_304",
+      "mqtt",
+      "update",
+      "update",
+      "onoff",
+      "keuken",
+      "espresso",
+      "304",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118232,
+    "updated": 1779118232,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "6cfe065b8335",
+    "category": "general",
+    "subject": "input_text.ai_espresso_is_on",
+    "content": "input_text \"Espresso Machine On\" [input_text.ai_espresso_is_on], state: \"Oh great, because clearly the world is ending and we need to prioritize making coffee NOW. 😅 But seriously, don't waste too much energy on this early morning alert, just grab that espresso and give yourself a much-needed caffeine boost. ☕️\". Integration: input_text. Use get_entity_state(\"input_text.ai_espresso_is_on\") to get current value.",
+    "tags": [
+      "input_text.ai_espresso_is_on",
+      "input_text",
+      "input_text",
+      "espresso",
+      "machine",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.75,
+    "user_rating": 0,
+    "created": 1779118234,
+    "updated": 1779124136,
+    "hits": 2,
+    "needs_review": true,
+    "feedback": [
+      {
+        "rating": 2,
+        "notes": "auto: response contained negative cue",
+        "auto": true,
+        "ts": 1779124136
+      }
+    ],
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "d8769eac2dcd",
+    "category": "general",
+    "subject": "input_text.ai_espresso_preheating_is_on",
+    "content": "input_text \"Espresso Machine Preheating\" [input_text.ai_espresso_preheating_is_on], state: \"Oh, joy! The espresso machine is heating up like a fiery inferno! 🔥☕️ Get ready for your daily dose of caffeine and sass! ☕️💁‍♀️\". Integration: input_text. Use get_entity_state(\"input_text.ai_espresso_preheating_is_on\") to get current value.",
+    "tags": [
+      "input_text.ai_espresso_preheating_is_on",
+      "input_text",
+      "input_text",
+      "espresso",
+      "machine",
+      "preheating",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.75,
+    "user_rating": 0,
+    "created": 1779118234,
+    "updated": 1779124136,
+    "hits": 2,
+    "needs_review": true,
+    "feedback": [
+      {
+        "rating": 2,
+        "notes": "auto: response contained negative cue",
+        "auto": true,
+        "ts": 1779124136
+      }
+    ],
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "cb8700dad15e",
+    "category": "general",
+    "subject": "select.onoff_keuken_lamp_espresso_307_switch_type_button",
+    "content": "select \"select.onoff_keuken_lamp_espresso_307_switch_type_button\" [select.onoff_keuken_lamp_espresso_307_switch_type_button]. Integration: mqtt. Use get_entity_state(\"select.onoff_keuken_lamp_espresso_307_switch_type_button\") to get current value.",
+    "tags": [
+      "select.onoff_keuken_lamp_espresso_307_switch_type_button",
+      "mqtt",
+      "select",
+      "select",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "switch",
+      "type",
+      "button",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118240,
+    "updated": 1779118240,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "ee7b25133b16",
+    "category": "general",
+    "subject": "button.onoff_keuken_lamp_espresso_307_identify",
+    "content": "button \"button.onoff_keuken_lamp_espresso_307_identify\" [button.onoff_keuken_lamp_espresso_307_identify]. Integration: mqtt. Use get_entity_state(\"button.onoff_keuken_lamp_espresso_307_identify\") to get current value.",
+    "tags": [
+      "button.onoff_keuken_lamp_espresso_307_identify",
+      "mqtt",
+      "button",
+      "button",
+      "onoff",
+      "keuken",
+      "lamp",
+      "espresso",
+      "307",
+      "identify",
+      "explorer-v4"
+    ],
+    "source": "entity_explorer",
+    "provenance": "",
+    "confidence": 0.85,
+    "user_rating": 0,
+    "created": 1779118240,
+    "updated": 1779118240,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "f05d4e514ce9",
+    "category": "general",
+    "subject": "switch.0xa4c138d5f4f912f2",
+    "content": "The switch for the espresso machine is located in the kitchen and can be controlled remotely, allowing users to turn it on or off with ease. Entity ID: switch.0xa4c138d5f4f912f2.",
+    "tags": [
+      "switch.0xa4c138d5f4f912f2",
+      "switch",
+      "narrator-v2",
+      "tuya",
+      "espresso"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779121470,
+    "updated": 1779121470,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "96d27ee10fc6",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_espresso_304_power",
+    "content": "The sensor for the espresso machine's power status provides users with real-time information on whether the coffee maker is currently on or off, helping them plan their daily routine. Entity ID: sensor.onoff_keuken_espresso_304_power.",
+    "tags": [
+      "sensor.onoff_keuken_espresso_304_power",
+      "sensor",
+      "narrator-v2",
+      "tuya",
+      "espresso"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779121470,
+    "updated": 1779121470,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "19bc87255805",
+    "category": "general",
+    "subject": "sensor.0xa4c138d5f4f912f2_current",
+    "content": "The current state of current flow for the onoff_keuken_espresso_304 device is displayed by this sensor, indicating whether electricity is flowing to the device or not. entity_id: sensor.0xa4c138d5f4f912f2_current",
+    "tags": [
+      "sensor.0xa4c138d5f4f912f2_current",
+      "sensor",
+      "narrator-v2",
+      "current",
+      "tuya"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127195,
+    "updated": 1779127195,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "ed1b887d3982",
+    "category": "general",
+    "subject": "switch.onoff_keuken_lamp_espresso_307",
+    "content": "The switch.onoff_keuken_lamp_espresso_307 entity controls a smart plug that powers the espresso lamp in the kitchen area, manufactured by NEO as their Smart plug (with electrical measurements) model.",
+    "tags": [
+      "switch.onoff_keuken_lamp_espresso_307",
+      "switch",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127499,
+    "updated": 1779127499,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "a6afe7952bb4",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_countdown",
+    "content": "The sensor.onoff_keuken_lamp_espresso_307_countdown entity monitors the countdown timer for the espresso lamp in the kitchen area, controlled by the switch.onoff_keuken_lamp_espresso_307 entity.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_countdown",
+      "sensor",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127499,
+    "updated": 1779127499,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "8ee843b16f32",
+    "category": "general",
+    "subject": "number.onoff_keuken_lamp_espresso_307_countdown",
+    "content": "The number.onoff_keuken_lamp_espresso_307_countdown entity displays a numeric representation of the remaining time for the countdown timer of the espresso lamp in the kitchen area.",
+    "tags": [
+      "number.onoff_keuken_lamp_espresso_307_countdown",
+      "number",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127499,
+    "updated": 1779127499,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "79714bedfbb7",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_power_outage_memory",
+    "content": "The sensor.onoff_keuken_lamp_espresso_307_power_outage_memory entity stores memory about previous power outages for the espresso lamp in the kitchen area, controlled by the switch.onoff_keuken_lamp_espresso_307 entity.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_power_outage_memory",
+      "sensor",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127499,
+    "updated": 1779127499,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "ccef9b27121f",
+    "category": "general",
+    "subject": "select.onoff_keuken_lamp_espresso_307_power_outage_memory",
+    "content": "The select.onoff_keuken_lamp_espresso_307_power_outage_memory entity allows users to select from pre-set options for power outage handling of the espresso lamp in the kitchen area.",
+    "tags": [
+      "select.onoff_keuken_lamp_espresso_307_power_outage_memory",
+      "select",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127499,
+    "updated": 1779127499,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "d4c7b482b1be",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_indicator_mode",
+    "content": "The sensor.onoff_keuken_lamp_espresso_307_indicator_mode entity indicates the current mode of operation (e.g., timer, standby) for the espresso lamp in the kitchen area, controlled by the switch.onoff_keuken_lamp_espresso_307 entity.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_indicator_mode",
+      "sensor",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127499,
+    "updated": 1779127499,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "34460675006e",
+    "category": "general",
+    "subject": "select.onoff_keuken_lamp_espresso_307_indicator_mode",
+    "content": "The select.onoff_keuken_lamp_espresso_307_indicator_mode entity allows users to select from pre-set options for the indicator mode of the espresso lamp in the kitchen area.",
+    "tags": [
+      "select.onoff_keuken_lamp_espresso_307_indicator_mode",
+      "select",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127499,
+    "updated": 1779127499,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "ce6fb024cc88",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_power",
+    "content": "The sensor.onoff_keuken_lamp_espresso_307_power entity monitors the current power status (on/off) of the espresso lamp in the kitchen area, controlled by the switch.onoff_keuken_lamp_espresso_307 entity.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_power",
+      "sensor",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127499,
+    "updated": 1779127499,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "97f9517a4d30",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_current",
+    "content": "The sensor.onoff_keuken_lamp_espresso_307_current entity displays the current voltage level of the electricity supply to the espresso lamp in the kitchen area, measured by the smart plug.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_current",
+      "sensor",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127499,
+    "updated": 1779127499,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "ba2028fda9d6",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_voltage",
+    "content": "The sensor.onoff_keuken_lamp_espresso_307_voltage entity monitors and reports the current voltage level of the electricity supply to the espresso lamp in the kitchen area.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_voltage",
+      "sensor",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127499,
+    "updated": 1779127499,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "5ad182931d51",
+    "category": "general",
+    "subject": "lock.onoff_keuken_lamp_espresso_307_child_lock",
+    "content": "The lock.onoff_keuken_lamp_espresso_307_child_lock entity is a smart child safety lock for the kitchen lamp, allowing parents to secure the device and prevent accidental switch-ons.",
+    "tags": [
+      "lock.onoff_keuken_lamp_espresso_307_child_lock",
+      "lock",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127590,
+    "updated": 1779127590,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "77d7123b3539",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_linkquality",
+    "content": "The sensor.onoff_keuken_lamp_espresso_307_linkquality entity provides a quality of link measurement for the smart plug, indicating the stability and reliability of the connection.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_linkquality",
+      "sensor",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127590,
+    "updated": 1779127590,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "8a3778134f2c",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_lamp_espresso_307_update_state",
+    "content": "The sensor.onoff_keuken_lamp_espresso_307_update_state entity displays the current state of the smart plug's energy usage, including the total energy consumption.",
+    "tags": [
+      "sensor.onoff_keuken_lamp_espresso_307_update_state",
+      "sensor",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127590,
+    "updated": 1779127590,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "8ad3184b9784",
+    "category": "general",
+    "subject": "binary_sensor.onoff_keuken_lamp_espresso_307_update_available",
+    "content": "The binary_sensor.onoff_keuken_lamp_espresso_307_update_available entity indicates whether an update is available for the smart plug.",
+    "tags": [
+      "binary_sensor.onoff_keuken_lamp_espresso_307_update_available",
+      "binary_sensor",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127590,
+    "updated": 1779127590,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "214e4c92821a",
+    "category": "general",
+    "subject": "update.onoff_keuken_lamp_espresso_307",
+    "content": "The update.onoff_keuken_lamp_espresso_307 entity triggers updates for the smart plug, ensuring that its firmware is up-to-date.",
+    "tags": [
+      "update.onoff_keuken_lamp_espresso_307",
+      "update",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127590,
+    "updated": 1779127590,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "053bdbffe220",
+    "category": "general",
+    "subject": "light.onoff_keuken_lamp_espresso_307",
+    "content": "The light.onoff_keuken_lamp_espresso_307 entity controls the lighting of the kitchen lamp, allowing users to turn it on and off.",
+    "tags": [
+      "light.onoff_keuken_lamp_espresso_307",
+      "light",
+      "narrator-v2",
+      "neo"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779127590,
+    "updated": 1779127590,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  },
+  {
+    "id": "3bbb4ee9b6a8",
+    "category": "general",
+    "subject": "sensor.onoff_keuken_espresso_304_energy",
+    "content": "The on/off Keuken Eiland Side Espresso 304 Energy sensor measures the remaining energy consumption of the espresso machine, providing information on its usage and capacity. sensor.onoff_keuken_espresso_304_energy",
+    "tags": [
+      "sensor.onoff_keuken_espresso_304_energy",
+      "sensor",
+      "narrator-v2",
+      "energy",
+      "tuya"
+    ],
+    "source": "entity_narrator",
+    "provenance": "AI narrator v2",
+    "confidence": 0.9,
+    "user_rating": 0,
+    "created": 1779128612,
+    "updated": 1779128612,
+    "hits": 0,
+    "triage": {
+      "recommend": "consider",
+      "reason": "has_entity_id_reference",
+      "test_prompt": null
+    }
+  }
+]
