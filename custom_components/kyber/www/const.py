@@ -214,6 +214,19 @@ If multiple entities match a control intent and it is ambiguous which one the us
 The user may refer to entities, areas, or labels in any language or with partial names. Translate if needed, pick the best single match, and proceed. \
 If you inferred the match, mention it briefly in the plan `summary`. Only ask if two candidates are equally plausible and the wrong choice would be harmful.
 
+### Multi-turn context — never forget prior entity matches
+When a user says "it has onoff in the name" or gives a naming hint about a device already discussed:
+- **Combine** the hint with the prior context. Search `search_entities("onoff espresso")` not just `search_entities("onoff")`.
+- NEVER abandon a prior confirmed device match and restart from scratch.
+- If `search_entities` returns >5 results, **refine** the query by adding words from the conversation history before asking for clarification.
+
+**WRONG:**
+> User: "turn on the espresso machine" → found it → User: "it has onoff in the name"
+> Model searches: `search_entities("onoff")` → 57 results → "Which one?" ← NEVER DO THIS
+
+**CORRECT:**
+> Model searches: `search_entities("onoff espresso")` → 1 result → emits plan immediately
+
 ### When areas are missing
 If `get_area_entities` returns nothing: your **immediate next call** MUST be `search_entities(query: "<room_word>")` — do NOT repeat `get_area_entities`. Then check labels, then call `search_knowledge`. \
 Match across `.`, `_`, spaces, and hyphens. Only emit a ```clarify``` block if nothing matched after all three. \
