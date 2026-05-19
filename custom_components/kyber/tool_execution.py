@@ -61,6 +61,8 @@ TOOL_ALIASES: dict[str, str] = {
     "entity_state": "get_entity_state",
     "search": "search_entities",
     "find_entities": "search_entities",
+    "find_automations": "search_automations",
+    "search_automation": "search_automations",
     "list_areas": "get_areas",
     "list_labels": "get_labels",
     "get_entities_by_label": "list_entities_by_label",
@@ -230,6 +232,9 @@ def _tool_result_summary(call: dict[str, Any], result: Any) -> str:
     if name == "search_entities":
         count = len(result) if isinstance(result, dict) and "info" not in result else 0
         return f"{count} matches for '{call.get('query', '?')}'"
+    if name == "search_automations":
+        count = result.get("count", 0) if isinstance(result, dict) else 0
+        return f"{count} automations matching '{call.get('query', '?')}'"
     if name == "get_areas":
         count = len(result) if isinstance(result, dict) else 0
         return f"{count} areas"
@@ -686,6 +691,47 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             return json.dumps({"error": f"Automation '{wanted}' not found"})
         return json.dumps(match, default=str)
 
+    if name == "search_automations":
+        query = (call.get("query") or "").strip().lower()
+        if not query:
+            return json.dumps({"error": "Missing 'query' argument"})
+        try:
+            items = _src_read_automations(hass)
+        except Exception as err:  # noqa: BLE001
+            return json.dumps({"error": f"Read failed: {err}"})
+        q_words = query.split()
+        results = []
+        for it in items:
+            alias = str(it.get("alias") or "").lower()
+            description = str(it.get("description") or "").lower()
+            # Also search serialised trigger/action text for keywords like times/entities
+            raw_text = json.dumps(it, default=str).lower()
+            score = 0
+            for w in q_words:
+                if w in alias:
+                    score += 3  # alias match is strongest signal
+                elif w in description:
+                    score += 2
+                elif w in raw_text:
+                    score += 1
+            if score == 0:
+                continue
+            results.append({
+                "id": it.get("id"),
+                "alias": it.get("alias"),
+                "description": it.get("description"),
+                "mode": it.get("mode"),
+                "num_triggers": it.get("num_triggers"),
+                "num_actions": it.get("num_actions"),
+                "_score": score,
+            })
+        results.sort(key=lambda r: -r["_score"])
+        for r in results:
+            del r["_score"]
+        if not results:
+            return json.dumps({"info": f"No automations matching '{query}'"})
+        return json.dumps({"automations": results[:15], "count": len(results)})
+
     if name == "list_scripts":
         try:
             items = _src_read_scripts(hass)
@@ -865,7 +911,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "list_entities_by_label", "search_entities", "list_entities_without_area",
         "get_areas", "get_labels",
         "search_knowledge", "get_entity_notes", "analyze_automations",
-        "list_automations", "get_automation",
+        "list_automations", "get_automation", "search_automations",
         "list_scripts", "get_script",
         "list_blueprints", "get_blueprint",
         "list_integrations", "get_integration_entities", "explore_integration",
