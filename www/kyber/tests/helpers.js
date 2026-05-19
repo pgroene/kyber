@@ -24,9 +24,16 @@ export function makePanel(hassOverrides = {}) {
     ...hassOverrides,
   };
 
+  // Set a default fetch mock BEFORE assigning hass.
+  // Setting hass triggers _render() → _startStatusPolling() → _checkKyberStatus()
+  // which calls fetch("/api/kyber/debug/status") immediately.
+  // Without a mock, JSDOM's native fetch will hang the test suite.
+  if (typeof global.fetch?.mockClear !== "function") {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+  }
+
   element.hass = hass;
-  // Clear any fetch calls that fired during panel setup (e.g. _loadMemoryCount)
-  // so individual tests start counting from a clean slate.
+  // Clear fetch calls from setup so individual tests start counting from a clean slate.
   if (typeof global.fetch?.mockClear === "function") global.fetch.mockClear();
   return { element, hass };
 }

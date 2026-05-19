@@ -1,13 +1,13 @@
 /**
  * Unit tests for the learning badge and explorer banner.
  *
- * Covers _checkExplorerBanner():
+ * Covers _checkKyberStatus():
  *   - Badge and banner hidden when status is idle / done
  *   - Badge and banner shown when status is "exploring" (phase1/phase2/starting)
  *   - Badge and banner shown when status is "narrator"
  *   - Banner text shows correct progress numbers during exploring
  *   - Banner text shows "Narry is exploring your home X%" during narrator
- *   - Timer keeps running after idle check (doesn't stop itself)
+ *   - Timer self-stops on idle (calls _clearStatusPoll)
  *   - Timer is started on setHass regardless of mode
  */
 
@@ -18,7 +18,8 @@ import { makePanel } from "../helpers.js";
 // ---------------------------------------------------------------------------
 
 /**
- * Build a mock fetch that returns the given explorer_progress object.
+ * Build a mock fetch that returns the given explorer_progress object
+ * wrapped in the /api/kyber/debug/status response shape.
  */
 function mockStatusFetch(explorerProgress = {}) {
   return vi.fn().mockResolvedValue({
@@ -28,13 +29,13 @@ function mockStatusFetch(explorerProgress = {}) {
 }
 
 /**
- * Create a panel and immediately run _checkExplorerBanner() with a mocked fetch.
+ * Create a panel and immediately run _checkKyberStatus() with a mocked fetch.
  * Returns the panel element plus its shadow DOM elements.
  */
 async function setupAndCheck(explorerProgress) {
   const { element } = makePanel();
   global.fetch = mockStatusFetch(explorerProgress);
-  await element._checkExplorerBanner();
+  await element._checkKyberStatus();
   const badge = element.shadowRoot.getElementById("narrator-progress");
   const banner = element.shadowRoot.getElementById("explorer-banner");
   const bannerText = element.shadowRoot.getElementById("explorer-banner-text");
@@ -71,7 +72,7 @@ describe("learning badge DOM elements", () => {
 // ---------------------------------------------------------------------------
 // Idle / done — nothing shown
 // ---------------------------------------------------------------------------
-describe("_checkExplorerBanner — idle/done", () => {
+describe("_checkKyberStatus — idle/done", () => {
   it("hides badge and banner when explorer_progress is empty", async () => {
     const { badge, banner } = await setupAndCheck({});
     expect(badge.hidden).toBe(true);
@@ -94,7 +95,7 @@ describe("_checkExplorerBanner — idle/done", () => {
 // ---------------------------------------------------------------------------
 // Exploring phases — badge + banner shown
 // ---------------------------------------------------------------------------
-describe("_checkExplorerBanner — exploring", () => {
+describe("_checkKyberStatus — exploring", () => {
   for (const status of ["starting", "phase1_summaries", "phase2_entities"]) {
     it(`shows badge and banner when status='${status}'`, async () => {
       const { badge, banner } = await setupAndCheck({ status, done: 3, total: 10 });
@@ -122,7 +123,7 @@ describe("_checkExplorerBanner — exploring", () => {
 // ---------------------------------------------------------------------------
 // Narrator phase — badge + banner shown
 // ---------------------------------------------------------------------------
-describe("_checkExplorerBanner — narrator", () => {
+describe("_checkKyberStatus — narrator", () => {
   it("shows badge and banner when status='narrator'", async () => {
     const { badge, banner } = await setupAndCheck({
       status: "narrator",
@@ -174,17 +175,17 @@ describe("_checkExplorerBanner — narrator", () => {
 // ---------------------------------------------------------------------------
 // Transition: running → done hides elements
 // ---------------------------------------------------------------------------
-describe("_checkExplorerBanner — transitions", () => {
+describe("_checkKyberStatus — transitions", () => {
   it("hides badge after transitioning from narrator to done", async () => {
     const { element } = makePanel();
 
     global.fetch = mockStatusFetch({ status: "narrator", narrator_done: 5, narrator_total: 50 });
-    await element._checkExplorerBanner();
+    await element._checkKyberStatus();
     const badge = element.shadowRoot.getElementById("narrator-progress");
     expect(badge.hidden).toBe(false);
 
     global.fetch = mockStatusFetch({ status: "done" });
-    await element._checkExplorerBanner();
+    await element._checkKyberStatus();
     expect(badge.hidden).toBe(true);
   });
 
@@ -192,71 +193,75 @@ describe("_checkExplorerBanner — transitions", () => {
     const { element } = makePanel();
 
     global.fetch = mockStatusFetch({ status: "done" });
-    await element._checkExplorerBanner();
+    await element._checkKyberStatus();
     const badge = element.shadowRoot.getElementById("narrator-progress");
     expect(badge.hidden).toBe(true);
 
     global.fetch = mockStatusFetch({ status: "narrator", narrator_done: 1, narrator_total: 10 });
-    await element._checkExplorerBanner();
+    await element._checkKyberStatus();
     expect(badge.hidden).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Timer behaviour — must NOT stop when idle
+// Timer behaviour
 // ---------------------------------------------------------------------------
-describe("_startExplorerBannerPolling timer", () => {
+describe("_startStatusPolling timer", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    global.fetch = mockStatusFetch({});
+    // Mock fetch before makePanel so the immediate _checkKyberStatus call in
+    // _startStatusPolling doesn't use JSDOM native fetch and doesn't self-stop.
+    global.fetch = mockStatusFetch({ status: "phase1_summaries", done: 0, total: 10 });
   });
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("timer is set after _startExplorerBannerPolling", () => {
+  it("statusPollInterval is set after _startStatusPolling", () => {
     const { element } = makePanel();
-    expect(element._explorerBannerTimer).toBeTruthy();
+    // Spy so the immediate call doesn't fire real fetch and self-stop on idle
+    vi.spyOn(element, "_checkKyberStatus").mockResolvedValue();
+    element._startStatusPolling();
+    expect(element._statusPollInterval).toBeTruthy();
   });
 
-  it("timer remains set after idle check (does not clear itself)", async () => {
+  it("timer clears itself after idle check (self-stop behaviour)", async () => {
     const { element } = makePanel();
     global.fetch = mockStatusFetch({ status: "done" });
-    await element._checkExplorerBanner();
-    expect(element._explorerBannerTimer).toBeTruthy();
+    await element._checkKyberStatus();
+    expect(element._statusPollInterval).toBeFalsy();
   });
 
-  it("timer fires _checkExplorerBanner every 5 seconds", async () => {
+  it("timer fires _checkKyberStatus immediately + every 5 seconds", async () => {
     const { element } = makePanel();
-    const spy = vi.spyOn(element, "_checkExplorerBanner").mockResolvedValue();
-    element._startExplorerBannerPolling();
-    // _startExplorerBannerPolling only sets the interval (no immediate call)
-    // setInterval fires at 5s, 10s, 15s = 3 total
+    const spy = vi.spyOn(element, "_checkKyberStatus").mockResolvedValue();
+    element._startStatusPolling();
+    // 1 immediate call + 3 interval calls at 5s/10s/15s = 4 total
     vi.advanceTimersByTime(15000);
-    expect(spy).toHaveBeenCalledTimes(3);
+    expect(spy).toHaveBeenCalledTimes(4);
   });
 });
 
 // ---------------------------------------------------------------------------
 // Error resilience — fetch failure must not crash
 // ---------------------------------------------------------------------------
-describe("_checkExplorerBanner — fetch errors", () => {
+describe("_checkKyberStatus — fetch errors", () => {
   it("does not throw when fetch rejects", async () => {
     const { element } = makePanel();
     global.fetch = vi.fn().mockRejectedValue(new Error("network error"));
-    await expect(element._checkExplorerBanner()).resolves.not.toThrow();
+    await expect(element._checkKyberStatus()).resolves.not.toThrow();
   });
 
   it("does not throw when fetch returns non-ok response", async () => {
     const { element } = makePanel();
     global.fetch = vi.fn().mockResolvedValue({ ok: false });
-    await expect(element._checkExplorerBanner()).resolves.not.toThrow();
+    await expect(element._checkKyberStatus()).resolves.not.toThrow();
   });
 
   it("keeps badge hidden after fetch failure", async () => {
     const { element } = makePanel();
     global.fetch = vi.fn().mockRejectedValue(new Error("network error"));
-    await element._checkExplorerBanner();
+    await element._checkKyberStatus();
     const badge = element.shadowRoot.getElementById("narrator-progress");
     expect(badge.hidden).toBe(true);
   });
