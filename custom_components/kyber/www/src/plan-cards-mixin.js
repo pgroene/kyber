@@ -269,8 +269,8 @@ export const PlanCardsMixin = (Base) => class extends Base {
             chip.className = "kyber-label-applied-chip";
             chip.innerHTML = `
               <ha-icon icon="${this._escapeHtml(labelInfo.icon)}"></ha-icon>
-              <span>${this._escapeHtml(labelInfo.label_name)} toegepast op ${this._escapeHtml(labelInfo.entity_name)}</span>
-              <button class="kyber-undo-label-btn">↩ Ongedaan maken</button>
+              <span>${this._escapeHtml(labelInfo.label_name)} applied to ${this._escapeHtml(labelInfo.entity_name)}</span>
+              <button class="kyber-undo-label-btn">↩ Undo</button>
             `;
             chip.querySelector(".kyber-undo-label-btn").addEventListener("click", async (evt) => {
               evt.stopPropagation();
@@ -278,24 +278,13 @@ export const PlanCardsMixin = (Base) => class extends Base {
               btn.disabled = true;
               btn.textContent = "…";
               try {
-                const token3 = this._hass.auth.data.access_token;
-                const r3 = await fetch("/api/kyber/execute", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token3}` },
-                  body: JSON.stringify({
-                    actions: [{ type: "remove_label", entity_id: labelInfo.entity_id, label_id: labelInfo.label_id }],
-                    approved: true,
-                  }),
+                await this._hass.callApi("POST", "kyber/execute", {
+                  actions: [{ type: "remove_label", entity_id: labelInfo.entity_id, label_id: labelInfo.label_id }],
+                  approved: true,
                 });
-                if (r3.ok) {
-                  chip.remove();
-                } else {
-                  btn.textContent = "⚠ Mislukt";
-                  btn.disabled = false;
-                }
+                chip.remove();
               } catch (e) {
-                btn.textContent = "⚠ Fout";
-                btn.disabled = false;
+                btn.textContent = "⚠ Error"; btn.disabled = false;
               }
             });
             resultEl.after(chip);

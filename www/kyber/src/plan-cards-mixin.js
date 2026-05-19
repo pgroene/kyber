@@ -1,6 +1,6 @@
 export const PlanCardsMixin = (Base) => class extends Base {
   /** Build a confirm card for slash commands. onConfirm(card) is called when Execute is clicked. */
-  _buildCommandCard({ icon = "▶", title, detail, warning, danger = false, onConfirm }) {
+  _buildCommandCard({ icon = "▶", title, detail, warning, danger = false, executeLabel = "▶ Execute", onConfirm }) {
     const history = this.shadowRoot.getElementById("chat-history");
     const card = document.createElement("div");
     card.className = `command-card${danger ? " danger" : ""}`;
@@ -9,7 +9,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
       ${detail ? `<div class="command-card-detail">${this._escapeHtml(detail)}</div>` : ""}
       ${warning ? `<div class="command-card-warning">⚠ ${this._escapeHtml(warning)}</div>` : ""}
       <div class="command-card-actions">
-        <button class="btn-cmd-execute${danger ? " danger" : ""}">▶ Execute</button>
+        <button class="btn-cmd-execute${danger ? " danger" : ""}">${executeLabel}</button>
         <button class="btn-cmd-cancel">✕ Cancel</button>
       </div>
     `;
@@ -214,8 +214,9 @@ export const PlanCardsMixin = (Base) => class extends Base {
               ? `${action.current_state} → ${action.new_state}`
               : "";
             const target = action.entity_id || action.area_id || r.entity_id || r.area_id || "";
+            const svcDomain = action.domain || (action.entity_id && action.entity_id.includes(".") ? action.entity_id.split(".")[0] : "?");
             const svcLabel = action.type === "call_service"
-              ? `${action.domain}.${action.service}`
+              ? `${svcDomain}.${action.service || "?"}`
               : (action.type || "change");
             return `- ${svcLabel}${target ? " on " + target : ""}${fromTo ? ": " + fromTo : ""}${desc ? " (" + desc + ")" : ""}`;
           });
@@ -247,7 +248,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
                 if (f2.length === 0) {
                   undoBtn.textContent = "↩ Undone ✓";
                   resultEl.textContent = "↩ Changes undone.";
-                  resultEl.className = "plan-result success";
+                  resultEl.className = "plan-result";
                   this._addChatHistory("assistant", `[CHANGE] Undid: ${plan.summary || "previous changes"}`);
                 } else {
                   undoBtn.textContent = `↩ Undo failed (${f2.length} error${f2.length > 1 ? "s" : ""})`;
@@ -259,6 +260,35 @@ export const PlanCardsMixin = (Base) => class extends Base {
               }
             });
           }
+
+          // Show label-applied chips for auto-labelled entities
+          ok.forEach((r) => {
+            const labelInfo = r.label_applied;
+            if (!labelInfo) return;
+            const chip = document.createElement("div");
+            chip.className = "kyber-label-applied-chip";
+            chip.innerHTML = `
+              <ha-icon icon="${this._escapeHtml(labelInfo.icon)}"></ha-icon>
+              <span>${this._escapeHtml(labelInfo.label_name)} applied to ${this._escapeHtml(labelInfo.entity_name)}</span>
+              <button class="kyber-undo-label-btn">↩ Undo</button>
+            `;
+            chip.querySelector(".kyber-undo-label-btn").addEventListener("click", async (evt) => {
+              evt.stopPropagation();
+              const btn = chip.querySelector(".kyber-undo-label-btn");
+              btn.disabled = true;
+              btn.textContent = "…";
+              try {
+                await this._hass.callApi("POST", "kyber/execute", {
+                  actions: [{ type: "remove_label", entity_id: labelInfo.entity_id, label_id: labelInfo.label_id }],
+                  approved: true,
+                });
+                chip.remove();
+              } catch (e) {
+                btn.textContent = "⚠ Error"; btn.disabled = false;
+              }
+            });
+            resultEl.after(chip);
+          });
         } else {
           resultEl.textContent = `⚠ ${failed.length} action(s) failed: ${failed.map((r) => r.message).join("; ")}`;
           resultEl.className = "plan-result error";

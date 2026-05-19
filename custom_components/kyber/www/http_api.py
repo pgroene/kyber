@@ -126,7 +126,8 @@ def _sanitize_prompt_value(text: str, max_len: int = 0) -> str:
 # (model looped on tool calls and never wrote a prose answer).
 _SYNTHESIS_INSTRUCTIONS = (
     "\n\n[SYSTEM: You already have all the data you need from the tool results "
-    "shown above. Answer the user's question directly in plain text now. "
+    "shown above. Answer the user's question directly in plain text now, "
+    "in the same language as the user's question. "
     "IMPORTANT: If the tool results were empty or returned 0 entities/results, "
     "do NOT invent entity names, states, or make up answers — honestly say you "
     "couldn't find the information and suggest trying a more specific search. "
@@ -275,7 +276,7 @@ _RESPONSE_MODE_INFORMATIONAL = (
     "INFORMATIONAL mode:\n"
     "⚠️ The 'Plans and approval' section above DOES NOT APPLY here. Do NOT use any code block at all.\n"
     "- Areas/labels/automations/scripts are in context → write them out as plain text bullets NOW. "
-    "Do NOT say 'I listed them' or summarise — actually write each item line by line.\n"
+    "If there are 0 labels in context, say so — do NOT call get_labels when count is already known to be 0.\n"
     "- Entity IDs/states not in context → output [TOOL_CALL:{\"name\":\"...\"}] immediately, nothing else.\n"
     "- If question is about a SPECIFIC state (e.g. 'lights that are on', 'open doors'), ADD a \"state\" filter to the tool call (e.g. \"state\":\"on\"). This returns only matching items — list ALL of them.\n"
     "- After tool result (entity LIST): list EVERY SINGLE entity from the result. If result has 83 items, output 83 bullets. NEVER stop at 5/10/20. NEVER write '...' or 'and more'.\n"
@@ -286,7 +287,7 @@ _RESPONSE_MODE_INFORMATIONAL = (
     "call list_integrations ONCE, scan the result for a matching platform name and sample_entities, "
     "then IMMEDIATELY call get_integration_entities(integration='<platform_name>'). "
     "Do NOT call list_integrations more than once.\n"
-    "- HA domain quick-reference: 'alerts/meldingen' → domain='alert'; 'notifications' → domain='persistent_notification'; "
+    "- HA domain quick-reference: 'alerts/notifications' → domain='alert'; 'persistent notifications' → domain='persistent_notification'; "
     "'problems/issues' → binary_sensor with state='on'; 'alarms' → domain='alarm_control_panel'.\n"
     "- Do NOT output a clarify block. There is always a tool that can answer. If unsure of the domain, call search_entities(query='<keyword>').\n"
     "- No preamble. No footer. No 'What would you like to do?' No 'Please let me know'. No 'For other timezones, please specify...'.\n"
@@ -1762,6 +1763,27 @@ class KyberView(HomeAssistantView):
             "Kyber: request complete — total=%dms entity=%s intent=%s",
             _total_ms, entity_id, intent,
         )
+
+        # Area assignment: detect unassigned entities whose area was mentioned in this turn.
+        area_suggestions: list[dict] = []
+        try:
+            plan_entity_ids = [
+                a.get("entity_id", "")
+                for a in (plan_block or {}).get("actions", [])
+                if isinstance(a, dict) and a.get("type") == "call_service" and a.get("entity_id")
+            ]
+            if plan_entity_ids:
+                from .area_assignment import async_detect_conversation_suggestions
+                area_suggestions = await async_detect_conversation_suggestions(
+                    hass,
+                    self._config,
+                    plan_entity_ids,
+                    user_prompt,
+                    history,
+                )
+        except Exception as _area_err:  # noqa: BLE001
+            _LOGGER.debug("Kyber: area suggestion detection failed (non-critical): %s", _area_err)
+
         return self.json({
             "response": response_text,
             "yaml_blocks": yaml_blocks,
@@ -1774,7 +1796,35 @@ class KyberView(HomeAssistantView):
             "request_id": request_id,
             "learned_fact": learned_fact,
             "elapsed_ms": _total_ms,
+            "area_suggestions": area_suggestions or None,
         })
+
+
+class KyberAreaSuggestionsView(HomeAssistantView):
+    """POST /api/kyber/area_suggestions/dismiss — dismiss a suggestion by id."""
+
+    url = "/api/kyber/area_suggestions/dismiss"
+    name = "api:kyber:area_suggestions_dismiss"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return self.json_message("Invalid JSON", HTTPStatus.BAD_REQUEST)
+
+        report_id: str = str(body.get("id", "")).strip()
+        if not report_id:
+            return self.json_message("Missing 'id'", HTTPStatus.BAD_REQUEST)
+
+        from .const import DOMAIN as _DOMAIN
+        from .area_assignment import AREA_REPORTS_KEY
+        reports: list = hass.data.get(_DOMAIN, {}).get(AREA_REPORTS_KEY, [])
+        hass.data.setdefault(_DOMAIN, {})[AREA_REPORTS_KEY] = [
+            r for r in reports if r.get("id") != report_id
+        ]
+        return self.json({"status": "dismissed", "id": report_id})
 
 
 class KyberLabelsView(HomeAssistantView):

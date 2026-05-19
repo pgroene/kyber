@@ -127,7 +127,8 @@ Rules:
 - Merge the previous summary with the new messages into one updated, concise summary.
 - Always copy lines that start with [CHANGE] into the new summary exactly as written. These record actual changes made to the Home Assistant setup and must never be dropped.
 - Keep the summary short and factual — focus on what was asked, what was decided, and what was changed.
-- Do not include pleasantries or meta-commentary. Output only the summary text.\
+- Do not include pleasantries or meta-commentary. Output only the summary text.
+- Write the summary in the same language as the conversation.\
 """
 
 

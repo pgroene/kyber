@@ -1358,5 +1358,45 @@ export const STYLES = `
     font-size: 11px;
   }
   .kyber-undo-label-btn:hover { background: rgba(0,0,0,0.15); }
+
+  .kyber-area-suggestion-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: var(--card-background-color, #f5f5f5);
+    border: 1px solid var(--divider-color, #e0e0e0);
+    font-size: 13px;
+    margin: 6px 0;
+    flex-wrap: wrap;
+  }
+  .kyber-area-suggestion-chip.area-chip-done {
+    opacity: 0.65;
+    pointer-events: none;
+  }
+  .area-chip-icon { font-size: 16px; flex-shrink: 0; }
+  .area-chip-text { flex: 1; color: var(--primary-text-color, #333); }
+  .kyber-area-apply-btn, .kyber-area-undo-btn {
+    background: var(--primary-color, #03a9f4);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .kyber-area-apply-btn:hover, .kyber-area-undo-btn:hover { filter: brightness(1.1); }
+  .kyber-area-dismiss-btn {
+    background: none;
+    border: 1px solid var(--divider-color, #ccc);
+    border-radius: 8px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--secondary-text-color, #888);
+  }
+  .kyber-area-dismiss-btn:hover { background: var(--divider-color, #eee); }
 `;
 

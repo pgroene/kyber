@@ -23,12 +23,17 @@ from .const import (
     CONF_NARRATOR_ENABLED,
     CONF_NARRATOR_MAX_BATCH,
     CONF_RUN_INITIAL_ANALYZE,
+    CONF_AREA_ASSIGNMENT_MODE,
     DEFAULT_ENABLE_DEBUG_VIEWS,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
     DEFAULT_MAX_TOKENS,
     DEFAULT_NARRATOR_ENABLED,
     DEFAULT_NARRATOR_MAX_BATCH,
     DEFAULT_RUN_INITIAL_ANALYZE,
+    DEFAULT_AREA_ASSIGNMENT_MODE,
+    AREA_ASSIGNMENT_OFF,
+    AREA_ASSIGNMENT_SUGGEST,
+    AREA_ASSIGNMENT_AUTO,
     DOMAIN,
     MODEL_CONTEXT_SIZES,
 )
@@ -112,6 +117,7 @@ def _build_options_schema(
     narrator_enabled: bool = DEFAULT_NARRATOR_ENABLED,
     narrator_max_batch: int = DEFAULT_NARRATOR_MAX_BATCH,
     narrator_ai_entity: str = "",
+    area_assignment_mode: str = DEFAULT_AREA_ASSIGNMENT_MODE,
 ) -> vol.Schema:
     """Step-2 / options schema: all settings except entity."""
     return vol.Schema(
@@ -139,6 +145,19 @@ def _build_options_schema(
                 default=narrator_ai_entity,
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="ai_task")
+            ),
+            vol.Optional(
+                CONF_AREA_ASSIGNMENT_MODE,
+                default=area_assignment_mode,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value=AREA_ASSIGNMENT_OFF, label="Off"),
+                        selector.SelectOptionDict(value=AREA_ASSIGNMENT_SUGGEST, label="Suggest (recommended)"),
+                        selector.SelectOptionDict(value=AREA_ASSIGNMENT_AUTO, label="Automatic"),
+                    ],
+                    mode=selector.SelectSelectorMode.LIST,
+                )
             ),
         }
     )
@@ -258,6 +277,9 @@ class KyberOptionsFlow(OptionsFlow):
                 CONF_NARRATOR_AI_TASK_ENTITY_ID: str(
                     user_input.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")
                 ).strip(),
+                CONF_AREA_ASSIGNMENT_MODE: str(
+                    user_input.get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE)
+                ),
             })
 
         entity_id = _get(CONF_AI_TASK_ENTITY_ID, "")

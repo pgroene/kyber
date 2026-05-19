@@ -236,7 +236,7 @@ def _build_prompt(
         f"{lens['ask']}\n"
         "Infer DURABLE, NON-OBVIOUS facts — output ONLY facts relevant to this lens. "
         "Skip generic observations ('there is an automation', 'it uses a trigger').\n"
-        "IMPORTANT: ALWAYS name the specific room/area (e.g. 'badkamer', 'woonkamer', 'slaapkamer'). "
+        "IMPORTANT: ALWAYS name the specific room/area. "
         "NEVER write 'the room' or 'the area' — use the exact area name from the entity context or entity_id segments.\n\n"
         "Output ONLY a JSON array. Each item: {\"category\": str, "
         "\"subject\": str, \"content\": str, \"tags\": [str], "
