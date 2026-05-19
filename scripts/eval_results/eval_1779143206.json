@@ -1,0 +1,61 @@
+{
+  "model": "qwen3:4b-instruct",
+  "iterations": 3,
+  "runs": [
+    {
+      "run": 1,
+      "scores": {
+        "lights_off_werkamer": 10.0,
+        "outside_temp": 10.0,
+        "set_thermostat_21": 10.0,
+        "is_peter_home": 10.0,
+        "lights_on_keuken": 10.0,
+        "tv_off_woonkamer": 10.0,
+        "what_is_on_woonkamer": 10.0,
+        "coffee_off": 10.0,
+        "all_lights_off": 10.0,
+        "morning_automation": 10.0
+      },
+      "avg": 10.0,
+      "passes": 10,
+      "change": "(all passed)"
+    },
+    {
+      "run": 2,
+      "scores": {
+        "lights_off_werkamer": 10.0,
+        "outside_temp": 10.0,
+        "set_thermostat_21": 10.0,
+        "is_peter_home": 10.0,
+        "lights_on_keuken": 10.0,
+        "tv_off_woonkamer": 10.0,
+        "what_is_on_woonkamer": 10.0,
+        "coffee_off": 10.0,
+        "all_lights_off": 10.0,
+        "morning_automation": 10.0
+      },
+      "avg": 10.0,
+      "passes": 10,
+      "change": "(all passed)"
+    },
+    {
+      "run": 3,
+      "scores": {
+        "lights_off_werkamer": 10.0,
+        "outside_temp": 10.0,
+        "set_thermostat_21": 10.0,
+        "is_peter_home": 10.0,
+        "lights_on_keuken": 10.0,
+        "tv_off_woonkamer": 10.0,
+        "what_is_on_woonkamer": 10.0,
+        "coffee_off": 10.0,
+        "all_lights_off": 0.0,
+        "morning_automation": 10.0
+      },
+      "avg": 9.0,
+      "passes": 9,
+      "change": "(final run)"
+    }
+  ],
+  "change_log": []
+}
