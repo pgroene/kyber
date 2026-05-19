@@ -794,6 +794,48 @@ def _triage_knowledge_entry(entry: dict) -> dict:
         # Sort for readability
         entities.sort(key=lambda e: e["entity_id"])
 
+        # ── Automations ───────────────────────────────────────────────────
+        automations: list[dict] = []
+        try:
+            for state in hass.states.async_all("automation"):
+                eid = state.entity_id
+                reg_entry = er_by_eid.get(eid)
+                aut: dict = {
+                    "entity_id": eid,
+                    "friendly_name": state.attributes.get("friendly_name", ""),
+                    "state": state.state,
+                    "last_triggered": str(state.attributes.get("last_triggered", "")),
+                }
+                # unique_id from entity registry lets us find the config entry
+                if reg_entry and reg_entry.unique_id:
+                    aut["unique_id"] = reg_entry.unique_id
+                automations.append(aut)
+            automations.sort(key=lambda a: a["friendly_name"].lower())
+        except Exception as _err:  # noqa: BLE001
+            _LOGGER.debug("Kyber export: automation error: %s", _err)
+
+        # ── Dashboards (Lovelace) ─────────────────────────────────────────
+        dashboards: list[dict] = []
+        try:
+            from homeassistant.components.lovelace import dashboard as ll_dash  # type: ignore[attr-defined]
+            lovelace = hass.data.get("lovelace")
+            if lovelace:
+                # Raw config for each dashboard
+                for dash_id, dash_obj in (lovelace.get("dashboards") or {}).items():
+                    try:
+                        config = await dash_obj.async_load(force=False)
+                        dashboards.append({
+                            "dashboard_id": dash_id,
+                            "url_path": getattr(dash_obj, "url_path", dash_id),
+                            "title": (config or {}).get("title", dash_id),
+                            "views": len((config or {}).get("views", [])),
+                            "config": config,
+                        })
+                    except Exception as _e:  # noqa: BLE001
+                        dashboards.append({"dashboard_id": dash_id, "error": str(_e)})
+        except Exception as _err:  # noqa: BLE001
+            _LOGGER.debug("Kyber export: lovelace error: %s", _err)
+
         # ── Metadata ──────────────────────────────────────────────────────
         metadata: dict = {
             "exported_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
@@ -802,6 +844,8 @@ def _triage_knowledge_entry(entry: dict) -> dict:
             "total_areas": len(areas),
             "total_devices": len(devices),
             "total_labels": len(labels),
+            "total_automations": len(automations),
+            "total_dashboards": len(dashboards),
             "domains": sorted({e["domain"] for e in entities}),
             "areas_configured": len(areas) > 0,
             "entities_with_area": sum(1 for e in entities if "area_id" in e),
@@ -814,6 +858,8 @@ def _triage_knowledge_entry(entry: dict) -> dict:
             "labels": labels,
             "devices": devices,
             "entities": entities,
+            "automations": automations,
+            "dashboards": dashboards,
         }
 
         ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d_%H%M%S")
