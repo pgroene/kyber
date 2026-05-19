@@ -495,6 +495,11 @@ async def async_narrate_entities(
     )
 
     done_count = 0
+    # Circuit breaker: track consecutive AI failures to avoid hammering a slow Ollama.
+    _consecutive_failures = 0
+    _CIRCUIT_BREAKER_THRESHOLD = 3   # back off after this many consecutive failures
+    _BACKOFF_SECONDS = [30, 60, 120]  # progressive back-off per failure tier
+
     for batch_start in range(0, total, batch_size):
         batch = candidates[batch_start: batch_start + batch_size]
 
@@ -675,6 +680,20 @@ async def async_narrate_entities(
                         )
                     except Exception as lq_err:  # noqa: BLE001
                         _LOGGER.warning("Kyber narrator: low_quality store failed for %s: %s", eid, lq_err)
+
+        # Circuit breaker: track consecutive failures and back off if Ollama is overloaded.
+        if ai_failed:
+            _consecutive_failures += 1
+            if _consecutive_failures >= _CIRCUIT_BREAKER_THRESHOLD:
+                tier = min(_consecutive_failures - _CIRCUIT_BREAKER_THRESHOLD, len(_BACKOFF_SECONDS) - 1)
+                backoff = _BACKOFF_SECONDS[tier]
+                _LOGGER.warning(
+                    "Kyber narrator: %d consecutive failures — backing off %ds (tier %d)",
+                    _consecutive_failures, backoff, tier,
+                )
+                await asyncio.sleep(backoff)
+        else:
+            _consecutive_failures = 0
 
         done_count += len(batch)
         _set_progress(done_count, first_name)

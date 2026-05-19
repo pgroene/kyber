@@ -600,6 +600,10 @@ export const DebugMixin = (Base) => class extends Base {
     const level = body.querySelector("#dbg-log-level")?.value || "";
     const url = `/api/kyber/debug/logs${level ? `?level=${level}` : ""}`;
     const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!resp.ok) {
+      body.innerHTML = `<em style="color:var(--error-color)">Debug logs endpoint not available (HTTP ${resp.status}). Try reloading the Kyber integration or restarting Home Assistant.</em>`;
+      return;
+    }
     const data = await resp.json();
     const logs = data.logs || [];
 

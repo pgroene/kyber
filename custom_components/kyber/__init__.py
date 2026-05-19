@@ -16,10 +16,12 @@ from .const import (
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_INITIAL_LEARNING_DONE,
     CONF_INITIAL_LEARNING_VERSION,
+    CONF_NARRATOR_ENABLED,
     CONF_NARRATOR_MAX_BATCH,
     CONF_RUN_INITIAL_ANALYZE,
     CURRENT_INITIAL_LEARNING_VERSION,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
+    DEFAULT_NARRATOR_ENABLED,
     DEFAULT_NARRATOR_MAX_BATCH,
     DEFAULT_RUN_INITIAL_ANALYZE,
     DOMAIN,
@@ -238,52 +240,56 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
         _LOGGER.warning("Kyber: dashboard indexer failed: %s", err)
         dashboard_names = {}
 
-    # Phase 3: AI narrator — only if an AI task entity is configured.
+    # Phase 3: AI narrator — only if enabled and an AI task entity is configured.
     ai_entity_id = str((entry.data or {}).get(CONF_AI_TASK_ENTITY_ID, "")).strip()
     if not ai_entity_id:
         config = {**entry.data, **(entry.options or {})}
         ai_entity_id = str(config.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
     if ai_entity_id:
         config = {**entry.data, **(entry.options or {})}
-        max_batch = int(config.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH))
-        narrator_ai_entity_id = str(config.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip() or ai_entity_id
-        _NARRATOR_RETRY_DELAY = 600   # 10 minutes between retries
-        _NARRATOR_MAX_RETRIES = 3
-        for attempt in range(1 + _NARRATOR_MAX_RETRIES):
-            try:
-                from .entity_narrator import async_narrate_entities
-                from .knowledge import get_knowledge_store as _gks
-                from homeassistant.helpers import entity_registry as _er
-                kstore = _gks(hass)
-                entity_reg = _er.async_get(hass)
-                narrator_stats = await async_narrate_entities(
-                    hass, kstore, entity_reg, narrator_ai_entity_id,
-                    max_batch=max_batch,
-                    dashboard_names=dashboard_names,
-                )
-                errors = narrator_stats.get("errors", 0)
-                _LOGGER.info(
-                    "Kyber: narrator complete (attempt %d) — %d accepted, %d low-quality, "
-                    "%d parse failures, %d errors (batch_size=%d)",
-                    attempt + 1,
-                    narrator_stats.get("accepted", 0),
-                    narrator_stats.get("low_quality", 0),
-                    narrator_stats.get("parse_failures", 0),
-                    errors,
-                    narrator_stats.get("batch_size_used", 0),
-                )
-                if errors == 0 or attempt >= _NARRATOR_MAX_RETRIES:
-                    break
-                _LOGGER.warning(
-                    "Kyber: narrator had %d errors — retrying in %ds (attempt %d/%d)…",
-                    errors, _NARRATOR_RETRY_DELAY, attempt + 1, _NARRATOR_MAX_RETRIES,
-                )
-                await asyncio.sleep(_NARRATOR_RETRY_DELAY)
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("Kyber: entity narrator failed (attempt %d): %s", attempt + 1, err)
-                if attempt < _NARRATOR_MAX_RETRIES:
+        narrator_enabled = bool(config.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED))
+        if not narrator_enabled:
+            _LOGGER.info("Kyber: narrator disabled via settings — skipping")
+        else:
+            max_batch = int(config.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH))
+            narrator_ai_entity_id = str(config.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip() or ai_entity_id
+            _NARRATOR_RETRY_DELAY = 600   # 10 minutes between retries
+            _NARRATOR_MAX_RETRIES = 3
+            for attempt in range(1 + _NARRATOR_MAX_RETRIES):
+                try:
+                    from .entity_narrator import async_narrate_entities
+                    from .knowledge import get_knowledge_store as _gks
+                    from homeassistant.helpers import entity_registry as _er
+                    kstore = _gks(hass)
+                    entity_reg = _er.async_get(hass)
+                    narrator_stats = await async_narrate_entities(
+                        hass, kstore, entity_reg, narrator_ai_entity_id,
+                        max_batch=max_batch,
+                        dashboard_names=dashboard_names,
+                    )
+                    errors = narrator_stats.get("errors", 0)
+                    _LOGGER.info(
+                        "Kyber: narrator complete (attempt %d) — %d accepted, %d low-quality, "
+                        "%d parse failures, %d errors (batch_size=%d)",
+                        attempt + 1,
+                        narrator_stats.get("accepted", 0),
+                        narrator_stats.get("low_quality", 0),
+                        narrator_stats.get("parse_failures", 0),
+                        errors,
+                        narrator_stats.get("batch_size_used", 0),
+                    )
+                    if errors == 0 or attempt >= _NARRATOR_MAX_RETRIES:
+                        break
+                    _LOGGER.warning(
+                        "Kyber: narrator had %d errors — retrying in %ds (attempt %d/%d)…",
+                        errors, _NARRATOR_RETRY_DELAY, attempt + 1, _NARRATOR_MAX_RETRIES,
+                    )
                     await asyncio.sleep(_NARRATOR_RETRY_DELAY)
-                break
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning("Kyber: entity narrator failed (attempt %d): %s", attempt + 1, err)
+                    if attempt < _NARRATOR_MAX_RETRIES:
+                        await asyncio.sleep(_NARRATOR_RETRY_DELAY)
+                    break
 
 
 async def _async_seed_language_hints(hass: HomeAssistant) -> None:

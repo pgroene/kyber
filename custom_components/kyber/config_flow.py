@@ -20,11 +20,13 @@ from .const import (
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_MAX_TOKENS,
+    CONF_NARRATOR_ENABLED,
     CONF_NARRATOR_MAX_BATCH,
     CONF_RUN_INITIAL_ANALYZE,
     DEFAULT_ENABLE_DEBUG_VIEWS,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_NARRATOR_ENABLED,
     DEFAULT_NARRATOR_MAX_BATCH,
     DEFAULT_RUN_INITIAL_ANALYZE,
     DOMAIN,
@@ -107,6 +109,7 @@ def _build_options_schema(
     enable_debug: bool = DEFAULT_ENABLE_DEBUG_VIEWS,
     run_initial_analyze: bool = DEFAULT_RUN_INITIAL_ANALYZE,
     deep_learning_runs: int = DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
+    narrator_enabled: bool = DEFAULT_NARRATOR_ENABLED,
     narrator_max_batch: int = DEFAULT_NARRATOR_MAX_BATCH,
     narrator_ai_entity: str = "",
 ) -> vol.Schema:
@@ -122,6 +125,7 @@ def _build_options_schema(
                 CONF_INITIAL_DEEP_LEARNING_RUNS,
                 default=deep_learning_runs,
             ): vol.All(int, vol.Range(min=1, max=10)),
+            vol.Optional(CONF_NARRATOR_ENABLED, default=narrator_enabled): bool,
             vol.Optional(
                 CONF_NARRATOR_MAX_BATCH,
                 default=narrator_max_batch,
@@ -196,6 +200,9 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_NARRATOR_MAX_BATCH: int(
                         user_input.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)
                     ),
+                    CONF_NARRATOR_ENABLED: bool(
+                        user_input.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED)
+                    ),
                     CONF_NARRATOR_AI_TASK_ENTITY_ID: str(
                         user_input.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")
                     ).strip(),
@@ -245,6 +252,9 @@ class KyberOptionsFlow(OptionsFlow):
                 CONF_NARRATOR_MAX_BATCH: int(
                     user_input.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)
                 ),
+                CONF_NARRATOR_ENABLED: bool(
+                    user_input.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED)
+                ),
                 CONF_NARRATOR_AI_TASK_ENTITY_ID: str(
                     user_input.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")
                 ).strip(),
@@ -264,6 +274,7 @@ class KyberOptionsFlow(OptionsFlow):
             enable_debug=bool(_get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)),
             run_initial_analyze=bool(_get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),
             deep_learning_runs=int(_get(CONF_INITIAL_DEEP_LEARNING_RUNS, DEFAULT_INITIAL_DEEP_LEARNING_RUNS)),
+            narrator_enabled=bool(_get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED)),
             narrator_max_batch=int(_get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)),
             narrator_ai_entity=str(_get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")),
         )

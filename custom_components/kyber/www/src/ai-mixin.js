@@ -1007,7 +1007,8 @@ export const AIMixin = (Base) => class extends Base {
         let bannerText;
         if (epStatus === "narrator") {
           const done = ep.narrator_done ?? 0, total = ep.narrator_total ?? 0;
-          bannerText = `Narrating entities${total > 0 ? ` (${done}/${total})` : ""}…`;
+          const pct = total > 0 ? Math.round(done * 100 / total) : 0;
+          bannerText = `Narry is exploring your home${total > 0 ? ` ${pct}%` : ""}`;
         } else {
           const done = ep.done ?? 0, total = ep.total ?? 0;
           bannerText = `Exploring your home${total > 0 ? ` (${done} / ${total})` : ""}…`;
@@ -1024,9 +1025,10 @@ export const AIMixin = (Base) => class extends Base {
     if (badge) {
       if (epStatus === "narrator") {
         const done = ep.narrator_done ?? 0, total = ep.narrator_total ?? 0;
-        badge.textContent = `🎙 ${done}/${total}`;
+        const pct = total > 0 ? Math.round(done * 100 / total) : 0;
+        badge.textContent = `🔍 ${pct}%`;
         badge.hidden = false;
-        badge.title = `AI narrator: ${done} of ${total} entities described`;
+        badge.title = `Narry is exploring your home: ${done} of ${total} entities (${pct}%)`;
       } else if (active) {
         const done = ep.done ?? 0, total = ep.total ?? 0;
         badge.textContent = `🔍 ${done}/${total}`;
