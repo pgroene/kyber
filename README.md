@@ -52,7 +52,21 @@ docker compose -f docker-compose.dev.yml up
 # then open http://localhost:8123
 ```
 
-## Documentation
+## Choosing a Model
+
+Kyber requires an **Ollama** model configured through the HA Ollama integration. Not all models perform equally — smaller models often fail to produce the structured plan blocks Kyber needs for action requests.
+
+Based on the [May 2026 eval report](docs/eval-report-2026-05.md) (5 runs × 3 real-home scenarios):
+
+| Model | Score | Notes |
+|---|:---:|---|
+| `mistral-nemo:latest` | 🥇 14/15 (93%) | Recommended — reliable plan output, handles Dutch, 1-round answers from memory |
+| `qwen3:4b-instruct` | 🥈 10/15 (67%) | Good for read-only queries; fails action plans in Dutch |
+| `llama3.2:latest` | 🥉 4/15 (27%) | Unpredictable token usage; often skips plan blocks entirely |
+
+**Recommendation: use `mistral-nemo:latest`.** It reliably emits structured plan blocks, bridges Dutch entity name gaps via tool calls, and answers location queries in a single round. 3B–4B class models work for questions but are not reliable for executing actions.
+
+See [docs/eval-report-2026-05.md](docs/eval-report-2026-05.md) for full methodology, timing data, and failure analysis.
 
 | Doc | Contents |
 |---|---|
