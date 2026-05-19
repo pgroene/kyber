@@ -119,6 +119,15 @@ class KnowledgeStore:
             self._vectors[eid] = {t: f * self._idf.get(t, 1.0) for t, f in tf.items()}
         self._index_dirty = False
 
+    async def _async_rebuild_index_if_needed(self) -> None:
+        """Rebuild the TF-IDF index, offloading to executor for large corpora."""
+        if not self._index_dirty:
+            return
+        if len(self._entries) > 150:
+            await self.hass.async_add_executor_job(self._rebuild_index)
+        else:
+            self._rebuild_index()
+
     def _query_vector(self, text: str) -> dict[str, float]:
         if self._index_dirty:
             self._rebuild_index()
@@ -143,11 +152,10 @@ class KnowledgeStore:
         await self.async_load()
         if not query or not self._entries:
             return []
+        await self._async_rebuild_index_if_needed()
         qv = self._query_vector(query)
         if not qv:
             return []
-        if self._index_dirty:
-            self._rebuild_index()
 
         # Pre-compute query word set for exact-match boost.
         query_words = set(_TOKEN_RE.findall(query.lower()))
@@ -543,17 +551,32 @@ class KnowledgeStore:
             )
         return len(to_delete)
 
-    async def async_dedup(self) -> int:
+    _DEDUP_CLEAN_SUBJECT = "_dedup_clean"
+
+    async def async_dedup(self, *, schema_version: int = 0) -> int:
         """Remove exact duplicate entries (same subject+content+category).
 
         Keeps the entry with the highest confidence, then oldest created timestamp.
-        Runs on every startup to clean up duplicates created before dedup-on-write
-        was introduced. Returns number of entries removed.
+        Skips the scan entirely when a clean-marker entry is present for the
+        current schema_version — avoids O(n) work on every HA restart once the
+        store is already duplicate-free.  Returns number of entries removed.
         """
         await self.async_load()
+
+        # Check for a stored clean-marker from a previous dedup run.
+        if schema_version:
+            for e in self._entries.values():
+                if (e.get("subject") == self._DEDUP_CLEAN_SUBJECT
+                        and e.get("source") == "system"
+                        and e.get("content") == str(schema_version)):
+                    _LOGGER.debug("Kyber: dedup skipped — store is clean for schema v%d", schema_version)
+                    return 0
+
         seen: dict[tuple, str] = {}  # (subject, content, category) → winning entry_id
         to_delete: list[str] = []
         for eid, entry in self._entries.items():
+            if entry.get("subject") == self._DEDUP_CLEAN_SUBJECT:
+                continue  # skip the marker itself
             key = (
                 (entry.get("subject") or "").strip().lower(),
                 (entry.get("content") or "").strip().lower(),
@@ -582,6 +605,24 @@ class KnowledgeStore:
         if to_delete:
             await self._persist(invalidate_index=True)
             _LOGGER.info("Kyber: dedup removed %d duplicate memory entries", len(to_delete))
+        else:
+            _LOGGER.debug("Kyber: dedup found no duplicates")
+
+        # Write or update the clean-marker so the next startup can skip the scan.
+        if schema_version:
+            # Remove any stale marker first.
+            stale = [k for k, e in self._entries.items()
+                     if e.get("subject") == self._DEDUP_CLEAN_SUBJECT and e.get("source") == "system"]
+            for k in stale:
+                self._entries.pop(k, None)
+            await self.async_add(
+                "general",
+                str(schema_version),
+                subject=self._DEDUP_CLEAN_SUBJECT,
+                source="system",
+                confidence=1.0,
+                _save=True,
+            )
         return len(to_delete)
 
 

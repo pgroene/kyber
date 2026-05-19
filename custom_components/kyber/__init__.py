@@ -163,8 +163,8 @@ async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -
 async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Background task: explore all loaded integrations and store knowledge facts.
 
-    Waits a short grace period so HA finishes loading other integrations before
-    we scan the entity registry. Idempotent — skips already-explored ones.
+    Called via async_at_start so HA has already finished loading when we run.
+    Idempotent — skips already-explored ones.
 
     After Phase 1+2 completes, fires Phase 3 (entity narrator) if an AI
     task entity is configured.
@@ -173,8 +173,6 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
     from homeassistant.helpers import entity_registry as er
     from .knowledge import get_knowledge_store
     from .integration_explorer import async_startup_explore_all
-
-    await asyncio.sleep(15)  # let HA finish loading other integrations
 
     # --- Schema-version upgrade check ---
     # If KNOWLEDGE_SCHEMA_VERSION was bumped, wipe all auto-generated entries so
@@ -209,11 +207,11 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Kyber: schema version check failed: %s", err)
 
-    # Dedup on every startup — removes exact duplicate entries built up before
-    # dedup-on-write was introduced (e.g. duplicate entity_alias entries).
+    # Dedup — skips automatically if a clean-marker for the current schema version
+    # is present (written after the last dedup found 0 duplicates).
     try:
         kstore = get_knowledge_store(hass)
-        removed = await kstore.async_dedup()
+        removed = await kstore.async_dedup(schema_version=KNOWLEDGE_SCHEMA_VERSION)
         if removed:
             _LOGGER.info("Kyber: startup dedup removed %d duplicate memory entries", removed)
     except Exception as err:  # noqa: BLE001
@@ -480,13 +478,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     # against re-running via CONF_INITIAL_LEARNING_DONE.
     hass.async_create_task(_async_run_initial_learning(hass, entry))
 
-    # Seed language vocabulary hints into the knowledge store (idempotent).
-    hass.async_create_task(_async_seed_language_hints(hass))
+    # Seed language vocabulary hints and explore integrations AFTER HA has
+    # fully started — this avoids contending with other integration setups.
+    from homeassistant.helpers.start import async_at_start
+    from homeassistant.core import callback as _callback
 
-    # Explore all loaded integrations and store capability knowledge facts.
-    # Runs in the background after startup so it doesn't block the UI.
-    # Idempotent: skips integrations that already have auto-discovered facts.
-    hass.async_create_task(_async_explore_integrations(hass, entry))
+    @_callback
+    def _on_ha_started(_hass: HomeAssistant) -> None:
+        _hass.async_create_task(_async_seed_language_hints(_hass))
+        _hass.async_create_task(_async_explore_integrations(_hass, entry))
+
+    async_at_start(hass, _on_ha_started)
 
     entry.async_on_unload(entry.add_update_listener(_update_listener))
 

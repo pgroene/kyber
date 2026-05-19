@@ -29,7 +29,7 @@ _LOGGER = logging.getLogger(__name__)
 EXPLORER_PROGRESS_KEY = "kyber_explorer_progress"
 
 # How many entities to add before yielding to the event loop.
-_YIELD_EVERY = 5
+_YIELD_EVERY = 1
 # How many entities to add before flushing to disk.
 _SAVE_EVERY = 50
 # How many integrations to process without an entity limit.
@@ -384,7 +384,7 @@ async def async_startup_explore_all(
 
         if entity_count % _YIELD_EVERY == 0:
             _set_progress(done=entity_count, current_platform=domain)
-            await asyncio.sleep(0.05)  # yield + slight rate-limit
+            await asyncio.sleep(0)  # yield to event loop without artificial delay
 
         if unsaved >= _SAVE_EVERY:
             await kstore.async_force_save()
