@@ -455,67 +455,13 @@ export const DebugMixin = (Base) => class extends Base {
 
     // Narrator stats summary
     const nsTotal = ns.total ?? 0;
-    const nsAccepted = ns.accepted ?? 0;
-    const nsLowQuality = ns.low_quality ?? 0;
-    const nsErrors = ns.errors ?? 0;
-    const nsParseFailures = ns.parse_failures ?? 0;
+    const nsAccepted = (ns.accepted_first ?? 0) + (ns.accepted_retry ?? 0);
     const nsPct = nsTotal > 0 ? Math.round((nsAccepted / nsTotal) * 100) : 0;
-    const nsBatchSize = ns.batch_size_used ?? 0;
-    const narratorRunning = epStatus === "narrator";
-
-    // Health indicator for narrator
-    let narratorHealth = "";
-    if (nsTotal > 0) {
-      if (nsErrors > 0 || nsParseFailures > 2) {
-        narratorHealth = `<span class="status-health status-health--error">⚠️ Issues detected</span>`;
-      } else if (nsLowQuality > nsAccepted * 0.3) {
-        narratorHealth = `<span class="status-health status-health--warn">⚠️ High low-quality rate</span>`;
-      } else {
-        narratorHealth = `<span class="status-health status-health--ok">✅ Healthy</span>`;
-      }
-    }
-
-    // Error / warning alert banners
-    const alerts = [];
-    if (nsErrors > 0) {
-      alerts.push(`<div class="status-alert status-alert--error">
-        ❌ <strong>${nsErrors} AI error${nsErrors > 1 ? "s" : ""}</strong> during narrator run —
-        affected entities will be retried on next restart.
-      </div>`);
-    }
-    if (nsParseFailures > 0) {
-      alerts.push(`<div class="status-alert status-alert--warn">
-        ⚠️ <strong>${nsParseFailures} parse failure${nsParseFailures > 1 ? "s" : ""}</strong> —
-        AI response format was unexpected; those entities are marked low-quality.
-      </div>`);
-    }
-    if (nsLowQuality > 0 && nsPct < 50 && nsTotal > 5) {
-      alerts.push(`<div class="status-alert status-alert--warn">
-        ⚠️ Acceptance rate is <strong>${nsPct}%</strong> — consider switching to a more capable model or reducing batch size.
-      </div>`);
-    }
-
-    // Acceptance rate bar
-    const acceptBar = nsTotal > 0 ? `
-      <div class="status-bar-wrap" title="${nsAccepted} accepted / ${nsTotal} total">
-        <div class="status-bar">
-          <div class="status-bar-fill status-bar-fill--ok" style="width:${nsPct}%"></div>
-          ${nsLowQuality > 0 ? `<div class="status-bar-fill status-bar-fill--warn" style="width:${Math.round(nsLowQuality/nsTotal*100)}%"></div>` : ""}
-        </div>
-        <span class="status-bar-label">${nsAccepted} accepted · ${nsLowQuality} low-quality · ${nsErrors} errors</span>
-      </div>` : "";
-
-    // Currently working on (live during narrator)
-    const narratorLiveRow = narratorRunning && ep.narrator_current
-      ? `<div class="status-live-row">
-           <span class="narrator-live">🧠 Working on:</span>
-           <code class="status-live-entity">${this._escapeHtml(ep.narrator_current)}</code>
-           ${narratorTotal > 0 ? `<span class="status-live-pct">${Math.round(narratorDone/narratorTotal*100)}%</span>` : ""}
-         </div>`
-      : "";
+    const nsLabel = nsTotal > 0
+      ? `${nsAccepted} accepted (${nsPct}%) · ${ns.rejected ?? 0} fallback · ${ns.errors ?? 0} errors`
+      : "Not yet run";
 
     body.innerHTML = `
-      ${alerts.join("")}
       <h3>Runtime</h3>
       <table class="dbg-kv">
         <tr><th>AI Task entity</th><td><code>${this._escapeHtml(data.ai_task_entity || "—")}</code></td></tr>
@@ -537,20 +483,18 @@ export const DebugMixin = (Base) => class extends Base {
         ${ep.started_at ? `<tr><th>Started</th><td>${new Date(ep.started_at * 1000).toLocaleTimeString()}</td></tr>` : ""}
       </table>
       ${epProgressBar}
-      ${narratorRunning ? narratorProgressBar : ""}
-      ${narratorLiveRow}
-      <h3>AI Narrator ${narratorHealth}</h3>
+      ${epStatus === "narrator" ? narratorProgressBar : ""}
+      <h3>AI Narrator</h3>
       <table class="dbg-kv">
-        <tr><th>Status</th><td>${narratorRunning
-          ? `<span class="narrator-live">🧠 Learning your home${narratorTotal > 0 ? ` (${narratorDone} / ${narratorTotal})` : ""}…</span>`
-          : nsTotal > 0 ? `${nsTotal} entities processed` : "Not yet run"
-        }</td></tr>
+        <tr><th>Status</th><td>${this._escapeHtml(nsLabel)}</td></tr>
         ${ns.last_run ? `<tr><th>Last run</th><td>${this._escapeHtml(ns.last_run)}</td></tr>` : ""}
         ${nsTotal > 0 ? `
-          <tr><th>Batch size</th><td>${nsBatchSize} entities/call · ${ns.batches ?? 0} batches</td></tr>
+          <tr><th>Accepted (1st try)</th><td>${ns.accepted_first ?? 0}</td></tr>
+          <tr><th>Accepted (retry)</th><td>${ns.accepted_retry ?? 0}</td></tr>
+          <tr><th>Fallback (all failed)</th><td>${ns.rejected ?? 0}</td></tr>
+          <tr><th>Errors</th><td>${ns.errors ?? 0}</td></tr>
         ` : ""}
       </table>
-      ${acceptBar}
       <h3>Last turn</h3>
       ${lt ? `
         <table class="dbg-kv">
@@ -560,16 +504,62 @@ export const DebugMixin = (Base) => class extends Base {
           <tr><th>Prompt size</th><td>${lt.char_count?.toLocaleString() ?? "?"} chars (~${lt.approx_tokens?.toLocaleString() ?? "?"} tokens)</td></tr>
         </table>
       ` : "<em>No turn captured yet.</em>"}
+      <h3>Home State Export</h3>
+      <p style="margin:4px 0 8px;font-size:0.88em;color:var(--secondary-text-color)">
+        Download a JSON snapshot of all entities, areas, devices and labels — use it as test data for the prompt eval harness.
+      </p>
+      <button id="dbg-export-home" style="font-size:0.9em;padding:6px 14px">
+        📥 Download home state
+      </button>
+      <span id="dbg-export-status" style="margin-left:10px;font-size:0.85em;color:var(--secondary-text-color)"></span>
     `;
 
+    // Wire home state download button
+    const exportBtn = body.querySelector("#dbg-export-home");
+    if (exportBtn) {
+      exportBtn.addEventListener("click", () => this._downloadHomeState(exportBtn));
+    }
+
     // Auto-refresh while explorer or narrator is running
-    if (epRunning || narratorRunning) {
+    if (epRunning) {
       if (!this._explorerStatusTimer) {
         this._explorerStatusTimer = setInterval(() => this._renderDebugStatus(body), 3000);
       }
     } else if (this._explorerStatusTimer) {
       clearInterval(this._explorerStatusTimer);
       this._explorerStatusTimer = null;
+    }
+  }
+
+  async _downloadHomeState(btn) {
+    const token = this._hass.auth.data.access_token;
+    const statusEl = btn.parentElement.querySelector("#dbg-export-status");
+    const orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "⏳ exporting…";
+    if (statusEl) statusEl.textContent = "";
+    try {
+      const resp = await fetch("/api/kyber/export/home-state", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      a.download = `kyber-home-state-${ts}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      btn.textContent = "✓ downloaded";
+      if (statusEl) statusEl.textContent = "Drop this file in chat to create test scenarios";
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+    } catch (err) {
+      btn.textContent = `⚠ ${err.message}`;
+      btn.disabled = false;
+      if (statusEl) statusEl.textContent = "";
     }
   }
 

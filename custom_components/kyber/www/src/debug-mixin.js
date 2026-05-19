@@ -514,6 +514,12 @@ export const DebugMixin = (Base) => class extends Base {
       <span id="dbg-export-status" style="margin-left:10px;font-size:0.85em;color:var(--secondary-text-color)"></span>
     `;
 
+    // Wire home state download button
+    const exportBtn = body.querySelector("#dbg-export-home");
+    if (exportBtn) {
+      exportBtn.addEventListener("click", () => this._downloadHomeState(exportBtn));
+    }
+
     // Auto-refresh while explorer or narrator is running
     if (epRunning) {
       if (!this._explorerStatusTimer) {
@@ -522,6 +528,38 @@ export const DebugMixin = (Base) => class extends Base {
     } else if (this._explorerStatusTimer) {
       clearInterval(this._explorerStatusTimer);
       this._explorerStatusTimer = null;
+    }
+  }
+
+  async _downloadHomeState(btn) {
+    const token = this._hass.auth.data.access_token;
+    const statusEl = btn.parentElement.querySelector("#dbg-export-status");
+    const orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "⏳ exporting…";
+    if (statusEl) statusEl.textContent = "";
+    try {
+      const resp = await fetch("/api/kyber/export/home-state", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      a.download = `kyber-home-state-${ts}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      btn.textContent = "✓ downloaded";
+      if (statusEl) statusEl.textContent = "Drop this file in chat to create test scenarios";
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+    } catch (err) {
+      btn.textContent = `⚠ ${err.message}`;
+      btn.disabled = false;
+      if (statusEl) statusEl.textContent = "";
     }
   }
 
