@@ -51,6 +51,10 @@ const _HELP_DATA = {
   reset:      { icon: "🔄", desc: "Clear the current chat", cmds: [
     { usage: "/reset", desc: "Shows a danger confirm card — on Execute, clears all messages and history" },
   ]},
+  update:     { icon: "⬆️", desc: "Update Kyber to the latest version via HACS", cmds: [
+    { usage: "/update",         desc: "Check for updates and install if available" },
+    { usage: "/update restart", desc: "Install update and restart Home Assistant automatically" },
+  ]},
   help:       { icon: "❓", desc: "Show help for Kyber slash commands", cmds: [
     { usage: "/help",           desc: "Overview of all commands" },
     { usage: "/help <command>", desc: "Detailed help card for a specific command" },
@@ -136,7 +140,7 @@ export const SlashMixin = (Base) => class extends Base {
     const slashAc = val.match(/^\/(\w*)$/);
     if (slashAc) {
       const partial = slashAc[1].toLowerCase();
-      const cmds = ["autopilot on", "autopilot off", "dashboard", "automation", "script", "blueprint", "area", "knowledge", "memory", "reset", "help", "session"];
+      const cmds = ["autopilot on", "autopilot off", "dashboard", "automation", "script", "blueprint", "area", "knowledge", "memory", "reset", "update", "help", "session"];
       const matches = cmds.filter((c) => c.startsWith(partial)).map((c) => ({
         entity_id: "/" + c,
         friendly_name: _HELP_DATA[c.split(" ")[0]]?.desc || "",
@@ -162,10 +166,11 @@ export const SlashMixin = (Base) => class extends Base {
       session:    ["new", "list", "switch", "delete", "help"],
       memory:     ["list", "search", "add", "delete", "analyze", "deep", "stats", "help"],
       knowledge:  ["list", "search", "add", "delete", "analyze", "deep", "stats", "help"],
-      help:       ["autopilot", "dashboard", "automation", "script", "blueprint", "area", "session", "memory", "reset", "help"],
+      update:     ["restart", "help"],
+      help:       ["autopilot", "dashboard", "automation", "script", "blueprint", "area", "session", "memory", "reset", "update", "help"],
       reset:      [],
     };
-    const cmdSubAc = val.match(/^\/(autopilot|dashboard|automation|script|blueprint|area|session|memory|knowledge|help|reset)\s+(\w*)$/i);
+    const cmdSubAc = val.match(/^\/(autopilot|dashboard|automation|script|blueprint|area|session|memory|knowledge|update|help|reset)\s+(\w*)$/i);
     if (cmdSubAc) {
       const cmd = cmdSubAc[1].toLowerCase();
       const partial = (cmdSubAc[2] || "").toLowerCase();
@@ -483,7 +488,62 @@ export const SlashMixin = (Base) => class extends Base {
       case "area":       return this._cmdArea(action, nameArg);
       case "knowledge":
       case "memory":     return this._handleKnowledgeCommand(argStr.trim());
+      case "update":     return this._cmdUpdate(action === "restart");
     }
+  }
+
+  // ──── /update ────────────────────────────────────────────────────
+
+  _cmdUpdate(withRestart = false) {
+    // Find the Kyber update entity provided by HACS (update.kyber or similar)
+    const updateEntity = Object.values(this._hass.states || {}).find(
+      (s) => s.entity_id.startsWith("update.") &&
+             (s.attributes.title || s.entity_id).toLowerCase().includes("kyber")
+    );
+
+    if (!updateEntity) {
+      this._showMsg("⚠️ No update entity found for Kyber. Make sure HACS is installed and Kyber is managed by HACS.");
+      return;
+    }
+
+    const entityId      = updateEntity.entity_id;
+    const installedVer  = updateEntity.attributes.installed_version || "unknown";
+    const latestVer     = updateEntity.attributes.latest_version    || "unknown";
+    const hasUpdate     = updateEntity.state === "on";
+    const releaseUrl    = updateEntity.attributes.release_url       || null;
+
+    if (!hasUpdate) {
+      this._showMsg(`✅ Kyber is already up-to-date (v${installedVer}).`);
+      return;
+    }
+
+    const detail = `v${installedVer} → v${latestVer}${withRestart ? " + Home Assistant will restart" : ""}`;
+    const warning = withRestart ? "Home Assistant will restart after the update. Active sessions will be interrupted." : null;
+
+    this._buildCommandCard({
+      icon: "⬆️",
+      title: `Update Kyber${withRestart ? " + Restart" : ""}`,
+      detail,
+      warning,
+      onConfirm: async (card) => {
+        const btn = card.querySelector(".btn-cmd-execute");
+        btn.textContent = `⏳ Downloading v${latestVer}…`;
+        try {
+          await this._hass.callService("update", "install", { entity_id: entityId });
+          btn.textContent = `✅ Kyber v${latestVer} installed`;
+          this._appendMessage(`✅ Kyber updated to **v${latestVer}**${releaseUrl ? ` — [release notes](${releaseUrl})` : ""}.${withRestart ? "\n⏳ Restarting Home Assistant…" : ""}`, "assistant");
+          if (withRestart) {
+            await new Promise((r) => setTimeout(r, 1500));
+            await this._hass.callService("homeassistant", "restart", {});
+          }
+        } catch (err) {
+          btn.textContent = "▶ Execute";
+          btn.disabled = false;
+          card.querySelector(".btn-cmd-cancel").disabled = false;
+          this._setStatus(`Update failed: ${err.message}`, "error");
+        }
+      },
+    });
   }
 
   // ──── /dashboard ─────────────────────────────────────────────────

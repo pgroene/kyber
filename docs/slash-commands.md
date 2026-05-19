@@ -39,11 +39,31 @@ Slash commands let you control Home Assistant resources directly from the Kyber 
 | `/knowledge analyze` | Analyze home config and propose memory entries |
 | `/knowledge delete <id>` | Delete a memory entry by id |
 | `/reset` | Clear chat and start over |
+| `/update` | Install latest Kyber version via HACS |
+| `/update restart` | Install latest Kyber version and restart HA |
 | `/help [command]` | Show all commands or detailed help |
 
 ---
 
 ## System Commands
+
+### `/update`
+
+Checks whether a newer version of Kyber is available (via HACS) and installs it if so. Reports the version being downloaded inline in the chat.
+
+- If Kyber is already up-to-date, shows a confirmation message and does nothing.
+- Requires HACS to be installed and Kyber to be managed by HACS (a `update.kyber` entity must exist).
+
+```
+/update
+/update restart
+```
+
+**`/update restart`** — same as `/update`, but also restarts Home Assistant automatically after the installation completes. This is useful during development to skip the manual restart step.
+
+> **Note:** `/update restart` will interrupt any active chat sessions. Home Assistant will be unavailable for ~30 seconds.
+
+---
 
 ### `/autopilot on` / `/autopilot off`
 

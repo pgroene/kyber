@@ -87,6 +87,23 @@ export const UtilsMixin = (Base) => class extends Base {
     if (badge) badge.classList.toggle("active", this._autopilot);
   }
 
+  _checkUpdateBadge() {
+    const badge = this.shadowRoot?.getElementById("update-badge");
+    const label = this.shadowRoot?.getElementById("update-badge-label");
+    if (!badge) return;
+    const updateEntity = Object.values(this._hass?.states || {}).find(
+      (s) => s.entity_id.startsWith("update.") &&
+             (s.attributes.title || s.entity_id).toLowerCase().includes("kyber")
+    );
+    const hasUpdate = updateEntity?.state === "on";
+    badge.hidden = !hasUpdate;
+    if (hasUpdate && label) {
+      const latest = updateEntity.attributes.latest_version;
+      label.textContent = latest ? `v${latest} available` : "Update available";
+      badge.title = `Kyber ${latest ? `v${latest}` : "update"} available — click to install`;
+    }
+  }
+
   _configToYaml(config) {
     // Lightweight JSON→YAML serialiser (sufficient for HA automation objects)
     return this._jsonToYaml(config, 0);
