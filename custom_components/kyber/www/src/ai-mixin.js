@@ -825,7 +825,7 @@ export const AIMixin = (Base) => class extends Base {
             <span></span><span></span><span></span>
           </div>
           <span class="thinking-label">Thinking…</span>
-          <button class="thinking-cancel" id="kyber-thinking-cancel" title="Cancel request" style="margin-left:8px;font-size:0.8em;padding:2px 8px;cursor:pointer">✕ Cancel</button>
+          <button class="thinking-cancel" id="kyber-thinking-cancel" title="Cancel request">✕ Cancel</button>
         </div>
         <div class="thinking-events" id="kyber-thinking-events"></div>
       </div>

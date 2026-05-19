@@ -38,12 +38,30 @@ def content_hash(obj: Any) -> str:
 
 
 # ── YAML readers (run in executor — sync file I/O is fine) ────────────
+
+# Custom loader that silently ignores unknown YAML tags (like HA blueprint
+# `!input`, `!secret`, etc.) instead of raising a ConstructorError.
+class _SafeLineLoader(yaml.SafeLoader):
+    pass
+
+_SafeLineLoader.add_multi_constructor(
+    "",
+    lambda loader, tag_suffix, node: (
+        loader.construct_scalar(node)
+        if isinstance(node, yaml.ScalarNode)
+        else loader.construct_sequence(node)
+        if isinstance(node, yaml.SequenceNode)
+        else loader.construct_mapping(node)
+    ),
+)
+
+
 def _load_yaml(path: Path) -> Any:
     if not path.exists():
         return None
     try:
         with path.open("r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
+            return yaml.load(f, Loader=_SafeLineLoader)  # noqa: S506
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Kyber source: failed to read %s: %s", path, err)
         return None

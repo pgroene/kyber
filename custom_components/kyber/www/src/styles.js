@@ -1137,8 +1137,23 @@ export const STYLES = `
   .thinking-header {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
+    flex-wrap: nowrap;
   }
+  .thinking-cancel {
+    margin-left: auto;
+    background: none;
+    border: none;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.78em;
+    color: var(--secondary-text-color, #888);
+    cursor: pointer;
+    opacity: 0.75;
+    white-space: nowrap;
+    transition: opacity 0.15s;
+  }
+  .thinking-cancel:hover { opacity: 1; color: var(--error-color, #f44336); }
   .thinking-dots {
     display: flex;
     gap: 5px;

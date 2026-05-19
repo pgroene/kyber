@@ -545,16 +545,34 @@ async def async_narrate_entities(
                 await asyncio.sleep(0.5)
 
         # Single AI call for the whole batch.
+        # Uses asyncio.wait in a 3-second polling loop so a chat request that
+        # arrives mid-call causes an immediate yield instead of waiting up to 120s.
         descriptions_v3: dict[str, dict] = {}
         descriptions_v2: dict[str, str] = {}
         use_v3 = False
         ai_failed = False
         try:
             prompt = build_batch_prompt([(r[0], r[6]) for r in batch_rows], home_lang=home_lang, devices_hint=devices_hint)
-            raw = await asyncio.wait_for(
-                _run_ai(hass, ai_entity_id, prompt),
-                timeout=120.0,
-            )
+            _ai_task = asyncio.ensure_future(_run_ai(hass, ai_entity_id, prompt))
+            raw = None
+            elapsed = 0.0
+            while elapsed < 120.0:
+                if hass.data.get(_CHAT_BUSY_KEY):
+                    _ai_task.cancel()
+                    _LOGGER.info("Kyber narrator: AI call cancelled mid-flight — chat active")
+                    while hass.data.get(_CHAT_BUSY_KEY):
+                        await asyncio.sleep(0.5)
+                    ai_failed = True
+                    break
+                done, _ = await asyncio.wait({_ai_task}, timeout=3.0)
+                elapsed += 3.0
+                if done:
+                    raw = _ai_task.result()
+                    break
+            if not ai_failed and raw is None:
+                _ai_task.cancel()
+                stats["errors"] += 1
+                ai_failed = True
             v3_result = parse_batch_response_v3(raw, entity_ids)
             if v3_result:
                 use_v3 = True
@@ -569,10 +587,10 @@ async def async_narrate_entities(
                     "Kyber narrator: batch parse failure — got %d/%d valid descriptions",
                     parsed_count, len(batch),
                 )
-        except asyncio.TimeoutError:
+        except asyncio.CancelledError:
             ai_failed = True
             stats["errors"] += len(batch)
-            _LOGGER.warning("Kyber narrator: batch AI call timed out after 120s")
+            _LOGGER.warning("Kyber narrator: AI task cancelled")
         except Exception as err:  # noqa: BLE001
             ai_failed = True
             stats["errors"] += len(batch)
