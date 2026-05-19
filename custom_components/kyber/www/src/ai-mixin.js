@@ -249,11 +249,11 @@ export const AIMixin = (Base) => class extends Base {
     this._showThinking();
     const requestId = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + "-" + Math.random().toString(36).slice(2));
 
-    // 3-minute timeout — narrator batches can take a while; cancel re-enables the button
+    // 90-second timeout — each narrator batch takes up to ~60s; cancel re-enables the button
     this._chatAbort = new AbortController();
     const _chatTimeoutId = setTimeout(() => {
-      if (this._chatAbort) this._chatAbort.abort(new Error("Request timed out (3 min). The AI narrator may be busy — try again in a moment."));
-    }, 180_000);
+      if (this._chatAbort) this._chatAbort.abort(new Error("Request timed out (90s). The AI narrator may be busy — try again in a moment."));
+    }, 90_000);
 
     try {
       const token = this._hass.auth.data.access_token;
@@ -971,12 +971,21 @@ export const AIMixin = (Base) => class extends Base {
       const banner = this.shadowRoot?.getElementById("explorer-banner");
       const textEl = this.shadowRoot?.getElementById("explorer-banner-text");
       if (!banner) return;
-      const running = ["starting", "phase1_summaries", "phase2_entities"].includes(ep.status);
+      const running = ["starting", "phase1_summaries", "phase2_entities", "narrator"].includes(ep.status);
       if (running) {
-        const done = ep.done ?? 0;
-        const total = ep.total ?? 0;
-        const pct = total > 0 ? ` (${done} / ${total})` : "";
-        if (textEl) textEl.textContent = `Exploring your home${pct}…`;
+        let bannerText;
+        if (ep.status === "narrator") {
+          const done = ep.narrator_done ?? 0;
+          const total = ep.narrator_total ?? 0;
+          const pct = total > 0 ? ` (${done}/${total})` : "";
+          bannerText = `Narrating entities${pct}…`;
+        } else {
+          const done = ep.done ?? 0;
+          const total = ep.total ?? 0;
+          const pct = total > 0 ? ` (${done} / ${total})` : "";
+          bannerText = `Exploring your home${pct}…`;
+        }
+        if (textEl) textEl.textContent = bannerText;
         banner.style.display = "";
       } else {
         banner.style.display = "none";

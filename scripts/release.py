@@ -192,6 +192,17 @@ def main():
     prev_version_tag = prev_version_tag[0].strip() if prev_version_tag else None
     print(f"Releasing {tag} …")
 
+    # ── Step 0: JS syntax check ──────────────────────────────────────────────
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import check_js as _check_js
+    js_failures = _check_js.check_all()
+    if js_failures:
+        print("\n❌ JS syntax check failed — fix errors before releasing:", file=sys.stderr)
+        for path, err in js_failures.items():
+            print(f"  {path.relative_to(ROOT)}\n{err}", file=sys.stderr)
+        sys.exit(1)
+    print("  JS syntax OK")
+
     # Check working tree is clean (except manifest.json which we'll write)
     dirty = run(["git", "status", "--porcelain"], check=False)
     dirty_lines = [l for l in dirty.splitlines()

@@ -228,7 +228,7 @@ export const AIMixin = (Base) => class extends Base {
         this._handleSessionCommand(argStr.trim());
         return;
       }
-      if (["dashboard", "automation", "script", "blueprint", "area"].includes(cmd)) {
+      if (["dashboard", "automation", "script", "blueprint", "area", "update"].includes(cmd)) {
         promptInput.value = "";
         this._handleSlashCommand(cmd, argStr);
         return;
@@ -248,6 +248,12 @@ export const AIMixin = (Base) => class extends Base {
     this._setStatus("Asking AI…");
     this._showThinking();
     const requestId = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + "-" + Math.random().toString(36).slice(2));
+
+    // 90-second timeout — each narrator batch takes up to ~60s; cancel re-enables the button
+    this._chatAbort = new AbortController();
+    const _chatTimeoutId = setTimeout(() => {
+      if (this._chatAbort) this._chatAbort.abort(new Error("Request timed out (90s). The AI narrator may be busy — try again in a moment."));
+    }, 90_000);
 
     try {
       const token = this._hass.auth.data.access_token;
@@ -285,6 +291,7 @@ export const AIMixin = (Base) => class extends Base {
 
       const resp_promise = fetch("/api/kyber/complete", {
         method: "POST",
+        signal: this._chatAbort.signal,
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
@@ -370,9 +377,14 @@ export const AIMixin = (Base) => class extends Base {
       this._maybeCompact();
     } catch (err) {
       this._hideThinking();
-      this._appendMessage(`Error: ${err.message}`, "error");
-      this._setStatus(`AI error: ${err.message}`, "error");
+      const msg = err.name === "AbortError"
+        ? (err.message || "Request cancelled.")
+        : `Error: ${err.message}`;
+      this._appendMessage(msg, "error");
+      this._setStatus(msg, "error");
     } finally {
+      clearTimeout(_chatTimeoutId);
+      this._chatAbort = null;
       askBtn.disabled = false;
     }
   }
@@ -813,12 +825,22 @@ export const AIMixin = (Base) => class extends Base {
             <span></span><span></span><span></span>
           </div>
           <span class="thinking-label">Thinking…</span>
+          <button class="thinking-cancel" id="kyber-thinking-cancel" title="Cancel request" style="margin-left:8px;font-size:0.8em;padding:2px 8px;cursor:pointer">✕ Cancel</button>
         </div>
         <div class="thinking-events" id="kyber-thinking-events"></div>
       </div>
     `;
     history.appendChild(bubble);
     history.scrollTop = history.scrollHeight;
+    const cancelBtn = bubble.querySelector("#kyber-thinking-cancel");
+    if (cancelBtn) {
+      cancelBtn.addEventListener("click", () => {
+        if (this._chatAbort) {
+          this._chatAbort.abort();
+          this._chatAbort = null;
+        }
+      });
+    }
   }
 
   _setThinkingLabel(label) {
@@ -893,6 +915,8 @@ export const AIMixin = (Base) => class extends Base {
       this._setThinkingLabel("Thinking…");
     } else if (ev.type === "thinking") {
       this._setThinkingLabel(ev.stage === "follow_up" ? "Reasoning over results…" : "Thinking…");
+    } else if (ev.type === "warning") {
+      this._appendThinkingEvent(`<span class="thinking-warning">⚠️ ${this._escapeHTML(ev.message || "")}</span>`);
     } else if (ev.type === "error") {
       this._appendThinkingEvent(`<span class="thinking-error">⚠️ ${this._escapeHTML(ev.message || "error")}</span>`);
     }
@@ -947,12 +971,21 @@ export const AIMixin = (Base) => class extends Base {
       const banner = this.shadowRoot?.getElementById("explorer-banner");
       const textEl = this.shadowRoot?.getElementById("explorer-banner-text");
       if (!banner) return;
-      const running = ["starting", "phase1_summaries", "phase2_entities"].includes(ep.status);
+      const running = ["starting", "phase1_summaries", "phase2_entities", "narrator"].includes(ep.status);
       if (running) {
-        const done = ep.done ?? 0;
-        const total = ep.total ?? 0;
-        const pct = total > 0 ? ` (${done} / ${total})` : "";
-        if (textEl) textEl.textContent = `Exploring your home${pct}…`;
+        let bannerText;
+        if (ep.status === "narrator") {
+          const done = ep.narrator_done ?? 0;
+          const total = ep.narrator_total ?? 0;
+          const pct = total > 0 ? ` (${done}/${total})` : "";
+          bannerText = `Narrating entities${pct}…`;
+        } else {
+          const done = ep.done ?? 0;
+          const total = ep.total ?? 0;
+          const pct = total > 0 ? ` (${done} / ${total})` : "";
+          bannerText = `Exploring your home${pct}…`;
+        }
+        if (textEl) textEl.textContent = bannerText;
         banner.style.display = "";
       } else {
         banner.style.display = "none";

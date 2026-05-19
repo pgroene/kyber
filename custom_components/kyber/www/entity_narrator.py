@@ -58,7 +58,10 @@ _PROMPT_BUDGET_CHARS = int(8192 * 4 * 0.75)
 _MAX_RELIABLE_BATCH = 50
 
 # Pause between batch AI calls.
-_RATE_LIMIT_SECONDS = 5.0
+_RATE_LIMIT_SECONDS = 2.0
+
+# Save narrator entries to disk every this many batches so restarts don't lose progress.
+_SAVE_EVERY_N_BATCHES = 5
 
 # Attributes that are HA-internal noise — omit from context.
 _SKIP_ATTRS: frozenset[str] = frozenset({
@@ -497,7 +500,7 @@ async def async_narrate_entities(
         if hass.data.get(_CHAT_BUSY_KEY):
             _LOGGER.info("Kyber narrator: pausing — user chat request in progress…")
             while hass.data.get(_CHAT_BUSY_KEY):
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
             _LOGGER.info("Kyber narrator: resuming after chat completed")
 
         # Build contexts for every entity in this batch.
@@ -534,6 +537,13 @@ async def async_narrate_entities(
         stats["total"] += len(batch)
         stats["batches"] += 1
 
+        # Second check immediately before the AI call — minimises the window where
+        # a chat request sent during context-building has to wait for the batch.
+        if hass.data.get(_CHAT_BUSY_KEY):
+            _LOGGER.info("Kyber narrator: pausing before AI call — chat active")
+            while hass.data.get(_CHAT_BUSY_KEY):
+                await asyncio.sleep(0.5)
+
         # Single AI call for the whole batch.
         descriptions_v3: dict[str, dict] = {}
         descriptions_v2: dict[str, str] = {}
@@ -541,7 +551,10 @@ async def async_narrate_entities(
         ai_failed = False
         try:
             prompt = build_batch_prompt([(r[0], r[6]) for r in batch_rows], home_lang=home_lang, devices_hint=devices_hint)
-            raw = await _run_ai(hass, ai_entity_id, prompt)
+            raw = await asyncio.wait_for(
+                _run_ai(hass, ai_entity_id, prompt),
+                timeout=120.0,
+            )
             v3_result = parse_batch_response_v3(raw, entity_ids)
             if v3_result:
                 use_v3 = True
@@ -556,6 +569,10 @@ async def async_narrate_entities(
                     "Kyber narrator: batch parse failure — got %d/%d valid descriptions",
                     parsed_count, len(batch),
                 )
+        except asyncio.TimeoutError:
+            ai_failed = True
+            stats["errors"] += len(batch)
+            _LOGGER.warning("Kyber narrator: batch AI call timed out after 120s")
         except Exception as err:  # noqa: BLE001
             ai_failed = True
             stats["errors"] += len(batch)
@@ -627,6 +644,13 @@ async def async_narrate_entities(
         done_count += len(batch)
         _set_progress(done_count, first_name)
         hass.data[NARRATOR_STATS_KEY] = dict(stats)
+
+        # Incremental checkpoint save — ensures restarts don't lose all progress.
+        if stats["batches"] % _SAVE_EVERY_N_BATCHES == 0:
+            try:
+                await kstore.async_force_save()
+            except Exception as save_err:  # noqa: BLE001
+                _LOGGER.debug("Kyber narrator: checkpoint save failed: %s", save_err)
 
         await asyncio.sleep(_RATE_LIMIT_SECONDS)
 

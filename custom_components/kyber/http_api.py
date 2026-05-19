@@ -1453,6 +1453,17 @@ class KyberView(HomeAssistantView):
             _debug_detach_log_capture(_debug_log_handler)
             return self.json_message("Missing 'prompt' field", HTTPStatus.BAD_REQUEST)
 
+        # If the narrator is currently running, tell the user early so the
+        # thinking bubble shows a helpful message instead of a blank spinner.
+        _narrator_prog = hass.data.get("kyber_explorer_progress", {})
+        if _narrator_prog.get("status") == "narrator":
+            _nd = _narrator_prog.get("narrator_done", 0)
+            _nt = _narrator_prog.get("narrator_total", 0)
+            _progress_emit(hass, request_id, {
+                "type": "info",
+                "message": f"Entity narrator running ({_nd}/{_nt} entities) — finishing current AI batch before answering…",
+            })
+
         _LOGGER.debug(
             "Complete request — history messages: %d, has_summary: %s",
             len(history),
