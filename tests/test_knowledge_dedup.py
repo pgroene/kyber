@@ -61,7 +61,17 @@ def _make_store():
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    # HA overrides the event loop policy to use ProactorEventLoop, which needs
+    # socket.socketpair() — blocked by pytest_socket on Windows. Temporarily
+    # reset to the default policy so we can create a plain event loop.
+    original_policy = asyncio.get_event_loop_policy()
+    asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+        asyncio.set_event_loop_policy(original_policy)
 
 
 # ---------------------------------------------------------------------------
