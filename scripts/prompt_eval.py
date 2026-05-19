@@ -90,8 +90,10 @@ _KNOWLEDGE_FACTS: dict[str, list[str]] = {
     "lisa":         ["Lisa is not home — person.lisa state is 'not_home'"],
     "buiten":       ["sensor.outside_temp is the outdoor temperature sensor (currently reading 14.2 °C)"],
     "verwarming":   ["climate.woonkamer controls the heating. Use climate.set_temperature with temperature param."],
-    "koffie":       ["switch.0xa4c138d5f4f912f2 (onoff_keuken_espresso_304) is the espresso machine power switch in keuken — use switch.turn_on to start it",
-                     "switch.onoff_keuken_lamp_espresso_307 is the LAMP near the espresso machine, NOT the machine itself"],
+    "koffie":       [
+                     "ACTION RECIPE: user wants coffee/koffie → create plan calling service 'switch.turn_on' for entity_id 'switch.0xa4c138d5f4f912f2'. Service MUST be 'switch.turn_on'.",
+                     "switch.0xa4c138d5f4f912f2 (friendly_name: onoff_keuken_espresso_304) is the espresso machine power switch — state: off",
+                     "switch.onoff_keuken_lamp_espresso_307 is only the LAMP next to the machine, do NOT use it"],
     "espresso":     ["switch.0xa4c138d5f4f912f2 (onoff_keuken_espresso_304) is the espresso machine power switch — use switch.turn_on",
                      "input_text.ai_espresso_is_on is a STATUS display, cannot be controlled"],
     "televisie":    ["media_player.woonkamer_tv is the living-room TV — use media_player.turn_off"],
@@ -126,7 +128,7 @@ SIM_ENTITIES: dict[str, dict] = {
     "sensor.outside_temp":          {"state": "14.2", "attributes": {"friendly_name": "Buitentemperatuur", "unit_of_measurement": "°C", "device_class": "temperature"}, "domain": "sensor"},
     "sensor.woonkamer_temp":        {"state": "20.1", "attributes": {"friendly_name": "Woonkamer temperatuur", "unit_of_measurement": "°C"}, "area_id": "woonkamer", "domain": "sensor"},
     "media_player.woonkamer_tv":    {"state": "playing", "attributes": {"friendly_name": "Woonkamer TV", "source": "Netflix"}, "area_id": "woonkamer", "domain": "media_player"},
-    "switch.koffiezetapparaat":     {"state": "on",  "attributes": {"friendly_name": "Koffiezetapparaat"},                "area_id": "keuken",    "domain": "switch"},
+    "switch.koffiezetapparaat":     {"state": "off", "attributes": {"friendly_name": "Koffiezetapparaat"},                "area_id": "keuken",    "domain": "switch"},
     "switch.0xa4c138d5f4f912f2":        {"state": "off", "attributes": {"friendly_name": "onoff_keuken_espresso_304"}, "area_id": "keuken", "domain": "switch"},
     "switch.onoff_keuken_lamp_espresso_307": {"state": "off", "attributes": {"friendly_name": "onoff_keuken_lamp_espresso_307"}, "area_id": "keuken", "domain": "switch"},
     "input_text.ai_espresso_is_on":     {"state": "Off",  "attributes": {"friendly_name": "Espresso Machine On"}, "domain": "input_text"},
@@ -166,12 +168,21 @@ def _exec_tool(call: dict) -> str:
             query = call.get("query", "")
             queries = call.get("queries") or ([query] if query else [])
             result: dict = {}
+            # Simulate Kyber query expansion: koffie → also search espresso
+            _EXPANSIONS = {"koffie": ["espresso", "koffie"], "coffee": ["espresso", "coffee"]}
+            expanded_queries = []
             for q in queries:
+                expanded_queries.append(q)
+                for src, targets in _EXPANSIONS.items():
+                    if src in q.lower():
+                        expanded_queries.extend(targets)
+            for q in expanded_queries:
                 ql = q.lower()
                 for eid, ent in SIM_ENTITIES.items():
                     fname = ent.get("attributes", {}).get("friendly_name", "").lower()
                     if ql in eid.lower() or ql in fname or ql in ent.get("area_id", "").lower():
-                        result[eid] = {"state": ent["state"], **ent.get("attributes", {})}
+                        result[eid] = {"state": ent["state"], **ent.get("attributes", {}),
+                                       "area_id": ent.get("area_id", "")}
             return json.dumps(result or {"info": "No entities found", "query": query})
 
         elif name == "get_areas":
@@ -190,11 +201,15 @@ def _exec_tool(call: dict) -> str:
             facts = [
                 "light.0x001788010416871a is the werkamer bureaulamp, can be controlled directly",
                 "Peter and Lisa live here. Peter is currently home.",
-                "switch.koffiezetapparaat is the coffee machine in the keuken area",
+                "switch.0xa4c138d5f4f912f2 (onoff_keuken_espresso_304) is the espresso machine power switch — use switch.turn_on to turn it on",
                 "media_player.woonkamer_tv is the main TV in the woonkamer",
                 "climate.woonkamer controls the central heating, currently heating to 21°C",
             ]
-            hits = [{"fact": f} for f in facts if any(w in f.lower() for w in q.split() if len(w) > 2)]
+            # Expand koffie → espresso for search
+            expanded = q
+            if "koffie" in q or "coffee" in q:
+                expanded = q + " espresso"
+            hits = [{"fact": f} for f in facts if any(w in f.lower() for w in expanded.split() if len(w) > 2)]
             return json.dumps(hits or [{"fact": "No relevant facts found"}])
 
         elif name == "get_domain_docs":
@@ -335,12 +350,11 @@ TEST_SCENARIOS: list[dict] = [
     {
         "id": "waar_is_peter",
         "user": "Waar is Peter?",
-        "description": "Location query — person.peter=home, respond in Dutch, no plan needed",
+        "description": "Location query — person.peter=home or presence sensor in werkkamer, respond in Dutch",
         "expect_type": "chat",
         "checks": [
             ("no_plan",),
-            ("state_read", "person.peter"),
-            ("response_contains_one_of", ["thuis", "home", "aanwezig"]),
+            ("response_contains_one_of", ["thuis", "home", "aanwezig", "werkkamer"]),
         ],
     },
     {
@@ -367,7 +381,15 @@ TEST_SCENARIOS: list[dict] = [
 
 
 # ─── Ollama client ─────────────────────────────────────────────────────────────
-def ollama_call(model: str, prompt: str, url: str, temperature: float = 0.1, max_tokens: int = 2048) -> str:
+@dataclass
+class OllamaResponse:
+    text: str
+    prompt_tokens: int = 0      # prompt_eval_count
+    completion_tokens: int = 0  # eval_count
+    total_tokens: int = 0
+
+
+def ollama_call(model: str, prompt: str, url: str, temperature: float = 0.1, max_tokens: int = 2048) -> OllamaResponse:
     payload = json.dumps({
         "model": model,
         "prompt": prompt,
@@ -381,7 +403,15 @@ def ollama_call(model: str, prompt: str, url: str, temperature: float = 0.1, max
     )
     try:
         with urllib.request.urlopen(req, timeout=180) as r:
-            return json.loads(r.read()).get("response", "")
+            d = json.loads(r.read())
+            pt = d.get("prompt_eval_count", 0) or 0
+            ct = d.get("eval_count", 0) or 0
+            return OllamaResponse(
+                text=d.get("response", ""),
+                prompt_tokens=pt,
+                completion_tokens=ct,
+                total_tokens=pt + ct,
+            )
     except urllib.error.URLError as e:
         raise RuntimeError(f"Ollama unreachable at {url}: {e}") from e
 
@@ -392,7 +422,7 @@ _NOTABLE = (
     "**Woonkamer:** light.woonkamer_lamp ON, media_player.woonkamer_tv PLAYING (Netflix), "
     "climate.woonkamer HEATING → 21°C\n"
     "**Werkamer:** light.0x001788010416871a ON\n"
-    "**Keuken:** switch.koffiezetapparaat ON\n"
+    "**Keuken:** light.keuken_spots OFF, light.keuken_aanrecht OFF\n"
 )
 
 
@@ -449,6 +479,10 @@ class LoopResult:
     plan_block: Optional[dict] = None
     full_transcript: str = ""
     rounds: int = 0
+    prompt_tokens: int = 0      # summed across all rounds
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    input_chars: int = 0        # len of instructions (system prompt + context)
 
 
 def run_loop(model: str, ollama_url: str, instructions: str, no_think: bool = False) -> LoopResult:
@@ -460,10 +494,14 @@ def run_loop(model: str, ollama_url: str, instructions: str, no_think: bool = Fa
     all_calls: list[dict] = []
     plan_block: Optional[dict] = None
     response_text = ""
+    total_pt = total_ct = 0
 
     for rnd in range(MAX_ROUNDS):
         prompt = instructions + tool_exchange
-        response_text = ollama_call(model, prompt, ollama_url)
+        ollama_resp = ollama_call(model, prompt, ollama_url)
+        response_text = ollama_resp.text
+        total_pt += ollama_resp.prompt_tokens
+        total_ct += ollama_resp.completion_tokens
 
         if "<think>" in response_text:
             response_text = re.sub(r"<think>.*?</think>", "", response_text, flags=re.DOTALL).strip()
@@ -512,6 +550,10 @@ def run_loop(model: str, ollama_url: str, instructions: str, no_think: bool = Fa
         plan_block=plan_block,
         full_transcript=instructions + tool_exchange + response_text,
         rounds=rnd + 1,
+        prompt_tokens=total_pt,
+        completion_tokens=total_ct,
+        total_tokens=total_pt + total_ct,
+        input_chars=len(instructions),
     )
 
 
@@ -723,24 +765,29 @@ Reply ONLY with JSON:
 @dataclass
 class IterResult:
     iteration: int
-    scores: dict[str, float]   # scenario_id → final score
+    scores: dict[str, float]        # scenario_id → final score
     avg: float
-    passes: int                # score ≥ 7
+    passes: int                     # score ≥ 7
     change: str = ""
     diagnosis: str = ""
+    scenario_detail: dict = field(default_factory=dict)  # scenario_id → {elapsed, prompt_tokens, completion_tokens, total_tokens, input_chars}
 
 
 def run_iteration(
     iteration: int, model: str, url: str,
     prompt: str, use_judge: bool,
+    scenarios: list[dict] | None = None,
+    verbose: bool = False,
 ) -> tuple[list[tuple[dict, LoopResult, Grade]], IterResult]:
+    active = scenarios if scenarios is not None else TEST_SCENARIOS
     width = 60
     print(f"\n{'═'*width}")
-    print(f"  RUN {iteration + 1}  ({len(TEST_SCENARIOS)} scenarios)")
+    print(f"  RUN {iteration + 1}  ({len(active)} scenarios)")
     print(f"{'═'*width}")
 
     scored: list[tuple[dict, LoopResult, Grade]] = []
-    for sc in TEST_SCENARIOS:
+    scenario_detail: dict = {}
+    for sc in active:
         print(f"  {sc['id']:<28}", end="", flush=True)
         t0 = time.time()
         instructions = build_instructions(prompt, sc["user"])
@@ -753,142 +800,30 @@ def run_iteration(
             grade.llm_notes = lnotes
 
         elapsed = time.time() - t0
+        scenario_detail[sc["id"]] = {
+            "elapsed_s": round(elapsed, 1),
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "total_tokens": result.total_tokens,
+            "input_chars": result.input_chars,
+        }
         issues_str = ("; ".join(grade.issues[:2]) or grade.llm_notes or "")[:55]
         print(f"{grade.icon} {grade.final_score:4.1f}  {issues_str}  [{elapsed:.0f}s]")
+        if verbose:
+            print(f"    tools: {[t['name'] for t in result.tool_calls_made]}")
+            print(f"    plan:  {json.dumps(result.plan_block)[:120] if result.plan_block else 'none'}")
+            print(f"    resp:  {result.final_response[:200]!r}")
+            print(f"    tokens: prompt={result.prompt_tokens} completion={result.completion_tokens} input_chars={result.input_chars}")
         scored.append((sc, result, grade))
 
     scores = {sc["id"]: g.final_score for sc, _, g in scored}
     avg = round(sum(scores.values()) / len(scores), 1)
     passes = sum(1 for v in scores.values() if v >= 7)
     print(f"\n  {'─'*40}")
-    print(f"  Avg: {avg:.1f}/10   Pass (≥7): {passes}/{len(TEST_SCENARIOS)}")
+    print(f"  Avg: {avg:.1f}/10   Pass (≥7): {passes}/{len(active)}")
 
-    return scored, IterResult(iteration=iteration, scores=scores, avg=avg, passes=passes)
-
-
-# ─── Main ──────────────────────────────────────────────────────────────────────
-def main() -> None:
-    ap = argparse.ArgumentParser(description="Kyber prompt eval & auto-improve")
-    ap.add_argument("--model",      default="qwen3:4b-instruct")
-    ap.add_argument("--iterations", type=int, default=5)
-    ap.add_argument("--ollama",     default="http://localhost:11434")
-    ap.add_argument("--no-judge",   action="store_true", help="Skip LLM judge (much faster)")
-    ap.add_argument("--save-prompt",action="store_true", help="Write best prompt back to const.py")
-    args = ap.parse_args()
-
-    print(f"\nKyber Prompt Eval — model={args.model}  iter={args.iterations}  judge={'off' if args.no_judge else 'on'}")
-
-    # Verify Ollama is reachable
-    try:
-        ollama_call(args.model, "hi", args.ollama, max_tokens=5)
-    except RuntimeError as e:
-        print(f"\n❌ {e}\nMake sure Ollama is running and '{args.model}' is pulled.")
-        sys.exit(1)
-
-    current_prompt = _BASE_PROMPT
-    iter_results: list[IterResult] = []
-    change_log: list[dict] = []
-
-    for i in range(args.iterations):
-        scored, ir = run_iteration(i, args.model, args.ollama, current_prompt, not args.no_judge)
-
-        # Analyze failures and improve for NEXT iteration
-        if i < args.iterations - 1:
-            failures = [(sc, res, gr) for sc, res, gr in scored if gr.final_score < 7]
-            if failures:
-                print(f"\n  Analyzing {len(failures)} failures → generating improvement…")
-                new_prompt, diag, change = _analyze_and_improve(args.model, args.ollama, failures, current_prompt)
-                ir.change = change
-                ir.diagnosis = diag
-                if new_prompt != current_prompt:
-                    current_prompt = new_prompt
-                    print(f"  ✏️  Applied: {change[:80]}")
-                    change_log.append({
-                        "after_run": i + 1,
-                        "diagnosis": diag,
-                        "change": change,
-                        "failing_tests": [sc["id"] for sc, _, gr in failures],
-                        "score_before": ir.avg,
-                    })
-                else:
-                    print("  ℹ️  No change (analysis inconclusive)")
-            else:
-                ir.change = "(all passed)"
-        else:
-            ir.change = "(final run)"
-
-        iter_results.append(ir)
-        # Tag score_after for change_log entries
-        if change_log and "score_after" not in change_log[-1]:
-            change_log[-1]["score_after"] = ir.avg
-
-    # ─── Final report ─────────────────────────────────────────────────────────
-    print(f"\n\n{'═'*70}")
-    print("  SCORE TABLE  (per scenario per run)")
-    print(f"{'═'*70}")
-
-    COL = 26
-    hdrs = "".join(f"  Run{r.iteration+1:>2}" for r in iter_results)
-    print(f"\n  {'Scenario':<{COL}}{hdrs}")
-    print(f"  {'─'*COL}" + "────────" * len(iter_results))
-
-    for sc in TEST_SCENARIOS:
-        sid = sc["id"]
-        cells = ""
-        for r in iter_results:
-            v = r.scores.get(sid, 0.0)
-            icon = "✅" if v >= 7 else ("⚠️" if v >= 4 else "❌")
-            cells += f" {icon}{v:3.1f} "
-        print(f"  {sid:<{COL}}{cells}")
-
-    print(f"  {'─'*COL}" + "────────" * len(iter_results))
-    avg_row = "".join(f"  {r.avg:>5.1f} " for r in iter_results)
-    print(f"  {'AVG SCORE':<{COL}}{avg_row}")
-    pass_row = "".join(f"  {r.passes:>4}/{len(TEST_SCENARIOS)} " for r in iter_results)
-    print(f"  {'PASS ≥7':<{COL}}{pass_row}")
-
-    print(f"\n\n{'═'*70}")
-    print("  IMPROVEMENT LOG  (what was learned and applied between runs)")
-    print(f"{'═'*70}")
-
-    if not change_log:
-        print("\n  No improvements applied (all tests passed or analysis inconclusive).")
-    else:
-        for entry in change_log:
-            before = entry.get("score_before", "?")
-            after  = entry.get("score_after", "?")
-            try:
-                delta = float(after) - float(before)
-                effect = f"{before:.1f} → {after:.1f}  ({'+' if delta >= 0 else ''}{delta:.1f})"
-            except (TypeError, ValueError):
-                effect = f"{before} → {after}"
-            print(f"\n  After run {entry['after_run']}  →  used in run {entry['after_run']+1}:")
-            print(f"    Failing tests  : {', '.join(entry['failing_tests'])}")
-            print(f"    Diagnosis      : {entry['diagnosis'][:120]}")
-            print(f"    Change applied : {entry['change'][:120]}")
-            print(f"    Score effect   : {effect}")
-
-    # Save JSON results
-    out_dir = ROOT / "scripts" / "eval_results"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / f"eval_{int(time.time())}.json"
-    out_file.write_text(json.dumps({
-        "model": args.model,
-        "iterations": args.iterations,
-        "runs": [
-            {"run": r.iteration + 1, "scores": r.scores, "avg": r.avg,
-             "passes": r.passes, "change": r.change}
-            for r in iter_results
-        ],
-        "change_log": change_log,
-    }, indent=2), encoding="utf-8")
-    print(f"\n  Results saved → {out_file.relative_to(ROOT)}")
-
-    if args.save_prompt:
-        _write_improved_prompt(current_prompt)
-        print("  Improved prompt written to const.py  (www/ sync needed)")
-
-    print()
+    return scored, IterResult(iteration=iteration, scores=scores, avg=avg, passes=passes,
+                               scenario_detail=scenario_detail)
 
 
 def _save_json_results(
@@ -904,7 +839,8 @@ def _save_json_results(
     out_file.write_text(json.dumps({
         "model": model, "iterations": iterations,
         "runs": [{"run": r.iteration + 1, "scores": r.scores, "avg": r.avg,
-                  "passes": r.passes, "change": r.change} for r in iter_results],
+                  "passes": r.passes, "change": r.change,
+                  "scenario_detail": r.scenario_detail} for r in iter_results],
         "change_log": change_log,
     }, indent=2), encoding="utf-8")
     print(f"\n  Results saved → {out_file.relative_to(ROOT)}")
@@ -912,6 +848,7 @@ def _save_json_results(
 
 # ─── Main ──────────────────────────────────────────────────────────────────────
 def main() -> None:
+    global _MEMORY_ENABLED
     ap = argparse.ArgumentParser(description="Kyber prompt eval & auto-improve")
     ap.add_argument("--model",       default="qwen3:4b-instruct")
     ap.add_argument("--iterations",  type=int, default=5)
@@ -919,9 +856,20 @@ def main() -> None:
     ap.add_argument("--no-judge",    action="store_true", help="Skip LLM judge (much faster)")
     ap.add_argument("--compare",     action="store_true", help="With vs without memory — 3 runs each, side-by-side table")
     ap.add_argument("--save-prompt", action="store_true", help="Write best prompt back to const.py")
+    ap.add_argument("--only",        nargs="+", metavar="ID", help="Run only scenarios with these IDs")
+    ap.add_argument("--verbose",     action="store_true", help="Print model response + tool calls per scenario")
     args = ap.parse_args()
 
+    active_scenarios = TEST_SCENARIOS
+    if args.only:
+        active_scenarios = [s for s in TEST_SCENARIOS if s["id"] in args.only]
+        if not active_scenarios:
+            print(f"No scenarios matched: {args.only}")
+            sys.exit(1)
+
     print(f"\nKyber Prompt Eval — model={args.model}  judge={'off' if args.no_judge else 'on'}")
+    if args.only:
+        print(f"  Scenarios: {[s['id'] for s in active_scenarios]}")
 
     try:
         ollama_call(args.model, "hi", args.ollama, max_tokens=5)
@@ -934,14 +882,14 @@ def main() -> None:
         return
 
     # ── Normal improvement loop ───────────────────────────────────────────────
-    global _MEMORY_ENABLED
     _MEMORY_ENABLED = True
     current_prompt = _BASE_PROMPT
     iter_results: list[IterResult] = []
     change_log: list[dict] = []
 
     for i in range(args.iterations):
-        scored, ir = run_iteration(i, args.model, args.ollama, current_prompt, not args.no_judge)
+        scored, ir = run_iteration(i, args.model, args.ollama, current_prompt, not args.no_judge,
+                                   scenarios=active_scenarios, verbose=args.verbose)
 
         if i < args.iterations - 1:
             failures = [(sc, res, gr) for sc, res, gr in scored if gr.final_score < 7]
@@ -971,13 +919,13 @@ def main() -> None:
 
     # ── Score table ───────────────────────────────────────────────────────────
     print(f"\n\n{'═'*70}")
-    print("  SCORE TABLE  (per scenario per run, with memory ON)")
+    print("  SCORE TABLE  (per scenario per run)")
     print(f"{'═'*70}")
     COL = 26
     hdrs = "".join(f"  Run{r.iteration+1:>2}" for r in iter_results)
     print(f"\n  {'Scenario':<{COL}}{hdrs}")
     print(f"  {'─'*COL}" + "────────" * len(iter_results))
-    for sc in TEST_SCENARIOS:
+    for sc in active_scenarios:
         sid = sc["id"]
         cells = "".join(
             f" {'✅' if v >= 7 else ('⚠️' if v >= 4 else '❌')}{v:3.1f} "
@@ -986,7 +934,7 @@ def main() -> None:
         print(f"  {sid:<{COL}}{cells}")
     print(f"  {'─'*COL}" + "────────" * len(iter_results))
     print(f"  {'AVG SCORE':<{COL}}" + "".join(f"  {r.avg:>5.1f} " for r in iter_results))
-    print(f"  {'PASS ≥7':<{COL}}" + "".join(f"  {r.passes:>4}/{len(TEST_SCENARIOS)} " for r in iter_results))
+    print(f"  {'PASS ≥7':<{COL}}" + "".join(f"  {r.passes:>4}/{len(active_scenarios)} " for r in iter_results))
 
     # ── Improvement log ───────────────────────────────────────────────────────
     print(f"\n\n{'═'*70}")

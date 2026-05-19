@@ -62,6 +62,7 @@ docker compose -f docker-compose.dev.yml up
 | [docs/editor.md](docs/editor.md) | Automation/script editor, dashboard editor, Lovelace card type reference |
 | [docs/pipeline.md](docs/pipeline.md) | End-to-end request pipeline — context build, hybrid memory retrieval (TF-IDF embeddings), tool loop, response cleanup, per-turn snapshot, debug bundle, debug-mode flag |
 | [docs/architecture.md](docs/architecture.md) | Frontend, backend endpoints, context building, plan/action system |
+| [docs/eval-report-2026-05.md](docs/eval-report-2026-05.md) | 📊 **May 2026 eval report** — building the real-home prompt eval harness, what we fixed, and model comparison (mistral-nemo vs llama3.2 vs qwen3) |
 
 ## Architecture at a Glance
 

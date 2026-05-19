@@ -31,3 +31,6 @@ kyber-home-state-*.json
 kyber-memory-*.json
 tests/prompt_regression/cases/*/home_state.json
 tests/prompt_regression/cases/*/memory_export.json
+
+# Eval run result JSONs and logs — local output only
+scripts/eval_results/
