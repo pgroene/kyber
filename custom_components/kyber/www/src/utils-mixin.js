@@ -110,8 +110,6 @@ export const UtilsMixin = (Base) => class extends Base {
     }
   }
 
-  }
-
   _pollNarratorProgress() {
     // Only check if not already polling and panel is rendered
     if (this._narratorProgressTimer || !this._rendered) return;
