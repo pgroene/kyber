@@ -13,6 +13,20 @@ from homeassistant.helpers import label_registry as lr
 from .const import SYSTEM_PROMPT_TEMPLATE
 
 
+def _safe_format(template: str, **kwargs: str) -> str:
+    """Format a template string that may contain literal {…} JSON examples.
+
+    Uses plain str.replace() for the known substitution keys so that any
+    un-doubled braces in the prompt text (e.g. ``service_data={"key":"val"}``)
+    do not raise KeyError.  After substitution, ``{{`` / ``}}`` are unescaped
+    to literal ``{`` / ``}`` so authors can still write escaped examples.
+    """
+    result = template
+    for key, value in kwargs.items():
+        result = result.replace("{" + key + "}", value)
+    return result.replace("{{", "{").replace("}}", "}")
+
+
 def _sanitize_prompt_value(text: str, max_len: int = 0) -> str:
     """Sanitize a user-supplied string before embedding it in the system prompt."""
     if not isinstance(text, str):
@@ -341,7 +355,8 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
         "low_battery_count": area_stats["low_battery_count"],
     }
 
-    context = SYSTEM_PROMPT_TEMPLATE.format(
+    context = _safe_format(
+        SYSTEM_PROMPT_TEMPLATE,
         home_summary=home_summary,
         areas_block=("\n" + areas_block) if areas_block else "",
         timezone_block=timezone_block,

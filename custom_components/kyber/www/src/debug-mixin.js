@@ -504,6 +504,14 @@ export const DebugMixin = (Base) => class extends Base {
           <tr><th>Prompt size</th><td>${lt.char_count?.toLocaleString() ?? "?"} chars (~${lt.approx_tokens?.toLocaleString() ?? "?"} tokens)</td></tr>
         </table>
       ` : "<em>No turn captured yet.</em>"}
+      <h3>Home State Export</h3>
+      <p style="margin:4px 0 8px;font-size:0.88em;color:var(--secondary-text-color)">
+        Download a JSON snapshot of all entities, areas, devices and labels — use it as test data for the prompt eval harness.
+      </p>
+      <button id="dbg-export-home" style="font-size:0.9em;padding:6px 14px">
+        📥 Download home state
+      </button>
+      <span id="dbg-export-status" style="margin-left:10px;font-size:0.85em;color:var(--secondary-text-color)"></span>
     `;
 
     // Auto-refresh while explorer or narrator is running

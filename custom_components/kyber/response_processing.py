@@ -180,7 +180,7 @@ def _strip_plan_block(text: str) -> str:
 _BARE_FENCE_RE = re.compile(r"```(?!plan|clarify|yaml|json)([a-z]*)\n([\s\S]+?)\n```", re.IGNORECASE)
 # Matches ```json blocks — used to detect plan-shaped JSON emitted with wrong language tag.
 _JSON_BLOCK_RE = re.compile(r"```json\s*([\s\S]+?)\s*```", re.IGNORECASE)
-_ACTION_TYPE_RE = re.compile(r'"type"\s*:\s*"(call_service|assign_area|rename_entity|create_\w+|update_\w+|delete_\w+|add_knowledge|update_knowledge|delete_knowledge|open_dashboard|open_editor)"')
+_ACTION_TYPE_RE = re.compile(r'"(type|action)"\s*:\s*"(call_service|assign_area|rename_entity|create_\w+|update_\w+|delete_\w+|add_knowledge|update_knowledge|delete_knowledge|open_dashboard|open_editor)"')
 
 # Detect user intent to edit an automation/script YAML — used to lazy-load editor guidance.
 _AUTOMATION_EDIT_RE = re.compile(
@@ -209,13 +209,40 @@ def _normalize_json_plan_blocks(text: str) -> str:
 
     for m in _JSON_BLOCK_RE.finditer(text):
         body = m.group(1).strip()
+        obj = None
         try:
             obj = json.loads(body)
         except (json.JSONDecodeError, ValueError):
+            # Try wrapping adjacent objects (newline-separated) in an array
+            if _ACTION_TYPE_RE.search(body):
+                import re as _re
+                lines = [l.strip() for l in _re.split(r'\n(?=\{)', body) if l.strip().startswith('{')]
+                if len(lines) > 1:
+                    try:
+                        obj = json.loads(f"[{','.join(lines)}]")
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+        if obj is None:
             continue
         # Plan shape: has "summary" key and "actions" list (even if empty)
         if isinstance(obj, dict) and "summary" in obj and "actions" in obj:
             return text.replace(m.group(0), f"```plan\n{body}\n```")
+        # Single-action shape: bare {"type": "call_service", ...} — wrap into plan
+        if isinstance(obj, dict) and _ACTION_TYPE_RE.search(body):
+            # Normalize "action" key → "type" (some models use "action" instead of "type")
+            if "action" in obj and "type" not in obj:
+                obj = {"type": obj.pop("action"), **obj}
+            plan = json.dumps({"actions": [obj]}, indent=2)
+            return text.replace(m.group(0), f"```plan\n{plan}\n```")
+        # Multiple adjacent objects (newline-separated, no comma)
+        if isinstance(obj, list) and obj and all(_ACTION_TYPE_RE.search(json.dumps(i)) for i in obj if isinstance(i, dict)):
+            actions = []
+            for item in obj:
+                if isinstance(item, dict) and "action" in item and "type" not in item:
+                    item = {"type": item.pop("action"), **item}
+                actions.append(item)
+            plan = json.dumps({"actions": actions}, indent=2)
+            return text.replace(m.group(0), f"```plan\n{plan}\n```")
     return text
 
 

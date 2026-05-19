@@ -568,3 +568,144 @@ class KyberDebugModeView(HomeAssistantView):
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Failed to persist debug-mode to options: %s", err)
         return self.json({"enabled": enabled})
+
+
+class KyberHomeExportView(HomeAssistantView):
+    """Export a snapshot of the current home state for testing / evaluation.
+
+    GET /api/kyber/export/home-state → application/json (download)
+
+    Returns a structured JSON containing:
+    - entities   (all states with domain, area_id, labels, attributes)
+    - areas      (from area registry)
+    - labels     (from label registry, HA 2024+)
+    - devices    (device registry — name, area_id, manufacturer, model)
+    - metadata   (HA version, counts, timestamp)
+    """
+
+    url = "/api/kyber/export/home-state"
+    name = "api:kyber:export:home_state"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        import datetime as _dt
+
+        hass: HomeAssistant = request.app["hass"]
+
+        try:
+            from homeassistant.helpers import area_registry as ar
+            from homeassistant.helpers import entity_registry as er
+            from homeassistant.helpers import device_registry as dr
+            area_reg = ar.async_get(hass)
+            entity_reg = er.async_get(hass)
+            device_reg = dr.async_get(hass)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Kyber export: registry error: %s", err)
+            area_reg = entity_reg = device_reg = None
+
+        # ── Areas ────────────────────────────────────────────────────────────
+        areas: list[dict] = []
+        if area_reg:
+            for a in area_reg.async_list_areas():
+                entry: dict = {"area_id": a.id, "name": a.name}
+                if getattr(a, "aliases", None):
+                    entry["aliases"] = list(a.aliases)
+                areas.append(entry)
+
+        # ── Labels (HA 2024+) ─────────────────────────────────────────────
+        labels: list[dict] = []
+        try:
+            from homeassistant.helpers import label_registry as lr
+            label_reg = lr.async_get(hass)
+            for lbl in label_reg.async_list_labels():
+                labels.append({"label_id": lbl.label_id, "name": lbl.name})
+        except Exception:  # noqa: BLE001
+            pass
+
+        # ── Devices ───────────────────────────────────────────────────────
+        devices: list[dict] = []
+        if device_reg:
+            for d in device_reg.devices.values():
+                dev: dict = {
+                    "id": d.id,
+                    "name": d.name or d.name_by_user or "",
+                    "area_id": d.area_id,
+                    "manufacturer": d.manufacturer,
+                    "model": d.model,
+                }
+                devices.append(dev)
+
+        # ── Entities ──────────────────────────────────────────────────────
+        entities: list[dict] = []
+        er_by_eid: dict = {}
+        if entity_reg:
+            er_by_eid = {e.entity_id: e for e in entity_reg.entities.values()}
+
+        for state in hass.states.async_all():
+            eid = state.entity_id
+            domain = eid.split(".")[0]
+            reg_entry = er_by_eid.get(eid)
+            ent: dict = {
+                "entity_id": eid,
+                "domain": domain,
+                "state": state.state,
+                "friendly_name": state.attributes.get("friendly_name", ""),
+            }
+            # Prefer area from entity registry, fall back to device
+            area_id = None
+            if reg_entry and reg_entry.area_id:
+                area_id = reg_entry.area_id
+            elif reg_entry and reg_entry.device_id and device_reg:
+                dev = device_reg.devices.get(reg_entry.device_id)
+                if dev:
+                    area_id = dev.area_id
+            if area_id:
+                ent["area_id"] = area_id
+            # Labels
+            if reg_entry and getattr(reg_entry, "labels", None):
+                ent["labels"] = sorted(reg_entry.labels)
+            # Selected useful attributes (keep payload manageable)
+            attrs: dict = {}
+            skip = {"friendly_name", "icon", "entity_picture", "supported_features",
+                    "attribution", "restored", "supported_color_modes"}
+            for k, v in state.attributes.items():
+                if k not in skip and not k.startswith("_"):
+                    attrs[k] = v
+            if attrs:
+                ent["attributes"] = attrs
+            entities.append(ent)
+
+        # Sort for readability
+        entities.sort(key=lambda e: e["entity_id"])
+
+        # ── Metadata ──────────────────────────────────────────────────────
+        metadata: dict = {
+            "exported_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            "ha_version": str(getattr(hass.config, "version", "unknown")),
+            "total_entities": len(entities),
+            "total_areas": len(areas),
+            "total_devices": len(devices),
+            "total_labels": len(labels),
+            "domains": sorted({e["domain"] for e in entities}),
+            "areas_configured": len(areas) > 0,
+            "entities_with_area": sum(1 for e in entities if "area_id" in e),
+            "entities_without_area": sum(1 for e in entities if "area_id" not in e),
+        }
+
+        payload = {
+            "metadata": metadata,
+            "areas": areas,
+            "labels": labels,
+            "devices": devices,
+            "entities": entities,
+        }
+
+        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d_%H%M%S")
+        filename = f"kyber-home-state-{ts}.json"
+        body = json.dumps(payload, indent=2, default=str).encode("utf-8")
+        return web.Response(
+            body=body,
+            content_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
