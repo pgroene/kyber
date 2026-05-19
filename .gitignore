@@ -34,3 +34,4 @@ tests/prompt_regression/cases/*/memory_export.json
 
 # Eval run result JSONs and logs — local output only
 scripts/eval_results/
+scripts/analyze_memory.py
