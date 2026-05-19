@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from http import HTTPStatus
 from typing import Any
 
@@ -570,7 +571,122 @@ class KyberDebugModeView(HomeAssistantView):
         return self.json({"enabled": enabled})
 
 
-class KyberHomeExportView(HomeAssistantView):
+
+
+class KyberMemoryExportView(HomeAssistantView):
+    """Export knowledge store entries with triage assessment.
+
+    GET /api/kyber/export/memory → application/json (download)
+
+    Each entry is annotated with a ``triage`` object:
+      - ``recommend``:  "skip" | "consider" | "good"
+      - ``reason``:     short slug explaining the decision
+      - ``test_prompt``: suggested question to test this entry (when recommend != "skip")
+    """
+
+    url = "/api/kyber/export/memory"
+    name = "api:kyber:export:memory"
+    requires_auth = True
+
+    # Regex to detect entity_id patterns like light.living_room
+    _ENTITY_RE = re.compile(r"\b[a-z_]+\.[a-z_0-9]+\b")
+
+    async def get(self, request: web.Request) -> web.Response:
+        import datetime as _dt
+
+        hass: HomeAssistant = request.app["hass"]
+
+        kstore = get_knowledge_store(hass)
+        await kstore.async_load()
+        all_entries: list[dict] = list(kstore._entries.values())
+
+        triaged: list[dict] = []
+        for entry in all_entries:
+            annotated = dict(entry)
+            annotated["triage"] = _triage_knowledge_entry(entry)
+            triaged.append(annotated)
+
+        # Sort: good → consider → skip, then by category
+        _order = {"good": 0, "consider": 1, "skip": 2}
+        triaged.sort(key=lambda e: (_order.get(e["triage"]["recommend"], 9), e.get("category", "")))
+
+        counts = {r: sum(1 for e in triaged if e["triage"]["recommend"] == r) for r in ("good", "consider", "skip")}
+
+        payload = {
+            "metadata": {
+                "exported_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+                "total_entries": len(triaged),
+                "triage_counts": counts,
+                "triage_heuristics": [
+                    "skip: category=language_hint (system entries, not useful for tests)",
+                    "skip: content shorter than 25 chars",
+                    "skip: confidence < 0.35",
+                    "good: category=entity_alias (maps user phrase to entity_id)",
+                    "good: category=entity_note and contains entity_id pattern",
+                    "good: category=procedure (multi-step actions)",
+                    "consider: everything else with an entity_id pattern",
+                ],
+            },
+            "entries": triaged,
+        }
+
+        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d_%H%M%S")
+        filename = f"kyber-memory-{ts}.json"
+        body = json.dumps(payload, indent=2, default=str).encode("utf-8")
+        return web.Response(
+            body=body,
+            content_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+
+_ENTITY_RE = re.compile(r"\b[a-z_]+\.[a-z0-9_]+\b")
+
+
+def _triage_knowledge_entry(entry: dict) -> dict:
+    """Return triage assessment for a knowledge entry.
+
+    Returns dict with keys: recommend ("skip"|"consider"|"good"), reason, test_prompt.
+    """
+    category = entry.get("category", "")
+    content = entry.get("content") or ""
+    subject = entry.get("subject") or ""
+    confidence = float(entry.get("confidence") or 1.0)
+
+    # ── Hard skips ──────────────────────────────────────────────────────────
+    if category == "language_hint":
+        return {"recommend": "skip", "reason": "language_hint_system_entry", "test_prompt": None}
+    if len(content) < 25:
+        return {"recommend": "skip", "reason": "content_too_short", "test_prompt": None}
+    if confidence < 0.35:
+        return {"recommend": "skip", "reason": "low_confidence", "test_prompt": None}
+
+    has_entity = bool(_ENTITY_RE.search(content) or _ENTITY_RE.search(subject))
+
+    # ── Good candidates ─────────────────────────────────────────────────────
+    if category == "entity_alias" and has_entity:
+        prompt = f"Can you turn on the {subject}?" if subject else None
+        return {"recommend": "good", "reason": "entity_alias_with_entity_id", "test_prompt": prompt}
+
+    if category == "entity_note" and has_entity:
+        prompt = f"Tell me about {subject or 'this device'}." if subject else None
+        return {"recommend": "good", "reason": "entity_note_with_entity_id", "test_prompt": prompt}
+
+    if category == "procedure":
+        prompt = f"How do I {subject}?" if subject else None
+        return {"recommend": "good", "reason": "procedure_knowledge", "test_prompt": prompt}
+
+    if category == "area_alias" and has_entity:
+        prompt = f"Turn off the lights in the {subject}." if subject else None
+        return {"recommend": "good", "reason": "area_alias_with_entity", "test_prompt": prompt}
+
+    # ── Consider (has entity but category is general or other) ──────────────
+    if has_entity:
+        return {"recommend": "consider", "reason": "has_entity_id_reference", "test_prompt": None}
+
+    # ── Skip the rest ────────────────────────────────────────────────────────
+    return {"recommend": "skip", "reason": "no_entity_reference_and_not_procedure", "test_prompt": None}
+
     """Export a snapshot of the current home state for testing / evaluation.
 
     GET /api/kyber/export/home-state → application/json (download)
