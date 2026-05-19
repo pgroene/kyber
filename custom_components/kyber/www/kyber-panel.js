@@ -32,7 +32,7 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=95";
+import { STYLES } from "./src/styles.js?v=96";
 
 import { UtilsMixin } from "./src/utils-mixin.js?v=95";
 import { SessionMixin } from "./src/session-mixin.js?v=87";

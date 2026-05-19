@@ -957,6 +957,8 @@ export const STYLES = `
     white-space: nowrap;
     outline: none;
   }
+  /* display:flex above overrides the browser's [hidden]{display:none} — must re-apply */
+  .update-badge[hidden] { display: none !important; }
   .update-badge:hover { opacity: 0.85; transform: scale(1.05); }
 
   #update-badge-popover {
