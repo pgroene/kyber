@@ -98,9 +98,15 @@ export const UtilsMixin = (Base) => class extends Base {
     const hasUpdate = updateEntity?.state === "on";
     badge.hidden = !hasUpdate;
     if (hasUpdate && label) {
-      const latest = (updateEntity.attributes.latest_version || "").replace(/^v/i, "");
-      label.textContent = latest ? `v${latest} available` : "Update available";
-      badge.title = `Kyber ${latest ? `v${latest}` : "update"} available — click to install`;
+      const installed = (updateEntity.attributes.installed_version || "").replace(/^v/i, "");
+      const latest    = (updateEntity.attributes.latest_version    || "").replace(/^v/i, "");
+      label.textContent = latest ? `→ v${latest}` : "Update available";
+      badge.title = installed && latest
+        ? `Kyber update: v${installed} → v${latest}\nClick to update`
+        : `Kyber update available — click to install`;
+      // Store versions for the popover
+      badge.dataset.installed = installed;
+      badge.dataset.latest    = latest;
     }
   }
 

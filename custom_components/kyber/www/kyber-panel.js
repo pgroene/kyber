@@ -32,9 +32,9 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=94";
+import { STYLES } from "./src/styles.js?v=95";
 
-import { UtilsMixin } from "./src/utils-mixin.js?v=94";
+import { UtilsMixin } from "./src/utils-mixin.js?v=95";
 import { SessionMixin } from "./src/session-mixin.js?v=87";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=87";
 import { DebugMixin } from "./src/debug-mixin.js?v=90";
@@ -300,8 +300,44 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
         "assistant",
       );
     });
-    shadow.getElementById("update-badge").addEventListener("click", () => {
-      this._handleSlashCommand("update", "");
+    shadow.getElementById("update-badge").addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      // Remove any existing popover
+      const existing = this.shadowRoot.getElementById("update-badge-popover");
+      if (existing) { existing.remove(); return; }
+
+      const badge = shadow.getElementById("update-badge");
+      const installed = badge.dataset.installed || "";
+      const latest    = badge.dataset.latest    || "";
+
+      const pop = document.createElement("div");
+      pop.id = "update-badge-popover";
+      pop.innerHTML = `
+        <div class="ubp-title">Kyber update${installed && latest ? `: v${installed} → v${latest}` : ""}</div>
+        <button class="ubp-btn" id="ubp-update">⬆️ Update</button>
+        <button class="ubp-btn ubp-restart" id="ubp-update-restart">⬆️ Update &amp; Restart</button>
+      `;
+      // Position below the badge
+      const rect = badge.getBoundingClientRect();
+      const panelRect = this.getBoundingClientRect();
+      pop.style.top  = (rect.bottom - panelRect.top + 6) + "px";
+      pop.style.left = (rect.left   - panelRect.left)    + "px";
+      this.shadowRoot.appendChild(pop);
+
+      pop.querySelector("#ubp-update").addEventListener("click", (e) => {
+        e.stopPropagation(); pop.remove();
+        this._handleSlashCommand("update", "");
+      });
+      pop.querySelector("#ubp-update-restart").addEventListener("click", (e) => {
+        e.stopPropagation(); pop.remove();
+        this._handleSlashCommand("update", "restart");
+      });
+
+      // Close on outside click
+      const _close = (e) => {
+        if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener("click", _close, true); }
+      };
+      document.addEventListener("click", _close, true);
     });
     shadow.getElementById("btn-memory-view-all").addEventListener("click", () => {
       this._closeMemoryPopover();

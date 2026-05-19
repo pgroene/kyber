@@ -958,6 +958,42 @@ export const STYLES = `
     outline: none;
   }
   .update-badge:hover { opacity: 0.85; transform: scale(1.05); }
+
+  #update-badge-popover {
+    position: absolute;
+    z-index: 999;
+    background: var(--card-background-color, #fff);
+    border: 1px solid var(--divider-color, #e0e0e0);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    padding: 8px;
+    min-width: 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .ubp-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--secondary-text-color, #666);
+    padding: 2px 4px 6px;
+    border-bottom: 1px solid var(--divider-color, #e0e0e0);
+    margin-bottom: 2px;
+  }
+  .ubp-btn {
+    background: none;
+    border: 1px solid var(--divider-color, #e0e0e0);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    color: var(--primary-text-color, #333);
+    transition: background 0.15s;
+  }
+  .ubp-btn:hover { background: var(--secondary-background-color, #f5f5f5); }
+  .ubp-restart { color: #e8a000; }
   @keyframes pulse-update {
     0%, 100% { box-shadow: 0 0 0 0 rgba(232,160,0,0.5); }
     50%       { box-shadow: 0 0 0 5px rgba(232,160,0,0); }
