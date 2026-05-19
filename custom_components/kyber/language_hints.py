@@ -16,7 +16,7 @@ import re
 from typing import NamedTuple
 
 # Bump when hint content changes — triggers automatic re-seed on next startup.
-LANG_HINTS_VERSION = 1
+LANG_HINTS_VERSION = 2
 
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]+", re.UNICODE)
 
@@ -66,7 +66,19 @@ LANGUAGE_HINTS: dict[str, dict] = {
                 "lamp/licht/verlichting = light, televisie/tv/scherm = media_player TV, "
                 "muziek/speaker/geluid = music/media, verwarming = heating/climate, "
                 "thermostaat = thermostat, gordijnen/jaloezieen/rolluik = curtains/cover/shutter, "
-                "ventilator/airco = fan/AC.",
+                "ventilator/airco = fan/AC. "
+                "Kitchen appliances: "
+                "koffiezetapparaat/koffiemachine/koffiezet = coffee maker/espresso machine, "
+                "espressomachine/espresso apparaat = espresso machine, "
+                "vaatwasser/afwasmachine = dishwasher, "
+                "wasmachine = washing machine, "
+                "droger/droogkast = dryer, "
+                "oven/magnetron = oven/microwave, "
+                "koelkast = refrigerator/fridge, "
+                "vriezer = freezer, "
+                "waterkoker = kettle, "
+                "broodrooster = toaster, "
+                "afzuigkap = extractor hood.",
             ),
             LangHintEntry(
                 "nl_confirmation",

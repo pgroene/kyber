@@ -299,6 +299,7 @@ def run_benchmark(
     ollama_url: str,
     runs: int = 2,
     verbose: bool = False,
+    warmup: bool = False,
 ) -> list[BatchResult]:
     results: list[BatchResult] = []
     total = len(models) * len(batch_sizes) * runs
@@ -308,6 +309,15 @@ def run_benchmark(
         print(f"\n{'─'*60}")
         print(f"  Model: {model}")
         print(f"{'─'*60}")
+        if warmup:
+            print(f"  [warmup] loading model into memory…", end="", flush=True)
+            try:
+                pairs1 = _ENTITY_CONTEXTS[:1]
+                warmup_prompt = build_batch_prompt(pairs1, home_lang="nl", devices_hint="")
+                _, _, _, warmup_elapsed = _ollama_call(model, warmup_prompt, ollama_url, batch_size=1, timeout=120)
+                print(f" done ({warmup_elapsed:.1f}s)")
+            except Exception as e:
+                print(f" ⚠️ warmup failed: {e}")
         for bs in batch_sizes:
             pairs = _ENTITY_CONTEXTS[:bs]
             if len(pairs) < bs:
@@ -603,6 +613,8 @@ def main() -> None:
                     help="Ollama base URL (default: http://localhost:11434)")
     ap.add_argument("--runs", type=int, default=2,
                     help="Number of runs per (model, batch_size) (default: 2)")
+    ap.add_argument("--warmup", action="store_true",
+                    help="Run a single warmup call per model before timing starts")
     ap.add_argument("--report", default=None,
                     help="Save HTML report to this path (default: tests/narrator_bench/report.html)")
     ap.add_argument("--json", default=None,
@@ -641,6 +653,7 @@ def main() -> None:
     print(f"  Models:      {models}")
     print(f"  Batch sizes: {args.batch_sizes}")
     print(f"  Runs/cell:   {args.runs}")
+    print(f"  Warmup:      {'yes' if args.warmup else 'no'}")
     print(f"  Entities:    {len(_ENTITY_CONTEXTS)} synthetic Dutch home entities")
 
     # Verify connectivity using the tags endpoint (fast, no model load)
@@ -660,6 +673,7 @@ def main() -> None:
         ollama_url=args.ollama,
         runs=args.runs,
         verbose=args.verbose,
+        warmup=args.warmup,
     )
 
     if not results:

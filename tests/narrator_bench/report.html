@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Kyber Narrator Benchmark</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 1200px; margin: 2em auto; padding: 0 1em; color: #222; }
+  h1 { border-bottom: 2px solid #03a9f4; padding-bottom: .5em; }
+  h2 { color: #03a9f4; margin-top: 2em; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th { background: #03a9f4; color: #fff; padding: 8px 12px; text-align: left; }
+  td { padding: 7px 12px; border-bottom: 1px solid #eee; }
+  tr:nth-child(even) td { background: #f9f9f9; }
+  .chip { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: .85em; }
+  canvas { max-width: 100%; margin: 1em 0; }
+  .legend { display: flex; gap: 1em; flex-wrap: wrap; margin: .5em 0; font-size: .85em; }
+  .legend span { display: flex; align-items: center; gap: 4px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+</style>
+</head>
+<body>
+<h1>🚀 Kyber Narrator Benchmark</h1>
+<p>Models tested: <code>llama3.2:3b</code> &nbsp;|&nbsp;
+   Batch sizes: 1, 5, 10, 15, 20 &nbsp;|&nbsp;
+   Entities: 20 synthetic Dutch home entities</p>
+
+<h2>⚡ Speed</h2>
+<table>
+<thead><tr><th>Model</th><th>Batch size</th><th>Elapsed</th><th>ms / entity</th><th>tok/s</th></tr></thead>
+<tbody><tr><td>llama3.2:3b</td><td>1</td><td>0.6s</td><td>576ms</td><td>79</td></tr><tr><td>llama3.2:3b</td><td>5</td><td>2.8s</td><td>551ms</td><td>87</td></tr><tr><td>llama3.2:3b</td><td>10</td><td>4.4s</td><td>439ms</td><td>90</td></tr><tr><td>llama3.2:3b</td><td>15</td><td>10.1s</td><td>671ms</td><td>108</td></tr><tr><td>llama3.2:3b</td><td>20</td><td>9.4s</td><td>470ms</td><td>106</td></tr></tbody>
+</table>
+
+<h2>🎯 Quality</h2>
+<p>Score = 40% parse rate + 30% entity_id in description + 20% ≥2 search terms + 10% device_type present</p>
+<table>
+<thead><tr><th>Model</th><th>Batch size</th><th>Quality score</th><th>Parsed</th><th>Has entity_id</th><th>Terms ≥2</th><th>Device type</th></tr></thead>
+<tbody><tr><td>llama3.2:3b</td><td>1</td><td style="color:#ff9800;font-weight:bold">67%</td><td>67%</td><td>67%</td><td>67%</td><td>67%</td></tr><tr><td>llama3.2:3b</td><td>5</td><td style="color:#4caf50;font-weight:bold">100%</td><td>100%</td><td>100%</td><td>100%</td><td>100%</td></tr><tr><td>llama3.2:3b</td><td>10</td><td style="color:#4caf50;font-weight:bold">100%</td><td>100%</td><td>100%</td><td>100%</td><td>100%</td></tr><tr><td>llama3.2:3b</td><td>15</td><td style="color:#4caf50;font-weight:bold">91%</td><td>91%</td><td>91%</td><td>91%</td><td>91%</td></tr><tr><td>llama3.2:3b</td><td>20</td><td style="color:#ff9800;font-weight:bold">68%</td><td>68%</td><td>68%</td><td>68%</td><td>68%</td></tr></tbody>
+</table>
+
+<h2>📈 Speed vs Quality</h2>
+<canvas id="chart" width="900" height="400"></canvas>
+<div class="legend" id="legend"></div>
+
+<script>
+const data = [{"model": "llama3.2:3b", "batch": 1, "quality": 66.7, "elapsed": 0.58, "tps": 79.4}, {"model": "llama3.2:3b", "batch": 5, "quality": 100.0, "elapsed": 2.75, "tps": 87.3}, {"model": "llama3.2:3b", "batch": 10, "quality": 100.0, "elapsed": 4.39, "tps": 90.2}, {"model": "llama3.2:3b", "batch": 15, "quality": 91.1, "elapsed": 10.07, "tps": 108.1}, {"model": "llama3.2:3b", "batch": 20, "quality": 68.3, "elapsed": 9.39, "tps": 105.5}];
+const models = [...new Set(data.map(d => d.model))];
+const palette = ["#03a9f4","#ff9800","#4caf50","#e91e63","#9c27b0","#00bcd4","#ff5722"];
+const colors = Object.fromEntries(models.map((m,i)=>[m, palette[i%palette.length]]));
+
+const canvas = document.getElementById("chart");
+const ctx = canvas.getContext("2d");
+const W = canvas.width, H = canvas.height;
+const pad = {l:60, r:20, t:20, b:50};
+
+// Axes
+const maxElapsed = Math.max(...data.map(d=>d.elapsed)) * 1.1 || 10;
+const minQ = 0, maxQ = 100;
+
+function toX(elapsed) { return pad.l + (elapsed / maxElapsed) * (W - pad.l - pad.r); }
+function toY(quality) { return H - pad.b - ((quality - minQ) / (maxQ - minQ)) * (H - pad.t - pad.b); }
+
+// Grid
+ctx.strokeStyle = "#eee"; ctx.lineWidth = 1;
+for (let q = 0; q <= 100; q += 20) {
+    ctx.beginPath(); ctx.moveTo(pad.l, toY(q)); ctx.lineTo(W-pad.r, toY(q)); ctx.stroke();
+    ctx.fillStyle="#999"; ctx.font="11px sans-serif"; ctx.textAlign="right";
+    ctx.fillText(q+"%", pad.l-4, toY(q)+4);
+}
+for (let t = 0; t <= maxElapsed; t += Math.ceil(maxElapsed/5)) {
+    const x = toX(t);
+    ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, H-pad.b); ctx.stroke();
+    ctx.fillStyle="#999"; ctx.textAlign="center";
+    ctx.fillText(t+"s", x, H-pad.b+16);
+}
+
+// Axis labels
+ctx.fillStyle="#333"; ctx.font="13px sans-serif";
+ctx.textAlign="center"; ctx.fillText("Elapsed time (s)", W/2, H-2);
+ctx.save(); ctx.translate(14, H/2); ctx.rotate(-Math.PI/2);
+ctx.fillText("Quality score", 0, 0); ctx.restore();
+
+// Points
+data.forEach(d => {
+    const x = toX(d.elapsed), y = toY(d.quality);
+    const r = 6 + d.batch * 0.5;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 2*Math.PI);
+    ctx.fillStyle = colors[d.model] + "bb";
+    ctx.strokeStyle = colors[d.model];
+    ctx.lineWidth = 2; ctx.fill(); ctx.stroke();
+    ctx.fillStyle="#333"; ctx.font="10px sans-serif"; ctx.textAlign="center";
+    ctx.fillText("b"+d.batch, x, y+3);
+});
+
+// Legend
+const leg = document.getElementById("legend");
+models.forEach(m => {
+    const span = document.createElement("span");
+    span.innerHTML = `<span class="dot" style="background:${colors[m]}"></span> ${m}`;
+    leg.appendChild(span);
+});
+</script>
+</body>
+</html>

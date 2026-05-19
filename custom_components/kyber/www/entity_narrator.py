@@ -42,7 +42,7 @@ NARRATOR_STATS_KEY = "kyber_narrator_stats"
 # The narrator checks it between batches to avoid blocking the AI queue.
 _CHAT_BUSY_KEY = "kyber_chat_busy"
 
-_NARRATOR_VERSION = 5
+_NARRATOR_VERSION = 6
 _NARRATOR_VERSION_TAG = f"narrator-v{_NARRATOR_VERSION}"
 
 # Imported at module level so tests can stub via sys.modules before load.
