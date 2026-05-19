@@ -34,7 +34,7 @@ import {
 // ---------------------------------------------------------------------------
 import { STYLES } from "./src/styles.js?v=93";
 
-import { UtilsMixin } from "./src/utils-mixin.js?v=93";
+import { UtilsMixin } from "./src/utils-mixin.js?v=94";
 import { SessionMixin } from "./src/session-mixin.js?v=87";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=87";
 import { DebugMixin } from "./src/debug-mixin.js?v=90";

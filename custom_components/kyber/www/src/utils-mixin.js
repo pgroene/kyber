@@ -98,7 +98,7 @@ export const UtilsMixin = (Base) => class extends Base {
     const hasUpdate = updateEntity?.state === "on";
     badge.hidden = !hasUpdate;
     if (hasUpdate && label) {
-      const latest = updateEntity.attributes.latest_version;
+      const latest = (updateEntity.attributes.latest_version || "").replace(/^v/i, "");
       label.textContent = latest ? `v${latest} available` : "Update available";
       badge.title = `Kyber ${latest ? `v${latest}` : "update"} available — click to install`;
     }
