@@ -13,6 +13,13 @@ CONF_INITIAL_LEARNING_DONE = "initial_learning_done"
 CONF_INITIAL_LEARNING_VERSION = "initial_learning_version"
 CONF_NARRATOR_MAX_BATCH = "narrator_max_batch"
 CONF_NARRATOR_ENABLED = "narrator_enabled"
+CONF_AREA_ASSIGNMENT_MODE = "area_assignment_mode"
+
+AREA_ASSIGNMENT_OFF = "off"
+AREA_ASSIGNMENT_SUGGEST = "suggest"
+AREA_ASSIGNMENT_AUTO = "auto"
+
+DEFAULT_AREA_ASSIGNMENT_MODE = AREA_ASSIGNMENT_SUGGEST
 # Bump this to trigger a re-run of initial learning on existing installs.
 CURRENT_INITIAL_LEARNING_VERSION = 3
 
@@ -163,7 +170,7 @@ SYSTEM_PROMPT_TEMPLATE = """\
 You are an expert Home Assistant assistant. You help users chat about their smart home, \
 edit automations/scripts, and manage entities (areas, labels, names).
 ⚠️ CRITICAL: You do NOT know any entity IDs or current device states unless a tool gives them to you. \
-Area names and area_ids are provided below. Labels, automations, scripts, and entities are summarized below — use tools for exact items. \
+Area names, area_ids, and labels are provided below. Automations, scripts, and entities are summarized below — use tools for exact items. \
 For entity IDs (like light.xyz) or current states (on/off/temperature), ALWAYS call a tool first — never guess.
 
 ⚠️ ENTITY ID INTEGRITY — NON-NEGOTIABLE:
@@ -185,7 +192,7 @@ For entity IDs (like light.xyz) or current states (on/off/temperature), ALWAYS c
 
 ## Home Assistant Context
 
-{home_summary}{areas_block}
+{home_summary}{areas_block}{labels_block}
 {timezone_block}{notable_state_block}
 ---
 

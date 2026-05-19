@@ -479,6 +479,9 @@ export const DebugMixin = (Base) => class extends Base {
       <h3>Runtime</h3>
       <table class="dbg-kv">
         <tr><th>AI Task entity</th><td><code>${this._escapeHtml(data.ai_task_entity || "—")}</code></td></tr>
+        ${(data.ai_task_info && data.ai_task_info.friendly_name && data.ai_task_info.friendly_name !== data.ai_task_entity) ? `<tr><th>Display name</th><td>${this._escapeHtml(data.ai_task_info.friendly_name)}</td></tr>` : ""}
+        ${data.ai_task_info && data.ai_task_info.model ? `<tr><th>Model</th><td><code>${this._escapeHtml(data.ai_task_info.model)}</code> <a href="https://github.com/pgroene/kyber#choosing-a-model" target="_blank" rel="noopener" style="font-size:0.8em;margin-left:6px;opacity:0.7" title="How to choose a model">📖 how to choose</a></td></tr>` : ""}
+        ${data.ai_task_info && data.ai_task_info.server ? `<tr><th>Server</th><td><code>${this._escapeHtml(data.ai_task_info.server)}</code></td></tr>` : ""}
         <tr><th>Autopilot</th><td>${this._autopilot ? "ON ⚡" : "OFF"}</td></tr>
         <tr><th>Session</th><td>${this._escapeHtml(this._sessionName || "—")}</td></tr>
         <tr><th>Tool history size</th><td>${data.tool_history_size}</td></tr>
@@ -520,6 +523,10 @@ export const DebugMixin = (Base) => class extends Base {
       ${epStatus === "narrator" ? narratorProgressBar : ""}
       <h3>AI Narrator</h3>
       <table class="dbg-kv">
+        ${data.narrator_ai_task_entity ? `<tr><th>AI Task entity</th><td><code>${this._escapeHtml(data.narrator_ai_task_entity)}</code></td></tr>` : ""}
+        ${(data.narrator_ai_task_info && data.narrator_ai_task_info.friendly_name && data.narrator_ai_task_info.friendly_name !== data.narrator_ai_task_entity) ? `<tr><th>Display name</th><td>${this._escapeHtml(data.narrator_ai_task_info.friendly_name)}</td></tr>` : ""}
+        ${data.narrator_ai_task_info && data.narrator_ai_task_info.model ? `<tr><th>Model</th><td><code>${this._escapeHtml(data.narrator_ai_task_info.model)}</code> <a href="https://github.com/pgroene/kyber/blob/main/docs/narrator-bench-report-2026-05.md" target="_blank" rel="noopener" style="font-size:0.8em;margin-left:6px;opacity:0.7" title="Narrator model bench report">📖 bench report</a></td></tr>` : ""}
+        ${data.narrator_ai_task_info && data.narrator_ai_task_info.server ? `<tr><th>Server</th><td><code>${this._escapeHtml(data.narrator_ai_task_info.server)}</code></td></tr>` : ""}
         <tr><th>Status</th><td>${this._escapeHtml(nsLabel)}</td></tr>
         ${ns.last_run ? `<tr><th>Last run</th><td>${this._escapeHtml(ns.last_run)}</td></tr>` : ""}
         ${nsTotal > 0 ? `
