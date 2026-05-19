@@ -1258,6 +1258,15 @@ def _extract_response_components(
                 if not isinstance(action, dict):
                     new_actions.append(action)
                     continue
+                # Normalize domain/service: lowercase, infer domain from entity_id when absent.
+                if action.get("type") == "call_service":
+                    eid_norm = action.get("entity_id", "").strip()
+                    domain_norm = action.get("domain", "").strip().lower()
+                    service_norm = action.get("service", "").strip().lower()
+                    if not domain_norm and eid_norm and "." in eid_norm:
+                        domain_norm = eid_norm.split(".", 1)[0]
+                    if domain_norm != action.get("domain") or service_norm != action.get("service"):
+                        action = {**action, "domain": domain_norm, "service": service_norm}
                 eid = action.get("entity_id", "")
                 if not eid or "." not in eid:
                     new_actions.append(action)

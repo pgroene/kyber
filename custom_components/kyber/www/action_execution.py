@@ -350,10 +350,13 @@ class KyberExecuteView(HomeAssistantView):
 
             # ── Service call actions ───────────────────────────────────────
             if action_type == "call_service":
-                domain: str = action.get("domain", "").strip()
-                service: str = action.get("service", "").strip()
+                domain: str = action.get("domain", "").strip().lower()
+                service: str = action.get("service", "").strip().lower()
                 service_data: dict = action.get("service_data") or {}
                 svc_entity_id: str = action.get("entity_id", "").strip()
+                # Infer missing domain from entity_id (e.g. "switch.onoff_..." → "switch")
+                if not domain and svc_entity_id and "." in svc_entity_id:
+                    domain = svc_entity_id.split(".", 1)[0]
                 if not domain or not service:
                     results.append({"status": "error", "message": "Missing 'domain' or 'service' for call_service"})
                     continue
