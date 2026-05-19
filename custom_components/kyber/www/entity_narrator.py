@@ -38,6 +38,10 @@ _LOGGER = logging.getLogger(__name__)
 
 NARRATOR_STATS_KEY = "kyber_narrator_stats"
 
+# Shared flag: http_api.py sets this True while a user chat request is active.
+# The narrator checks it between batches to avoid blocking the AI queue.
+_CHAT_BUSY_KEY = "kyber_chat_busy"
+
 _NARRATOR_VERSION = 5
 _NARRATOR_VERSION_TAG = f"narrator-v{_NARRATOR_VERSION}"
 
@@ -488,6 +492,13 @@ async def async_narrate_entities(
     done_count = 0
     for batch_start in range(0, total, batch_size):
         batch = candidates[batch_start: batch_start + batch_size]
+
+        # Yield to active user chat requests — pause here until the chat finishes.
+        if hass.data.get(_CHAT_BUSY_KEY):
+            _LOGGER.info("Kyber narrator: pausing — user chat request in progress…")
+            while hass.data.get(_CHAT_BUSY_KEY):
+                await asyncio.sleep(1)
+            _LOGGER.info("Kyber narrator: resuming after chat completed")
 
         # Build contexts for every entity in this batch.
         batch_rows: list[tuple[str, str, str, str | None, str | None, str | None, str]] = []
