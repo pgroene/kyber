@@ -123,6 +123,11 @@ _ACTION_KEYWORDS: frozenset[str] = frozenset({
     # Confirmation words — user is approving a pending action
     "yes", "ok", "sure", "go ahead", "do it", "confirm", "execute", "proceed",
     "ja", "ja doe maar", "doe maar", "prima", "goed",  # Dutch confirmations
+    # Location statements — user tells the system where a device lives.
+    # These are multi-word so they require the exact phrase (e.g. "staat in" won't
+    # match "wat staat er in" because there is no contiguous "staat in").
+    "staat in", "zit in", "hangt in", "ligt in", "hoort in", "staan in",  # Dutch
+    "is in the", "belongs in", "located in", "placed in",                  # English
 })
 
 # Regex patterns for split-word action intent (e.g. "turn those off", "switch it on")
@@ -135,6 +140,20 @@ _ACTION_RE_PATTERNS: tuple = (
     re.compile(r"\bdoe\b.{0,30}\b(aan|uit)\b", re.IGNORECASE),    # Dutch: doe ... aan/uit
     re.compile(r"\b(aan|uit)zetten\b", re.IGNORECASE),             # Dutch: aanzetten / uitzetten (one word)
     re.compile(r"\bzet\b.{0,30}\b(aan|uit)\b", re.IGNORECASE),    # Dutch: zet X aan (already covered by keyword but also split)
+    # Location statements — user asserts where a device lives.
+    # "de espresso machine staat in de keuken", "the speaker is in the hallway"
+    # Using multi-word keyword patterns (handled in _ACTION_KEYWORDS above):
+    #   "staat in", "zit in", "hangt in", "ligt in", "hoort in", "is in the", etc.
+    # The patterns below catch variants with indirect phrasing that the keywords miss.
+    re.compile(
+        r"\b(geplaatst|opgehangen|neergezet|geïnstalleerd)\b.{0,10}\bin\b",
+        re.IGNORECASE,
+    ),  # Dutch past-participle placement: "is geplaatst in", "hangt geïnstalleerd in"
+    re.compile(
+        r"\b(?:the|my|our|de|het|mijn|onze)\s+\w[\w\s]{1,40}\b"
+        r"\s+(?:belongs?|goes?|is\s+placed?|is\s+located?)\s+in\b",
+        re.IGNORECASE,
+    ),  # EN "the X belongs in / is placed in"
 )
 
 

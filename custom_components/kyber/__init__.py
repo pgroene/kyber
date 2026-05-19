@@ -219,6 +219,15 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Kyber: startup dedup failed: %s", err)
 
+    # Purge narrator aliases that fail the plausibility check (hallucinated cross-domain
+    # aliases created by older narrator versions, e.g. TV child-lock → "coffee maker").
+    try:
+        from .entity_narrator import async_purge_implausible_aliases
+        kstore = get_knowledge_store(hass)
+        await async_purge_implausible_aliases(kstore)
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Kyber: alias plausibility purge failed: %s", err)
+
     try:
         kstore = get_knowledge_store(hass)
         entity_reg = er.async_get(hass)
