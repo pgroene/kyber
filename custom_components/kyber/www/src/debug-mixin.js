@@ -503,6 +503,15 @@ export const DebugMixin = (Base) => class extends Base {
           <tr><th>Intent</th><td><code>${this._escapeHtml(lt.intent || "—")}</code></td></tr>
           <tr><th>Prompt size</th><td>${lt.char_count?.toLocaleString() ?? "?"} chars (~${lt.approx_tokens?.toLocaleString() ?? "?"} tokens)</td></tr>
         </table>
+        ${lt.request_id ? `
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+          <button id="dbg-download-bundle" style="font-size:0.9em;padding:6px 14px">
+            📦 Download debug bundle
+          </button>
+          <button id="dbg-open-bug-report" style="font-size:0.9em;padding:6px 14px">
+            🐛 Bug report
+          </button>
+        </div>` : ""}
       ` : "<em>No turn captured yet.</em>"}
       <h3>Export for Eval</h3>
       <p style="margin:4px 0 8px;font-size:0.88em;color:var(--secondary-text-color)">
@@ -527,6 +536,15 @@ export const DebugMixin = (Base) => class extends Base {
     const memBtn = body.querySelector("#dbg-export-memory");
     if (memBtn) {
       memBtn.addEventListener("click", () => this._downloadMemoryExport(memBtn));
+    }
+
+    // Wire last-turn debug bundle download + bug report
+    const ltReqId = data.last_turn?.request_id;
+    if (ltReqId) {
+      const dlBtn = body.querySelector("#dbg-download-bundle");
+      if (dlBtn) dlBtn.addEventListener("click", () => this._downloadDebugBundle(ltReqId, dlBtn));
+      const brBtn = body.querySelector("#dbg-open-bug-report");
+      if (brBtn) brBtn.addEventListener("click", () => this._openBugReportFlow(ltReqId, brBtn));
     }
 
     // Auto-refresh while explorer or narrator is running
