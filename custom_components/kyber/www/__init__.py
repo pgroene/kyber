@@ -23,6 +23,7 @@ from .const import (
     DEFAULT_NARRATOR_MAX_BATCH,
     DEFAULT_RUN_INITIAL_ANALYZE,
     DOMAIN,
+    KNOWLEDGE_SCHEMA_VERSION,
 )
 from .analyzer import analyze_automations as _analyze_automations
 from . import deep_analyzer as _deep
@@ -174,6 +175,40 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
     from .integration_explorer import async_startup_explore_all
 
     await asyncio.sleep(15)  # let HA finish loading other integrations
+
+    # --- Schema-version upgrade check ---
+    # If KNOWLEDGE_SCHEMA_VERSION was bumped, wipe all auto-generated entries so
+    # they are rebuilt fresh with the new filters, prompts, and dedup logic.
+    try:
+        kstore = get_knowledge_store(hass)
+        await kstore.async_load()
+        schema_entry = (await kstore.async_search(
+            subject="_knowledge_schema_version", limit=1, exclude_low_quality=False,
+        ) or [None])[0]
+        stored_schema_ver = int((schema_entry or {}).get("content", 0))
+        if stored_schema_ver < KNOWLEDGE_SCHEMA_VERSION:
+            purged = await kstore.async_purge_auto_generated()
+            _LOGGER.info(
+                "Kyber: schema v%d→v%d: purged %d auto-generated entries",
+                stored_schema_ver, KNOWLEDGE_SCHEMA_VERSION, purged,
+            )
+            # Update stored version
+            if schema_entry:
+                schema_entry["content"] = str(KNOWLEDGE_SCHEMA_VERSION)
+                schema_entry["updated"] = int(__import__("time").time())
+                kstore._entries[schema_entry["id"]] = schema_entry  # noqa: SLF001
+                await kstore._persist(invalidate_index=True)  # noqa: SLF001
+            else:
+                await kstore.async_add(
+                    "general",
+                    str(KNOWLEDGE_SCHEMA_VERSION),
+                    subject="_knowledge_schema_version",
+                    source="system",
+                    _save=True,
+                )
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Kyber: schema version check failed: %s", err)
+
     try:
         kstore = get_knowledge_store(hass)
         entity_reg = er.async_get(hass)

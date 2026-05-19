@@ -202,13 +202,23 @@ class KnowledgeStore:
         await self.async_load()
         if category not in CATEGORIES:
             category = "general"
+        content_stripped = content.strip()
+        subject_stripped = (subject or "").strip()
+        # Dedup: skip if identical content+subject+category already exists.
+        for existing in self._entries.values():
+            if (
+                existing.get("content", "").strip() == content_stripped
+                and existing.get("subject", "").strip() == subject_stripped
+                and existing.get("category") == category
+            ):
+                return existing
         entry_id = uuid.uuid4().hex[:12]
         now = int(time.time())
         entry = {
             "id": entry_id,
             "category": category,
-            "subject": (subject or "").strip(),
-            "content": content.strip(),
+            "subject": subject_stripped,
+            "content": content_stripped,
             "tags": [t.strip().lower() for t in (tags or []) if t.strip()],
             "source": source,
             "provenance": (provenance or "").strip(),
@@ -269,6 +279,7 @@ class KnowledgeStore:
         category: str | None = None,
         subject: str = "",
         limit: int = 20,
+        exclude_low_quality: bool = True,
     ) -> list[dict[str, Any]]:
         await self.async_load()
         q = (query or "").lower().strip()
@@ -279,6 +290,8 @@ class KnowledgeStore:
             if cat and entry.get("category") != cat:
                 continue
             if subj and subj not in (entry.get("subject", "") or "").lower():
+                continue
+            if exclude_low_quality and "low_quality" in (entry.get("tags") or []):
                 continue
             score = 0.0
             blob = " ".join([
@@ -417,7 +430,7 @@ class KnowledgeStore:
         return n
 
     # ── Sync read helpers (caller must ensure async_load() was awaited) ──
-    def search_sync(self, query: str = "", category: str | None = None, subject: str = "", limit: int = 20) -> list[dict[str, Any]]:
+    def search_sync(self, query: str = "", category: str | None = None, subject: str = "", limit: int = 20, exclude_low_quality: bool = True) -> list[dict[str, Any]]:
         """Synchronous variant of async_search — for use after load()."""
         q = (query or "").lower().strip()
         subj = (subject or "").lower().strip()
@@ -427,6 +440,8 @@ class KnowledgeStore:
             if cat and entry.get("category") != cat:
                 continue
             if subj and subj not in (entry.get("subject", "") or "").lower():
+                continue
+            if exclude_low_quality and "low_quality" in (entry.get("tags") or []):
                 continue
             score = 0.0
             blob = " ".join([
@@ -503,6 +518,30 @@ class KnowledgeStore:
         # Fallback: always include high-confidence area aliases as background.
         aliases = await self.async_search("", category="area_alias", limit=max_entries)
         return [{**e, "_score": 0.0, "_source": "fallback_alias"} for e in aliases]
+
+
+    async def async_purge_auto_generated(self) -> int:
+        """Delete all entries created by the narrator and integration explorer.
+
+        Called on version upgrade so stale AI-generated descriptions are wiped
+        and rebuilt fresh with current filters and prompts.
+        Returns number of entries deleted.
+        """
+        await self.async_load()
+        auto_sources = {"entity_narrator", "integration_explorer", "dashboard_indexer"}
+        to_delete = [
+            eid for eid, entry in self._entries.items()
+            if entry.get("source") in auto_sources
+        ]
+        for eid in to_delete:
+            del self._entries[eid]
+        if to_delete:
+            await self._persist(invalidate_index=True)
+            _LOGGER.info(
+                "Kyber: purged %d auto-generated memory entries on schema upgrade",
+                len(to_delete),
+            )
+        return len(to_delete)
 
 
 _INSTANCE_KEY = "kyber_knowledge_store"

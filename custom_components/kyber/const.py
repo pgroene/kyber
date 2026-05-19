@@ -15,6 +15,10 @@ CONF_NARRATOR_MAX_BATCH = "narrator_max_batch"
 # Bump this to trigger a re-run of initial learning on existing installs.
 CURRENT_INITIAL_LEARNING_VERSION = 3
 
+# Bump this to wipe all auto-generated memory (narrator + explorer entries) on
+# the next startup. Users get a clean slate and fresh narration with improved filters.
+KNOWLEDGE_SCHEMA_VERSION = 2
+
 DEFAULT_MAX_TOKENS = 2048
 DEFAULT_ENABLE_DEBUG_VIEWS = False
 DEFAULT_RUN_INITIAL_ANALYZE = True
