@@ -37,7 +37,7 @@ Or use the quick-add button:
 - 🧠 **Hybrid memory retrieval** — knowledge entries are indexed with an in-memory TF-IDF embedding; each turn picks the top facts via cosine similarity blended with keyword overlap. Selected facts are streamed to the live progress card so you can see what Kyber recalled. See [docs/pipeline.md](docs/pipeline.md) for the full request lifecycle
 - 🔁 **Tool-calling loop** — up to 5 rounds of tool calls per turn; duplicate call detection with targeted redirect hints prevents the AI from looping. Tool name aliases resolve common model typos/variants automatically
 - 🗂️ **Conversation sessions** — named sessions with full rolling history and automatic compaction via summarization
-- 🐞 **Debug tab** — inspect everything Kyber knows: memory entries, the expanded system prompt of the last turn, which knowledge entries it picked (with similarity scores), tool calls, and per-entry ratings + inline "refine with a hint" action. Lives in its own **Kyber Debug** sidebar entry so the chat panel stays clean
+- 🐞 **Kyber Debug panel** — a dedicated second sidebar entry (`/kyber-debug`) with five tabs: **Memory** (browse/rate/refine all knowledge), **Last turn** (full system prompt, tool log, knowledge used, one-click debug bundle), **Status** (entity explorer + narrator progress, download debug bundle), **📋 Logs** (live ring buffer of the last 2,000 Kyber log records with level filter + download), and **Tests**
 - 📦 **Debug bundle download** — every assistant turn has a downloadable ZIP with the user prompt, the full expanded system prompt the model actually saw, picked memory entries, tool log, progress events, captured `kyber.*` logs and the response — perfect for filing a precise issue
 
 ## Quick Start
@@ -61,6 +61,7 @@ Based on the [May 2026 eval report](docs/eval-report-2026-05.md) (5 runs × 3 re
 | Model | Score | Notes |
 |---|:---:|---|
 | `mistral-nemo:latest` | 🥇 14/15 (93%) | Recommended — reliable plan output, handles Dutch, 1-round answers from memory |
+| `qwen2.5:latest` | ✅ check | Not yet in the formal eval; community reports suggest strong structured output — worth trying if mistral-nemo is too slow on your hardware |
 | `qwen3:4b-instruct` | 🥈 10/15 (67%) | Good for read-only queries; fails action plans in Dutch |
 | `llama3.2:latest` | 🥉 4/15 (27%) | Unpredictable token usage; often skips plan blocks entirely |
 
