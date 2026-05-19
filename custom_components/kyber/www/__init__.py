@@ -209,6 +209,16 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Kyber: schema version check failed: %s", err)
 
+    # Dedup on every startup — removes exact duplicate entries built up before
+    # dedup-on-write was introduced (e.g. duplicate entity_alias entries).
+    try:
+        kstore = get_knowledge_store(hass)
+        removed = await kstore.async_dedup()
+        if removed:
+            _LOGGER.info("Kyber: startup dedup removed %d duplicate memory entries", removed)
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Kyber: startup dedup failed: %s", err)
+
     try:
         kstore = get_knowledge_store(hass)
         entity_reg = er.async_get(hass)

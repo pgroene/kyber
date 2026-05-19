@@ -543,6 +543,47 @@ class KnowledgeStore:
             )
         return len(to_delete)
 
+    async def async_dedup(self) -> int:
+        """Remove exact duplicate entries (same subject+content+category).
+
+        Keeps the entry with the highest confidence, then oldest created timestamp.
+        Runs on every startup to clean up duplicates created before dedup-on-write
+        was introduced. Returns number of entries removed.
+        """
+        await self.async_load()
+        seen: dict[tuple, str] = {}  # (subject, content, category) → winning entry_id
+        to_delete: list[str] = []
+        for eid, entry in self._entries.items():
+            key = (
+                (entry.get("subject") or "").strip().lower(),
+                (entry.get("content") or "").strip().lower(),
+                entry.get("category", "general"),
+            )
+            if key in seen:
+                # Keep higher confidence; on tie keep older (lower created timestamp)
+                winner_id = seen[key]
+                winner = self._entries[winner_id]
+                challenger_wins = (
+                    entry.get("confidence", 1.0) > winner.get("confidence", 1.0)
+                    or (
+                        entry.get("confidence", 1.0) == winner.get("confidence", 1.0)
+                        and entry.get("created", 0) < winner.get("created", 0)
+                    )
+                )
+                if challenger_wins:
+                    to_delete.append(winner_id)
+                    seen[key] = eid
+                else:
+                    to_delete.append(eid)
+            else:
+                seen[key] = eid
+        for eid in to_delete:
+            self._entries.pop(eid, None)
+        if to_delete:
+            await self._persist(invalidate_index=True)
+            _LOGGER.info("Kyber: dedup removed %d duplicate memory entries", len(to_delete))
+        return len(to_delete)
+
 
 _INSTANCE_KEY = "kyber_knowledge_store"
 
