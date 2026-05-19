@@ -16,7 +16,7 @@ import re
 from typing import NamedTuple
 
 # Bump when hint content changes — triggers automatic re-seed on next startup.
-LANG_HINTS_VERSION = 2
+LANG_HINTS_VERSION = 3
 
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]+", re.UNICODE)
 
@@ -123,7 +123,18 @@ LANGUAGE_HINTS: dict[str, dict] = {
                 "Lampe/Licht/Beleuchtung = light, Fernseher/TV = media_player TV, "
                 "Musik/Lautsprecher = music/media, Heizung = heating/climate, "
                 "Thermostat = thermostat, Jalousien/Rollladen = blinds/cover, "
-                "Ventilator/Klimaanlage = fan/AC.",
+                "Ventilator/Klimaanlage = fan/AC. "
+                "Kitchen appliances: "
+                "Kaffeemaschine/Kaffeeautomat/Espressomaschine = coffee maker/espresso machine, "
+                "Geschirrspüler/Spülmaschine = dishwasher, "
+                "Waschmaschine = washing machine, "
+                "Trockner = dryer, "
+                "Backofen/Mikrowelle = oven/microwave, "
+                "Kühlschrank = refrigerator/fridge, "
+                "Gefrierschrank/Tiefkühler = freezer, "
+                "Wasserkocher = kettle, "
+                "Toaster = toaster, "
+                "Dunstabzugshaube = extractor hood.",
             ),
         ],
     },
@@ -162,7 +173,18 @@ LANGUAGE_HINTS: dict[str, dict] = {
                 "lampe/lumière/éclairage = light, télé/téléviseur = media_player TV, "
                 "musique/enceinte = music/media, chauffage = heating/climate, "
                 "thermostat = thermostat, volets/stores = curtains/cover, "
-                "ventilateur/climatiseur = fan/AC.",
+                "ventilateur/climatiseur = fan/AC. "
+                "Kitchen appliances: "
+                "cafetière/machine à café/machine à expresso = coffee maker/espresso machine, "
+                "lave-vaisselle = dishwasher, "
+                "machine à laver/lave-linge = washing machine, "
+                "sèche-linge = dryer, "
+                "four/micro-ondes = oven/microwave, "
+                "réfrigérateur/frigo = refrigerator/fridge, "
+                "congélateur = freezer, "
+                "bouilloire = kettle, "
+                "grille-pain = toaster, "
+                "hotte aspirante = extractor hood.",
             ),
         ],
     },
@@ -201,7 +223,18 @@ LANGUAGE_HINTS: dict[str, dict] = {
                 "lámpara/luz = light, televisor/TV = media_player TV, "
                 "música/altavoz = music/media, calefacción = heating/climate, "
                 "termostato = thermostat, persianas/cortinas = curtains/cover, "
-                "ventilador/AC = fan/AC.",
+                "ventilador/AC = fan/AC. "
+                "Kitchen appliances: "
+                "cafetera/máquina de café/máquina de espresso = coffee maker/espresso machine, "
+                "lavavajillas = dishwasher, "
+                "lavadora = washing machine, "
+                "secadora = dryer, "
+                "horno/microondas = oven/microwave, "
+                "frigorífico/nevera = refrigerator/fridge, "
+                "congelador = freezer, "
+                "hervidor = kettle, "
+                "tostadora = toaster, "
+                "campana extractora = extractor hood.",
             ),
         ],
     },
@@ -239,7 +272,18 @@ LANGUAGE_HINTS: dict[str, dict] = {
                 "lampada/luce = light, televisore/TV = media_player TV, "
                 "musica/altoparlante = music/media, riscaldamento = heating/climate, "
                 "termostato = thermostat, persiane/tende = curtains/cover, "
-                "ventilatore/climatizzatore = fan/AC.",
+                "ventilatore/climatizzatore = fan/AC. "
+                "Kitchen appliances: "
+                "macchina del caffè/caffettiera/macchina per espresso = coffee maker/espresso machine, "
+                "lavastoviglie = dishwasher, "
+                "lavatrice = washing machine, "
+                "asciugatrice = dryer, "
+                "forno/microonde = oven/microwave, "
+                "frigorifero/frigo = refrigerator/fridge, "
+                "congelatore = freezer, "
+                "bollitore = kettle, "
+                "tostapane = toaster, "
+                "cappa aspirante = extractor hood.",
             ),
         ],
     },
@@ -276,7 +320,18 @@ LANGUAGE_HINTS: dict[str, dict] = {
                 "Portuguese device words: "
                 "lâmpada/luz = light, televisor/TV = media_player TV, "
                 "música/alto-falante = music/media, aquecimento = heating/climate, "
-                "termostato = thermostat, persianas/cortinas = curtains/cover.",
+                "termostato = thermostat, persianas/cortinas = curtains/cover. "
+                "Kitchen appliances: "
+                "máquina de café/cafeteira/máquina de espresso = coffee maker/espresso machine, "
+                "máquina de lavar louça/lava-louças = dishwasher, "
+                "máquina de lavar/máquina de lavar roupa = washing machine, "
+                "secadora = dryer, "
+                "forno/micro-ondas = oven/microwave, "
+                "frigorífico/geladeira = refrigerator/fridge, "
+                "congelador = freezer, "
+                "chaleira = kettle, "
+                "torradeira = toaster, "
+                "exaustor = extractor hood.",
             ),
         ],
     },
