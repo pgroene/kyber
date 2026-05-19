@@ -32,9 +32,9 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=87";
+import { STYLES } from "./src/styles.js?v=92";
 
-import { UtilsMixin } from "./src/utils-mixin.js?v=87";
+import { UtilsMixin } from "./src/utils-mixin.js?v=92";
 import { SessionMixin } from "./src/session-mixin.js?v=87";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=87";
 import { DebugMixin } from "./src/debug-mixin.js?v=90";
@@ -90,6 +90,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       if (!wasAuthed && hass?.auth?.data?.access_token) {
         this._loadMemoryCount();
       }
+      this._checkUpdateBadge();
     }
   }
 
@@ -155,6 +156,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <span class="session-label" id="session-indicator"></span>
             <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
             <button class="memory-badge" id="memory-badge" title="Memory facts — click to preview recalled facts">🧠 <span id="memory-count">…</span></button>
+            <button class="update-badge" id="update-badge" hidden title="Update available — click to install">⬆️ <span id="update-badge-label">Update</span></button>
             <button class="autopilot-badge" id="autopilot-badge" title="Toggle autopilot — auto-executes safe proposals">⚡ Autopilot</button>
             <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
             <button class="btn-debug" id="btn-debug" title="Open debug / memory inspector">🐞</button>
@@ -297,6 +299,9 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
           : "Autopilot is now OFF — you'll review proposals before executing.",
         "assistant",
       );
+    });
+    shadow.getElementById("update-badge").addEventListener("click", () => {
+      this._handleSlashCommand("update", "");
     });
     shadow.getElementById("btn-memory-view-all").addEventListener("click", () => {
       this._closeMemoryPopover();

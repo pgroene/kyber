@@ -934,8 +934,33 @@ export const STYLES = `
     opacity: 0.4;
     cursor: pointer;
     transition: opacity 0.2s, background 0.2s, color 0.2s, border-color 0.2s;
+    outline: none;
+  }
+
+  /* ── Update-available badge ─────────────────────────────────────── */
+  .update-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: #e8a000;
+    color: #fff;
+    border: 1px solid #e8a000;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.15s;
+    animation: pulse-update 2.5s ease-in-out infinite;
     white-space: nowrap;
     outline: none;
+  }
+  .update-badge:hover { opacity: 0.85; transform: scale(1.05); }
+  @keyframes pulse-update {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(232,160,0,0.5); }
+    50%       { box-shadow: 0 0 0 5px rgba(232,160,0,0); }
   }
 
   .autopilot-badge:hover { opacity: 0.7; }
