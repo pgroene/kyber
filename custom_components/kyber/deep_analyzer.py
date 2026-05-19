@@ -237,7 +237,10 @@ def _build_prompt(
         "Infer DURABLE, NON-OBVIOUS facts — output ONLY facts relevant to this lens. "
         "Skip generic observations ('there is an automation', 'it uses a trigger').\n"
         "IMPORTANT: ALWAYS name the specific room/area. "
-        "NEVER write 'the room' or 'the area' — use the exact area name from the entity context or entity_id segments.\n\n"
+        "NEVER write 'the room' or 'the area' — use the exact area name from the entity context or entity_id segments.\n"
+        "IMPORTANT: Where entity_ids are visible in the config, include them in the content "
+        "(e.g. 'light.living_room' or 'switch.onoff4_kamer_l3'). This makes facts searchable.\n"
+        "IMPORTANT: Add all relevant entity_ids from the config to the 'tags' array.\n\n"
         "Output ONLY a JSON array. Each item: {\"category\": str, "
         "\"subject\": str, \"content\": str, \"tags\": [str], "
         "\"confidence\": float 0-1}. If nothing relevant, output [].\n\n"
@@ -248,10 +251,17 @@ def _build_prompt(
 
 
 _JSON_ARRAY_RE = re.compile(r"\[[\s\S]*\]")
+_ENTITY_ID_RE = re.compile(r"\b[a-z_]+\.[a-z0-9_]+\b")
+_MIN_CONTENT_LENGTH = 40
 
 
-def _parse_facts(raw: str) -> list[dict[str, Any]]:
-    """Parse the AI response into a list of fact dicts. Tolerant."""
+def _parse_facts(raw: str, config_entity_ids: list[str] | None = None) -> list[dict[str, Any]]:
+    """Parse the AI response into a list of fact dicts. Tolerant.
+
+    ``config_entity_ids`` — entity_ids extracted from the automation/script config.
+    They are merged into every fact's tags so retrieval by entity_id always works,
+    even when the AI omits them from the content text.
+    """
     if not raw:
         return []
     raw = raw.strip()
@@ -272,7 +282,7 @@ def _parse_facts(raw: str) -> list[dict[str, Any]]:
         if not isinstance(f, dict):
             continue
         content = str(f.get("content") or "").strip()
-        if not content:
+        if not content or len(content) < _MIN_CONTENT_LENGTH:
             continue
         try:
             conf = float(f.get("confidence", 0.5))
@@ -281,11 +291,21 @@ def _parse_facts(raw: str) -> list[dict[str, Any]]:
         tags = f.get("tags") or []
         if not isinstance(tags, list):
             tags = []
+        tags = [str(t) for t in tags]
+        # Always include entity_ids from config so lookup-by-entity works
+        if config_entity_ids:
+            for eid in config_entity_ids:
+                if eid not in tags:
+                    tags.append(eid)
+        # Also extract any entity_ids the AI embedded in the content text
+        for eid in _ENTITY_ID_RE.findall(content):
+            if "." in eid and eid not in tags:
+                tags.append(eid)
         out.append({
             "category": str(f.get("category") or "general").strip() or "general",
             "subject": str(f.get("subject") or "").strip(),
             "content": content,
-            "tags": [str(t) for t in tags],
+            "tags": tags,
             "confidence": max(0.0, min(1.0, conf)),
         })
     return out
@@ -435,7 +455,7 @@ async def analyze_pending(
             errors.append({"kind": kind, "ident": ident, "error": str(err)})
             continue
 
-        facts = _parse_facts(raw)
+        facts = _parse_facts(raw, config_entity_ids=list(_extract_entity_ids(item)))
         facts = [f for f in facts if f["confidence"] >= _MIN_CONFIDENCE]
 
         # For the "entity relationships" lens, discard facts that don't reference
