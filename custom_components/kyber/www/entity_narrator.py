@@ -38,7 +38,7 @@ _LOGGER = logging.getLogger(__name__)
 
 NARRATOR_STATS_KEY = "kyber_narrator_stats"
 
-_NARRATOR_VERSION = 4
+_NARRATOR_VERSION = 5
 _NARRATOR_VERSION_TAG = f"narrator-v{_NARRATOR_VERSION}"
 
 # Imported at module level so tests can stub via sys.modules before load.
@@ -183,8 +183,6 @@ def build_entity_context(
         lines.append(f"unit_of_measurement: {unit}")
     if area_name:
         lines.append(f"area: {area_name}")
-    if state_str and state_str not in ("unavailable", "unknown"):
-        lines.append(f"current_state: {state_str}")
     for k, v in sorted(attributes.items()):
         if k in _SKIP_ATTRS or k.startswith("_"):
             continue
@@ -235,6 +233,7 @@ def build_batch_prompt(entity_pairs: list[tuple[str, str]], home_lang: str = "en
         "RULES:\n"
         "- Use ONLY information explicitly stated in each entity's data. No guessing.\n"
         "- description MUST include the entity_id verbatim.\n"
+        "- description MUST be timeless — describe what the entity IS, NOT its current state value. NEVER write 'state: X' or 'currently X' in the description. Instead describe what states it CAN have (e.g. 'can be on or off', 'reports temperature in °C', 'tracks presence: home or not_home').\n"
         "- search_terms: include common names, synonyms, brand names if known. Include phrases (2-3 words), not just single words.\n"
         "- search_terms: if dashboard_label is present, include it as the first search term.\n"
         f"- search_terms: always include English terms.{lang_instruction}\n"

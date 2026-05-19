@@ -134,10 +134,9 @@ def _entity_fact(
     dc_part = f", device_class: {device_class}" if device_class else ""
     unit_part = _unit_suffix(unit)
     area_part = f", area: {area_name}" if area_name else ""
-    state_part = f", state: {state_str}" if state_str not in (None, "unavailable", "unknown") else ""
 
     content = (
-        f"{domain} \"{name}\" [{entity_id}]{unit_part}{dc_part}{area_part}{state_part}. "
+        f"{domain} \"{name}\" [{entity_id}]{unit_part}{dc_part}{area_part}. "
         f"Integration: {platform}. "
         f"Use get_entity_state(\"{entity_id}\") to get current value."
     )
