@@ -95,6 +95,7 @@ from .prompt_regression_api import (
     KyberPromptTestsView, KyberPromptTestsRunView,
     KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView,
 )
+from .config_flow import _infer_max_tokens
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -699,6 +700,12 @@ async def _run_ai_loop(
     if "qwen3" in entity_id.lower():
         instructions = "/no_think\n" + instructions
 
+    # Determine the actual context window for this AI entity (reads num_ctx / context_length
+    # from entity state attributes, falls back to model-name lookup, then DEFAULT_MAX_TOKENS).
+    _ctx_window: int = _infer_max_tokens(hass, entity_id)
+    _ctx_warn_tokens: int = int(_ctx_window * 0.85)   # 85 % fill → warn
+    _ctx_hint_tokens: int = int(_ctx_window * 0.75)   # 75 % fill → inject brief-reply hint
+
     # Tool-calling loop — the AI may request live HA data via [TOOL_CALL: {...}]
     # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
     tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
@@ -731,18 +738,25 @@ async def _run_ai_loop(
             loop_instructions = loop_instructions[:_MAX_INSTRUCTIONS_CHARS]
 
         _prompt_tokens_est = len(loop_instructions) // 4
-        # Warn when prompt fills >85 % of a typical 8 K context window.
-        # At this point the model has very little room to generate a response and
-        # may return an empty string.  Recommend increasing num_ctx in Ollama.
-        if _round == 0 and _prompt_tokens_est > 7_000:
+        # Warn when prompt fills >85% of the actual context window.
+        if _prompt_tokens_est > _ctx_warn_tokens:
             _progress_emit(hass, request_id, {
                 "type": "warning",
                 "message": (
-                    f"⚠️ Large prompt (~{_prompt_tokens_est:,} tokens). "
-                    "If your model has a small context window (e.g. num_ctx=8192 in Ollama) "
-                    "the response may be empty. Consider setting num_ctx to 32768 or higher."
+                    f"⚠️ Large prompt (~{_prompt_tokens_est:,} tokens, "
+                    f"context window: {_ctx_window:,}). "
+                    "The model may produce an empty or truncated response. "
+                    "Consider increasing num_ctx in your Ollama model config."
                 ),
             })
+
+        # When the prompt is ≥75% of the context window, append a brevity hint so the
+        # model knows it has limited output space and should skip prose/tool calls.
+        if _prompt_tokens_est >= _ctx_hint_tokens:
+            loop_instructions += (
+                "\n\n⚠️ CONTEXT LIMIT: this prompt is near your context window. "
+                "Reply with ONLY a concise [PLAN] block. No prose, no tool calls."
+            )
 
         _progress_emit(hass, request_id, {
             "type": "info",
@@ -956,12 +970,15 @@ async def _run_ai_loop(
                 "preview": preview,
             })
 
-            # Truncate the version sent BACK to the model (UI summary above is unaffected)
-            feedback_str = _truncate_tool_result(tool_result_data, _MAX_TOOL_RESULT_CHARS)
+            # Truncate the version sent BACK to the model (UI summary above is unaffected).
+            # Cap to the available headroom so the next round's prompt stays under _ctx_warn_tokens.
+            _headroom_chars = max(800, (_ctx_warn_tokens - _prompt_tokens_est) * 4)
+            _effective_max = min(_MAX_TOOL_RESULT_CHARS, _headroom_chars)
+            feedback_str = _truncate_tool_result(tool_result_data, _effective_max)
             if len(feedback_str) < len(tool_result_str):
                 _LOGGER.info(
-                    "Kyber: truncated tool result %s from %d \u2192 %d chars",
-                    call.get("name"), len(tool_result_str), len(feedback_str),
+                    "Kyber: truncated tool result %s from %d \u2192 %d chars (budget %d)",
+                    call.get("name"), len(tool_result_str), len(feedback_str), _effective_max,
                 )
 
             tool_results_block += (
