@@ -778,6 +778,11 @@ async def _run_ai_loop(
             _progress_emit(hass, request_id, {"type": "error", "message": str(err)})
             _progress_complete(hass, request_id)
             raise
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("AI task unexpected error (type=%s): %s", type(err).__name__, err)
+            _progress_emit(hass, request_id, {"type": "error", "message": str(err)})
+            _progress_complete(hass, request_id)
+            raise HomeAssistantError(f"AI task error: {err}") from err
 
         response_text = result.data if isinstance(result.data, str) else (
             str(result.data) if result.data is not None else ""
@@ -1491,8 +1496,15 @@ class KyberView(HomeAssistantView):
             response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions = \
                 await _run_ai_loop(hass, entity_id, instructions, kstore, user_prompt, request_id, history, intent)
         except HomeAssistantError as err:
+            _progress_complete(hass, request_id)
             return self.json_message(
                 f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.exception("Kyber: unexpected error during AI loop (type=%s)", type(err).__name__)
+            _progress_complete(hass, request_id)
+            return self.json_message(
+                f"Internal error: {type(err).__name__}: {err}", HTTPStatus.INTERNAL_SERVER_ERROR
             )
 
         components = _extract_response_components(response_text, intent, user_prompt, hass, tool_log)
