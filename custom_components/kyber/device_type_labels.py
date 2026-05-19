@@ -129,6 +129,7 @@ def infer_device_type(
 
 async def async_ensure_kyber_label(hass: HomeAssistant, device_type: str) -> str | None:
     """Get or create the kyber: label for device_type. Returns label_id or None."""
+    import inspect
     cfg = DEVICE_TYPE_LABELS.get(device_type)
     if not cfg:
         return None
@@ -140,16 +141,22 @@ async def async_ensure_kyber_label(hass: HomeAssistant, device_type: str) -> str
     existing = label_reg.async_get_label(label_id)
     if existing is None:
         try:
-            label_reg.async_create(
-                name=label_name,
-                icon=cfg.get("icon", ""),
-                color=cfg.get("color", ""),
-                label_id=label_id,
-            )
+            create_kwargs: dict = {
+                "name": label_name,
+                "icon": cfg.get("icon", ""),
+                "color": cfg.get("color", ""),
+            }
+            # label_id param only available in HA ≥ 2025.1
+            if "label_id" in inspect.signature(label_reg.async_create).parameters:
+                create_kwargs["label_id"] = label_id
+            created = label_reg.async_create(**create_kwargs)
+            label_id = created.label_id  # use actual assigned id
             _LOGGER.info("Kyber: created label '%s' (%s)", label_name, label_id)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber: could not create label '%s': %s", label_name, err)
             return None
+    else:
+        label_id = existing.label_id
     return label_id
 
 

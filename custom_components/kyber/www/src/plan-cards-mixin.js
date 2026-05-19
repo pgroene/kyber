@@ -214,8 +214,9 @@ export const PlanCardsMixin = (Base) => class extends Base {
               ? `${action.current_state} → ${action.new_state}`
               : "";
             const target = action.entity_id || action.area_id || r.entity_id || r.area_id || "";
+            const svcDomain = action.domain || (action.entity_id && action.entity_id.includes(".") ? action.entity_id.split(".")[0] : "?");
             const svcLabel = action.type === "call_service"
-              ? `${action.domain}.${action.service}`
+              ? `${svcDomain}.${action.service || "?"}`
               : (action.type || "change");
             return `- ${svcLabel}${target ? " on " + target : ""}${fromTo ? ": " + fromTo : ""}${desc ? " (" + desc + ")" : ""}`;
           });

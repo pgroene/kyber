@@ -23,6 +23,15 @@ except ImportError:  # HA < 2025.2 (test environments)
 
 _LOGGER = logging.getLogger(__name__)
 
+# Read manifest version once at import time (safe: not inside event loop)
+try:
+    import os as _os
+    _KYBER_VERSION: str = json.loads(
+        open(_os.path.join(_os.path.dirname(__file__), "manifest.json"), encoding="utf-8").read()
+    ).get("version", "unknown")
+except Exception:  # noqa: BLE001
+    _KYBER_VERSION = "unknown"
+
 # Redefine debug constants (same values as http_api.py — both files have them)
 _DEBUG_MODE_KEY = "kyber_debug_mode"
 _DEBUG_MODE_DEFAULT = True
@@ -247,15 +256,7 @@ class KyberDebugBundleView(HomeAssistantView):
 
     @staticmethod
     def _read_manifest_version() -> str:
-        try:
-            import json as _json
-            import os
-            here = os.path.dirname(__file__)
-            with open(os.path.join(here, "manifest.json"), "r", encoding="utf-8") as f:
-                return _json.load(f).get("version", "unknown")
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Kyber: failed to read manifest.json version: %s", err)
-            return "unknown"
+        return _KYBER_VERSION
 
     async def get(self, request: web.Request) -> web.Response:
         import io
