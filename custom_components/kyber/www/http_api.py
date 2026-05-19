@@ -1254,6 +1254,7 @@ def _extract_response_components(
 
             new_actions: list = []
             resolved_any = False
+            normalized_any = False
             for action in plan_block["actions"]:
                 if not isinstance(action, dict):
                     new_actions.append(action)
@@ -1267,6 +1268,7 @@ def _extract_response_components(
                         domain_norm = eid_norm.split(".", 1)[0]
                     if domain_norm != action.get("domain") or service_norm != action.get("service"):
                         action = {**action, "domain": domain_norm, "service": service_norm}
+                        normalized_any = True
                 eid = action.get("entity_id", "")
                 if not eid or "." not in eid:
                     new_actions.append(action)
@@ -1317,7 +1319,7 @@ def _extract_response_components(
                         "entity_id": real_id,
                         "current_state": rs.state if rs else action.get("current_state", ""),
                     })
-            if resolved_any:
+            if resolved_any or normalized_any:
                 plan_block["actions"] = new_actions
         except Exception as err:  # pragma: no cover - best effort
             _LOGGER.debug("Kyber: plan auto-resolve failed: %s", err)
