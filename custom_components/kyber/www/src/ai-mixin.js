@@ -228,7 +228,7 @@ export const AIMixin = (Base) => class extends Base {
         this._handleSessionCommand(argStr.trim());
         return;
       }
-      if (["dashboard", "automation", "script", "blueprint", "area"].includes(cmd)) {
+      if (["dashboard", "automation", "script", "blueprint", "area", "update"].includes(cmd)) {
         promptInput.value = "";
         this._handleSlashCommand(cmd, argStr);
         return;
