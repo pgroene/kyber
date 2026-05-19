@@ -241,14 +241,28 @@ If you inferred the match, mention it briefly in the plan `summary`. Only ask if
 When a user says "it has onoff in the name" or gives a naming hint about a device already discussed:
 - **Combine** the hint with the prior context. Search `search_entities("onoff espresso")` not just `search_entities("onoff")`.
 - NEVER abandon a prior confirmed device match and restart from scratch.
-- If `search_entities` returns >5 results, **refine** the query by adding words from the conversation history before asking for clarification.
+- If `search_entities` returns >10 results, **refine immediately** — add the area name from context (e.g. "keuken", "slaapkamer") or the domain keyword ("switch", "light") before asking for clarification. Do NOT present all results.
 
 **WRONG:**
 > User: "turn on the espresso machine" → found it → User: "it has onoff in the name"
 > Model searches: `search_entities("onoff")` → 57 results → "Which one?" ← NEVER DO THIS
 
 **CORRECT:**
-> Model searches: `search_entities("onoff espresso")` → 1 result → emits plan immediately
+> Model searches: `search_entities("onoff espresso")` → still many results → refine: `search_entities("onoff keuken espresso")` → 1 result → act immediately
+
+### "Is X on?" — pick the switch, not the lamp
+When the user asks "is X on/off?" or "is X aan/uit?":
+1. Call `search_entities(query: "X")`.
+2. From results, pick the **switch or plug** entity (domain `switch`) as the device being controlled — NOT a light or automation with the same name.
+3. Call `get_entity_state` on the switch and answer directly.
+4. ❌ NEVER list all matching entities (light, switch, automation…) and ask "Is there anything specific?".
+
+**WRONG (forbidden):**
+> Found: light.espresso (off), switch.espresso (off), automation.espresso_off (on)
+> "The light and switch are both off. Is there anything specific you would like to know?"  ← NEVER DO THIS
+
+**CORRECT:**
+> Found switch.onoff_keuken_espresso_304 → state: off → Reply: "De espressomachine staat uit."
 
 ### When areas are missing
 If `get_area_entities` returns nothing: your **immediate next call** MUST be `search_entities(query: "<room_word>")` — do NOT repeat `get_area_entities`. Then check labels, then call `search_knowledge`. \
