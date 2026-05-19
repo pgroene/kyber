@@ -11,6 +11,13 @@ _YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
 # Bare ## Plan\n{...} blocks emitted by models that skip the backtick fences
 _BARE_PLAN_RE = re.compile(r"^#{1,3}\s*Plan\s*\n(\{[\s\S]*?\n\})\s*(?=\n|$)", re.MULTILINE)
+# [PLAN_BLOCK: {...}] or [PLAN: {...}] format some models emit instead of the fenced block
+_BRACKET_PLAN_RE = re.compile(r"\[PLAN(?:_BLOCK)?\s*:\s*(\{[\s\S]*?\})\]")
+# Matches direct HA service names models sometimes use instead of call_service type
+_HA_DIRECT_SERVICE_RE = re.compile(
+    r'"type"\s*:\s*"(turn_on|turn_off|toggle|set_temperature|'
+    r'media_play|media_pause|media_stop|media_next_track|open_cover|close_cover)"'
+)
 _CLARIFY_BLOCK_RE = re.compile(r"```clarify\s*([\s\S]+?)\s*```", re.IGNORECASE)
 # Matches the start of a tool-call block in any format a model might emit:
 #   [TOOL_CALL: {...}]         standard brackets
@@ -154,12 +161,14 @@ def _extract_yaml_blocks(text: str) -> list[str]:
 def _extract_plan_block(text: str) -> dict | None:
     """Extract the first ```plan``` JSON block from a response string.
 
-    Also handles bare ``## Plan\\n{...}`` blocks that some models emit without
-    backtick fences.
+    Also handles bare ``## Plan\\n{...}`` blocks and ``[PLAN_BLOCK: {...}]``
+    format that some models emit without backtick fences.
     """
     match = _PLAN_BLOCK_RE.search(text)
     if not match:
         match = _BARE_PLAN_RE.search(text)
+    if not match:
+        match = _BRACKET_PLAN_RE.search(text)
     if not match:
         return None
     try:
@@ -196,16 +205,35 @@ _AUTOMATION_EDIT_RE = re.compile(
 
 
 def _normalize_json_plan_blocks(text: str) -> str:
-    """Rewrap ```json blocks that are plan-shaped as ```plan blocks.
+    """Rewrap ```json blocks and [PLAN_BLOCK:...] that are plan-shaped as ```plan blocks.
 
     The AI occasionally emits the plan JSON inside a ```json fence instead of
     a ```plan fence (attempting to "comply" with "do not output a plan block"
     while still using the plan structure).  This makes them invisible to
     _extract_plan_block and bypasses the informational guard.  Convert them here
     so the rest of the pipeline handles them correctly.
+
+    Also normalises direct HA service types (turn_on, turn_off, ...) into the
+    canonical call_service action shape that the rest of the pipeline expects.
     """
     if _PLAN_BLOCK_RE.search(text):
         return text  # already a real plan block
+
+    def _to_call_service(obj: dict) -> dict:
+        """Convert {"type":"turn_on","entity_id":"switch.x"} → call_service shape."""
+        ha_svc = obj.get("type", "")
+        if not _HA_DIRECT_SERVICE_RE.search(f'"type": "{ha_svc}"'):
+            return obj
+        eid = str(obj.get("entity_id", obj.get("target", obj.get("entity", ""))))
+        domain = obj.get("domain", obj.get("name", ""))
+        if not domain and "." in eid:
+            domain = eid.split(".")[0]
+        service = f"{domain}.{ha_svc}" if domain else ha_svc
+        normalized = {"type": "call_service", "service": service, "entity_id": eid}
+        for k, v in obj.items():
+            if k not in ("type", "entity_id", "target", "entity", "domain", "name"):
+                normalized[k] = v
+        return normalized
 
     for m in _JSON_BLOCK_RE.finditer(text):
         body = m.group(1).strip()
@@ -234,6 +262,11 @@ def _normalize_json_plan_blocks(text: str) -> str:
                 obj = {"type": obj.pop("action"), **obj}
             plan = json.dumps({"actions": [obj]}, indent=2)
             return text.replace(m.group(0), f"```plan\n{plan}\n```")
+        # Direct HA service shape: {"type": "turn_on", "entity_id": ...}
+        if isinstance(obj, dict) and _HA_DIRECT_SERVICE_RE.search(body):
+            normalized = _to_call_service(obj)
+            plan = json.dumps({"actions": [normalized]}, indent=2)
+            return text.replace(m.group(0), f"```plan\n{plan}\n```")
         # Multiple adjacent objects (newline-separated, no comma)
         if isinstance(obj, list) and obj and all(_ACTION_TYPE_RE.search(json.dumps(i)) for i in obj if isinstance(i, dict)):
             actions = []
@@ -243,6 +276,46 @@ def _normalize_json_plan_blocks(text: str) -> str:
                 actions.append(item)
             plan = json.dumps({"actions": actions}, indent=2)
             return text.replace(m.group(0), f"```plan\n{plan}\n```")
+
+    # Handle [PLAN_BLOCK: {...}] format
+    for m in _BRACKET_PLAN_RE.finditer(text):
+        try:
+            obj = json.loads(m.group(1))
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if "action" in obj and "type" not in obj:
+            obj = {"type": obj.pop("action"), **obj}
+        # If the name hints at an HA action (e.g. "turn_on_switch"), treat as direct service
+        name_val = str(obj.get("name", ""))
+        if "type" not in obj and re.search(r"turn_on|turn_off|toggle", name_val):
+            # Infer type from name — e.g. name="turn_on_switch" → type="turn_on"
+            for svc_word in ("turn_on", "turn_off", "toggle"):
+                if svc_word in name_val:
+                    obj = {"type": svc_word, **{k: v for k, v in obj.items() if k != "name"}}
+                    break
+        obj_json = json.dumps(obj)
+        if _HA_DIRECT_SERVICE_RE.search(obj_json):
+            # e.g. {"type":"turn_on","name":"switch","entity_id":"0xa..."} → call_service
+            action = _to_call_service(obj)
+        elif obj.get("type") == "call_service" and "service" not in obj:
+            # Model emitted call_service but forgot the service key — infer from entity domain
+            eid = str(obj.get("entity_id", obj.get("target", "")))
+            domain = eid.split(".")[0] if "." in eid else obj.get("domain", obj.get("name", ""))
+            # Use "turn_on" as the safest default — aligns with "I want X" intent
+            inferred_svc = f"{domain}.turn_on" if domain else "turn_on"
+            action = {"type": "call_service", "service": inferred_svc,
+                      "entity_id": eid, **{k: v for k, v in obj.items()
+                                            if k not in ("type", "entity_id", "domain", "name")}}
+        elif "summary" not in obj and "actions" not in obj:
+            action = obj  # wrap bare action as-is
+        else:
+            plan = json.dumps(obj, indent=2)
+            return text.replace(m.group(0), f"```plan\n{plan}\n```")
+        plan = json.dumps({"actions": [action]}, indent=2)
+        return text.replace(m.group(0), f"```plan\n{plan}\n```")
+
     return text
 
 
