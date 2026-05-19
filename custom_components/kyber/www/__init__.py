@@ -418,6 +418,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.data[_DEBUG_MODE_KEY] = debug_enabled
     # Store AI entity ID so the debug status endpoint can display it.
     hass.data["kyber_ai_task_entity"] = config.get(CONF_AI_TASK_ENTITY_ID, "")
+    # Also store the narrator entity (falls back to chat entity if not separately configured).
+    _narrator_eid = str({**entry.data, **(entry.options or {})}.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip()
+    hass.data["kyber_narrator_ai_task_entity"] = _narrator_eid or config.get(CONF_AI_TASK_ENTITY_ID, "")
 
     hass.http.register_view(KyberView(config))
     hass.http.register_view(KyberProgressView())
@@ -470,7 +473,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
             sidebar_icon="mdi:robot",
-            module_url="/local/kyber/kyber-panel.js?v=152",
+            module_url="/local/kyber/kyber-panel.js?v=153",
         )
     except Exception:  # noqa: BLE001
         _LOGGER.debug("Panel registration skipped (test environment)")
@@ -485,7 +488,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
                 webcomponent_name="kyber-panel",
                 sidebar_title="Kyber Debug",
                 sidebar_icon="mdi:bug",
-                module_url="/local/kyber/kyber-panel.js?v=152",
+                module_url="/local/kyber/kyber-panel.js?v=153",
                 config={"mode": "debug"},
             )
         except Exception:  # noqa: BLE001

@@ -783,10 +783,6 @@ async def _run_ai_loop(
         "Kyber: AI pre-flight — entity=%s state=%s model=%s",
         entity_id, _entity_state_str, _model_name,
     )
-    _progress_emit(hass, request_id, {
-        "type": "info",
-        "message": f"Model: {_model_name} (entity state: {_entity_state_str})",
-    })
 
     # Warn immediately if the entity is unavailable
     if _entity_state_str in ("unavailable", "unknown", "not_found"):
@@ -814,13 +810,6 @@ async def _run_ai_loop(
             "Kyber: Ollama reachable — %d model(s) loaded: %s",
             len(_running), ", ".join(_model_names) or "none",
         )
-        _progress_emit(hass, request_id, {
-            "type": "info",
-            "message": (
-                f"Ollama: {len(_running)} model(s) active"
-                + (f" ({', '.join(_model_names)})" if _model_names else "")
-            ),
-        })
     # ─────────────────────────────────────────────────────────────────────────
 
     # Determine the actual context window for this AI entity (reads num_ctx / context_length
@@ -918,9 +907,9 @@ async def _run_ai_loop(
         )
         _resp_tokens_est = len(response_text) // 4
         _LOGGER.info(
-            "Kyber: AI call OK — entity=%s round=%d elapsed=%dms "
+            "Kyber: AI call OK — entity=%s model=%s round=%d elapsed=%dms "
             "prompt_tokens~%d resp_tokens~%d total_tokens~%d",
-            entity_id, _round + 1, _elapsed_ms,
+            entity_id, _model_name, _round + 1, _elapsed_ms,
             _prompt_tokens_est, _resp_tokens_est, _prompt_tokens_est + _resp_tokens_est,
         )
         _progress_emit(hass, request_id, {

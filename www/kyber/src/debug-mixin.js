@@ -27,6 +27,8 @@ export const DebugMixin = (Base) => class extends Base {
         await this._renderDebugLastTurn(body);
       } else if (tab === "status") {
         await this._renderDebugStatus(body);
+      } else if (tab === "logs") {
+        await this._renderDebugLogs(body);
       } else if (tab === "tests") {
         await this._renderDebugTests(body);
       }
@@ -432,6 +434,9 @@ export const DebugMixin = (Base) => class extends Base {
     const lt = data.last_turn;
     const ep = data.explorer_progress || {};
     const ns = data.narrator_stats || {};
+    const st = data.storage || {};
+    const res = data.resources || {};
+
     const catRows = Object.entries(k.by_category || {}).map(([cat, n]) =>
       `<tr><td><code>${this._escapeHtml(cat)}</code></td><td>${n}</td></tr>`,
     ).join("");
@@ -461,13 +466,45 @@ export const DebugMixin = (Base) => class extends Base {
       ? `${nsAccepted} accepted (${nsPct}%) · ${ns.rejected ?? 0} fallback · ${ns.errors ?? 0} errors`
       : "Not yet run";
 
+    // Helpers for storage/resource display
+    const fmtBytes = (b) => {
+      if (b == null) return "—";
+      if (b < 1024) return `${b} B`;
+      if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+      return `${(b / (1024 * 1024)).toFixed(2)} MB`;
+    };
+    const fmtBuf = (n, max) => `${n} / ${max} (${max > 0 ? Math.round((n / max) * 100) : 0}%)`;
+
     body.innerHTML = `
       <h3>Runtime</h3>
       <table class="dbg-kv">
         <tr><th>AI Task entity</th><td><code>${this._escapeHtml(data.ai_task_entity || "—")}</code></td></tr>
+        ${(data.ai_task_info && data.ai_task_info.friendly_name && data.ai_task_info.friendly_name !== data.ai_task_entity) ? `<tr><th>Display name</th><td>${this._escapeHtml(data.ai_task_info.friendly_name)}</td></tr>` : ""}
+        ${data.ai_task_info && data.ai_task_info.model ? `<tr><th>Model</th><td><code>${this._escapeHtml(data.ai_task_info.model)}</code></td></tr>` : ""}
+        ${data.ai_task_info && data.ai_task_info.server ? `<tr><th>Server</th><td><code>${this._escapeHtml(data.ai_task_info.server)}</code></td></tr>` : ""}
         <tr><th>Autopilot</th><td>${this._autopilot ? "ON ⚡" : "OFF"}</td></tr>
         <tr><th>Session</th><td>${this._escapeHtml(this._sessionName || "—")}</td></tr>
         <tr><th>Tool history size</th><td>${data.tool_history_size}</td></tr>
+      </table>
+      <h3>Storage</h3>
+      <table class="dbg-kv">
+        ${st.total_bytes != null ? `<tr><th>Total (Kyber data)</th><td><strong>${fmtBytes(st.total_bytes)}</strong></td></tr>` : ""}
+        ${Object.entries(st.files || {}).sort((a,b) => (b[1]||0)-(a[1]||0)).map(([name, size]) =>
+          `<tr><td style="padding-left:1.2em"><code>${this._escapeHtml(name)}</code></td><td>${fmtBytes(size)}</td></tr>`
+        ).join("")}
+        ${st.total_bytes == null ? `
+          <tr><th>Knowledge store</th><td>${fmtBytes(st.knowledge_file_bytes)}</td></tr>
+          <tr><th>Chat history</th><td>${fmtBytes(st.chat_history_file_bytes)}</td></tr>
+        ` : ""}
+        ${st.component_bytes != null ? `<tr><th>Component (code)</th><td>${fmtBytes(st.component_bytes)}</td></tr>` : ""}
+      </table>
+      <h3>Resources (in-memory)</h3>
+      <table class="dbg-kv">
+        ${res.process_rss_bytes != null ? `<tr><th>Process RSS</th><td>${fmtBytes(res.process_rss_bytes)}</td></tr>` : ""}
+        <tr><th>Debug snapshots</th><td>${fmtBuf(res.snapshots_buffered ?? 0, res.snapshots_max ?? 50)}</td></tr>
+        <tr><th>Global log buffer</th><td>${fmtBuf(res.global_log_entries ?? 0, res.global_log_max ?? 2000)}</td></tr>
+        <tr><th>TF-IDF index terms</th><td>${(res.tfidf_terms ?? 0).toLocaleString()}</td></tr>
+        <tr><th>Knowledge vectors</th><td>${(res.knowledge_vectors ?? 0).toLocaleString()}</td></tr>
       </table>
       <h3>Knowledge store</h3>
       <table class="dbg-kv">
@@ -486,6 +523,10 @@ export const DebugMixin = (Base) => class extends Base {
       ${epStatus === "narrator" ? narratorProgressBar : ""}
       <h3>AI Narrator</h3>
       <table class="dbg-kv">
+        ${data.narrator_ai_task_entity ? `<tr><th>AI Task entity</th><td><code>${this._escapeHtml(data.narrator_ai_task_entity)}</code></td></tr>` : ""}
+        ${(data.narrator_ai_task_info && data.narrator_ai_task_info.friendly_name && data.narrator_ai_task_info.friendly_name !== data.narrator_ai_task_entity) ? `<tr><th>Display name</th><td>${this._escapeHtml(data.narrator_ai_task_info.friendly_name)}</td></tr>` : ""}
+        ${data.narrator_ai_task_info && data.narrator_ai_task_info.model ? `<tr><th>Model</th><td><code>${this._escapeHtml(data.narrator_ai_task_info.model)}</code></td></tr>` : ""}
+        ${data.narrator_ai_task_info && data.narrator_ai_task_info.server ? `<tr><th>Server</th><td><code>${this._escapeHtml(data.narrator_ai_task_info.server)}</code></td></tr>` : ""}
         <tr><th>Status</th><td>${this._escapeHtml(nsLabel)}</td></tr>
         ${ns.last_run ? `<tr><th>Last run</th><td>${this._escapeHtml(ns.last_run)}</td></tr>` : ""}
         ${nsTotal > 0 ? `
@@ -503,6 +544,15 @@ export const DebugMixin = (Base) => class extends Base {
           <tr><th>Intent</th><td><code>${this._escapeHtml(lt.intent || "—")}</code></td></tr>
           <tr><th>Prompt size</th><td>${lt.char_count?.toLocaleString() ?? "?"} chars (~${lt.approx_tokens?.toLocaleString() ?? "?"} tokens)</td></tr>
         </table>
+        ${lt.request_id ? `
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+          <button id="dbg-download-bundle" style="font-size:0.9em;padding:6px 14px">
+            📦 Download debug bundle
+          </button>
+          <button id="dbg-open-bug-report" style="font-size:0.9em;padding:6px 14px">
+            🐛 Bug report
+          </button>
+        </div>` : ""}
       ` : "<em>No turn captured yet.</em>"}
       <h3>Export for Eval</h3>
       <p style="margin:4px 0 8px;font-size:0.88em;color:var(--secondary-text-color)">
@@ -529,15 +579,109 @@ export const DebugMixin = (Base) => class extends Base {
       memBtn.addEventListener("click", () => this._downloadMemoryExport(memBtn));
     }
 
+    // Wire last-turn debug bundle download + bug report
+    const ltReqId = data.last_turn?.request_id;
+    if (ltReqId) {
+      const dlBtn = body.querySelector("#dbg-download-bundle");
+      if (dlBtn) dlBtn.addEventListener("click", () => this._downloadDebugBundle(ltReqId, dlBtn));
+      const brBtn = body.querySelector("#dbg-open-bug-report");
+      if (brBtn) brBtn.addEventListener("click", () => this._openBugReportFlow(ltReqId, brBtn));
+    }
+
     // Auto-refresh while explorer or narrator is running
     if (epRunning) {
       if (!this._explorerStatusTimer) {
-        this._explorerStatusTimer = setInterval(() => this._renderDebugStatus(body), 3000);
+        this._explorerStatusTimer = setInterval(() => {
+          const liveBody = this.shadowRoot?.getElementById("debug-body");
+          if (liveBody) this._renderDebugStatus(liveBody);
+        }, 3000);
       }
     } else if (this._explorerStatusTimer) {
       clearInterval(this._explorerStatusTimer);
       this._explorerStatusTimer = null;
     }
+  }
+
+  async _renderDebugLogs(body) {
+    const token = this._hass.auth.data.access_token;
+    const level = body.querySelector("#dbg-log-level")?.value || "";
+    const url = `/api/kyber/debug/logs${level ? `?level=${level}` : ""}`;
+    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!resp.ok) {
+      body.innerHTML = `<em style="color:var(--error-color)">Debug logs endpoint not available (HTTP ${resp.status}). Try reloading the Kyber integration or restarting Home Assistant.</em>`;
+      return;
+    }
+    const data = await resp.json();
+    const logs = data.logs || [];
+
+    const LEVEL_COLOR = {
+      DEBUG: "var(--secondary-text-color)",
+      INFO: "var(--info-color, #2196F3)",
+      WARNING: "var(--warning-color, #FF9800)",
+      ERROR: "var(--error-color, #F44336)",
+      CRITICAL: "var(--error-color, #F44336)",
+    };
+
+    const rows = logs.slice().reverse().map((r) => {
+      const ts = r.ts ? new Date(r.ts * 1000).toLocaleTimeString("nl", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+      const color = LEVEL_COLOR[r.level] || "inherit";
+      const logger = this._escapeHtml((r.logger || "").replace("custom_components.kyber.", "kyber."));
+      const msg = this._escapeHtml(r.message || "");
+      return `<tr>
+        <td style="white-space:nowrap;color:var(--secondary-text-color);font-size:0.82em">${ts}</td>
+        <td style="white-space:nowrap;font-weight:600;color:${color};font-size:0.82em">${this._escapeHtml(r.level || "")}</td>
+        <td style="white-space:nowrap;color:var(--secondary-text-color);font-size:0.78em">${logger}</td>
+        <td style="font-size:0.85em;word-break:break-word">${msg}</td>
+      </tr>`;
+    }).join("");
+
+    body.innerHTML = `
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <select id="dbg-log-level" style="font-size:0.88em;padding:4px 8px">
+          <option value=""${!level ? " selected" : ""}>All levels</option>
+          <option value="INFO"${level === "INFO" ? " selected" : ""}>INFO+</option>
+          <option value="WARNING"${level === "WARNING" ? " selected" : ""}>WARNING+</option>
+          <option value="ERROR"${level === "ERROR" ? " selected" : ""}>ERROR+</option>
+        </select>
+        <button id="dbg-log-refresh" style="font-size:0.88em;padding:4px 10px">🔄 Refresh</button>
+        <button id="dbg-log-download" style="font-size:0.88em;padding:4px 10px">📥 Download</button>
+        <button id="dbg-log-clear" style="font-size:0.88em;padding:4px 10px;color:var(--error-color)">🗑 Clear</button>
+        <span style="font-size:0.82em;color:var(--secondary-text-color)">${logs.length} records</span>
+      </div>
+      ${logs.length > 0 ? `
+      <div style="overflow-x:auto;max-height:60vh">
+        <table style="width:100%;border-collapse:collapse;font-family:monospace" id="dbg-log-table">
+          <thead><tr style="font-size:0.78em;color:var(--secondary-text-color);border-bottom:1px solid var(--divider-color)">
+            <th style="text-align:left;padding:2px 8px 4px 0">Time</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">Level</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">Logger</th>
+            <th style="text-align:left;padding:2px 0 4px 0">Message</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>` : `<em style="color:var(--secondary-text-color)">No logs yet. Kyber logs are captured once debug mode is enabled and a first request is made.</em>`}
+    `;
+
+    body.querySelector("#dbg-log-refresh")?.addEventListener("click", () => this._renderDebugLogs(body));
+    body.querySelector("#dbg-log-clear")?.addEventListener("click", async () => {
+      const t = this._hass.auth.data.access_token;
+      await fetch("/api/kyber/debug/logs", { method: "DELETE", headers: { Authorization: `Bearer ${t}` } });
+      this._renderDebugLogs(body);
+    });
+    body.querySelector("#dbg-log-download")?.addEventListener("click", async () => {
+      const t = this._hass.auth.data.access_token;
+      const lv = body.querySelector("#dbg-log-level")?.value || "";
+      const dlUrl = `/api/kyber/debug/logs?format=txt${lv ? `&level=${lv}` : ""}`;
+      const r = await fetch(dlUrl, { headers: { Authorization: `Bearer ${t}` } });
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "kyber-logs.txt";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+    body.querySelector("#dbg-log-level")?.addEventListener("change", () => this._renderDebugLogs(body));
   }
 
   async _downloadHomeState(btn) {

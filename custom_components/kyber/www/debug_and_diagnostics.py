@@ -255,6 +255,20 @@ class KyberDebugStatusView(HomeAssistantView):
             total_hits += int(e.get("hits", 0) or 0)
         snap = hass.data.get(_DEBUG_LAST_TURN_KEY)
         ai_task_entity = str(hass.data.get("kyber_ai_task_entity", ""))
+        narrator_ai_task_entity = str(hass.data.get("kyber_narrator_ai_task_entity", ""))
+
+        def _entity_info(entity_id: str) -> dict:
+            """Return display name, model, and server URL for an ai_task entity."""
+            if not entity_id:
+                return {}
+            state = hass.states.get(entity_id)
+            if not state:
+                return {"entity_id": entity_id}
+            attrs = dict(state.attributes)
+            model = attrs.get("model_id") or attrs.get("model") or attrs.get("model_name") or ""
+            server = attrs.get("url") or attrs.get("base_url") or attrs.get("host") or ""
+            friendly = attrs.get("friendly_name") or entity_id
+            return {"entity_id": entity_id, "friendly_name": friendly, "model": model, "server": server}
 
         # -- Storage (on-disk) --
         def _fsize(path: str) -> int | None:
@@ -316,6 +330,9 @@ class KyberDebugStatusView(HomeAssistantView):
 
         return self.json({
             "ai_task_entity": ai_task_entity,
+            "ai_task_info": _entity_info(ai_task_entity),
+            "narrator_ai_task_entity": narrator_ai_task_entity,
+            "narrator_ai_task_info": _entity_info(narrator_ai_task_entity),
             "knowledge": {
                 "total": len(all_entries),
                 "by_category": cat_counts,

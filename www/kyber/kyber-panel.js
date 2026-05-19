@@ -32,16 +32,16 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=87";
+import { STYLES } from "./src/styles.js?v=97";
 
-import { UtilsMixin } from "./src/utils-mixin.js?v=87";
+import { UtilsMixin } from "./src/utils-mixin.js?v=97";
 import { SessionMixin } from "./src/session-mixin.js?v=87";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=87";
-import { DebugMixin } from "./src/debug-mixin.js?v=90";
-import { SlashMixin } from "./src/slash-commands-mixin.js?v=87";
+import { DebugMixin } from "./src/debug-mixin.js?v=93";
+import { SlashMixin } from "./src/slash-commands-mixin.js?v=93";
 import { EditorMixin } from "./src/editor-mixin.js?v=87";
-import { AIMixin } from "./src/ai-mixin.js?v=88";
-import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=87";
+import { AIMixin } from "./src/ai-mixin.js?v=93";
+import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=88";
 
 // ---------------------------------------------------------------------------
 // Custom Element
@@ -90,6 +90,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       if (!wasAuthed && hass?.auth?.data?.access_token) {
         this._loadMemoryCount();
       }
+      this._checkUpdateBadge();
     }
   }
 
@@ -154,9 +155,10 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <span>Kyber Assistant</span>
             <span class="session-label" id="session-indicator"></span>
             <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
+            <span class="narrator-progress" id="narrator-progress" hidden title="AI narrator is building entity descriptions in the background"></span>
             <button class="memory-badge" id="memory-badge" title="Memory facts — click to preview recalled facts">🧠 <span id="memory-count">…</span></button>
+            <button class="update-badge" id="update-badge" hidden title="Update available — click to install">⬆️ <span id="update-badge-label">Update</span></button>
             <button class="autopilot-badge" id="autopilot-badge" title="Toggle autopilot — auto-executes safe proposals">⚡ Autopilot</button>
-            <span class="narrator-progress" id="narrator-progress" hidden title="AI narrator: Narry is exploring your home in the background"></span>
             <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
             <button class="btn-debug" id="btn-debug" title="Open debug / memory inspector">🐞</button>
           </div>
@@ -177,6 +179,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
               <button class="debug-tab active" data-debug-tab="memory">🧠 Memory</button>
               <button class="debug-tab" data-debug-tab="last_turn">📥 Last turn</button>
               <button class="debug-tab" data-debug-tab="status">⚙️ Status</button>
+              <button class="debug-tab" data-debug-tab="logs">📋 Logs</button>
               <button class="debug-tab" data-debug-tab="tests">🧪 Tests</button>
             </nav>
             <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">↻</button>
@@ -242,7 +245,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     }
     // Start explorer banner polling in chat mode
     if (this._mode !== "debug") {
-      this._startExplorerBannerPolling();
+      this._startStatusPolling();
     }
   }
 
@@ -298,6 +301,45 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
           : "Autopilot is now OFF — you'll review proposals before executing.",
         "assistant",
       );
+    });
+    shadow.getElementById("update-badge").addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      // Remove any existing popover
+      const existing = this.shadowRoot.getElementById("update-badge-popover");
+      if (existing) { existing.remove(); return; }
+
+      const badge = shadow.getElementById("update-badge");
+      const installed = badge.dataset.installed || "";
+      const latest    = badge.dataset.latest    || "";
+
+      const pop = document.createElement("div");
+      pop.id = "update-badge-popover";
+      pop.innerHTML = `
+        <div class="ubp-title">Kyber update${installed && latest ? `: v${installed} → v${latest}` : ""}</div>
+        <button class="ubp-btn" id="ubp-update">⬆️ Update</button>
+        <button class="ubp-btn ubp-restart" id="ubp-update-restart">⬆️ Update &amp; Restart</button>
+      `;
+      // Position below the badge
+      const rect = badge.getBoundingClientRect();
+      const panelRect = this.getBoundingClientRect();
+      pop.style.top  = (rect.bottom - panelRect.top + 6) + "px";
+      pop.style.left = (rect.left   - panelRect.left)    + "px";
+      this.shadowRoot.appendChild(pop);
+
+      pop.querySelector("#ubp-update").addEventListener("click", (e) => {
+        e.stopPropagation(); pop.remove();
+        this._handleSlashCommand("update", "");
+      });
+      pop.querySelector("#ubp-update-restart").addEventListener("click", (e) => {
+        e.stopPropagation(); pop.remove();
+        this._handleSlashCommand("update", "restart");
+      });
+
+      // Close on outside click
+      const _close = (e) => {
+        if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener("click", _close, true); }
+      };
+      document.addEventListener("click", _close, true);
     });
     shadow.getElementById("btn-memory-view-all").addEventListener("click", () => {
       this._closeMemoryPopover();
