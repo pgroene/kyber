@@ -514,6 +514,7 @@ export const SlashMixin = (Base) => class extends Base {
 
     if (!hasUpdate) {
       this._showMsg(`✅ Kyber is already up-to-date (v${installedVer}).`);
+      this._checkUpdateBadge();   // hide stale badge immediately
       return;
     }
 
@@ -532,6 +533,7 @@ export const SlashMixin = (Base) => class extends Base {
           await this._hass.callService("update", "install", { entity_id: entityId });
           btn.textContent = `✅ Kyber v${latestVer} installed`;
           this._appendMessage(`✅ Kyber updated to **v${latestVer}**${releaseUrl ? ` — [release notes](${releaseUrl})` : ""}.${withRestart ? "\n⏳ Restarting Home Assistant…" : ""}`, "assistant");
+          this._checkUpdateBadge();   // hide badge after successful install
           if (withRestart) {
             await new Promise((r) => setTimeout(r, 1500));
             await this._hass.callService("homeassistant", "restart", {});
