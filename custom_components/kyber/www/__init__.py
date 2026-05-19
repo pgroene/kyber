@@ -28,6 +28,7 @@ from .analyzer import analyze_automations as _analyze_automations
 from . import deep_analyzer as _deep
 from .knowledge import get_knowledge_store
 from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView
+from .debug_and_diagnostics import KyberHomeExportView
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -388,6 +389,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberDebugBundleView())
     hass.http.register_view(KyberBugReportView())
     hass.http.register_view(KyberDebugModeView())
+    hass.http.register_view(KyberHomeExportView())
     hass.http.register_view(KyberPromptTestsView())
     hass.http.register_view(KyberPromptTestsRunView())
     hass.http.register_view(KyberPromptTestsCaptureView())
@@ -406,7 +408,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
             sidebar_icon="mdi:robot",
-            module_url="/local/kyber/kyber-panel.js?v=113",
+            module_url="/local/kyber/kyber-panel.js?v=114",
         )
     except Exception:  # noqa: BLE001
         _LOGGER.debug("Panel registration skipped (test environment)")
@@ -421,7 +423,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
                 webcomponent_name="kyber-panel",
                 sidebar_title="Kyber Debug",
                 sidebar_icon="mdi:bug",
-                module_url="/local/kyber/kyber-panel.js?v=113",
+                module_url="/local/kyber/kyber-panel.js?v=114",
                 config={"mode": "debug"},
             )
         except Exception:  # noqa: BLE001
