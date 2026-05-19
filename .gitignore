@@ -23,3 +23,11 @@ www/kyber/test-results/
 
 # HA persistent state (dev volume)
 ha-config/
+
+# Eval test data — real home exports, NEVER commit
+# Download via Kyber debug panel → Export for Eval
+scripts/data/
+kyber-home-state-*.json
+kyber-memory-*.json
+tests/prompt_regression/cases/*/home_state.json
+tests/prompt_regression/cases/*/memory_export.json

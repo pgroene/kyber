@@ -85,16 +85,22 @@ _KNOWLEDGE_FACTS: dict[str, list[str]] = {
     "werkamer":     ["light.0x001788010416871a is the werkamer bureaulamp — use get_area_entities(area='werkamer', domain='light') to find it reliably"],
     "keuken":       ["switch.koffiezetapparaat is the coffee machine in keuken", "light.keuken_spots and light.keuken_aanrecht are the kitchen lights"],
     "woonkamer":    ["media_player.woonkamer_tv is the main TV in woonkamer", "climate.woonkamer controls the central heating"],
-    "peter":        ["Peter is currently home — person.peter state is 'home'"],
+    "peter":        ["Peter is currently home — person.peter state is 'home'",
+                     "binary_sensor.presence_werkkamer_304_presence = on means Peter is in the werkkamer (occupancy sensor)"],
     "lisa":         ["Lisa is not home — person.lisa state is 'not_home'"],
     "buiten":       ["sensor.outside_temp is the outdoor temperature sensor (currently reading 14.2 °C)"],
     "verwarming":   ["climate.woonkamer controls the heating. Use climate.set_temperature with temperature param."],
-    "koffie":       ["switch.koffiezetapparaat is the coffee machine — use switch.turn_off to stop it"],
+    "koffie":       ["switch.0xa4c138d5f4f912f2 (onoff_keuken_espresso_304) is the espresso machine power switch in keuken — use switch.turn_on to start it",
+                     "switch.onoff_keuken_lamp_espresso_307 is the LAMP near the espresso machine, NOT the machine itself"],
+    "espresso":     ["switch.0xa4c138d5f4f912f2 (onoff_keuken_espresso_304) is the espresso machine power switch — use switch.turn_on",
+                     "input_text.ai_espresso_is_on is a STATUS display, cannot be controlled"],
     "televisie":    ["media_player.woonkamer_tv is the living-room TV — use media_player.turn_off"],
     "tv":           ["media_player.woonkamer_tv entity controls the living-room television"],
     "lichten":      ["Use get_area_entities(area=<area_id>, domain='light') to list lights in a room — never guess entity IDs"],
     "lampen":       ["Use get_area_entities(area=<area_id>, domain='light') to discover lights — never guess entity IDs"],
     "automatisering": ["To create automations use a plan block with type 'create_automation' and an 'automation' sub-object"],
+    "waar":         ["Peter is currently home — person.peter state is 'home'",
+                     "binary_sensor.presence_werkkamer_304_presence = on — Peter is in the werkkamer"],
 }
 
 
@@ -105,6 +111,7 @@ SIM_AREAS = [
     {"area_id": "keuken",         "name": "Keuken"},
     {"area_id": "slaapkamer_peter","name": "Slaapkamer Peter"},
     {"area_id": "werkamer",       "name": "Werkamer"},
+    {"area_id": "werkkamer",      "name": "Werkkamer"},
     {"area_id": "woonkamer",      "name": "Woonkamer"},
 ]
 
@@ -120,6 +127,11 @@ SIM_ENTITIES: dict[str, dict] = {
     "sensor.woonkamer_temp":        {"state": "20.1", "attributes": {"friendly_name": "Woonkamer temperatuur", "unit_of_measurement": "°C"}, "area_id": "woonkamer", "domain": "sensor"},
     "media_player.woonkamer_tv":    {"state": "playing", "attributes": {"friendly_name": "Woonkamer TV", "source": "Netflix"}, "area_id": "woonkamer", "domain": "media_player"},
     "switch.koffiezetapparaat":     {"state": "on",  "attributes": {"friendly_name": "Koffiezetapparaat"},                "area_id": "keuken",    "domain": "switch"},
+    "switch.0xa4c138d5f4f912f2":        {"state": "off", "attributes": {"friendly_name": "onoff_keuken_espresso_304"}, "area_id": "keuken", "domain": "switch"},
+    "switch.onoff_keuken_lamp_espresso_307": {"state": "off", "attributes": {"friendly_name": "onoff_keuken_lamp_espresso_307"}, "area_id": "keuken", "domain": "switch"},
+    "input_text.ai_espresso_is_on":     {"state": "Off",  "attributes": {"friendly_name": "Espresso Machine On"}, "domain": "input_text"},
+    "input_text.ai_espresso_preheating_is_on": {"state": "Off", "attributes": {"friendly_name": "Espresso Machine Preheating"}, "domain": "input_text"},
+    "binary_sensor.presence_werkkamer_304_presence": {"state": "on", "attributes": {"friendly_name": "presence_werkkamer_304 Occupancy", "device_class": "occupancy"}, "area_id": "werkkamer", "domain": "binary_sensor"},
     "person.peter":                 {"state": "home",      "attributes": {"friendly_name": "Peter"}, "domain": "person"},
     "person.lisa":                  {"state": "not_home",  "attributes": {"friendly_name": "Lisa"},  "domain": "person"},
 }
@@ -317,6 +329,38 @@ TEST_SCENARIOS: list[dict] = [
         "expect_type": "action",
         "checks": [
             ("plan_exists",),
+        ],
+    },
+    # ── Real-home scenarios (from kyber-home-state export) ──────────────────
+    {
+        "id": "waar_is_peter",
+        "user": "Waar is Peter?",
+        "description": "Location query — person.peter=home, respond in Dutch, no plan needed",
+        "expect_type": "chat",
+        "checks": [
+            ("no_plan",),
+            ("state_read", "person.peter"),
+            ("response_contains_one_of", ["thuis", "home", "aanwezig"]),
+        ],
+    },
+    {
+        "id": "peter_in_werkkamer",
+        "user": "Waar is Peter precies?",
+        "description": "Room-level location — binary_sensor.presence_werkkamer_304_presence=on means Peter is in werkkamer",
+        "expect_type": "chat",
+        "checks": [
+            ("no_plan",),
+            ("response_contains", "werkkamer"),
+        ],
+    },
+    {
+        "id": "koffie_espresso",
+        "user": "Ik wil koffie",
+        "description": "Turn on espresso machine: switch.0xa4c138d5f4f912f2 (onoff_keuken_espresso_304). NOT the lamp or status input_texts.",
+        "expect_type": "action",
+        "checks": [
+            ("plan_service", "switch.turn_on"),
+            ("plan_contains_value", "0xa4c138d5f4f912f2"),
         ],
     },
 ]
