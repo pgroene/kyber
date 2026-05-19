@@ -460,28 +460,43 @@ class KnowledgeStore:
                 out.append(entry)
         return out
 
-    async def async_pick_relevant(self, prompt: str, *, max_entries: int = 8) -> list[dict[str, Any]]:
+    async def async_pick_relevant(self, prompt: str, *, max_entries: int = 8, extra_queries: list[str] | None = None) -> list[dict[str, Any]]:
         """Pick entries relevant to a free-form prompt for context injection.
 
         Hybrid scoring: TF-IDF cosine similarity (semantic) + keyword overlap
         (legacy). Each entry gets a unified `_score` field used downstream
         (UI + debug snapshot). High-confidence area aliases are always kept
         as a safety net even when scores are low.
+
+        extra_queries: additional search terms (e.g. from LLM query expansion)
+        that are searched and merged alongside the main prompt. Allows
+        cross-lingual and synonym matching ("koffie" → finds espresso entries).
         """
         await self.async_load()
-        semantic = await self.async_semantic_search(prompt, limit=max_entries * 2)
-        keyword = await self.async_search(prompt, limit=max_entries * 2)
+        all_queries = [prompt] + [q for q in (extra_queries or []) if q and q != prompt]
         merged: dict[str, dict[str, Any]] = {}
-        for e in semantic:
-            merged[e["id"]] = {**e, "_score": float(e.get("_score", 0.0)), "_source": "semantic"}
-        for e in keyword:
-            existing = merged.get(e["id"])
-            kw_score = 0.3  # legacy search doesn't expose a normalized score; treat as moderate
-            if existing:
-                existing["_score"] = max(existing["_score"], kw_score) + 0.05  # bonus when both hit
-                existing["_source"] = "hybrid"
-            else:
-                merged[e["id"]] = {**e, "_score": kw_score, "_source": "keyword"}
+
+        for q in all_queries:
+            semantic = await self.async_semantic_search(q, limit=max_entries * 2)
+            keyword = await self.async_search(q, limit=max_entries * 2)
+            for e in semantic:
+                score = float(e.get("_score", 0.0))
+                existing = merged.get(e["id"])
+                if existing:
+                    if score > existing["_score"]:
+                        existing["_score"] = score
+                    existing["_source"] = "expanded"
+                else:
+                    merged[e["id"]] = {**e, "_score": score, "_source": "semantic"}
+            for e in keyword:
+                kw_score = 0.3
+                existing = merged.get(e["id"])
+                if existing:
+                    existing["_score"] = max(existing["_score"], kw_score) + 0.05
+                    existing["_source"] = "expanded"
+                else:
+                    merged[e["id"]] = {**e, "_score": kw_score, "_source": "keyword"}
+
         ranked = sorted(merged.values(), key=lambda x: x["_score"], reverse=True)
         if ranked[:max_entries]:
             return ranked[:max_entries]

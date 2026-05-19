@@ -493,15 +493,71 @@ def _build_prompt_sections(body_fields: dict, context: str, request: "web.Reques
     }
 
 
+async def _expand_search_query(hass: Any, entity_id: str, user_prompt: str) -> list[str]:
+    """Ask the LLM to expand a user query into synonyms/related terms for better knowledge retrieval.
+
+    Examples: "koffie" → ["koffie","coffee","espresso","nespresso","koffiezetapparaat"]
+              "licht woonkamer" → ["licht","light","woonkamer","living room","lamp"]
+
+    Returns [] on any failure so callers always get a safe result.
+    """
+    if not user_prompt or not entity_id:
+        return []
+    try:
+        expansion_prompt = (
+            "You are a smart home entity search assistant.\n"
+            "Expand the following user query into 5-8 related lowercase search terms "
+            "for home automation knowledge retrieval. Include Dutch↔English synonyms, "
+            "device names, room names, and brand names.\n"
+            "Return ONLY a JSON array of strings, no explanation.\n\n"
+            f'Query: "{user_prompt}"\n\n'
+            "Examples:\n"
+            '- "koffie" → ["koffie","coffee","espresso","nespresso","koffiezetapparaat","cappuccino"]\n'
+            '- "licht woonkamer" → ["licht","light","woonkamer","living room","lamp","verlichting"]\n'
+            '- "tv" → ["tv","television","televisie","media_player","samsung","shield"]\n'
+        )
+        result = await async_generate_data(
+            hass,
+            task_name=f"{DOMAIN}_expand",
+            entity_id=entity_id,
+            instructions=expansion_prompt,
+        )
+        raw = result.data if isinstance(result.data, str) else ""
+        if "<think>" in raw:
+            raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+        m = re.search(r"\[.*?\]", raw, re.DOTALL)
+        if m:
+            terms = json.loads(m.group())
+            expanded = [str(t).lower().strip() for t in terms if isinstance(t, str) and t.strip()]
+            _LOGGER.debug("Kyber: query expansion '%s' → %s", user_prompt[:60], expanded)
+            return expanded
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("Kyber: query expansion skipped: %s", err)
+    return []
+
+
 async def _inject_knowledge_into_instructions(
-    hass: Any, kstore: Any, user_prompt: str, instructions: str, request_id: str
+    hass: Any, kstore: Any, user_prompt: str, instructions: str, request_id: str,
+    entity_id: str = "",
 ) -> "tuple[str, list]":
     """Load relevant knowledge and language hints; inject them into the instructions.
 
     Returns (updated_instructions, relevant_knowledge).
     """
+    # Expand the query into synonyms/related terms for better cross-lingual matching.
+    # "koffie" → ["koffie","coffee","espresso","nespresso",...] so entity notes for the
+    # espresso machine surface even though the user typed a different word.
+    extra_queries: list[str] = []
+    if entity_id:
+        try:
+            extra_queries = await _expand_search_query(hass, entity_id, user_prompt)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Kyber: query expansion failed: %s", err)
+
     try:
-        relevant_knowledge = await kstore.async_pick_relevant(user_prompt, max_entries=8)
+        relevant_knowledge = await kstore.async_pick_relevant(
+            user_prompt, max_entries=8, extra_queries=extra_queries
+        )
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Kyber: knowledge lookup failed: %s", err)
         relevant_knowledge = []
@@ -1322,7 +1378,7 @@ class KyberView(HomeAssistantView):
         kstore = get_knowledge_store(hass)
         await kstore.async_load()
         instructions, relevant_knowledge = await _inject_knowledge_into_instructions(
-            hass, kstore, user_prompt, instructions, request_id
+            hass, kstore, user_prompt, instructions, request_id, entity_id=entity_id
         )
 
         _progress_emit(hass, request_id, {"type": "info", "message": f"Built context: {context_stats.get('entity_count', 0)} entities, {context_stats.get('area_count', 0)} areas"})
