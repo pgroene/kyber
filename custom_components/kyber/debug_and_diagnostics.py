@@ -263,9 +263,41 @@ class KyberDebugStatusView(HomeAssistantView):
             except OSError:
                 return None
 
+        def _dirsize(path: str) -> int | None:
+            try:
+                total = 0
+                for dirpath, _dirnames, filenames in _os.walk(path):
+                    for fname in filenames:
+                        try:
+                            total += _os.path.getsize(_os.path.join(dirpath, fname))
+                        except OSError:
+                            pass
+                return total
+            except OSError:
+                return None
+
         storage_dir = hass.config.path(".storage")
         knowledge_bytes = _fsize(_os.path.join(storage_dir, "kyber.knowledge"))
         chat_bytes = _fsize(_os.path.join(storage_dir, "kyber_chat_history"))
+
+        # Scan all kyber* files in .storage/ for a complete picture
+        storage_files: dict[str, int] = {}
+        try:
+            for _fname in _os.listdir(storage_dir):
+                if _fname.startswith("kyber"):
+                    _fpath = _os.path.join(storage_dir, _fname)
+                    if _os.path.isfile(_fpath):
+                        try:
+                            storage_files[_fname] = _os.path.getsize(_fpath)
+                        except OSError:
+                            pass
+        except OSError:
+            pass
+        storage_total_bytes = sum(storage_files.values()) if storage_files else None
+
+        # Component directory (Python code + www assets)
+        component_dir = hass.config.path("custom_components", "kyber")
+        component_bytes = _dirsize(component_dir)
 
         # -- In-memory resources --
         snapshots = hass.data.get(_DEBUG_SNAPSHOTS_KEY) or {}
@@ -304,6 +336,9 @@ class KyberDebugStatusView(HomeAssistantView):
             "storage": {
                 "knowledge_file_bytes": knowledge_bytes,
                 "chat_history_file_bytes": chat_bytes,
+                "files": storage_files,
+                "total_bytes": storage_total_bytes,
+                "component_bytes": component_bytes,
             },
             "resources": {
                 "snapshots_buffered": len(snapshots),

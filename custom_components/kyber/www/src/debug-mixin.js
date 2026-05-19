@@ -485,8 +485,15 @@ export const DebugMixin = (Base) => class extends Base {
       </table>
       <h3>Storage</h3>
       <table class="dbg-kv">
-        <tr><th>Knowledge store</th><td>${fmtBytes(st.knowledge_file_bytes)}</td></tr>
-        <tr><th>Chat history</th><td>${fmtBytes(st.chat_history_file_bytes)}</td></tr>
+        ${st.total_bytes != null ? `<tr><th>Total (Kyber data)</th><td><strong>${fmtBytes(st.total_bytes)}</strong></td></tr>` : ""}
+        ${Object.entries(st.files || {}).sort((a,b) => (b[1]||0)-(a[1]||0)).map(([name, size]) =>
+          `<tr><td style="padding-left:1.2em"><code>${this._escapeHtml(name)}</code></td><td>${fmtBytes(size)}</td></tr>`
+        ).join("")}
+        ${st.total_bytes == null ? `
+          <tr><th>Knowledge store</th><td>${fmtBytes(st.knowledge_file_bytes)}</td></tr>
+          <tr><th>Chat history</th><td>${fmtBytes(st.chat_history_file_bytes)}</td></tr>
+        ` : ""}
+        ${st.component_bytes != null ? `<tr><th>Component (code)</th><td>${fmtBytes(st.component_bytes)}</td></tr>` : ""}
       </table>
       <h3>Resources (in-memory)</h3>
       <table class="dbg-kv">
