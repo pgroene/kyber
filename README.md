@@ -76,6 +76,22 @@ Based on the [May 2026 eval report](docs/eval-report-2026-05.md) (5 runs × 3 re
 
 See [docs/eval-report-2026-05.md](docs/eval-report-2026-05.md) for full methodology, timing data, and failure analysis.
 
+### Entity Narrator Model
+
+The background **entity narrator** uses a separate model call that only needs to produce short structured aliases — not full plan blocks. A smaller, faster model is ideal here.
+
+Based on the [May 2026 narrator bench](docs/narrator-bench-report-2026-05.md) (19 models, batch sizes 1 and 10, warmup-corrected):
+
+| Model | Quality@10 | Batch 10 time | Notes |
+|---|:---:|---:|---|
+| `llama3.2:3b` | ✅ 100% | **3.7s** | 🏆 Recommended — 12× faster than mistral-nemo, 1.9 GB |
+| `phi3:mini` | ✅ 95% | 9.1s | Strong backup — slightly larger at 2.3 GB |
+| `llama3:latest` | ✅ 100% | 11.0s | Reliable but slower |
+| `mistral-nemo:latest` | ✅ 100% | 44.0s | Former recommendation — still works, just slow for narration |
+| `qwen3:*`, `deepseek-r1:7b` | ❌ 0% | — | Reasoning/thinking models — format not compatible |
+
+**Recommendation: use `llama3.2:3b` for narration.** See [docs/narrator-bench-report-2026-05.md](docs/narrator-bench-report-2026-05.md) for the full breakdown.
+
 | Doc | Contents |
 |---|---|
 | [docs/installation.md](docs/installation.md) | Prerequisites, manual install, Docker dev setup, version bumping, tests |
@@ -85,6 +101,7 @@ See [docs/eval-report-2026-05.md](docs/eval-report-2026-05.md) for full methodol
 | [docs/pipeline.md](docs/pipeline.md) | End-to-end request pipeline — context build, hybrid memory retrieval (TF-IDF embeddings), tool loop, response cleanup, per-turn snapshot, debug bundle, debug-mode flag |
 | [docs/architecture.md](docs/architecture.md) | Frontend, backend endpoints, context building, plan/action system |
 | [docs/eval-report-2026-05.md](docs/eval-report-2026-05.md) | 📊 **May 2026 eval report** — building the real-home prompt eval harness, what we fixed, and model comparison (mistral-nemo vs llama3.2 vs qwen3) |
+| [docs/narrator-bench-report-2026-05.md](docs/narrator-bench-report-2026-05.md) | 📊 **May 2026 narrator bench** — 19 small models tested for entity narration quality and speed; `llama3.2:3b` wins (12× faster than mistral-nemo, same quality) |
 
 ## Architecture at a Glance
 
