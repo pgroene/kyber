@@ -687,6 +687,8 @@ def _triage_knowledge_entry(entry: dict) -> dict:
     # ── Skip the rest ────────────────────────────────────────────────────────
     return {"recommend": "skip", "reason": "no_entity_reference_and_not_procedure", "test_prompt": None}
 
+
+class KyberHomeExportView(HomeAssistantView):
     """Export a snapshot of the current home state for testing / evaluation.
 
     GET /api/kyber/export/home-state → application/json (download)
