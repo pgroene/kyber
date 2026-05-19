@@ -337,6 +337,13 @@ export const AIMixin = (Base) => class extends Base {
       }
       this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null, data.learned_fact || null, data.clarify || null);
 
+      // Render area assignment suggestions / reports
+      if (data.area_suggestions && data.area_suggestions.length > 0) {
+        for (const suggestion of data.area_suggestions) {
+          this._renderAreaSuggestionChip(suggestion);
+        }
+      }
+
       // Per-turn metadata is captured for the Debug tab ("Last turn") instead
       // of being attached to the chat message. The chat panel stays clean;
       // all feedback / debug-bundle UI lives in /kyber-debug.
@@ -1045,5 +1052,74 @@ export const AIMixin = (Base) => class extends Base {
 
   _hideThinking() {
     this.shadowRoot?.getElementById("kyber-thinking-bubble")?.remove();
+  }
+
+  _renderAreaSuggestionChip(suggestion) {
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (!history) return;
+
+    const chip = document.createElement("div");
+    chip.className = "kyber-area-suggestion-chip";
+    chip.dataset.suggestionId = suggestion.id;
+
+    const name = this._escapeHtml(suggestion.friendly_name || suggestion.entity_id);
+    const area = this._escapeHtml(suggestion.suggested_area_name);
+
+    if (suggestion.applied) {
+      chip.innerHTML = `
+        <span class="area-chip-icon">🏠</span>
+        <span class="area-chip-text">Assigned <strong>${name}</strong> to <strong>${area}</strong></span>
+        <button class="kyber-area-undo-btn">↩ Undo</button>
+      `;
+      chip.querySelector(".kyber-area-undo-btn").addEventListener("click", async (evt) => {
+        evt.stopPropagation();
+        const btn = chip.querySelector(".kyber-area-undo-btn");
+        btn.disabled = true; btn.textContent = "…";
+        try {
+          await this._hass.callApi("POST", "kyber/execute", {
+            actions: [{ type: "assign_area", entity_id: suggestion.entity_id, area_id: suggestion.undo_area_id || "" }],
+            approved: true,
+          });
+          await this._hass.callApi("POST", "kyber/area_suggestions/dismiss", { id: suggestion.id });
+          chip.innerHTML = `<span class="area-chip-icon">↩</span><span class="area-chip-text">Moved <strong>${name}</strong> back</span>`;
+          chip.classList.add("area-chip-done");
+        } catch (err) {
+          btn.textContent = "⚠ Error"; btn.disabled = false;
+        }
+      });
+    } else {
+      chip.innerHTML = `
+        <span class="area-chip-icon">🏠</span>
+        <span class="area-chip-text"><strong>${name}</strong> has no area — assign to <strong>${area}</strong>?</span>
+        <button class="kyber-area-apply-btn">✓ Assign</button>
+        <button class="kyber-area-dismiss-btn">✕</button>
+      `;
+      chip.querySelector(".kyber-area-apply-btn").addEventListener("click", async (evt) => {
+        evt.stopPropagation();
+        const btn = chip.querySelector(".kyber-area-apply-btn");
+        btn.disabled = true; btn.textContent = "…";
+        try {
+          await this._hass.callApi("POST", "kyber/execute", {
+            actions: [{ type: "assign_area", entity_id: suggestion.entity_id, area_id: suggestion.suggested_area_id }],
+            approved: true,
+          });
+          await this._hass.callApi("POST", "kyber/area_suggestions/dismiss", { id: suggestion.id });
+          chip.innerHTML = `<span class="area-chip-icon">✓</span><span class="area-chip-text"><strong>${name}</strong> assigned to <strong>${area}</strong></span>`;
+          chip.classList.add("area-chip-done");
+        } catch (err) {
+          btn.textContent = "⚠ Error"; btn.disabled = false;
+        }
+      });
+      chip.querySelector(".kyber-area-dismiss-btn").addEventListener("click", async (evt) => {
+        evt.stopPropagation();
+        try {
+          await this._hass.callApi("POST", "kyber/area_suggestions/dismiss", { id: suggestion.id });
+        } catch (_) { /* non-critical */ }
+        chip.remove();
+      });
+    }
+
+    history.appendChild(chip);
+    history.scrollTop = history.scrollHeight;
   }
 };

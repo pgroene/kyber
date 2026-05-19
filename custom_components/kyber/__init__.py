@@ -30,7 +30,7 @@ from .const import (
 from .analyzer import analyze_automations as _analyze_automations
 from . import deep_analyzer as _deep
 from .knowledge import get_knowledge_store
-from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView, KyberLabelsView
+from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView, KyberLabelsView, KyberAreaSuggestionsView
 from .debug_and_diagnostics import KyberHomeExportView, KyberMemoryExportView, KyberGlobalLogHandler, KyberDebugLogsView
 
 _LOGGER = logging.getLogger(__name__)
@@ -421,6 +421,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     # Also store the narrator entity (falls back to chat entity if not separately configured).
     _narrator_eid = str({**entry.data, **(entry.options or {})}.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip()
     hass.data["kyber_narrator_ai_task_entity"] = _narrator_eid or config.get(CONF_AI_TASK_ENTITY_ID, "")
+    # Initialise area assignment report queue.
+    from .const import DOMAIN as _DOMAIN
+    from .area_assignment import AREA_REPORTS_KEY
+    if _DOMAIN not in hass.data or not isinstance(hass.data.get(_DOMAIN), dict):
+        hass.data[_DOMAIN] = {}
+    hass.data[_DOMAIN].setdefault(AREA_REPORTS_KEY, [])
 
     hass.http.register_view(KyberView(config))
     hass.http.register_view(KyberProgressView())
@@ -449,6 +455,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberPromptTestsCaptureView())
     hass.http.register_view(KyberPromptTestsRegenerateView())
     hass.http.register_view(KyberLabelsView())
+    hass.http.register_view(KyberAreaSuggestionsView())
 
     # Install global log handler + set logger level
     _kyber_root = logging.getLogger("custom_components.kyber")
@@ -473,7 +480,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
             sidebar_icon="mdi:robot",
-            module_url="/local/kyber/kyber-panel.js?v=154",
+            module_url="/local/kyber/kyber-panel.js?v=155",
         )
     except Exception:  # noqa: BLE001
         _LOGGER.debug("Panel registration skipped (test environment)")
@@ -488,7 +495,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
                 webcomponent_name="kyber-panel",
                 sidebar_title="Kyber Debug",
                 sidebar_icon="mdi:bug",
-                module_url="/local/kyber/kyber-panel.js?v=154",
+                module_url="/local/kyber/kyber-panel.js?v=155",
                 config={"mode": "debug"},
             )
         except Exception:  # noqa: BLE001

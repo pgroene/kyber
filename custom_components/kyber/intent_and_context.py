@@ -343,6 +343,18 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
         for a in sorted(areas, key=lambda a: a.name)
     ) if areas else ""
 
+    # Labels block — list names so model can reference them directly (up to 30)
+    label_list = list(labels)
+    if label_list:
+        label_names = ", ".join(
+            _sanitize_prompt_value(lbl.name, max_len=60)
+            for lbl in sorted(label_list, key=lambda l: l.name)[:30]
+        )
+        suffix = f" (+{len(label_list) - 30} more)" if len(label_list) > 30 else ""
+        labels_block = f"\n**Labels:** {label_names}{suffix}"
+    else:
+        labels_block = ""
+
     tz_name = str(getattr(hass.config, "time_zone", "UTC") or "UTC")
     timezone_block = f"**Timezone:** {tz_name} — display all times in this timezone, not UTC.\n"
 
@@ -359,6 +371,7 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
         SYSTEM_PROMPT_TEMPLATE,
         home_summary=home_summary,
         areas_block=("\n" + areas_block) if areas_block else "",
+        labels_block=labels_block,
         timezone_block=timezone_block,
         notable_state_block=notable_state_block,
     )

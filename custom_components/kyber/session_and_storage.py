@@ -415,7 +415,8 @@ class KyberSessionNameView(HomeAssistantView):
             "You are a helpful assistant. Based on the conversation below, "
             "generate a very short title (3–6 words, no punctuation at the end) "
             "that captures the main topic. Reply with ONLY the title — no quotes, "
-            "no explanation, nothing else.\n\n"
+            "no explanation, nothing else. "
+            "Write the title in the same language as the conversation.\n\n"
             f"Conversation:\n{transcript}\n\nTitle:"
         )
 

@@ -337,6 +337,13 @@ export const AIMixin = (Base) => class extends Base {
       }
       this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null, data.learned_fact || null, data.clarify || null);
 
+      // Render area assignment suggestions / reports
+      if (data.area_suggestions && data.area_suggestions.length > 0) {
+        for (const suggestion of data.area_suggestions) {
+          this._renderAreaSuggestionChip(suggestion);
+        }
+      }
+
       // Per-turn metadata is captured for the Debug tab ("Last turn") instead
       // of being attached to the chat message. The chat panel stays clean;
       // all feedback / debug-bundle UI lives in /kyber-debug.
@@ -825,7 +832,7 @@ export const AIMixin = (Base) => class extends Base {
             <span></span><span></span><span></span>
           </div>
           <span class="thinking-label">Thinking…</span>
-          <button class="thinking-cancel" id="kyber-thinking-cancel" title="Cancel request" style="margin-left:8px;font-size:0.8em;padding:2px 8px;cursor:pointer">✕ Cancel</button>
+          <button class="thinking-cancel" id="kyber-thinking-cancel" title="Cancel request">✕ Cancel</button>
         </div>
         <div class="thinking-events" id="kyber-thinking-events"></div>
       </div>
@@ -954,56 +961,165 @@ export const AIMixin = (Base) => class extends Base {
     console.debug("[kyber] progress polling stopped after", polls, "polls");
   }
 
-  _startExplorerBannerPolling() {
-    if (this._explorerBannerTimer) clearInterval(this._explorerBannerTimer);
-    this._explorerBannerTimer = setInterval(() => this._checkExplorerBanner(), 5000);
+  /** Start a single polling loop for all Kyber status UI (explorer banner + narrator badge). */
+  _startStatusPolling() {
+    this._clearStatusPoll();
+    this._statusPollFailures = 0;
+    this._checkKyberStatus();
+    this._statusPollInterval = setInterval(() => this._checkKyberStatus(), 5000);
   }
 
-  async _checkExplorerBanner() {
+  _clearStatusPoll() {
+    if (this._statusPollInterval) { clearInterval(this._statusPollInterval); this._statusPollInterval = null; }
+    if (this._statusPollTimeout) { clearTimeout(this._statusPollTimeout); this._statusPollTimeout = null; }
+  }
+
+  _statusBackoff(ms) {
+    this._clearStatusPoll();
+    this._statusPollTimeout = setTimeout(() => {
+      this._statusPollTimeout = null;
+      this._statusPollFailures = 0;
+      this._startStatusPolling();
+    }, ms);
+  }
+
+  async _checkKyberStatus() {
+    const token = this._hass?.auth?.data?.access_token;
+    if (!token) return;
+    let data;
     try {
-      const token = this._hass?.auth?.data?.access_token;
-      if (!token) return;
       const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
-      if (!resp.ok) return;
-      const data = await resp.json();
-      const ep = data.explorer_progress || {};
-      const banner = this.shadowRoot?.getElementById("explorer-banner");
-      const textEl = this.shadowRoot?.getElementById("explorer-banner-text");
-      const badge = this.shadowRoot?.getElementById("narrator-progress");
-      if (!banner) return;
-      const running = ["starting", "phase1_summaries", "phase2_entities", "narrator"].includes(ep.status);
-      if (running) {
+      if (!resp.ok) {
+        if (resp.status === 404) this._statusBackoff(30_000); // Kyber not loaded yet
+        return;
+      }
+      this._statusPollFailures = 0;
+      data = await resp.json();
+    } catch (_) {
+      // ERR_CONNECTION_REFUSED → HA offline; back off after 3 failures
+      this._statusPollFailures = (this._statusPollFailures || 0) + 1;
+      if (this._statusPollFailures >= 3) this._statusBackoff(30_000);
+      return;
+    }
+
+    const ep = data.explorer_progress || {};
+    const epStatus = ep.status || "idle";
+    const active = ["starting", "phase1_summaries", "phase2_entities", "narrator"].includes(epStatus);
+
+    // Update explorer banner in chat area
+    const banner = this.shadowRoot?.getElementById("explorer-banner");
+    const textEl = this.shadowRoot?.getElementById("explorer-banner-text");
+    if (banner) {
+      if (active) {
         let bannerText;
-        if (ep.status === "narrator") {
-          const done = ep.narrator_done ?? 0;
-          const total = ep.narrator_total ?? 0;
+        if (epStatus === "narrator") {
+          const done = ep.narrator_done ?? 0, total = ep.narrator_total ?? 0;
           const pct = total > 0 ? Math.round(done * 100 / total) : 0;
           bannerText = `Narry is exploring your home${total > 0 ? ` ${pct}%` : ""}`;
-          if (badge) {
-            badge.textContent = `🔍 ${pct}%`;
-            badge.hidden = false;
-            badge.title = `Narry is exploring your home: ${done} of ${total} entities (${pct}%)`;
-          }
         } else {
-          const done = ep.done ?? 0;
-          const total = ep.total ?? 0;
+          const done = ep.done ?? 0, total = ep.total ?? 0;
           bannerText = `Exploring your home${total > 0 ? ` (${done} / ${total})` : ""}…`;
-          if (badge) {
-            badge.textContent = `🔍 ${done}/${total}`;
-            badge.hidden = false;
-            badge.title = `Entity explorer: indexing ${done} of ${total}`;
-          }
         }
         if (textEl) textEl.textContent = bannerText;
         banner.style.display = "";
       } else {
         banner.style.display = "none";
-        if (badge) badge.hidden = true;
       }
-    } catch (_) { /* non-critical */ }
+    }
+
+    // Update narrator progress badge in header
+    const badge = this.shadowRoot?.getElementById("narrator-progress");
+    if (badge) {
+      if (epStatus === "narrator") {
+        const done = ep.narrator_done ?? 0, total = ep.narrator_total ?? 0;
+        const pct = total > 0 ? Math.round(done * 100 / total) : 0;
+        badge.textContent = `🔍 ${pct}%`;
+        badge.hidden = false;
+        badge.title = `Narry is exploring your home: ${done} of ${total} entities (${pct}%)`;
+      } else if (active) {
+        const done = ep.done ?? 0, total = ep.total ?? 0;
+        badge.textContent = `🔍 ${done}/${total}`;
+        badge.hidden = false;
+        badge.title = `Entity explorer: indexing ${done} of ${total}`;
+      } else {
+        badge.hidden = true;
+      }
+    }
+
+    // Self-stop when nothing is running
+    if (!active) this._clearStatusPoll();
   }
 
   _hideThinking() {
     this.shadowRoot?.getElementById("kyber-thinking-bubble")?.remove();
+  }
+
+  _renderAreaSuggestionChip(suggestion) {
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (!history) return;
+
+    const chip = document.createElement("div");
+    chip.className = "kyber-area-suggestion-chip";
+    chip.dataset.suggestionId = suggestion.id;
+
+    const name = this._escapeHtml(suggestion.friendly_name || suggestion.entity_id);
+    const area = this._escapeHtml(suggestion.suggested_area_name);
+
+    if (suggestion.applied) {
+      chip.innerHTML = `
+        <span class="area-chip-icon">🏠</span>
+        <span class="area-chip-text">Assigned <strong>${name}</strong> to <strong>${area}</strong></span>
+        <button class="kyber-area-undo-btn">↩ Undo</button>
+      `;
+      chip.querySelector(".kyber-area-undo-btn").addEventListener("click", async (evt) => {
+        evt.stopPropagation();
+        const btn = chip.querySelector(".kyber-area-undo-btn");
+        btn.disabled = true; btn.textContent = "…";
+        try {
+          await this._hass.callApi("POST", "kyber/execute", {
+            actions: [{ type: "assign_area", entity_id: suggestion.entity_id, area_id: suggestion.undo_area_id || "" }],
+            approved: true,
+          });
+          await this._hass.callApi("POST", "kyber/area_suggestions/dismiss", { id: suggestion.id });
+          chip.innerHTML = `<span class="area-chip-icon">↩</span><span class="area-chip-text">Moved <strong>${name}</strong> back</span>`;
+          chip.classList.add("area-chip-done");
+        } catch (err) {
+          btn.textContent = "⚠ Error"; btn.disabled = false;
+        }
+      });
+    } else {
+      chip.innerHTML = `
+        <span class="area-chip-icon">🏠</span>
+        <span class="area-chip-text"><strong>${name}</strong> has no area — assign to <strong>${area}</strong>?</span>
+        <button class="kyber-area-apply-btn">✓ Assign</button>
+        <button class="kyber-area-dismiss-btn">✕</button>
+      `;
+      chip.querySelector(".kyber-area-apply-btn").addEventListener("click", async (evt) => {
+        evt.stopPropagation();
+        const btn = chip.querySelector(".kyber-area-apply-btn");
+        btn.disabled = true; btn.textContent = "…";
+        try {
+          await this._hass.callApi("POST", "kyber/execute", {
+            actions: [{ type: "assign_area", entity_id: suggestion.entity_id, area_id: suggestion.suggested_area_id }],
+            approved: true,
+          });
+          await this._hass.callApi("POST", "kyber/area_suggestions/dismiss", { id: suggestion.id });
+          chip.innerHTML = `<span class="area-chip-icon">✓</span><span class="area-chip-text"><strong>${name}</strong> assigned to <strong>${area}</strong></span>`;
+          chip.classList.add("area-chip-done");
+        } catch (err) {
+          btn.textContent = "⚠ Error"; btn.disabled = false;
+        }
+      });
+      chip.querySelector(".kyber-area-dismiss-btn").addEventListener("click", async (evt) => {
+        evt.stopPropagation();
+        try {
+          await this._hass.callApi("POST", "kyber/area_suggestions/dismiss", { id: suggestion.id });
+        } catch (_) { /* non-critical */ }
+        chip.remove();
+      });
+    }
+
+    history.appendChild(chip);
+    history.scrollTop = history.scrollHeight;
   }
 };
