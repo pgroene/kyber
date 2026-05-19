@@ -25,6 +25,9 @@ export function makePanel(hassOverrides = {}) {
   };
 
   element.hass = hass;
+  // Clear any fetch calls that fired during panel setup (e.g. _loadMemoryCount)
+  // so individual tests start counting from a clean slate.
+  if (typeof global.fetch?.mockClear === "function") global.fetch.mockClear();
   return { element, hass };
 }
 

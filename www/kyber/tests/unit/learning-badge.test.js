@@ -6,7 +6,7 @@
  *   - Badge and banner shown when status is "exploring" (phase1/phase2/starting)
  *   - Badge and banner shown when status is "narrator"
  *   - Banner text shows correct progress numbers during exploring
- *   - Banner text shows correct progress + entity name during narrator
+ *   - Banner text shows "Narry is exploring your home X%" during narrator
  *   - Timer keeps running after idle check (doesn't stop itself)
  *   - Timer is started on setHass regardless of mode
  */
@@ -35,7 +35,7 @@ async function setupAndCheck(explorerProgress) {
   const { element } = makePanel();
   global.fetch = mockStatusFetch(explorerProgress);
   await element._checkExplorerBanner();
-  const badge = element.shadowRoot.getElementById("learning-badge");
+  const badge = element.shadowRoot.getElementById("narrator-progress");
   const banner = element.shadowRoot.getElementById("explorer-banner");
   const bannerText = element.shadowRoot.getElementById("explorer-banner-text");
   return { element, badge, banner, bannerText };
@@ -45,9 +45,9 @@ async function setupAndCheck(explorerProgress) {
 // DOM presence
 // ---------------------------------------------------------------------------
 describe("learning badge DOM elements", () => {
-  it("learning-badge element exists in shadow DOM", () => {
+  it("narrator-progress element exists in shadow DOM", () => {
     const { element } = makePanel();
-    expect(element.shadowRoot.getElementById("learning-badge")).not.toBeNull();
+    expect(element.shadowRoot.getElementById("narrator-progress")).not.toBeNull();
   });
 
   it("explorer-banner element exists in shadow DOM", () => {
@@ -55,10 +55,10 @@ describe("learning badge DOM elements", () => {
     expect(element.shadowRoot.getElementById("explorer-banner")).not.toBeNull();
   });
 
-  it("learning-badge starts hidden", () => {
+  it("narrator-progress starts hidden", () => {
     const { element } = makePanel();
-    const badge = element.shadowRoot.getElementById("learning-badge");
-    expect(badge.style.display).toBe("none");
+    const badge = element.shadowRoot.getElementById("narrator-progress");
+    expect(badge.hidden).toBe(true);
   });
 
   it("explorer-banner starts hidden", () => {
@@ -74,19 +74,19 @@ describe("learning badge DOM elements", () => {
 describe("_checkExplorerBanner — idle/done", () => {
   it("hides badge and banner when explorer_progress is empty", async () => {
     const { badge, banner } = await setupAndCheck({});
-    expect(badge.style.display).toBe("none");
+    expect(badge.hidden).toBe(true);
     expect(banner.style.display).toBe("none");
   });
 
   it("hides badge and banner when status is 'done'", async () => {
     const { badge, banner } = await setupAndCheck({ status: "done", done: 50, total: 50 });
-    expect(badge.style.display).toBe("none");
+    expect(badge.hidden).toBe(true);
     expect(banner.style.display).toBe("none");
   });
 
   it("hides badge and banner when status is unknown string", async () => {
     const { badge, banner } = await setupAndCheck({ status: "idle" });
-    expect(badge.style.display).toBe("none");
+    expect(badge.hidden).toBe(true);
     expect(banner.style.display).toBe("none");
   });
 });
@@ -98,7 +98,7 @@ describe("_checkExplorerBanner — exploring", () => {
   for (const status of ["starting", "phase1_summaries", "phase2_entities"]) {
     it(`shows badge and banner when status='${status}'`, async () => {
       const { badge, banner } = await setupAndCheck({ status, done: 3, total: 10 });
-      expect(badge.style.display).toBe("flex");
+      expect(badge.hidden).toBe(false);
       expect(banner.style.display).toBe("");
     });
   }
@@ -129,46 +129,44 @@ describe("_checkExplorerBanner — narrator", () => {
       narrator_done: 10,
       narrator_total: 100,
     });
-    expect(badge.style.display).toBe("flex");
+    expect(badge.hidden).toBe(false);
     expect(banner.style.display).toBe("");
   });
 
-  it("banner text includes narrator progress numbers", async () => {
+  it("banner text includes narrator percentage", async () => {
     const { bannerText } = await setupAndCheck({
       status: "narrator",
       narrator_done: 30,
       narrator_total: 200,
     });
-    expect(bannerText.textContent).toContain("30");
-    expect(bannerText.textContent).toContain("200");
+    expect(bannerText.textContent).toContain("15%");
   });
 
-  it("banner text includes 'Learning' during narrator phase", async () => {
+  it("banner text includes 'Narry' during narrator phase", async () => {
     const { bannerText } = await setupAndCheck({
       status: "narrator",
       narrator_done: 0,
       narrator_total: 50,
     });
-    expect(bannerText.textContent).toMatch(/learning/i);
+    expect(bannerText.textContent).toMatch(/narry/i);
   });
 
-  it("banner text includes entity name when narrator_current is set", async () => {
-    const { bannerText } = await setupAndCheck({
-      status: "narrator",
-      narrator_done: 5,
-      narrator_total: 50,
-      narrator_current: "Slaapkamer Lamp",
-    });
-    expect(bannerText.textContent).toContain("Slaapkamer Lamp");
-  });
-
-  it("banner text works without narrator_current", async () => {
-    const { bannerText } = await setupAndCheck({
+  it("badge shows percentage text during narrator phase", async () => {
+    const { badge } = await setupAndCheck({
       status: "narrator",
       narrator_done: 5,
       narrator_total: 50,
     });
-    expect(bannerText.textContent).toMatch(/learning/i);
+    expect(badge.textContent).toContain("10%");
+  });
+
+  it("banner text works without narrator_total", async () => {
+    const { bannerText } = await setupAndCheck({
+      status: "narrator",
+      narrator_done: 5,
+      narrator_total: 0,
+    });
+    expect(bannerText.textContent).toMatch(/narry/i);
     expect(bannerText.textContent).not.toContain("undefined");
   });
 });
@@ -182,12 +180,12 @@ describe("_checkExplorerBanner — transitions", () => {
 
     global.fetch = mockStatusFetch({ status: "narrator", narrator_done: 5, narrator_total: 50 });
     await element._checkExplorerBanner();
-    const badge = element.shadowRoot.getElementById("learning-badge");
-    expect(badge.style.display).toBe("flex");
+    const badge = element.shadowRoot.getElementById("narrator-progress");
+    expect(badge.hidden).toBe(false);
 
     global.fetch = mockStatusFetch({ status: "done" });
     await element._checkExplorerBanner();
-    expect(badge.style.display).toBe("none");
+    expect(badge.hidden).toBe(true);
   });
 
   it("shows badge after transitioning from done to narrator", async () => {
@@ -195,12 +193,12 @@ describe("_checkExplorerBanner — transitions", () => {
 
     global.fetch = mockStatusFetch({ status: "done" });
     await element._checkExplorerBanner();
-    const badge = element.shadowRoot.getElementById("learning-badge");
-    expect(badge.style.display).toBe("none");
+    const badge = element.shadowRoot.getElementById("narrator-progress");
+    expect(badge.hidden).toBe(true);
 
     global.fetch = mockStatusFetch({ status: "narrator", narrator_done: 1, narrator_total: 10 });
     await element._checkExplorerBanner();
-    expect(badge.style.display).toBe("flex");
+    expect(badge.hidden).toBe(false);
   });
 });
 
@@ -232,10 +230,10 @@ describe("_startExplorerBannerPolling timer", () => {
     const { element } = makePanel();
     const spy = vi.spyOn(element, "_checkExplorerBanner").mockResolvedValue();
     element._startExplorerBannerPolling();
-    // _startExplorerBannerPolling calls _checkExplorerBanner immediately (1)
-    // then setInterval fires at 5s, 10s, 15s (3 more) = 4 total
+    // _startExplorerBannerPolling only sets the interval (no immediate call)
+    // setInterval fires at 5s, 10s, 15s = 3 total
     vi.advanceTimersByTime(15000);
-    expect(spy).toHaveBeenCalledTimes(4);
+    expect(spy).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -259,7 +257,7 @@ describe("_checkExplorerBanner — fetch errors", () => {
     const { element } = makePanel();
     global.fetch = vi.fn().mockRejectedValue(new Error("network error"));
     await element._checkExplorerBanner();
-    const badge = element.shadowRoot.getElementById("learning-badge");
-    expect(badge.style.display).toBe("none");
+    const badge = element.shadowRoot.getElementById("narrator-progress");
+    expect(badge.hidden).toBe(true);
   });
 });

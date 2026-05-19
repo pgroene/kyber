@@ -955,7 +955,6 @@ export const AIMixin = (Base) => class extends Base {
   }
 
   _startExplorerBannerPolling() {
-    this._checkExplorerBanner();
     if (this._explorerBannerTimer) clearInterval(this._explorerBannerTimer);
     this._explorerBannerTimer = setInterval(() => this._checkExplorerBanner(), 5000);
   }
@@ -970,6 +969,7 @@ export const AIMixin = (Base) => class extends Base {
       const ep = data.explorer_progress || {};
       const banner = this.shadowRoot?.getElementById("explorer-banner");
       const textEl = this.shadowRoot?.getElementById("explorer-banner-text");
+      const badge = this.shadowRoot?.getElementById("narrator-progress");
       if (!banner) return;
       const running = ["starting", "phase1_summaries", "phase2_entities", "narrator"].includes(ep.status);
       if (running) {
@@ -977,22 +977,28 @@ export const AIMixin = (Base) => class extends Base {
         if (ep.status === "narrator") {
           const done = ep.narrator_done ?? 0;
           const total = ep.narrator_total ?? 0;
-          const pct = total > 0 ? ` (${done}/${total})` : "";
-          bannerText = `Narrating entities${pct}…`;
+          const pct = total > 0 ? Math.round(done * 100 / total) : 0;
+          bannerText = `Narry is exploring your home${total > 0 ? ` ${pct}%` : ""}`;
+          if (badge) {
+            badge.textContent = `🔍 ${pct}%`;
+            badge.hidden = false;
+            badge.title = `Narry is exploring your home: ${done} of ${total} entities (${pct}%)`;
+          }
         } else {
           const done = ep.done ?? 0;
           const total = ep.total ?? 0;
-          const pct = total > 0 ? ` (${done} / ${total})` : "";
-          bannerText = `Exploring your home${pct}…`;
+          bannerText = `Exploring your home${total > 0 ? ` (${done} / ${total})` : ""}…`;
+          if (badge) {
+            badge.textContent = `🔍 ${done}/${total}`;
+            badge.hidden = false;
+            badge.title = `Entity explorer: indexing ${done} of ${total}`;
+          }
         }
         if (textEl) textEl.textContent = bannerText;
         banner.style.display = "";
       } else {
         banner.style.display = "none";
-        if (this._explorerBannerTimer) {
-          clearInterval(this._explorerBannerTimer);
-          this._explorerBannerTimer = null;
-        }
+        if (badge) badge.hidden = true;
       }
     } catch (_) { /* non-critical */ }
   }

@@ -156,6 +156,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
             <button class="memory-badge" id="memory-badge" title="Memory facts — click to preview recalled facts">🧠 <span id="memory-count">…</span></button>
             <button class="autopilot-badge" id="autopilot-badge" title="Toggle autopilot — auto-executes safe proposals">⚡ Autopilot</button>
+            <span class="narrator-progress" id="narrator-progress" hidden title="AI narrator: Narry is exploring your home in the background"></span>
             <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
             <button class="btn-debug" id="btn-debug" title="Open debug / memory inspector">🐞</button>
           </div>
