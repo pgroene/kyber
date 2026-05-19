@@ -13,6 +13,8 @@ _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _BARE_PLAN_RE = re.compile(r"^#{1,3}\s*Plan\s*\n(\{[\s\S]*?\n\})\s*(?=\n|$)", re.MULTILINE)
 # [PLAN_BLOCK: {...}] or [PLAN: {...}] format some models emit instead of the fenced block
 _BRACKET_PLAN_RE = re.compile(r"\[PLAN(?:_BLOCK)?\s*:\s*(\{[\s\S]*?\})\]")
+# [PLAN]\n{...} — model emits the tag on its own line followed by bare JSON
+_TAG_PLAN_RE = re.compile(r"\[PLAN\]\s*[\r\n]+\s*(\{[\s\S]*?\n\})", re.IGNORECASE)
 # Matches direct HA service names models sometimes use instead of call_service type
 _HA_DIRECT_SERVICE_RE = re.compile(
     r'"type"\s*:\s*"(turn_on|turn_off|toggle|set_temperature|'
@@ -161,14 +163,16 @@ def _extract_yaml_blocks(text: str) -> list[str]:
 def _extract_plan_block(text: str) -> dict | None:
     """Extract the first ```plan``` JSON block from a response string.
 
-    Also handles bare ``## Plan\\n{...}`` blocks and ``[PLAN_BLOCK: {...}]``
-    format that some models emit without backtick fences.
+    Also handles bare ``## Plan\\n{...}`` blocks, ``[PLAN_BLOCK: {...}]``
+    and ``[PLAN]\\n{...}`` formats that some models emit without backtick fences.
     """
     match = _PLAN_BLOCK_RE.search(text)
     if not match:
         match = _BARE_PLAN_RE.search(text)
     if not match:
         match = _BRACKET_PLAN_RE.search(text)
+    if not match:
+        match = _TAG_PLAN_RE.search(text)
     if not match:
         return None
     try:
@@ -178,11 +182,12 @@ def _extract_plan_block(text: str) -> dict | None:
 
 
 def _strip_plan_block(text: str) -> str:
-    """Remove ```plan``` and bare ## Plan blocks from response text so the
+    """Remove ```plan```, bare ## Plan, and [PLAN]\\n{...} blocks from response text so the
     frontend does not render raw JSON in the chat bubble (the plan card handles it).
     """
     text = _PLAN_BLOCK_RE.sub("", text)
     text = _BARE_PLAN_RE.sub("", text)
+    text = _TAG_PLAN_RE.sub("", text)
     return text.strip()
 
 

@@ -285,14 +285,16 @@ When the user asks to edit, change, or open a dashboard and the editor is NOT al
 ### When you need user input — use a ```clarify``` block
 ⚠️ NEVER emit a clarify block for informational questions (what is X, list all Y, show me Z). Call a tool instead.
 ⚠️ NEVER emit a clarify block without first making at least one tool call. The clarify block is a last resort ONLY.
-If the request is genuinely ambiguous AFTER tool results (e.g. two equally plausible entities for a destructive action), emit a clarify block. \
+⚠️ NEVER output a text list of entities asking the user to choose — that is forbidden. Always use a `clarify` block with `options` instead.
+If the request is genuinely ambiguous AFTER tool results (e.g. two equally plausible entities), emit a clarify block. \
 **Always write `question` and `options` in the SAME language as the user's message.** \
-Use actual entity/area names from the home as option labels — never generic placeholders like "Option 1" or the user's own question.
+Use actual entity/area friendly names as option labels — never raw entity IDs, generic placeholders, or the user's own question. \
+**Entity disambiguation rule:** If search_entities returns only ONE entity that is in the expected state (e.g. "on" for turn_off), act on it immediately — no clarify block needed. If it returns 2–4 matching entities in the right state, use a clarify block with those entity friendly names as options. If it returns 5+ matches, pick the most likely one and act on it.
 ```clarify
 {{
   "question": "<question in user's language>",
-  "options": ["<area or entity name 1>", "<area or entity name 2>"],
-  "context": "Found N matching areas in your home."
+  "options": ["<friendly name 1>", "<friendly name 2>"],
+  "context": "Found N matching entities."
 }}
 ```
 

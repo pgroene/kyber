@@ -754,8 +754,8 @@ async def _run_ai_loop(
         # model knows it has limited output space and should skip prose/tool calls.
         if _prompt_tokens_est >= _ctx_hint_tokens:
             loop_instructions += (
-                "\n\n⚠️ CONTEXT LIMIT: this prompt is near your context window. "
-                "Reply with ONLY a concise [PLAN] block. No prose, no tool calls."
+                "\n\nNote: the context window is nearly full. "
+                "Skip explanations — respond with only a brief [PLAN] block."
             )
 
         _progress_emit(hass, request_id, {
@@ -917,6 +917,31 @@ async def _run_ai_loop(
                         asyncio.ensure_future(
                             _auto_record_search_alias(kstore, _q, _primary_eids)
                         )
+
+                # State-filter: when the user wants to turn_off, drop entities that are
+                # already off (and vice versa). This reduces noise and helps the model
+                # auto-select the right entity without asking a follow-up.
+                _up = user_prompt.lower()
+                _want_off = any(w in _up for w in ("uit", "turn off", "turn_off", "uitzetten", "zet uit"))
+                _want_on  = any(w in _up for w in ("aan", "turn on", "turn_on", "aanzetten", "zet aan"))
+                if (_want_off or _want_on) and not call.get("state"):
+                    _target_state = "on" if _want_off else "off"
+                    _all_eids = [k for k in tool_result_data if isinstance(k, str) and "." in k and not k.startswith("_")]
+                    _filtered = {
+                        k: v for k, v in tool_result_data.items()
+                        if not (isinstance(k, str) and "." in k and not k.startswith("_"))
+                        or (hass.states.get(k) and hass.states.get(k).state == _target_state)
+                    }
+                    if _filtered and len(_filtered) < len(tool_result_data):
+                        _removed = len(_all_eids) - sum(
+                            1 for k in _filtered if isinstance(k, str) and "." in k and not k.startswith("_")
+                        )
+                        _LOGGER.info(
+                            "Kyber: state-filtered search_entities for '%s' intent: removed %d already-%s entities",
+                            "turn_off" if _want_off else "turn_on", _removed, _target_state,
+                        )
+                        tool_result_data = _filtered
+                        tool_result_str = json.dumps(_filtered)
 
             # Also record aliases from get_entity_state: when entity_id words
             # overlap with the user prompt we know the user was asking about that
