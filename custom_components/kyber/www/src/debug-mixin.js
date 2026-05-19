@@ -434,6 +434,9 @@ export const DebugMixin = (Base) => class extends Base {
     const lt = data.last_turn;
     const ep = data.explorer_progress || {};
     const ns = data.narrator_stats || {};
+    const st = data.storage || {};
+    const res = data.resources || {};
+
     const catRows = Object.entries(k.by_category || {}).map(([cat, n]) =>
       `<tr><td><code>${this._escapeHtml(cat)}</code></td><td>${n}</td></tr>`,
     ).join("");
@@ -463,6 +466,15 @@ export const DebugMixin = (Base) => class extends Base {
       ? `${nsAccepted} accepted (${nsPct}%) · ${ns.rejected ?? 0} fallback · ${ns.errors ?? 0} errors`
       : "Not yet run";
 
+    // Helpers for storage/resource display
+    const fmtBytes = (b) => {
+      if (b == null) return "—";
+      if (b < 1024) return `${b} B`;
+      if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+      return `${(b / (1024 * 1024)).toFixed(2)} MB`;
+    };
+    const fmtBuf = (n, max) => `${n} / ${max} (${max > 0 ? Math.round((n / max) * 100) : 0}%)`;
+
     body.innerHTML = `
       <h3>Runtime</h3>
       <table class="dbg-kv">
@@ -470,6 +482,19 @@ export const DebugMixin = (Base) => class extends Base {
         <tr><th>Autopilot</th><td>${this._autopilot ? "ON ⚡" : "OFF"}</td></tr>
         <tr><th>Session</th><td>${this._escapeHtml(this._sessionName || "—")}</td></tr>
         <tr><th>Tool history size</th><td>${data.tool_history_size}</td></tr>
+      </table>
+      <h3>Storage</h3>
+      <table class="dbg-kv">
+        <tr><th>Knowledge store</th><td>${fmtBytes(st.knowledge_file_bytes)}</td></tr>
+        <tr><th>Chat history</th><td>${fmtBytes(st.chat_history_file_bytes)}</td></tr>
+      </table>
+      <h3>Resources (in-memory)</h3>
+      <table class="dbg-kv">
+        ${res.process_rss_bytes != null ? `<tr><th>Process RSS</th><td>${fmtBytes(res.process_rss_bytes)}</td></tr>` : ""}
+        <tr><th>Debug snapshots</th><td>${fmtBuf(res.snapshots_buffered ?? 0, res.snapshots_max ?? 50)}</td></tr>
+        <tr><th>Global log buffer</th><td>${fmtBuf(res.global_log_entries ?? 0, res.global_log_max ?? 2000)}</td></tr>
+        <tr><th>TF-IDF index terms</th><td>${(res.tfidf_terms ?? 0).toLocaleString()}</td></tr>
+        <tr><th>Knowledge vectors</th><td>${(res.knowledge_vectors ?? 0).toLocaleString()}</td></tr>
       </table>
       <h3>Knowledge store</h3>
       <table class="dbg-kv">

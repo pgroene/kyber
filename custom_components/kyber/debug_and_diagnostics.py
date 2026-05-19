@@ -240,6 +240,7 @@ class KyberDebugStatusView(HomeAssistantView):
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
+        import os as _os
         hass: HomeAssistant = request.app["hass"]
         kstore = get_knowledge_store(hass)
         await kstore.async_load()
@@ -254,6 +255,33 @@ class KyberDebugStatusView(HomeAssistantView):
             total_hits += int(e.get("hits", 0) or 0)
         snap = hass.data.get(_DEBUG_LAST_TURN_KEY)
         ai_task_entity = str(hass.data.get("kyber_ai_task_entity", ""))
+
+        # -- Storage (on-disk) --
+        def _fsize(path: str) -> int | None:
+            try:
+                return _os.path.getsize(path)
+            except OSError:
+                return None
+
+        storage_dir = hass.config.path(".storage")
+        knowledge_bytes = _fsize(_os.path.join(storage_dir, "kyber.knowledge"))
+        chat_bytes = _fsize(_os.path.join(storage_dir, "kyber_chat_history"))
+
+        # -- In-memory resources --
+        snapshots = hass.data.get(_DEBUG_SNAPSHOTS_KEY) or {}
+        global_logs = hass.data.get(_KYBER_GLOBAL_LOG_KEY) or []
+
+        # Process RSS via /proc (Linux/Docker only; None on other platforms)
+        rss_bytes: int | None = None
+        try:
+            with open("/proc/self/status", encoding="utf-8") as _f:
+                for _line in _f:
+                    if _line.startswith("VmRSS:"):
+                        rss_bytes = int(_line.split()[1]) * 1024
+                        break
+        except Exception:  # noqa: BLE001
+            pass
+
         return self.json({
             "ai_task_entity": ai_task_entity,
             "knowledge": {
@@ -273,6 +301,19 @@ class KyberDebugStatusView(HomeAssistantView):
             "tool_history_size": len(hass.data.get(_DEBUG_TOOL_HISTORY_KEY, []) or []),
             "explorer_progress": hass.data.get(EXPLORER_PROGRESS_KEY),
             "narrator_stats": hass.data.get(NARRATOR_STATS_KEY),
+            "storage": {
+                "knowledge_file_bytes": knowledge_bytes,
+                "chat_history_file_bytes": chat_bytes,
+            },
+            "resources": {
+                "snapshots_buffered": len(snapshots),
+                "snapshots_max": _DEBUG_SNAPSHOTS_MAX,
+                "global_log_entries": len(global_logs),
+                "global_log_max": _KYBER_GLOBAL_LOG_MAX,
+                "tfidf_terms": len(kstore._idf),
+                "knowledge_vectors": len(kstore._vectors),
+                "process_rss_bytes": rss_bytes,
+            },
         })
 
 
