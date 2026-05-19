@@ -1513,3 +1513,36 @@ class KyberView(HomeAssistantView):
             "request_id": request_id,
             "learned_fact": learned_fact,
         })
+
+
+class KyberLabelsView(HomeAssistantView):
+    """GET /api/kyber/labels — list all kyber: labels with their entities."""
+
+    url = "/api/kyber/labels"
+    name = "api:kyber:labels"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        label_reg = lr.async_get(hass)
+        entity_reg = er.async_get(hass)
+        from .device_type_labels import DEVICE_TYPE_LABELS
+
+        result = {}
+        for label in label_reg.async_list_labels():
+            if not label.name.startswith("kyber:"):
+                continue
+            entities = [
+                {"entity_id": e.entity_id, "name": e.name or e.entity_id}
+                for e in entity_reg.entities.values()
+                if label.label_id in (e.labels or set())
+            ]
+            cfg = DEVICE_TYPE_LABELS.get(label.label_id, {})
+            result[label.label_id] = {
+                "label_id": label.label_id,
+                "name": label.name,
+                "icon": label.icon or cfg.get("icon", ""),
+                "color": label.color or cfg.get("color", ""),
+                "entities": entities,
+            }
+        return self.json(result)

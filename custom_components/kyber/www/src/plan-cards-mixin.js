@@ -259,6 +259,46 @@ export const PlanCardsMixin = (Base) => class extends Base {
               }
             });
           }
+
+          // Show label-applied chips for auto-labelled entities
+          ok.forEach((r) => {
+            const labelInfo = r.label_applied;
+            if (!labelInfo) return;
+            const chip = document.createElement("div");
+            chip.className = "kyber-label-applied-chip";
+            chip.innerHTML = `
+              <ha-icon icon="${this._escapeHtml(labelInfo.icon)}"></ha-icon>
+              <span>${this._escapeHtml(labelInfo.label_name)} toegepast op ${this._escapeHtml(labelInfo.entity_name)}</span>
+              <button class="kyber-undo-label-btn">↩ Ongedaan maken</button>
+            `;
+            chip.querySelector(".kyber-undo-label-btn").addEventListener("click", async (evt) => {
+              evt.stopPropagation();
+              const btn = chip.querySelector(".kyber-undo-label-btn");
+              btn.disabled = true;
+              btn.textContent = "…";
+              try {
+                const token3 = this._hass.auth.data.access_token;
+                const r3 = await fetch("/api/kyber/execute", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token3}` },
+                  body: JSON.stringify({
+                    actions: [{ type: "remove_label", entity_id: labelInfo.entity_id, label_id: labelInfo.label_id }],
+                    approved: true,
+                  }),
+                });
+                if (r3.ok) {
+                  chip.remove();
+                } else {
+                  btn.textContent = "⚠ Mislukt";
+                  btn.disabled = false;
+                }
+              } catch (e) {
+                btn.textContent = "⚠ Fout";
+                btn.disabled = false;
+              }
+            });
+            resultEl.after(chip);
+          });
         } else {
           resultEl.textContent = `⚠ ${failed.length} action(s) failed: ${failed.map((r) => r.message).join("; ")}`;
           resultEl.className = "plan-result error";

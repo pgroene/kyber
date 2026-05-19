@@ -182,6 +182,7 @@ class KyberExecuteView(HomeAssistantView):
         actions: list[dict] = body.get("actions", [])
         if not actions:
             return self.json_message("Missing 'actions' field", HTTPStatus.BAD_REQUEST)
+        _plan_summary: str = str(body.get("summary", "") or body.get("plan_summary", "")).strip()
 
         # Enforce explicit approval for config-changing/destructive actions.
         # The client must POST `approved: true` to apply them. Autopilot
@@ -366,6 +367,21 @@ class KyberExecuteView(HomeAssistantView):
                     result: dict = {"status": "ok", "type": action_type, "entity_id": svc_entity_id or domain}
                     if undo_action:
                         result["undo_action"] = undo_action
+                    # Auto-label on first control interaction
+                    if svc_entity_id and service in ("turn_on", "turn_off", "toggle"):
+                        try:
+                            from .device_type_labels import async_infer_and_apply_label
+                            label_info = await async_infer_and_apply_label(hass, svc_entity_id, _plan_summary)
+                            if label_info:
+                                label_info["undo_action"] = {
+                                    "type": "remove_label",
+                                    "entity_id": svc_entity_id,
+                                    "label_id": label_info["label_id"],
+                                    "description": f"Verwijder label '{label_info['label_name']}' van {label_info['entity_name']}",
+                                }
+                                result["label_applied"] = label_info
+                        except Exception as _label_err:  # noqa: BLE001
+                            _LOGGER.debug("Kyber: label inference skipped for %s: %s", svc_entity_id, _label_err)
                     results.append(result)
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.error("call_service %s.%s failed: %s", domain, service, err)

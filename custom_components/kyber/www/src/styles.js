@@ -1246,5 +1246,28 @@ export const STYLES = `
   .kho-desc { font-size: 11px; opacity: .72; }
   .kho-item:hover .kho-desc { opacity: 1; }
   .kho-footer { padding: 6px 14px 10px; font-size: 11px; opacity: .55; border-top: 1px solid var(--divider-color,#eee); }
+
+  .kyber-label-applied-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 16px;
+    background: var(--primary-color, #03a9f4);
+    color: white;
+    font-size: 12px;
+    margin-top: 6px;
+  }
+  .kyber-label-applied-chip ha-icon { --mdc-icon-size: 16px; }
+  .kyber-undo-label-btn {
+    background: none;
+    border: 1px solid rgba(255,255,255,0.5);
+    color: white;
+    border-radius: 10px;
+    padding: 1px 8px;
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .kyber-undo-label-btn:hover { background: rgba(0,0,0,0.15); }
 `;
 

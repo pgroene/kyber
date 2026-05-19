@@ -28,7 +28,7 @@ from .const import (
 from .analyzer import analyze_automations as _analyze_automations
 from . import deep_analyzer as _deep
 from .knowledge import get_knowledge_store
-from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView
+from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView, KyberLabelsView
 from .debug_and_diagnostics import KyberHomeExportView, KyberMemoryExportView
 
 _LOGGER = logging.getLogger(__name__)
@@ -430,6 +430,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberPromptTestsRunView())
     hass.http.register_view(KyberPromptTestsCaptureView())
     hass.http.register_view(KyberPromptTestsRegenerateView())
+    hass.http.register_view(KyberLabelsView())
 
     # Serve frontend files from the component's www/ directory.
     # This makes HACS installs work without manual file copying.
