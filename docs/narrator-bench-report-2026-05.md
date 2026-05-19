@@ -154,6 +154,33 @@ After selecting `llama3.2:3b` as the best model, we ran a second bench to find t
 
 ---
 
+## Part 3: Can llama3.2:3b also replace mistral-nemo for chat?
+
+After establishing `llama3.2:3b` as the narrator champion, we tested it against the full 13-scenario chat eval harness (`scripts/prompt_eval.py`, 5 runs, structural checks).
+
+**Short answer: no.**
+
+| Category | Score |
+|---|:---:|
+| Q&A queries (5 scenarios) | ✅ Always passes |
+| Action/plan scenarios (8 scenarios) | ❌ 0% — never produces a plan block |
+| **Overall avg** | **3.5–4.2 / 10** |
+
+The model understands requests and calls tools correctly, but outputs prose instead of Kyber's structured `PLAN:` block. Every action scenario (`set_thermostat_21`, `tv_off_woonkamer`, `coffee_off`, `all_lights_off`, `morning_automation`, `koffie_espresso`) failed all 5 runs with score 0.
+
+For full per-scenario results see [eval-report-2026-05.md](eval-report-2026-05.md#extended-eval--llama323b-13-scenarios-may-2026).
+
+### Final two-model recommendation
+
+| Role | Model | Why |
+|---|---|---|
+| 🗣️ **Chat & actions** | `mistral-nemo:latest` | 93% on 13-scenario eval, reliable plan blocks, handles Dutch |
+| 🏷️ **Entity narrator** | `llama3.2:3b` | 100% quality, 3.7s/batch, 1.9 GB — 12× faster than mistral-nemo |
+
+These are complementary models. The narrator runs in the background and only needs to produce short structured aliases — `llama3.2:3b` excels at this. The chat assistant needs to reason, call tools, and emit precise JSON plan blocks — that requires `mistral-nemo`.
+
+---
+
 ## Benchmark Details
 
 | Parameter | Value |

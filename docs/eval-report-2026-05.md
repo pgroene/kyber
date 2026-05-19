@@ -202,4 +202,45 @@ We ran all three scenarios five times against each of three locally available Ol
 
 ---
 
-*Report generated: May 2026 · Model: mistral-nemo:latest · Scenarios: 3 · Iterations: 5 per model*
+## Extended Eval — llama3.2:3b (13 scenarios, May 2026)
+
+After `llama3.2:3b` emerged as the best narrator model (see [`narrator-bench-report-2026-05.md`](narrator-bench-report-2026-05.md)), we ran it through the full 13-scenario harness to check whether it could also serve as a chat model.
+
+**Result: not suitable for chat actions** — 5 runs, `--no-judge`, structural checks only.
+
+| Scenario | R1 | R2 | R3 | R4 | R5 | Type |
+|---|:---:|:---:|:---:|:---:|:---:|---|
+| `is_peter_home` | ✅ | ✅ | ✅ | ✅ | ✅ | Q&A |
+| `what_is_on_woonkamer` | ✅ | ✅ | ✅ | ✅ | ✅ | Q&A |
+| `waar_is_peter` | ✅ | ✅ | ✅ | ✅ | ✅ | Q&A |
+| `peter_in_werkkamer` | ⚠️ | ⚠️ | ✅ | ⚠️ | ⚠️ | Q&A |
+| `outside_temp` | ⚠️ | ✅ | ⚠️ | ⚠️ | ⚠️ | Q&A |
+| `lights_on_keuken` | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | Action |
+| `lights_off_werkamer` | ⚠️ | ⚠️ | ❌ | ❌ | ❌ | Action |
+| `set_thermostat_21` | ❌ | ❌ | ❌ | ❌ | ❌ | Action |
+| `tv_off_woonkamer` | ❌ | ❌ | ❌ | ❌ | ❌ | Action |
+| `coffee_off` | ❌ | ❌ | ❌ | ❌ | ❌ | Action |
+| `all_lights_off` | ❌ | ❌ | ❌ | ❌ | ❌ | Action |
+| `morning_automation` | ❌ | ❌ | ❌ | ❌ | ❌ | Action |
+| `koffie_espresso` | ❌ | ❌ | ❌ | ❌ | ❌ | Action |
+| **Avg score** | **3.8** | **4.2** | **3.8** | **3.5** | **3.5** | |
+| **Pass ≥7** | **3/13** | **4/13** | **4/13** | **3/13** | **3/13** | |
+
+**Root cause:** The model understands the request and calls tools, but outputs a prose answer instead of a structured `PLAN:` block. It lacks the instruction-following capacity to emit Kyber's plan format reliably under a complex system prompt.
+
+**Q&A queries always pass. Every action scenario fails every run.**
+
+### Updated model comparison
+
+| Model | Chat score | Action reliability | Narrator quality | Narrator speed |
+|---|:---:|:---:|:---:|:---:|
+| `mistral-nemo:latest` | 🥇 93% | ✅ Reliable | ✅ 100% | 44s/batch |
+| `llama3.2:3b` | ❌ ~27% (actions: 0%) | ❌ Never produces plans | ✅ 100% | **3.7s/batch** |
+| `llama3.2:latest` | ❌ ~27% | ❌ Unreliable | — | — |
+| `qwen3:4b-instruct` | 67% (read-only) | ❌ Fails in Dutch | ❌ 0% (format) | — |
+
+**Conclusion: use two models.** `mistral-nemo` for chat and actions. `llama3.2:3b` for background entity narration.
+
+---
+
+*Report generated: May 2026 · Model: mistral-nemo:latest · Scenarios: 3 (original) + 13 (llama3.2:3b extended) · Iterations: 5 per model*
