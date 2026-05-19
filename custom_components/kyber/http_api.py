@@ -730,6 +730,20 @@ async def _run_ai_loop(
         if len(loop_instructions) > _MAX_INSTRUCTIONS_CHARS:
             loop_instructions = loop_instructions[:_MAX_INSTRUCTIONS_CHARS]
 
+        _prompt_tokens_est = len(loop_instructions) // 4
+        # Warn when prompt fills >85 % of a typical 8 K context window.
+        # At this point the model has very little room to generate a response and
+        # may return an empty string.  Recommend increasing num_ctx in Ollama.
+        if _round == 0 and _prompt_tokens_est > 7_000:
+            _progress_emit(hass, request_id, {
+                "type": "warning",
+                "message": (
+                    f"⚠️ Large prompt (~{_prompt_tokens_est:,} tokens). "
+                    "If your model has a small context window (e.g. num_ctx=8192 in Ollama) "
+                    "the response may be empty. Consider setting num_ctx to 32768 or higher."
+                ),
+            })
+
         _progress_emit(hass, request_id, {
             "type": "info",
             "message": f"Asking AI (round {_round + 1})\u2026",
@@ -755,6 +769,23 @@ async def _run_ai_loop(
                 "Kyber: AI result.data is not str (type=%s); coerced to string",
                 type(result.data).__name__,
             )
+
+        # Detect empty response — most commonly caused by the model running out
+        # of context space (e.g. Ollama num_ctx=8192 with an 8K-token prompt).
+        if not response_text.strip():
+            _LOGGER.warning(
+                "Kyber: AI returned empty response (prompt ~%d tokens). "
+                "If using Ollama, increase num_ctx (e.g. num_ctx: 32768).",
+                _prompt_tokens_est,
+            )
+            response_text = (
+                "⚠️ The AI returned an empty response. This usually means your model's "
+                "context window is too small for this prompt "
+                f"(~{_prompt_tokens_est:,} tokens used). "
+                "**Fix:** In your Ollama model config, set `num_ctx: 32768` (or higher). "
+                "See [Ollama docs](https://ollama.com/library) for details."
+            )
+            break
         # Strip Qwen3 <think>…</think> blocks in case they appear despite /no_think.
         if "<think>" in response_text:
             import re as _re

@@ -893,6 +893,8 @@ export const AIMixin = (Base) => class extends Base {
       this._setThinkingLabel("Thinking…");
     } else if (ev.type === "thinking") {
       this._setThinkingLabel(ev.stage === "follow_up" ? "Reasoning over results…" : "Thinking…");
+    } else if (ev.type === "warning") {
+      this._appendThinkingEvent(`<span class="thinking-warning">⚠️ ${this._escapeHTML(ev.message || "")}</span>`);
     } else if (ev.type === "error") {
       this._appendThinkingEvent(`<span class="thinking-error">⚠️ ${this._escapeHTML(ev.message || "error")}</span>`);
     }

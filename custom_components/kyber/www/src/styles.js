@@ -1162,6 +1162,7 @@ export const STYLES = `
     overflow: auto;
   }
   .thinking-error { color: var(--error-color, #f44336); }
+  .thinking-warning { color: var(--warning-color, #ff9800); font-weight: 500; }
 
   /* ── Session indicator ───────────────────────────────────────── */
   .session-label {
