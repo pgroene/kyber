@@ -402,9 +402,8 @@ async def test_batch_accepted():
         patch.object(mod, "_run_ai", new_callable=AsyncMock) as mock_ai,
         patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
         patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
-        patch.object(mod, "asyncio") as mock_asyncio,
+        patch("asyncio.sleep", AsyncMock()),
     ):
-        mock_asyncio.sleep = AsyncMock()
         # One batch call — reply contains entity_id
         mock_ai.return_value = f"1. {eid} is an occupancy sensor in the bedroom."
         stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
@@ -429,9 +428,8 @@ async def test_batch_low_quality_when_entity_id_missing():
         patch.object(mod, "_run_ai", new_callable=AsyncMock) as mock_ai,
         patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
         patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
-        patch.object(mod, "asyncio") as mock_asyncio,
+        patch("asyncio.sleep", AsyncMock()),
     ):
-        mock_asyncio.sleep = AsyncMock()
         # Description does NOT contain entity_id
         mock_ai.return_value = "1. This is a motion sensor in the bedroom."
         stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
@@ -460,9 +458,8 @@ async def test_batch_ai_error_increments_errors():
         patch.object(mod, "_run_ai", new_callable=AsyncMock) as mock_ai,
         patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
         patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
-        patch.object(mod, "asyncio") as mock_asyncio,
+        patch("asyncio.sleep", AsyncMock()),
     ):
-        mock_asyncio.sleep = AsyncMock()
         mock_ai.side_effect = RuntimeError("AI unavailable")
         stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
 
@@ -498,9 +495,8 @@ async def test_batch_multi_entity_stats():
         patch.object(mod, "_run_ai", new_callable=AsyncMock) as mock_ai,
         patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
         patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
-        patch.object(mod, "asyncio") as mock_asyncio,
+        patch("asyncio.sleep", AsyncMock()),
     ):
-        mock_asyncio.sleep = AsyncMock()
         # Both in one batch (default max_batch=20 > 2), eid1 accepted, eid2 missing entity_id
         mock_ai.return_value = (
             f"1. {eid1} is an occupancy sensor.\n"
@@ -538,9 +534,8 @@ async def test_batch_parse_failure_flag():
         patch.object(mod, "_run_ai", new_callable=AsyncMock) as mock_ai,
         patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
         patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
-        patch.object(mod, "asyncio") as mock_asyncio,
+        patch("asyncio.sleep", AsyncMock()),
     ):
-        mock_asyncio.sleep = AsyncMock()
         # Only 2 lines for 10 entities → parse failure
         mock_ai.return_value = "1. First one.\n2. Second one."
         stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test", max_batch=20)
@@ -583,9 +578,8 @@ async def test_batch_size_respected():
         patch.object(mod, "_run_ai", new=_fake_ai),
         patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
         patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
-        patch.object(mod, "asyncio") as mock_asyncio,
+        patch("asyncio.sleep", AsyncMock()),
     ):
-        mock_asyncio.sleep = AsyncMock()
         stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test", max_batch=2)
 
     assert stats["batches"] == 2
@@ -606,9 +600,8 @@ async def test_stats_persisted_to_knowledge_store():
         patch.object(mod, "_run_ai", new_callable=AsyncMock) as mock_ai,
         patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
         patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
-        patch.object(mod, "asyncio") as mock_asyncio,
+        patch("asyncio.sleep", AsyncMock()),
     ):
-        mock_asyncio.sleep = AsyncMock()
         mock_ai.return_value = f"1. {eid} is a sensor."
         await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
 
@@ -633,9 +626,8 @@ async def test_ai_call_error_falls_back():
         patch.object(mod, "_run_ai", new_callable=AsyncMock) as mock_ai,
         patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
         patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
-        patch.object(mod, "asyncio") as mock_asyncio,
+        patch("asyncio.sleep", AsyncMock()),
     ):
-        mock_asyncio.sleep = AsyncMock()
         mock_ai.side_effect = RuntimeError("AI unavailable")
         stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
 
@@ -668,12 +660,129 @@ async def test_already_narrated_entity_skipped():
         patch.object(mod, "_run_ai", new_callable=AsyncMock) as mock_ai,
         patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
         patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
-        patch.object(mod, "asyncio") as mock_asyncio,
+        patch("asyncio.sleep", AsyncMock()),
     ):
-        mock_asyncio.sleep = AsyncMock()
         stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
 
     assert stats["total"] == 0
     mock_ai.assert_not_called()
 
 
+# ---------------------------------------------------------------------------
+# Thinking bug — chat-busy interruption tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_narrator_pauses_before_call_when_chat_busy():
+    """If _CHAT_BUSY_KEY is True before an AI call, narrator waits until clear."""
+    mod = _NARRATOR
+    eid = "binary_sensor.0x00124b00_occupancy"
+    hass = _make_hass()
+    hass.states.get = MagicMock(return_value=_make_state(eid))
+    kstore = _make_kstore()
+    entity_reg = _make_entity_reg(eid)
+
+    busy_iter = iter([True, True, False])
+    hass.data[mod._CHAT_BUSY_KEY] = True
+    sleep_calls: list[float] = []
+
+    async def _fake_sleep(secs):
+        sleep_calls.append(secs)
+        try:
+            hass.data[mod._CHAT_BUSY_KEY] = next(busy_iter)
+        except StopIteration:
+            hass.data[mod._CHAT_BUSY_KEY] = False
+
+    with (
+        patch.object(mod, "_run_ai", new_callable=AsyncMock) as mock_ai,
+        patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
+        patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
+        patch("asyncio.sleep", _fake_sleep),
+    ):
+        mock_ai.return_value = f"1. {eid} is a sensor."
+        stats = await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
+
+    mock_ai.assert_called_once()
+    assert len(sleep_calls) >= 1
+    assert stats["accepted"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_narrator_cancels_ai_when_chat_becomes_busy_mid_call():
+    """AI call in progress is cancelled immediately when _CHAT_BUSY_KEY flips True."""
+    import asyncio
+
+    mod = _NARRATOR
+    eid = "binary_sensor.0x00124b00_occupancy"
+    hass = _make_hass()
+    hass.states.get = MagicMock(return_value=_make_state(eid))
+    kstore = _make_kstore()
+    entity_reg = _make_entity_reg(eid)
+
+    ai_cancelled: list[bool] = []
+
+    # Use Event.wait() so _slow_ai blocks without depending on asyncio.sleep
+    # (which gets patched and would make it return immediately).
+    _blocking_event = asyncio.Event()  # never set → blocks until cancelled
+
+    async def _slow_ai(hass, ai_entity_id, prompt):
+        hass.data[mod._CHAT_BUSY_KEY] = True   # flip busy while "generating"
+        try:
+            await _blocking_event.wait()        # blocks until CancelledError is delivered
+        except asyncio.CancelledError:
+            ai_cancelled.append(True)
+            raise
+
+    async def _fake_sleep(secs):
+        hass.data[mod._CHAT_BUSY_KEY] = False  # clear busy after narrator's inner wait
+
+    with (
+        patch.object(mod, "_run_ai", new=_slow_ai),
+        patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
+        patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
+        patch("asyncio.sleep", _fake_sleep),
+    ):
+        await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
+
+    # Yield to the event loop so the pending CancelledError is delivered to _slow_ai.
+    await asyncio.sleep(0)
+    assert ai_cancelled, "AI task should have been cancelled when chat became busy"
+
+
+@pytest.mark.asyncio
+async def test_narrator_does_not_block_chat_for_120s():
+    """Narrator must not hold the event loop for the full 120s timeout.
+
+    Without the fix, asyncio.wait_for would block for up to 120s.
+    With the polling fix, the AI task is cancelled within one poll interval (~3s real
+    time, but near-instant in tests because asyncio.wait uses a real timeout).
+    """
+    import asyncio as real_asyncio
+    import time
+
+    mod = _NARRATOR
+    eid = "binary_sensor.0x00124b00_occupancy"
+    hass = _make_hass()
+    hass.states.get = MagicMock(return_value=_make_state(eid))
+    kstore = _make_kstore()
+    entity_reg = _make_entity_reg(eid)
+
+    async def _blocking_ai(hass, ai_entity_id, prompt):
+        hass.data[mod._CHAT_BUSY_KEY] = True  # trip busy while "generating"
+        await real_asyncio.sleep(999)          # "never" returns on its own
+
+    async def _fast_sleep(secs):
+        hass.data[mod._CHAT_BUSY_KEY] = False  # clear so narrator can move on
+
+    t0 = time.monotonic()
+    with (
+        patch.object(mod, "_run_ai", new=_blocking_ai),
+        patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
+        patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
+        patch("asyncio.sleep", _fast_sleep),
+    ):
+        await mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
+
+    elapsed = time.monotonic() - t0
+    # Without the fix this would take ~120s; with the fix it finishes within a few seconds
+    assert elapsed < 15.0, f"Narrator blocked for {elapsed:.1f}s — chat interruption not working"

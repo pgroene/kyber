@@ -198,13 +198,18 @@ for e in _SYNTHETIC_ENTITIES:
 
 
 # ── Ollama call ────────────────────────────────────────────────────────────────
-def _ollama_call(model: str, prompt: str, url: str, timeout: int = 180) -> tuple[str, int, int, float]:
+def _ollama_call(model: str, prompt: str, url: str, batch_size: int = 1, timeout: int = 300) -> tuple[str, int, int, float]:
     """Returns (response_text, prompt_tokens, completion_tokens, elapsed_sec)."""
+    # qwen3 is a thinking model — disable CoT to avoid wasting tokens on <think> blocks
+    if "qwen3" in model.lower():
+        prompt = "/no_think\n" + prompt
+    # ~200 tokens per entity for the structured JSON output; cap at 2048
+    num_predict = min(200 * batch_size + 128, 2048)
     payload = json.dumps({
         "model": model,
         "prompt": prompt,
         "stream": False,
-        "options": {"temperature": 0.1, "num_predict": 2048},
+        "options": {"temperature": 0.1, "num_predict": num_predict},
     }).encode()
     req = urllib.request.Request(
         f"{url}/api/generate", data=payload,
@@ -317,7 +322,9 @@ def run_benchmark(
                 print(f"  [{done}/{total}] batch={bs:2d}  run={run_i}/{runs}  "
                       f"prompt={prompt_chars:,} chars  ", end="", flush=True)
                 try:
-                    raw, pt, ct, elapsed = _ollama_call(model, prompt, ollama_url)
+                    # Scale timeout: ~60s base + 30s per entity
+                    call_timeout = min(60 + 30 * bs, 300)
+                    raw, pt, ct, elapsed = _ollama_call(model, prompt, ollama_url, batch_size=bs, timeout=call_timeout)
                     parsed, with_eid, with_terms, with_type = _score_response(raw, entity_ids)
                     r = BatchResult(
                         model=model, batch_size=bs, run=run_i,

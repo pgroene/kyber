@@ -193,6 +193,8 @@ def build_entity_context(
         lines.append(f"unit_of_measurement: {unit}")
     if area_name:
         lines.append(f"area: {area_name}")
+    if state_str and state_str not in ("unavailable", "unknown", "None", "none"):
+        lines.append(f"current_state: {state_str}")
     for k, v in sorted(attributes.items()):
         if k in _SKIP_ATTRS or k.startswith("_"):
             continue
@@ -573,14 +575,15 @@ async def async_narrate_entities(
                 _ai_task.cancel()
                 stats["errors"] += 1
                 ai_failed = True
-            v3_result = parse_batch_response_v3(raw, entity_ids)
-            if v3_result:
-                use_v3 = True
-                descriptions_v3 = v3_result
-                parsed_count = sum(1 for eid in entity_ids if eid in descriptions_v3)
-            else:
-                descriptions_v2 = parse_batch_response(raw, entity_ids)
-                parsed_count = sum(1 for eid in entity_ids if eid in descriptions_v2 and eid in descriptions_v2[eid])
+            if not ai_failed:
+                v3_result = parse_batch_response_v3(raw, entity_ids)
+                if v3_result:
+                    use_v3 = True
+                    descriptions_v3 = v3_result
+                    parsed_count = sum(1 for eid in entity_ids if eid in descriptions_v3)
+                else:
+                    descriptions_v2 = parse_batch_response(raw, entity_ids)
+                    parsed_count = sum(1 for eid in entity_ids if eid in descriptions_v2 and eid in descriptions_v2[eid])
             if parsed_count < len(batch) // 2:
                 stats["parse_failures"] += 1
                 _LOGGER.warning(
@@ -655,9 +658,23 @@ async def async_narrate_entities(
                         except Exception as alias_err:  # noqa: BLE001
                             _LOGGER.warning("Kyber narrator: alias store failed for %s/%s: %s", eid, term, alias_err)
                 else:
-                    # Low-quality: narrator failed. Skip storing entirely —
-                    # the entity will be retried on the next narrator run.
+                    # Low-quality: description missing or entity_id not anchored.
+                    # Store a low-confidence marker so this entity is skipped on the
+                    # next narrator run (not treated as "pending" forever).
                     stats["low_quality"] += 1
+                    try:
+                        await kstore.async_add(
+                            "general",
+                            f"[narrator] {name} [{eid}]",
+                            subject=eid,
+                            tags=[eid, domain, _NARRATOR_VERSION_TAG, "low_quality"],
+                            source="entity_narrator",
+                            confidence=0.1,
+                            provenance=f"AI narrator v{_NARRATOR_VERSION} (low quality)",
+                            _save=False,
+                        )
+                    except Exception as lq_err:  # noqa: BLE001
+                        _LOGGER.warning("Kyber narrator: low_quality store failed for %s: %s", eid, lq_err)
 
         done_count += len(batch)
         _set_progress(done_count, first_name)
