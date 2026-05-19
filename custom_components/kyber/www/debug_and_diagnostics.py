@@ -47,6 +47,9 @@ _DEBUG_LOG_CAPTURE_MAX_PER_TURN = 500
 # Key for background explorer progress (written by integration_explorer.py)
 EXPLORER_PROGRESS_KEY = "kyber_explorer_progress"
 
+_KYBER_GLOBAL_LOG_KEY = "kyber_global_logs"
+_KYBER_GLOBAL_LOG_MAX = 2000  # keep last 2000 records
+
 
 def _get_debug_mode(hass: HomeAssistant) -> bool:
     val = hass.data.get(_DEBUG_MODE_KEY)
@@ -75,6 +78,36 @@ class _KyberTurnLogHandler(logging.Handler):
                 "logger": name,
                 "message": record.getMessage(),
             })
+        except Exception:  # noqa: BLE001
+            pass
+
+
+class KyberGlobalLogHandler(logging.Handler):
+    """Persistent logging handler: captures all kyber.* records into hass.data ring buffer.
+
+    Installed once at async_setup_entry; stores logs in
+    hass.data[_KYBER_GLOBAL_LOG_KEY] as a list (newest appended, oldest evicted).
+    """
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        super().__init__(level=logging.DEBUG)
+        self._hass = hass
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            name = record.name or ""
+            if not (name.startswith("custom_components.kyber") or name.startswith("kyber")):
+                return
+            buf: list = self._hass.data.setdefault(_KYBER_GLOBAL_LOG_KEY, [])
+            buf.append({
+                "ts": record.created,
+                "level": record.levelname,
+                "logger": name.replace("custom_components.kyber.", "kyber.").replace("custom_components.kyber", "kyber"),
+                "message": record.getMessage(),
+            })
+            # Evict oldest when over limit
+            if len(buf) > _KYBER_GLOBAL_LOG_MAX:
+                del buf[: len(buf) - _KYBER_GLOBAL_LOG_MAX]
         except Exception:  # noqa: BLE001
             pass
 
@@ -531,6 +564,55 @@ def _build_redacted_bundle_summary(snap: dict) -> str:
     return "\n".join(lines)
 
 
+class KyberDebugLogsView(HomeAssistantView):
+    """Return the global Kyber log ring buffer.
+
+    GET /api/kyber/debug/logs               → JSON {"logs": [...], "total": N}
+    GET /api/kyber/debug/logs?format=txt    → plain text download
+    GET /api/kyber/debug/logs?level=WARNING → filter by minimum level
+    """
+
+    url = "/api/kyber/debug/logs"
+    name = "api:kyber:debug:logs"
+    requires_auth = True
+
+    _LEVEL_ORDER = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
+
+    async def get(self, request: web.Request) -> web.Response:
+        import datetime as _dt
+        hass: HomeAssistant = request.app["hass"]
+        buf: list[dict] = list(hass.data.get(_KYBER_GLOBAL_LOG_KEY) or [])
+
+        min_level_str = (request.query.get("level") or "").upper()
+        min_level_val = self._LEVEL_ORDER.get(min_level_str, 0)
+        if min_level_val > 0:
+            buf = [r for r in buf if self._LEVEL_ORDER.get(r.get("level", "DEBUG"), 0) >= min_level_val]
+
+        fmt = (request.query.get("format") or "").lower()
+        if fmt == "txt":
+            lines = []
+            for r in buf:
+                try:
+                    ts = _dt.datetime.fromtimestamp(r["ts"]).strftime("%H:%M:%S.%f")[:-3]
+                except Exception:  # noqa: BLE001
+                    ts = "?"
+                lines.append(f"{ts} {r.get('level','?'):<8} {r.get('logger','?')}: {r.get('message','')}")
+            text = "\n".join(lines)
+            return web.Response(
+                body=text.encode(),
+                content_type="text/plain",
+                headers={"Content-Disposition": "attachment; filename=\"kyber-logs.txt\""},
+            )
+
+        return self.json({"logs": buf, "total": len(buf)})
+
+    async def delete(self, request: web.Request) -> web.Response:
+        """Clear the log buffer. DELETE /api/kyber/debug/logs"""
+        hass: HomeAssistant = request.app["hass"]
+        hass.data[_KYBER_GLOBAL_LOG_KEY] = []
+        return self.json({"cleared": True})
+
+
 class KyberDebugModeView(HomeAssistantView):
     """Get/set the debug-mode flag used by the panel.
 
@@ -569,6 +651,12 @@ class KyberDebugModeView(HomeAssistantView):
                     hass.config_entries.async_update_entry(entry, options=new_options)
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Failed to persist debug-mode to options: %s", err)
+        # Adjust kyber root logger level to match debug mode
+        _kyber_root = logging.getLogger("custom_components.kyber")
+        if enabled:
+            _kyber_root.setLevel(logging.INFO)
+        else:
+            _kyber_root.setLevel(logging.WARNING)
         return self.json({"enabled": enabled})
 
 

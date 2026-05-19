@@ -27,6 +27,8 @@ export const DebugMixin = (Base) => class extends Base {
         await this._renderDebugLastTurn(body);
       } else if (tab === "status") {
         await this._renderDebugStatus(body);
+      } else if (tab === "logs") {
+        await this._renderDebugLogs(body);
       } else if (tab === "tests") {
         await this._renderDebugTests(body);
       }
@@ -550,12 +552,93 @@ export const DebugMixin = (Base) => class extends Base {
     // Auto-refresh while explorer or narrator is running
     if (epRunning) {
       if (!this._explorerStatusTimer) {
-        this._explorerStatusTimer = setInterval(() => this._renderDebugStatus(body), 3000);
+        this._explorerStatusTimer = setInterval(() => {
+          const liveBody = this.shadowRoot?.getElementById("debug-body");
+          if (liveBody) this._renderDebugStatus(liveBody);
+        }, 3000);
       }
     } else if (this._explorerStatusTimer) {
       clearInterval(this._explorerStatusTimer);
       this._explorerStatusTimer = null;
     }
+  }
+
+  async _renderDebugLogs(body) {
+    const token = this._hass.auth.data.access_token;
+    const level = body.querySelector("#dbg-log-level")?.value || "";
+    const url = `/api/kyber/debug/logs${level ? `?level=${level}` : ""}`;
+    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await resp.json();
+    const logs = data.logs || [];
+
+    const LEVEL_COLOR = {
+      DEBUG: "var(--secondary-text-color)",
+      INFO: "var(--info-color, #2196F3)",
+      WARNING: "var(--warning-color, #FF9800)",
+      ERROR: "var(--error-color, #F44336)",
+      CRITICAL: "var(--error-color, #F44336)",
+    };
+
+    const rows = logs.slice().reverse().map((r) => {
+      const ts = r.ts ? new Date(r.ts * 1000).toLocaleTimeString("nl", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+      const color = LEVEL_COLOR[r.level] || "inherit";
+      const logger = this._escapeHtml((r.logger || "").replace("custom_components.kyber.", "kyber."));
+      const msg = this._escapeHtml(r.message || "");
+      return `<tr>
+        <td style="white-space:nowrap;color:var(--secondary-text-color);font-size:0.82em">${ts}</td>
+        <td style="white-space:nowrap;font-weight:600;color:${color};font-size:0.82em">${this._escapeHtml(r.level || "")}</td>
+        <td style="white-space:nowrap;color:var(--secondary-text-color);font-size:0.78em">${logger}</td>
+        <td style="font-size:0.85em;word-break:break-word">${msg}</td>
+      </tr>`;
+    }).join("");
+
+    body.innerHTML = `
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <select id="dbg-log-level" style="font-size:0.88em;padding:4px 8px">
+          <option value=""${!level ? " selected" : ""}>All levels</option>
+          <option value="INFO"${level === "INFO" ? " selected" : ""}>INFO+</option>
+          <option value="WARNING"${level === "WARNING" ? " selected" : ""}>WARNING+</option>
+          <option value="ERROR"${level === "ERROR" ? " selected" : ""}>ERROR+</option>
+        </select>
+        <button id="dbg-log-refresh" style="font-size:0.88em;padding:4px 10px">🔄 Refresh</button>
+        <button id="dbg-log-download" style="font-size:0.88em;padding:4px 10px">📥 Download</button>
+        <button id="dbg-log-clear" style="font-size:0.88em;padding:4px 10px;color:var(--error-color)">🗑 Clear</button>
+        <span style="font-size:0.82em;color:var(--secondary-text-color)">${logs.length} records</span>
+      </div>
+      ${logs.length > 0 ? `
+      <div style="overflow-x:auto;max-height:60vh">
+        <table style="width:100%;border-collapse:collapse;font-family:monospace" id="dbg-log-table">
+          <thead><tr style="font-size:0.78em;color:var(--secondary-text-color);border-bottom:1px solid var(--divider-color)">
+            <th style="text-align:left;padding:2px 8px 4px 0">Time</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">Level</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">Logger</th>
+            <th style="text-align:left;padding:2px 0 4px 0">Message</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>` : `<em style="color:var(--secondary-text-color)">No logs yet. Kyber logs are captured once debug mode is enabled and a first request is made.</em>`}
+    `;
+
+    body.querySelector("#dbg-log-refresh")?.addEventListener("click", () => this._renderDebugLogs(body));
+    body.querySelector("#dbg-log-clear")?.addEventListener("click", async () => {
+      const t = this._hass.auth.data.access_token;
+      await fetch("/api/kyber/debug/logs", { method: "DELETE", headers: { Authorization: `Bearer ${t}` } });
+      this._renderDebugLogs(body);
+    });
+    body.querySelector("#dbg-log-download")?.addEventListener("click", async () => {
+      const t = this._hass.auth.data.access_token;
+      const lv = body.querySelector("#dbg-log-level")?.value || "";
+      const dlUrl = `/api/kyber/debug/logs?format=txt${lv ? `&level=${lv}` : ""}`;
+      const r = await fetch(dlUrl, { headers: { Authorization: `Bearer ${t}` } });
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "kyber-logs.txt";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+    body.querySelector("#dbg-log-level")?.addEventListener("change", () => this._renderDebugLogs(body));
   }
 
   async _downloadHomeState(btn) {

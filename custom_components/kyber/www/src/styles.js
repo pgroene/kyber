@@ -1225,6 +1225,16 @@ export const STYLES = `
   }
   .context-badge:empty { display: none; }
 
+  .narrator-progress {
+    font-size: 0.78em;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--primary-color) 15%, transparent);
+    color: var(--primary-text-color);
+    cursor: default;
+    animation: pulse-badge 2s ease-in-out infinite;
+  }
+
   /* ── Entity autocomplete dropdown ────────────────────────────── */
   .autocomplete-list {
     position: absolute;

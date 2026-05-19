@@ -101,6 +101,47 @@ Screenshots from Playwright are uploaded as the `ui-screenshots` artifact on eve
 
 ---
 
+## Logging
+
+### Adding log statements
+
+Every Kyber module uses a module-level logger:
+
+```python
+import logging
+_LOGGER = logging.getLogger(__name__)
+```
+
+This produces logger names like `custom_components.kyber.http_api`, `custom_components.kyber.knowledge`, etc. — all children of `custom_components.kyber`, which makes them easy to filter in HA's `configuration.yaml` and in the Kyber debug panel.
+
+### Level conventions
+
+| Level | When to use |
+|---|---|
+| `_LOGGER.error(...)` | Unrecoverable failures the user must act on (API unreachable, config invalid) |
+| `_LOGGER.warning(...)` | Recoverable issues worth surfacing (retries, fallbacks, unexpected but handled states) |
+| `_LOGGER.info(...)` | Significant background milestones (narrator started/finished, explorer phase change, schema upgraded) |
+| `_LOGGER.debug(...)` | Detailed trace data for developers (individual tool calls, token counts, cache hits) |
+
+**Rule of thumb:** anything that changes persistent state (`INFO`+), anything that might confuse a user (`WARNING`+), anything that helps reproduce a bug (`DEBUG`).
+
+### Debug mode
+
+When the **Kyber Debug panel** is enabled, Kyber sets `custom_components.kyber` to `INFO` level automatically — so all `INFO` log statements appear in the **📋 Logs** tab without requiring `configuration.yaml` changes. In production (debug mode off) the logger stays at `WARNING` and only warnings/errors are captured.
+
+To force verbose logging in `configuration.yaml`:
+
+```yaml
+logger:
+  default: warning
+  logs:
+    custom_components.kyber: debug
+```
+
+### Viewing logs in the debug panel
+
+Open **Kyber Debug → 📋 Logs**. The panel shows the live ring buffer of the last 2,000 Kyber log records since last HA restart. Use the level filter dropdown to focus on `WARNING+` or `ERROR+` entries. Click **📥 Download** to save `kyber-logs.txt` — you can drop it in chat for AI-assisted analysis.
+
 ## UI Changes
 
 If your PR changes any visible UI behaviour:

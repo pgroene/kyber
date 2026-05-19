@@ -110,6 +110,54 @@ export const UtilsMixin = (Base) => class extends Base {
     }
   }
 
+  }
+
+  _pollNarratorProgress() {
+    // Only check if not already polling and panel is rendered
+    if (this._narratorProgressTimer || !this._rendered) return;
+    const token = this._hass?.auth?.data?.access_token;
+    if (!token) return;
+
+    const update = async () => {
+      try {
+        const resp = await fetch("/api/kyber/debug/status", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const ep = data.explorer_progress || {};
+        const badge = this.shadowRoot?.getElementById("narrator-progress");
+        if (!badge) return;
+        const epStatus = ep.status || "idle";
+        const isNarrating = epStatus === "narrator";
+        const isExploring = epStatus === "phase1_summaries" || epStatus === "phase2_entities" || epStatus === "starting";
+        if (isNarrating) {
+          const done = ep.narrator_done ?? 0;
+          const total = ep.narrator_total ?? 0;
+          badge.textContent = `🎙 ${done}/${total}`;
+          badge.hidden = false;
+          badge.title = `AI narrator: ${done} of ${total} entities described`;
+        } else if (isExploring) {
+          const done = ep.done ?? 0;
+          const total = ep.total ?? 0;
+          badge.textContent = `🔍 ${done}/${total}`;
+          badge.hidden = false;
+          badge.title = `Entity explorer: indexing ${done} of ${total}`;
+        } else {
+          badge.hidden = true;
+          // Stop polling when done
+          if (this._narratorProgressTimer) {
+            clearInterval(this._narratorProgressTimer);
+            this._narratorProgressTimer = null;
+          }
+        }
+      } catch (_e) { /* ignore */ }
+    };
+
+    update(); // immediate first check
+    this._narratorProgressTimer = setInterval(update, 4000);
+  }
+
   _configToYaml(config) {
     // Lightweight JSON→YAML serialiser (sufficient for HA automation objects)
     return this._jsonToYaml(config, 0);

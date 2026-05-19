@@ -29,7 +29,7 @@ from .analyzer import analyze_automations as _analyze_automations
 from . import deep_analyzer as _deep
 from .knowledge import get_knowledge_store
 from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView, KyberLabelsView
-from .debug_and_diagnostics import KyberHomeExportView, KyberMemoryExportView
+from .debug_and_diagnostics import KyberHomeExportView, KyberMemoryExportView, KyberGlobalLogHandler, KyberDebugLogsView
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -434,11 +434,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberDebugModeView())
     hass.http.register_view(KyberHomeExportView())
     hass.http.register_view(KyberMemoryExportView())
+    hass.http.register_view(KyberDebugLogsView())
     hass.http.register_view(KyberPromptTestsView())
     hass.http.register_view(KyberPromptTestsRunView())
     hass.http.register_view(KyberPromptTestsCaptureView())
     hass.http.register_view(KyberPromptTestsRegenerateView())
     hass.http.register_view(KyberLabelsView())
+
+    # Install global log handler + set logger level
+    _kyber_root = logging.getLogger("custom_components.kyber")
+    if debug_enabled:
+        _kyber_root.setLevel(logging.INFO)
+    else:
+        _kyber_root.setLevel(logging.WARNING)
+    _global_handler = KyberGlobalLogHandler(hass)
+    _kyber_root.addHandler(_global_handler)
+    hass.data["kyber_global_log_handler"] = _global_handler
 
     # Serve frontend files from the component's www/ directory.
     # This makes HACS installs work without manual file copying.
@@ -512,5 +523,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bo
         async_remove_panel(hass, "kyber-debug")
     except Exception:  # noqa: BLE001
         pass
+    # Remove global log handler
+    _handler = hass.data.pop("kyber_global_log_handler", None)
+    if _handler:
+        logging.getLogger("custom_components.kyber").removeHandler(_handler)
     return True
 

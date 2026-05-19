@@ -32,12 +32,12 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=96";
+import { STYLES } from "./src/styles.js?v=97";
 
-import { UtilsMixin } from "./src/utils-mixin.js?v=95";
+import { UtilsMixin } from "./src/utils-mixin.js?v=96";
 import { SessionMixin } from "./src/session-mixin.js?v=87";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=87";
-import { DebugMixin } from "./src/debug-mixin.js?v=91";
+import { DebugMixin } from "./src/debug-mixin.js?v=92";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=93";
 import { EditorMixin } from "./src/editor-mixin.js?v=87";
 import { AIMixin } from "./src/ai-mixin.js?v=91";
@@ -91,6 +91,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
         this._loadMemoryCount();
       }
       this._checkUpdateBadge();
+      this._pollNarratorProgress();
     }
   }
 
@@ -155,6 +156,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <span>Kyber Assistant</span>
             <span class="session-label" id="session-indicator"></span>
             <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
+            <span class="narrator-progress" id="narrator-progress" hidden title="AI narrator is building entity descriptions in the background"></span>
             <button class="memory-badge" id="memory-badge" title="Memory facts — click to preview recalled facts">🧠 <span id="memory-count">…</span></button>
             <button class="update-badge" id="update-badge" hidden title="Update available — click to install">⬆️ <span id="update-badge-label">Update</span></button>
             <button class="autopilot-badge" id="autopilot-badge" title="Toggle autopilot — auto-executes safe proposals">⚡ Autopilot</button>
@@ -178,6 +180,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
               <button class="debug-tab active" data-debug-tab="memory">🧠 Memory</button>
               <button class="debug-tab" data-debug-tab="last_turn">📥 Last turn</button>
               <button class="debug-tab" data-debug-tab="status">⚙️ Status</button>
+              <button class="debug-tab" data-debug-tab="logs">📋 Logs</button>
               <button class="debug-tab" data-debug-tab="tests">🧪 Tests</button>
             </nav>
             <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">↻</button>
