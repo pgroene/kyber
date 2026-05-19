@@ -226,6 +226,13 @@ def main():
     else:
         print("  WARNING: could not find kyber-panel.js?v= in __init__.py", file=sys.stderr)
 
+    # Build release notes (also shown in dry-run so you know what's going out)
+    notes = _build_release_notes(tag, prev_version_tag)
+    print("\n  Release notes:")
+    for line in notes.splitlines():
+        print(f"    {line}")
+    print()
+
     # Sync www mirror
     if not args.dry_run:
         run([sys.executable, str(ROOT / "scripts" / "sync_www.py")])
@@ -253,7 +260,6 @@ def main():
     token = _get_token()
     if token:
         import urllib.request
-        notes = _build_release_notes(tag, prev_version_tag)
         payload = json.dumps({
             "tag_name": tag,
             "name": tag,
