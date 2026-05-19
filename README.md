@@ -52,6 +52,13 @@ docker compose -f docker-compose.dev.yml up
 # then open http://localhost:8123
 ```
 
+After install, Kyber registers **two sidebar panels**:
+
+| Panel | URL | Purpose |
+|---|---|---|
+| **Kyber** | `/kyber` | Main chat interface |
+| **Kyber Debug** | `/kyber-debug` | Memory browser, last turn details, entity narrator progress, live logs |
+
 ## Choosing a Model
 
 Kyber requires an **Ollama** model configured through the HA Ollama integration. Not all models perform equally — smaller models often fail to produce the structured plan blocks Kyber needs for action requests.
