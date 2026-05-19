@@ -99,6 +99,10 @@ from .config_flow import _infer_max_tokens
 
 _LOGGER = logging.getLogger(__name__)
 
+# Key in hass.data: set True while a user chat request is in progress so the
+# background narrator pauses between batches instead of blocking the AI queue.
+_CHAT_BUSY_KEY = "kyber_chat_busy"
+
 def _sanitize_prompt_value(text: str, max_len: int = 0) -> str:
     """Sanitize a user-supplied string before embedding it in the system prompt.
 
@@ -1426,9 +1430,13 @@ class KyberView(HomeAssistantView):
         import time as _time
         _turn_started_at = _time.time()
 
+        # Signal background tasks (narrator) to pause between batches.
+        hass.data[_CHAT_BUSY_KEY] = True
+
         try:
             body = await request.json()
         except (json.JSONDecodeError, ValueError):
+            hass.data[_CHAT_BUSY_KEY] = False
             return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
 
         body_fields = _parse_request_body(body, request)
@@ -1441,6 +1449,7 @@ class KyberView(HomeAssistantView):
         _debug_log_sink, _debug_log_handler = _debug_attach_log_capture(request_id)
 
         if not user_prompt:
+            hass.data[_CHAT_BUSY_KEY] = False
             _debug_detach_log_capture(_debug_log_handler)
             return self.json_message("Missing 'prompt' field", HTTPStatus.BAD_REQUEST)
 
@@ -1585,6 +1594,7 @@ class KyberView(HomeAssistantView):
             _LOGGER.debug("Kyber: debug snapshot capture failed: %s", err)
         finally:
             _debug_detach_log_capture(_debug_log_handler)
+            hass.data[_CHAT_BUSY_KEY] = False
         return self.json({
             "response": response_text,
             "yaml_blocks": yaml_blocks,

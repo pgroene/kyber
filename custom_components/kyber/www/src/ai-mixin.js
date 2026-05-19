@@ -249,6 +249,12 @@ export const AIMixin = (Base) => class extends Base {
     this._showThinking();
     const requestId = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + "-" + Math.random().toString(36).slice(2));
 
+    // 3-minute timeout — narrator batches can take a while; cancel re-enables the button
+    this._chatAbort = new AbortController();
+    const _chatTimeoutId = setTimeout(() => {
+      if (this._chatAbort) this._chatAbort.abort(new Error("Request timed out (3 min). The AI narrator may be busy — try again in a moment."));
+    }, 180_000);
+
     try {
       const token = this._hass.auth.data.access_token;
 
@@ -285,6 +291,7 @@ export const AIMixin = (Base) => class extends Base {
 
       const resp_promise = fetch("/api/kyber/complete", {
         method: "POST",
+        signal: this._chatAbort.signal,
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
@@ -370,9 +377,14 @@ export const AIMixin = (Base) => class extends Base {
       this._maybeCompact();
     } catch (err) {
       this._hideThinking();
-      this._appendMessage(`Error: ${err.message}`, "error");
-      this._setStatus(`AI error: ${err.message}`, "error");
+      const msg = err.name === "AbortError"
+        ? (err.message || "Request cancelled.")
+        : `Error: ${err.message}`;
+      this._appendMessage(msg, "error");
+      this._setStatus(msg, "error");
     } finally {
+      clearTimeout(_chatTimeoutId);
+      this._chatAbort = null;
       askBtn.disabled = false;
     }
   }
@@ -813,12 +825,22 @@ export const AIMixin = (Base) => class extends Base {
             <span></span><span></span><span></span>
           </div>
           <span class="thinking-label">Thinking…</span>
+          <button class="thinking-cancel" id="kyber-thinking-cancel" title="Cancel request" style="margin-left:8px;font-size:0.8em;padding:2px 8px;cursor:pointer">✕ Cancel</button>
         </div>
         <div class="thinking-events" id="kyber-thinking-events"></div>
       </div>
     `;
     history.appendChild(bubble);
     history.scrollTop = history.scrollHeight;
+    const cancelBtn = bubble.querySelector("#kyber-thinking-cancel");
+    if (cancelBtn) {
+      cancelBtn.addEventListener("click", () => {
+        if (this._chatAbort) {
+          this._chatAbort.abort();
+          this._chatAbort = null;
+        }
+      });
+    }
   }
 
   _setThinkingLabel(label) {
