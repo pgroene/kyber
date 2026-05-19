@@ -357,6 +357,21 @@ class KyberExecuteView(HomeAssistantView):
                 if not domain or not service:
                     results.append({"status": "error", "message": "Missing 'domain' or 'service' for call_service"})
                     continue
+                # Normalize entity_id: if the model emitted just the local part
+                # (e.g. "onoff_keuken_espresso_304" instead of
+                # "switch.onoff_keuken_espresso_304"), recover the full id.
+                if svc_entity_id and "." not in svc_entity_id:
+                    candidate = f"{domain}.{svc_entity_id}"
+                    if hass.states.get(candidate):
+                        svc_entity_id = candidate
+                    else:
+                        for st in hass.states.async_all():
+                            local = st.entity_id.split(".", 1)[-1]
+                            if local == svc_entity_id and (
+                                not domain or st.entity_id.startswith(f"{domain}.")
+                            ):
+                                svc_entity_id = st.entity_id
+                                break
                 # Capture state before call for undo
                 pre_state = hass.states.get(svc_entity_id) if svc_entity_id else None
                 if svc_entity_id:

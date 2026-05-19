@@ -480,13 +480,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
 
     # Seed language vocabulary hints and explore integrations AFTER HA has
     # fully started — this avoids contending with other integration setups.
+    # Use asyncio.ensure_future (not hass.async_create_task) so HA's bootstrap
+    # tracker doesn't wait for these long-running background jobs and log a
+    # spurious "blocking startup" warning.
+    import asyncio as _asyncio
     from homeassistant.helpers.start import async_at_start
     from homeassistant.core import callback as _callback
 
     @_callback
     def _on_ha_started(_hass: HomeAssistant) -> None:
-        _hass.async_create_task(_async_seed_language_hints(_hass))
-        _hass.async_create_task(_async_explore_integrations(_hass, entry))
+        _asyncio.ensure_future(_async_seed_language_hints(_hass))
+        _asyncio.ensure_future(_async_explore_integrations(_hass, entry))
 
     async_at_start(hass, _on_ha_started)
 

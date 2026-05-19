@@ -507,8 +507,8 @@ export const SlashMixin = (Base) => class extends Base {
     }
 
     const entityId      = updateEntity.entity_id;
-    const installedVer  = updateEntity.attributes.installed_version || "unknown";
-    const latestVer     = updateEntity.attributes.latest_version    || "unknown";
+    const installedVer  = (updateEntity.attributes.installed_version || "unknown").replace(/^v/i, "");
+    const latestVer     = (updateEntity.attributes.latest_version    || "unknown").replace(/^v/i, "");
     const hasUpdate     = updateEntity.state === "on";
     const releaseUrl    = updateEntity.attributes.release_url       || null;
 

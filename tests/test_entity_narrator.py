@@ -96,8 +96,39 @@ class TestIsInteresting:
 
 
 # ---------------------------------------------------------------------------
-# build_entity_context
+# _is_cryptic
 # ---------------------------------------------------------------------------
+
+class TestIsCryptic:
+    """Unit tests for the _is_cryptic helper (regressed: function was missing)."""
+
+    def test_zigbee_0x_prefix(self):
+        assert _NARRATOR._is_cryptic("binary_sensor.0x00124b00251202d6_occupancy")
+
+    def test_zigbee_hex_suffix(self):
+        assert _NARRATOR._is_cryptic("sensor.0x12345678_temperature")
+
+    def test_long_numeric_suffix(self):
+        assert _NARRATOR._is_cryptic("sensor.device_12345678901")
+
+    def test_short_hex_not_cryptic(self):
+        # 5 hex chars — below the threshold of 6
+        assert not _NARRATOR._is_cryptic("sensor.device_12abc")
+
+    def test_plain_name_not_cryptic(self):
+        assert not _NARRATOR._is_cryptic("light.bedroom")
+        assert not _NARRATOR._is_cryptic("switch.coffee_machine")
+        assert not _NARRATOR._is_cryptic("sensor.temperature_living_room")
+
+    def test_is_interesting_cryptic_no_device_class(self):
+        # Cryptic IDs qualify for narration even with no device_class/siblings
+        assert _NARRATOR.is_interesting("binary_sensor.0x00124b00251202d6_occ", None, 0)
+
+    def test_is_interesting_plain_no_class_fails(self):
+        # Plain name, no device_class, no siblings → NOT interesting
+        assert not _NARRATOR.is_interesting("light.bedroom", None, 0)
+
+
 
 class TestBuildEntityContext:
     def _ctx(self, **kwargs):

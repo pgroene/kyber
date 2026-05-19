@@ -100,6 +100,9 @@ def _is_noisy(entity_id: str) -> bool:
     return any(frag in eid for frag in _NOISY_ENTITY_FRAGMENTS)
 
 
+def _is_cryptic(entity_id: str) -> bool:
+    """Return True if the entity_id contains opaque hex/numeric segments (Zigbee/Z-Wave)."""
+    return bool(_CRYPTIC_RE.search(entity_id))
 
 
 
