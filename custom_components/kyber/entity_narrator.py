@@ -54,8 +54,13 @@ _INSTRUCTIONS_CHARS = 480
 _RESPONSE_CHARS_PER_ENTITY = 180
 # Conservative prompt budget in chars: 8192 tokens × 4 chars/token × 0.75 usable.
 _PROMPT_BUDGET_CHARS = int(8192 * 4 * 0.75)
-# Hard cap on batch size regardless of budget — beyond this models lose count.
-_MAX_RELIABLE_BATCH = 50
+# Hard cap on batch size regardless of budget.
+# Bench across llama3.2:3b (batch sizes 1–20, 3 runs each) showed:
+#   batch=10 → 100% quality, 439ms/entity (best throughput)
+#   batch=15 → 91% quality (one partial failure)
+#   batch=20 → 68% quality (one catastrophic failure, 1/20 parsed)
+# Beyond 10 the model starts losing track of entities in the batch.
+_MAX_RELIABLE_BATCH = 10
 
 # Pause between batch AI calls.
 _RATE_LIMIT_SECONDS = 2.0

@@ -127,6 +127,33 @@ Quality  100% │ ●llama3.2:3b   ●llama3:8b  ●llama3.1:8b       ●mistral
 
 ---
 
+## Part 2: Optimal Batch Size for llama3.2:3b
+
+After selecting `llama3.2:3b` as the best model, we ran a second bench to find the optimal batch size: batch sizes 1, 5, 10, 15, and 20 with 3 runs each and warmup.
+
+### Results
+
+| Batch size | Quality | Elapsed | ms/entity | tok/s |
+|:---:|:---:|---:|---:|---:|
+| 1 | ⚠️ 67% | 0.6s | 576ms | 79 |
+| 5 | ✅ 100% | 2.8s | 551ms | 87 |
+| **10** | **✅ 100%** | **4.4s** | **439ms** | **90** |
+| 15 | ⚠️ 91% | 10.1s | 671ms | 108 |
+| 20 | ❌ 68% | 9.4s | 470ms | 106 |
+
+### Key observations
+
+- **Batch=1 is surprisingly unreliable** — 1 in 3 runs returned an unparseable response. Single-entity prompts appear to confuse the model occasionally (possibly the lack of examples to pattern-match against).
+- **Batch=5 and batch=10 are both 100% reliable.** Batch=10 wins on throughput: 439ms/entity vs 551ms/entity — a 20% improvement.
+- **Batch=15 starts to slip** — one run returned only 11/15 entities correctly.
+- **Batch=20 fails significantly** — one run returned only 1/20 entities (`parsed=1/20`), catastrophically cutting quality to 5%.
+
+### Conclusion
+
+**Batch=10 is the sweet spot for `llama3.2:3b`**: perfect quality across all 3 runs and the best per-entity throughput. The narrator's `_MAX_RELIABLE_BATCH` constant has been updated from 50 → 10 to reflect this finding.
+
+---
+
 ## Benchmark Details
 
 | Parameter | Value |
