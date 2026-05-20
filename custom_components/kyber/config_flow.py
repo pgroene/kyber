@@ -245,6 +245,30 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
         """Return the options flow so users can edit settings post-install."""
         return KyberOptionsFlow()
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Allow the user to change the AI task entity after initial setup."""
+        reconfigure_entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            entity_id = user_input[CONF_AI_TASK_ENTITY_ID].strip()
+            if not _entity_exists(self.hass, entity_id):
+                errors[CONF_AI_TASK_ENTITY_ID] = "entity_not_found"
+            else:
+                return self.async_update_reload_and_abort(
+                    reconfigure_entry,
+                    data_updates={CONF_AI_TASK_ENTITY_ID: entity_id},
+                )
+
+        current_entity = reconfigure_entry.data.get(CONF_AI_TASK_ENTITY_ID, "")
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_build_entity_schema(self.hass, current_entity),
+            errors=errors,
+        )
+
 
 class KyberOptionsFlow(OptionsFlow):
     """Options flow for Kyber — lets the user edit all settings after install."""

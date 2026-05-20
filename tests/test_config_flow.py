@@ -222,3 +222,75 @@ async def test_creates_entry_with_cloud_entity(hass: HomeAssistant) -> None:
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["ai_task_entity_id"] == "ai_task.home_assistant_cloud_data_generation"
     assert result["data"]["max_tokens"] == 4096
+
+
+async def test_reconfigure_shows_entity_selector(hass: HomeAssistant) -> None:
+    """Reconfigure flow shows entity selector pre-filled with current entity."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"ai_task_entity_id": "ai_task.old_entity", "max_tokens": 4096},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_RECONFIGURE, "entry_id": entry.entry_id},
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    schema_keys = [str(k) for k in result["data_schema"].schema.keys()]
+    assert any("ai_task_entity_id" in k for k in schema_keys)
+
+
+async def test_reconfigure_invalid_entity_shows_error(hass: HomeAssistant) -> None:
+    """Reconfigure with non-existent entity shows entity_not_found error."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"ai_task_entity_id": "ai_task.old_entity", "max_tokens": 4096},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_RECONFIGURE, "entry_id": entry.entry_id},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"ai_task_entity_id": "ai_task.does_not_exist"},
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"].get("ai_task_entity_id") == "entity_not_found"
+
+
+async def test_reconfigure_updates_entity_and_aborts(hass: HomeAssistant) -> None:
+    """Reconfigure with a valid new entity updates the entry and aborts successfully."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"ai_task_entity_id": "ai_task.old_entity", "max_tokens": 4096},
+    )
+    entry.add_to_hass(hass)
+
+    entity_reg = er.async_get(hass)
+    entity_reg.async_get_or_create(
+        "ai_task", "ollama", "new_model", suggested_object_id="new_model"
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_RECONFIGURE, "entry_id": entry.entry_id},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"ai_task_entity_id": "ai_task.new_model"},
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data["ai_task_entity_id"] == "ai_task.new_model"
+    # Other settings preserved
+    assert entry.data["max_tokens"] == 4096
