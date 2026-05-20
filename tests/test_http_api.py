@@ -1268,3 +1268,121 @@ async def test_debug_bug_report_includes_redacted_summary_when_enabled(
     assert "Debug bundle summary (PII has been redacted):" in captured["instructions"]
     assert "light.kitchen_main" not in captured["instructions"]
     assert "***redacted-" in captured["instructions"]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Device context expansion — entity_alias → sibling entities
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def test_device_context_expansion_injects_siblings(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """When memory returns an entity_alias, sibling entities on the same HA device
+    should appear in the injected instructions so the model can pick the right one."""
+    from homeassistant.helpers import device_registry as _dr
+
+    halfload_eid = "switch.dishwasher_halfload"
+    start_eid = "switch.dishwasher_program_start"
+    fake_device_id = "dev-dishwasher-001"
+
+    # Fake entity registry entries
+    halfload_reg = MagicMock()
+    halfload_reg.entity_id = halfload_eid
+    halfload_reg.device_id = fake_device_id
+    halfload_reg.name = None
+    halfload_reg.original_name = "Halfload Option"
+
+    start_reg = MagicMock()
+    start_reg.entity_id = start_eid
+    start_reg.device_id = fake_device_id
+    start_reg.name = None
+    start_reg.original_name = "Program Start"
+
+    # Patch the real registry instances (they're singletons per hass)
+    real_entity_reg = er.async_get(hass)
+    real_device_reg = _dr.async_get(hass)
+
+    fake_device = MagicMock()
+    fake_device.name_by_user = None
+    fake_device.name = "Dishwasher"
+
+    # Seed memory alias for the halfload entity
+    kstore = get_knowledge_store(hass)
+    await kstore.async_load()
+    await kstore.async_add(
+        "entity_alias",
+        halfload_eid,
+        subject="dishwasher half load",
+        tags=[halfload_eid, "search_alias"],
+        source="entity_narrator",
+    )
+
+    captured: dict = {}
+
+    async def fake_generate(hass, *, task_name, entity_id, instructions, **kw):
+        captured["instructions"] = instructions
+        return _make_ai_result("I'll start the dishwasher.")
+
+    client = await hass_client()
+    with (
+        patch.object(real_entity_reg, "async_get", side_effect=lambda eid: (
+            halfload_reg if eid == halfload_eid else None
+        )),
+        patch.object(real_entity_reg.entities, "get_entries_for_device_id",
+                     return_value=[halfload_reg, start_reg]),
+        patch.object(real_device_reg, "async_get", return_value=fake_device),
+        patch(_PATCH_GENERATE, side_effect=fake_generate),
+    ):
+        resp = await client.post(
+            "/api/kyber/complete",
+            json={"prompt": "start the dishwasher"},
+        )
+
+    assert resp.status == 200
+    instructions = captured.get("instructions", "")
+
+    assert "Sibling entities on the same device" in instructions
+    assert start_eid in instructions
+    assert halfload_eid in instructions
+    assert "Dishwasher" in instructions
+
+
+async def test_device_context_expansion_no_device_skipped(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """entity_alias entries without a device_id should not produce a sibling section."""
+    entity_reg = er.async_get(hass)
+
+    # Register an entity without attaching it to a device
+    lamp = entity_reg.async_get_or_create(
+        "light", "test", "floating_lamp",
+        suggested_object_id="floating_lamp",
+    )
+
+    kstore = get_knowledge_store(hass)
+    await kstore.async_load()
+    await kstore.async_add(
+        "entity_alias",
+        lamp.entity_id,
+        subject="floating lamp",
+        tags=[lamp.entity_id, "search_alias"],
+        source="entity_narrator",
+    )
+
+    captured: dict = {}
+
+    async def fake_generate(hass, *, task_name, entity_id, instructions, **kw):
+        captured["instructions"] = instructions
+        return _make_ai_result("ok")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=fake_generate):
+        resp = await client.post(
+            "/api/kyber/complete",
+            json={"prompt": "turn on floating lamp"},
+        )
+
+    assert resp.status == 200
+    instructions = captured.get("instructions", "")
+    # No sibling section when there's no device
+    assert "Sibling entities on the same device" not in instructions

@@ -662,6 +662,52 @@ async def _inject_knowledge_into_instructions(
                 + (f"  (tags: {tags})" if tags else "")
                 + score_note
             )
+
+        # Device context expansion: when memory returns entity_alias entries,
+        # look up their sibling entities on the same HA device. This surfaces
+        # related controls (e.g. the program-start switch alongside a halfload
+        # option) without requiring exact entity naming in the knowledge store.
+        # Note: entity_alias stores human alias in `subject`, entity_id in `content`.
+        _entity_reg = er.async_get(hass)
+        _device_reg = dr.async_get(hass)
+        _alias_entity_ids = [
+            (e.get("content") or "").strip()
+            for e in relevant_knowledge
+            if e.get("category") == "entity_alias" and "." in (e.get("content") or "")
+        ]
+        _seen_dev_ids: set[str] = set()
+        _dev_context_lines: list[str] = []
+        for _alias_eid in _alias_entity_ids:
+            _reg_entry = _entity_reg.async_get(_alias_eid)
+            if not _reg_entry or not _reg_entry.device_id:
+                continue
+            _dev_id = _reg_entry.device_id
+            if _dev_id in _seen_dev_ids:
+                continue
+            _seen_dev_ids.add(_dev_id)
+            _dev_entries = _entity_reg.entities.get_entries_for_device_id(_dev_id)
+            _dev_obj = _device_reg.async_get(_dev_id)
+            _dev_name = (
+                (_dev_obj.name_by_user or _dev_obj.name) if _dev_obj else "unknown"
+            )
+            _dev_context_lines.append(f"  Device '{_dev_name}':")
+            for _de in sorted(_dev_entries, key=lambda x: x.entity_id):
+                _state = hass.states.get(_de.entity_id)
+                _state_str = f" = {_state.state}" if _state else ""
+                _friendly = _de.name or _de.original_name or ""
+                _name_str = f" ({_friendly})" if _friendly else ""
+                _dev_context_lines.append(
+                    f"    - {_de.entity_id}{_name_str}{_state_str}"
+                )
+        if _dev_context_lines:
+            kn_lines.append(
+                "\n### Sibling entities on the same device(s) as recalled aliases"
+            )
+            kn_lines.append(
+                "Use these entity IDs when the user's request matches the device above."
+            )
+            kn_lines.extend(_dev_context_lines)
+
         # Inject BEFORE the final "User:" turn so the model sees the facts as
         # context/system data, not as its own response already started.
         # Appending after "Assistant:" caused the model to treat the knowledge
