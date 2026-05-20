@@ -64,7 +64,12 @@ export const DebugMixin = (Base) => class extends Base {
     const catCounts = {};
     entries.forEach((e) => { catCounts[e.category] = (catCounts[e.category] || 0) + 1; });
     const catBadges = Object.entries(catCounts).map(([k, v]) => `<span class="kn-tag">${this._escapeHtml(k)}: ${v}</span>`).join("");
+
+    // Build review queue: needs_review entries not currently skipped
+    const reviewQueue = this._buildReviewQueue(entries);
+
     body.innerHTML = `
+      ${reviewQueue.length > 0 ? this._renderReviewCardHTML(reviewQueue, entries) : ""}
       <div class="debug-stats">
         <strong>${entries.length}</strong> entries · ${reviewCount} need review · ${catBadges}
       </div>
@@ -95,6 +100,8 @@ export const DebugMixin = (Base) => class extends Base {
       <div id="dbg-deep-status" style="display:none;margin:6px 0;padding:8px 10px;border-radius:6px;background:var(--secondary-background-color,#f0f0f0);font-size:0.88em;line-height:1.6"></div>
       <div class="kn-list">${filtered.map((e) => this._renderKnowledgeRow(e, categories)).join("")}</div>
     `;
+
+    if (reviewQueue.length > 0) this._wireReviewCard(body, reviewQueue, entries, categories);
     body.querySelector("#dbg-mem-filter").addEventListener("change", (e) => {
       this._debugMemFilter = e.target.value;
       this._renderDebugTab("memory");
@@ -141,7 +148,154 @@ export const DebugMixin = (Base) => class extends Base {
     this._wireKnowledgeRowEvents(body, filtered, categories);
   }
 
-  _timeAgo(unixTs) {
+  // ── Review flow ────────────────────────────────────────────────────────────
+
+  _reviewSkipKey() { return "kyber_review_skip_v1"; }
+  _reviewSkipDaysKey() { return "kyber_review_skip_days"; }
+
+  _getReviewSkipDays() {
+    const stored = localStorage.getItem(this._reviewSkipDaysKey());
+    return stored ? parseInt(stored, 10) : 7;
+  }
+
+  _getSkippedIds() {
+    try {
+      const raw = localStorage.getItem(this._reviewSkipKey());
+      if (!raw) return {};
+      return JSON.parse(raw);
+    } catch { return {}; }
+  }
+
+  _setSkippedIds(map) {
+    localStorage.setItem(this._reviewSkipKey(), JSON.stringify(map));
+  }
+
+  _skipEntry(id) {
+    const map = this._getSkippedIds();
+    const days = this._getReviewSkipDays();
+    map[id] = Date.now() + days * 86400_000;
+    this._setSkippedIds(map);
+  }
+
+  _isSkipped(id) {
+    const map = this._getSkippedIds();
+    const expiry = map[id];
+    if (!expiry) return false;
+    if (Date.now() > expiry) {
+      delete map[id];
+      this._setSkippedIds(map);
+      return false;
+    }
+    return true;
+  }
+
+  _buildReviewQueue(entries) {
+    return entries.filter((e) => e.needs_review && !this._isSkipped(e.id));
+  }
+
+  _renderReviewCardHTML(queue, allEntries) {
+    const idx = Math.min(this._reviewIdx || 0, queue.length - 1);
+    const entry = queue[idx];
+    const total = queue.length;
+    const skipDays = this._getReviewSkipDays();
+    const pct = Math.round(((idx) / total) * 100);
+    const cat = this._escapeHtml(entry.category || "general");
+    const subj = this._escapeHtml(entry.subject || "");
+    const content = this._escapeHtml(entry.content || "");
+    const conf = entry.confidence != null ? `${Math.round(entry.confidence * 100)}%` : "—";
+    const prov = entry.provenance ? `<span class="kn-prov">${this._escapeHtml(entry.provenance)}</span>` : "";
+    return `
+      <div class="review-flow" id="review-flow">
+        <div class="review-flow-header">
+          <span class="review-flow-title">⚠ Review queue</span>
+          <span class="review-flow-progress">${idx + 1} / ${total}</span>
+          <div class="review-flow-bar"><div class="review-flow-bar-fill" style="width:${pct}%"></div></div>
+        </div>
+        <div class="review-flow-card">
+          <div class="review-flow-meta">
+            <span class="kn-cat">${cat}</span>
+            ${subj ? `<span class="kn-subj">${subj}</span>` : ""}
+            <span class="kn-conf">conf: ${conf}</span>
+            ${prov}
+          </div>
+          <div class="review-flow-content">${content}</div>
+        </div>
+        <div class="review-flow-actions">
+          <button class="review-btn review-btn-approve" id="review-approve" title="Approve — mark as reviewed, keep">✅ Approve</button>
+          <button class="review-btn review-btn-reject" id="review-reject" title="Reject — delete this fact">🗑 Reject</button>
+          <button class="review-btn review-btn-skip" id="review-skip" title="Skip for ${skipDays} day(s)">⏭ Skip</button>
+          <label class="review-skip-days-label" title="Days to hide after skipping">
+            Hide for <input type="number" id="review-skip-days" min="1" max="365" value="${skipDays}" style="width:40px;padding:1px 4px"> days
+          </label>
+        </div>
+      </div>
+    `;
+  }
+
+  _wireReviewCard(body, queue, allEntries, categories) {
+    const flow = body.querySelector("#review-flow");
+    if (!flow) return;
+
+    flow.querySelector("#review-skip-days").addEventListener("change", (e) => {
+      const v = parseInt(e.target.value, 10);
+      if (v > 0) localStorage.setItem(this._reviewSkipDaysKey(), String(v));
+    });
+
+    flow.querySelector("#review-approve").addEventListener("click", async () => {
+      const idx = Math.min(this._reviewIdx || 0, queue.length - 1);
+      const entry = queue[idx];
+      const token = this._hass.auth.data.access_token;
+      // Clear needs_review flag via feedback endpoint
+      await fetch("/api/kyber/knowledge/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id: entry.id, user_rating: 1, needs_review: false }),
+      });
+      // Remove from queue and advance
+      queue.splice(idx, 1);
+      if (queue.length === 0) { this._reviewIdx = 0; this._renderDebugTab("memory"); return; }
+      this._reviewIdx = Math.min(idx, queue.length - 1);
+      this._refreshReviewCard(body, queue, allEntries, categories);
+    });
+
+    flow.querySelector("#review-reject").addEventListener("click", async () => {
+      const idx = Math.min(this._reviewIdx || 0, queue.length - 1);
+      const entry = queue[idx];
+      if (!confirm(`Delete this fact?\n\n"${entry.content}"`)) return;
+      const token = this._hass.auth.data.access_token;
+      await fetch("/api/kyber/knowledge", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id: entry.id }),
+      });
+      queue.splice(idx, 1);
+      if (queue.length === 0) { this._reviewIdx = 0; this._renderDebugTab("memory"); return; }
+      this._reviewIdx = Math.min(idx, queue.length - 1);
+      this._refreshReviewCard(body, queue, allEntries, categories);
+    });
+
+    flow.querySelector("#review-skip").addEventListener("click", () => {
+      const idx = Math.min(this._reviewIdx || 0, queue.length - 1);
+      const entry = queue[idx];
+      this._skipEntry(entry.id);
+      queue.splice(idx, 1);
+      if (queue.length === 0) { this._reviewIdx = 0; this._renderDebugTab("memory"); return; }
+      this._reviewIdx = Math.min(idx, queue.length - 1);
+      this._refreshReviewCard(body, queue, allEntries, categories);
+    });
+  }
+
+  _refreshReviewCard(body, queue, allEntries, categories) {
+    const flow = body.querySelector("#review-flow");
+    if (!flow) return;
+    if (queue.length === 0) { flow.remove(); return; }
+    const newHtml = this._renderReviewCardHTML(queue, allEntries);
+    const tmp = document.createElement("div");
+    tmp.innerHTML = newHtml;
+    const newFlow = tmp.firstElementChild;
+    flow.replaceWith(newFlow);
+    this._wireReviewCard(body, queue, allEntries, categories);
+  }
     const secs = Math.floor(Date.now() / 1000) - unixTs;
     if (secs < 60) return `${secs}s ago`;
     if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;

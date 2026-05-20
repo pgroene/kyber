@@ -621,6 +621,61 @@ export const STYLES = `
     background: rgba(255,152,0,0.2); color: var(--warning-color, #ff9800);
     padding: 1px 6px; border-radius: 3px; font-size: 10px;
   }
+
+  /* ── Review flow flashcard ── */
+  .review-flow {
+    background: var(--card-background-color);
+    border: 2px solid var(--warning-color, #ff9800);
+    border-radius: 8px; padding: 12px 14px; margin-bottom: 14px;
+  }
+  .review-flow-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+  }
+  .review-flow-title {
+    font-weight: 600; font-size: 0.9em; color: var(--warning-color, #ff9800);
+  }
+  .review-flow-progress {
+    font-size: 0.82em; color: var(--secondary-text-color);
+    background: var(--secondary-background-color, rgba(255,255,255,0.08));
+    padding: 2px 8px; border-radius: 10px; white-space: nowrap;
+  }
+  .review-flow-bar {
+    flex: 1; height: 4px; background: var(--divider-color, rgba(255,255,255,0.1));
+    border-radius: 2px; overflow: hidden;
+  }
+  .review-flow-bar-fill {
+    height: 100%; background: var(--warning-color, #ff9800);
+    border-radius: 2px; transition: width 0.25s;
+  }
+  .review-flow-card {
+    background: var(--secondary-background-color, rgba(255,255,255,0.05));
+    border-radius: 6px; padding: 10px 12px; margin-bottom: 10px;
+  }
+  .review-flow-meta {
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px;
+  }
+  .review-flow-content {
+    font-size: 0.92em; line-height: 1.5; color: var(--primary-text-color);
+  }
+  .review-flow-actions {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .review-btn {
+    padding: 5px 14px; border-radius: 6px; border: none; cursor: pointer;
+    font-size: 0.85em; font-weight: 500; transition: opacity 0.15s;
+  }
+  .review-btn:hover { opacity: 0.85; }
+  .review-btn-approve { background: var(--success-color, #4caf50); color: #fff; }
+  .review-btn-reject  { background: var(--error-color, #f44336); color: #fff; }
+  .review-btn-skip    { background: var(--secondary-background-color, rgba(255,255,255,0.1)); color: var(--primary-text-color); border: 1px solid var(--divider-color); }
+  .review-skip-days-label {
+    font-size: 0.8em; color: var(--secondary-text-color); display: flex;
+    align-items: center; gap: 4px; margin-left: auto;
+  }
+  .review-skip-days-label input {
+    border: 1px solid var(--divider-color, #ccc); border-radius: 3px;
+    background: transparent; color: var(--primary-text-color);
+  }
   .kn-conf { color: var(--secondary-text-color, #aaa); font-size: 10px; }
   .kn-stars { cursor: pointer; }
   .kn-star { color: #555; font-size: 12px; cursor: pointer; }
