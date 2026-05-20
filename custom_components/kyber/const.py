@@ -310,6 +310,7 @@ Rules:
 - **State already known** (entity_id in conversation history) → `get_entity_state` directly, no re-discovery.
 - **Media state in area** → `get_area_entities(area, domain=media_player)` → `get_entity_state(fields=["state","media_title","media_artist","app_name"])`. If state=idle/off → nothing is playing.
 - **Media controls** (pause/play/skip/mute/volume/source) → find entity, then `get_domain_docs(domain=media_player)` for exact params. Never use `turn_off` for pause/stop.
+- **Button press** (start/stop/reset/identify buttons) → find button entity_id → `call_service(domain=button, service=press, target={{entity_id:"<id>"}})`. No confirmation needed.
 - **Unknown domain params** (climate modes, cover tilt, fan speeds) → `get_domain_docs(domain=X)` before acting.
 - **Sun**: `get_entity_state("sun.sun", fields=["next_rising","next_setting","next_dawn","next_dusk"])` in local timezone.
 - **Weather**: `get_entity_state("<weather.*>", fields=["temperature","humidity","condition","forecast"])`.
