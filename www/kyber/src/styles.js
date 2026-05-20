@@ -661,6 +661,14 @@ export const STYLES = `
   }
   .rv-content { font-size: 0.9em; line-height: 1.4; color: var(--primary-text-color); }
   .rv-meta { font-size: 0.76em; color: var(--secondary-text-color); margin-top: 3px; }
+  /* entity_alias review layout */
+  .rv-alias-question { font-size: 0.75em; color: var(--secondary-text-color); margin-bottom: 2px; }
+  .rv-alias-term {
+    font-size: 1.05em; font-weight: 600; color: var(--primary-text-color);
+    margin-bottom: 3px;
+  }
+  .rv-alias-arrow { font-size: 0.82em; color: var(--secondary-text-color); }
+  .rv-entity-id { opacity: 0.65; font-size: 0.9em; }
   .rv-actions {
     display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-bottom: 5px;
   }
