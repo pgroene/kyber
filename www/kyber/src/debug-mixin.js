@@ -154,14 +154,24 @@ export const DebugMixin = (Base) => class extends Base {
   _reviewSkipDaysKey() { return "kyber_review_skip_days"; }
   _reviewRulesKey() { return "kyber_review_rules_v1"; }
 
+  _getLocalStorage() {
+    try {
+      if (typeof globalThis.localStorage !== "undefined") return globalThis.localStorage;
+      if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
+    } catch {
+      // Ignore storage access errors in non-browser test environments.
+    }
+    return null;
+  }
+
   _getReviewSkipDays() {
-    const stored = localStorage.getItem(this._reviewSkipDaysKey());
+    const stored = this._getLocalStorage()?.getItem(this._reviewSkipDaysKey());
     return stored ? parseInt(stored, 10) : 7;
   }
 
   _getReviewRules() {
     try {
-      const raw = localStorage.getItem(this._reviewRulesKey());
+      const raw = this._getLocalStorage()?.getItem(this._reviewRulesKey());
       const defaults = { area_assignment: "review", label_assignment: "review", knowledge: "review" };
       return raw ? { ...defaults, ...JSON.parse(raw) } : defaults;
     } catch { return { area_assignment: "review", label_assignment: "review", knowledge: "review" }; }
@@ -170,7 +180,7 @@ export const DebugMixin = (Base) => class extends Base {
   _setReviewRule(type, mode) {
     const rules = this._getReviewRules();
     rules[type] = mode;
-    localStorage.setItem(this._reviewRulesKey(), JSON.stringify(rules));
+    this._getLocalStorage()?.setItem(this._reviewRulesKey(), JSON.stringify(rules));
   }
 
   _reviewTypeMeta(type) {
@@ -186,14 +196,14 @@ export const DebugMixin = (Base) => class extends Base {
 
   _getSkippedIds() {
     try {
-      const raw = localStorage.getItem(this._reviewSkipKey());
+      const raw = this._getLocalStorage()?.getItem(this._reviewSkipKey());
       if (!raw) return {};
       return JSON.parse(raw);
     } catch { return {}; }
   }
 
   _setSkippedIds(map) {
-    localStorage.setItem(this._reviewSkipKey(), JSON.stringify(map));
+    this._getLocalStorage()?.setItem(this._reviewSkipKey(), JSON.stringify(map));
   }
 
   _skipEntry(id) {
@@ -248,6 +258,7 @@ export const DebugMixin = (Base) => class extends Base {
       const labelName = this._escapeHtml(entry.label_name || "");
       const entityId = this._escapeHtml(entry.subject || "");
       const proposalType = entry.proposal_type || entryType;
+      const proposalIcon = proposalType === "area_assignment" ? "📍" : "🏷";
       const action = proposalType === "area_assignment"
         ? `Wijs <strong>${entityName}</strong> toe aan gebied <strong>${areaName}</strong>`
         : `Ken label <strong>${labelName}</strong> toe aan <strong>${entityName}</strong>`;
@@ -255,7 +266,7 @@ export const DebugMixin = (Base) => class extends Base {
         ? `De ${entityName} (${entityId}) staat in de ${areaName}.`
         : `De ${entityName} (${entityId}) is gemarkeerd als ${labelName}.`;
       cardContent = `
-        <div class="review-flow-proposal-icon">${icon}</div>
+        <div class="review-flow-proposal-icon">${proposalIcon}</div>
         <div class="review-flow-proposal-action">${action}</div>
         <div class="review-flow-proposal-entity">${entityId}</div>
         <div class="review-flow-proposal-memory">
@@ -338,7 +349,7 @@ export const DebugMixin = (Base) => class extends Base {
 
     flow.querySelector("#review-skip-days").addEventListener("change", (e) => {
       const v = parseInt(e.target.value, 10);
-      if (v > 0) localStorage.setItem(this._reviewSkipDaysKey(), String(v));
+      if (v > 0) this._getLocalStorage()?.setItem(this._reviewSkipDaysKey(), String(v));
     });
 
     flow.querySelector("#review-approve").addEventListener("click", async () => {
