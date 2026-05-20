@@ -179,13 +179,39 @@ def is_interesting(
     entity_id: str,
     device_class: str | None,
     sibling_count: int,
+    *,
+    entity_category: str | None = None,
+    platform: str | None = None,
 ) -> bool:
     """Return True if this entity qualifies for AI narration.
 
     Exported (no leading underscore) so tests can call it directly.
+
+    Keyword-only parameters (all optional for backwards compatibility):
+      entity_category: "diagnostic" / "config" / None — diagnostic and config
+          entities (battery level, signal strength, firmware version, etc.) are
+          not interesting; they pollute AI context with housekeeping noise.
+      platform: integration platform string (e.g. "template", "mqtt") —
+          template entities are always interesting because they are explicitly
+          user-defined; input_* helpers are handled via entity_id prefix.
     """
     if _is_noisy(entity_id):
         return False
+
+    # Diagnostic / config entities are housekeeping noise — skip them.
+    if entity_category in ("diagnostic", "config"):
+        return False
+
+    # input_* helpers (input_boolean, input_number, input_select, input_text,
+    # input_datetime) are always user-defined and therefore interesting.
+    domain = entity_id.split(".")[0] if "." in entity_id else entity_id
+    if domain.startswith("input_"):
+        return True
+
+    # template-platform entities are always user-defined and interesting.
+    if platform == "template":
+        return True
+
     if device_class:
         return True
     if _is_cryptic(entity_id):
@@ -502,6 +528,11 @@ async def async_narrate_entities(
         eid = reg_entry.entity_id
         if eid in existing:
             continue
+
+        # Skip entities that are disabled or hidden — the AI cannot query them.
+        if getattr(reg_entry, "disabled_by", None) or getattr(reg_entry, "hidden_by", None):
+            continue
+
         state = hass.states.get(eid)
         attrs = state.attributes if state else {}
         device_class = (
@@ -514,7 +545,15 @@ async def async_narrate_entities(
                 e for e in by_device.get(reg_entry.device_id, [])
                 if e.entity_id != eid
             ]
-        if not is_interesting(eid, device_class, len(siblings_raw)):
+        entity_category = str(getattr(reg_entry, "entity_category", None) or "")
+        entity_platform = getattr(reg_entry, "platform", None)
+        if not is_interesting(
+            eid,
+            device_class,
+            len(siblings_raw),
+            entity_category=entity_category or None,
+            platform=entity_platform,
+        ):
             continue
 
         # Resolve area: entity → device → area.

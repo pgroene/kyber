@@ -94,6 +94,97 @@ class TestIsInteresting:
     def test_not_interesting_named_switch(self):
         assert not _NARRATOR.is_interesting("switch.coffee_machine", None, 1)
 
+    # ── New: entity_category filtering ──────────────────────────────────────
+
+    def test_diagnostic_entity_category_not_interesting(self):
+        """Entities with entity_category='diagnostic' should always be skipped."""
+        # Even a cryptic ID with diagnostic category must be excluded.
+        assert not _NARRATOR.is_interesting(
+            "sensor.0x00124b00251202d6_battery",
+            "battery",
+            5,
+            entity_category="diagnostic",
+        )
+
+    def test_config_entity_category_not_interesting(self):
+        """Entities with entity_category='config' should be skipped."""
+        assert not _NARRATOR.is_interesting(
+            "number.boiler_target_temperature",
+            "temperature",
+            2,
+            entity_category="config",
+        )
+
+    def test_none_category_still_interesting_with_device_class(self):
+        """entity_category=None must not block entities that otherwise qualify."""
+        assert _NARRATOR.is_interesting(
+            "sensor.living_room_temperature",
+            "temperature",
+            0,
+            entity_category=None,
+        )
+
+    # ── New: input_* domain filtering ───────────────────────────────────────
+
+    def test_input_boolean_is_interesting(self):
+        """input_boolean entities are always interesting (user-defined helpers)."""
+        assert _NARRATOR.is_interesting("input_boolean.guest_mode", None, 0)
+
+    def test_input_number_is_interesting(self):
+        """input_number entities are always interesting."""
+        assert _NARRATOR.is_interesting("input_number.max_temp", None, 0)
+
+    def test_input_select_is_interesting(self):
+        """input_select entities are always interesting."""
+        assert _NARRATOR.is_interesting("input_select.scene_mode", None, 0)
+
+    def test_input_text_is_interesting(self):
+        """input_text entities are always interesting."""
+        assert _NARRATOR.is_interesting("input_text.guest_name", None, 0)
+
+    def test_input_datetime_is_interesting(self):
+        """input_datetime entities are always interesting."""
+        assert _NARRATOR.is_interesting("input_datetime.alarm_time", None, 0)
+
+    def test_input_diagnostic_still_skipped(self):
+        """Even input_* entities with diagnostic category must be excluded."""
+        assert not _NARRATOR.is_interesting(
+            "input_boolean.internal_debug",
+            None,
+            0,
+            entity_category="diagnostic",
+        )
+
+    # ── New: template platform filtering ────────────────────────────────────
+
+    def test_template_platform_is_interesting(self):
+        """template platform entities are always interesting (user-defined)."""
+        assert _NARRATOR.is_interesting(
+            "sensor.calculated_average",
+            None,
+            0,
+            platform="template",
+        )
+
+    def test_template_platform_still_skipped_when_diagnostic(self):
+        """template entities with diagnostic category must still be excluded."""
+        assert not _NARRATOR.is_interesting(
+            "sensor.template_debug",
+            None,
+            0,
+            platform="template",
+            entity_category="diagnostic",
+        )
+
+    def test_non_template_plain_still_not_interesting(self):
+        """A plain entity with no device_class/siblings on non-template platform stays uninteresting."""
+        assert not _NARRATOR.is_interesting(
+            "sensor.plain_sensor",
+            None,
+            0,
+            platform="mqtt",
+        )
+
 
 # ---------------------------------------------------------------------------
 # _is_cryptic
@@ -364,6 +455,11 @@ def _make_entity_reg(entity_id, device_id=None):
     entry.area_id = None
     entry.device_class = "occupancy"
     entry.platform = "mqtt"
+    entry.disabled_by = None
+    entry.hidden_by = None
+    entry.entity_category = None
+    entry.original_name = None
+    entry.name = None
     reg = MagicMock()
     reg.entities = {entity_id: entry}
     return reg
@@ -488,6 +584,12 @@ async def test_batch_multi_entity_stats():
         entry.device_id = None
         entry.area_id = None
         entry.device_class = "occupancy"
+        entry.platform = "mqtt"
+        entry.disabled_by = None
+        entry.hidden_by = None
+        entry.entity_category = None
+        entry.original_name = None
+        entry.name = None
     entity_reg = MagicMock()
     entity_reg.entities = {eid1: entry1, eid2: entry2}
 
@@ -526,6 +628,12 @@ async def test_batch_parse_failure_flag():
         e.device_id = None
         e.area_id = None
         e.device_class = "occupancy"
+        e.platform = "mqtt"
+        e.disabled_by = None
+        e.hidden_by = None
+        e.entity_category = None
+        e.original_name = None
+        e.name = None
         entries[eid] = e
     entity_reg = MagicMock()
     entity_reg.entities = entries
@@ -559,6 +667,12 @@ async def test_batch_size_respected():
         e.device_id = None
         e.area_id = None
         e.device_class = "occupancy"
+        e.platform = "mqtt"
+        e.disabled_by = None
+        e.hidden_by = None
+        e.entity_category = None
+        e.original_name = None
+        e.name = None
         entries[eid] = e
     entity_reg = MagicMock()
     entity_reg.entities = entries
