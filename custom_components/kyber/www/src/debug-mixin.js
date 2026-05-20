@@ -245,8 +245,8 @@ export const DebugMixin = (Base) => class extends Base {
       const idx = Math.min(this._reviewIdx || 0, queue.length - 1);
       const entry = queue[idx];
       const token = this._hass.auth.data.access_token;
-      // Clear needs_review flag via feedback endpoint
-      await fetch("/api/kyber/knowledge/feedback", {
+      // Clear needs_review flag via knowledge update endpoint
+      await fetch("/api/kyber/knowledge", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ id: entry.id, user_rating: 1, needs_review: false }),
@@ -263,10 +263,9 @@ export const DebugMixin = (Base) => class extends Base {
       const entry = queue[idx];
       if (!confirm(`Delete this fact?\n\n"${entry.content}"`)) return;
       const token = this._hass.auth.data.access_token;
-      await fetch("/api/kyber/knowledge", {
+      await fetch(`/api/kyber/knowledge?id=${encodeURIComponent(entry.id)}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ id: entry.id }),
+        headers: { Authorization: `Bearer ${token}` },
       });
       queue.splice(idx, 1);
       if (queue.length === 0) { this._reviewIdx = 0; this._renderDebugTab("memory"); return; }
