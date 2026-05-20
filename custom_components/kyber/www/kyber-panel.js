@@ -32,12 +32,12 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=99";
+import { STYLES } from "./src/styles.js?v=100";
 
 import { UtilsMixin } from "./src/utils-mixin.js?v=97";
 import { SessionMixin } from "./src/session-mixin.js?v=87";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=87";
-import { DebugMixin } from "./src/debug-mixin.js?v=96";
+import { DebugMixin } from "./src/debug-mixin.js?v=97";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=93";
 import { EditorMixin } from "./src/editor-mixin.js?v=94";
 import { AIMixin } from "./src/ai-mixin.js?v=94";
@@ -89,6 +89,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       // When auth token first becomes available and panel is already rendered, load memory count
       if (!wasAuthed && hass?.auth?.data?.access_token) {
         this._loadMemoryCount();
+        this._checkChatReviewQueue();
       }
       this._checkUpdateBadge();
     }
@@ -163,6 +164,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <button class="btn-debug" id="btn-debug" title="Open debug / memory inspector">🐞</button>
           </div>
           <div id="explorer-banner" class="explorer-banner" style="display:none">🔍 <span id="explorer-banner-text">Exploring your home…</span></div>
+          <div id="chat-review-queue" class="chat-review-queue"></div>
           <div class="chat-history" id="chat-history">
             <div class="chat-message assistant">${this._DEFAULT_GREETING}</div>
           </div>

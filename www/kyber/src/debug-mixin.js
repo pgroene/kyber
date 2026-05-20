@@ -152,10 +152,36 @@ export const DebugMixin = (Base) => class extends Base {
 
   _reviewSkipKey() { return "kyber_review_skip_v1"; }
   _reviewSkipDaysKey() { return "kyber_review_skip_days"; }
+  _reviewRulesKey() { return "kyber_review_rules_v1"; }
 
   _getReviewSkipDays() {
     const stored = localStorage.getItem(this._reviewSkipDaysKey());
     return stored ? parseInt(stored, 10) : 7;
+  }
+
+  _getReviewRules() {
+    try {
+      const raw = localStorage.getItem(this._reviewRulesKey());
+      const defaults = { area_assignment: "review", label_assignment: "review", knowledge: "review" };
+      return raw ? { ...defaults, ...JSON.parse(raw) } : defaults;
+    } catch { return { area_assignment: "review", label_assignment: "review", knowledge: "review" }; }
+  }
+
+  _setReviewRule(type, mode) {
+    const rules = this._getReviewRules();
+    rules[type] = mode;
+    localStorage.setItem(this._reviewRulesKey(), JSON.stringify(rules));
+  }
+
+  _reviewTypeMeta(type) {
+    if (type === "area_assignment") return { icon: "🏠", label: "area assignments" };
+    if (type === "label_assignment") return { icon: "🏷", label: "label assignments" };
+    return { icon: "🧠", label: "knowledge entries" };
+  }
+
+  _reviewTypeForEntry(entry) {
+    if (entry.category === "proposal") return entry.proposal_type || "knowledge";
+    return "knowledge";
   }
 
   _getSkippedIds() {
@@ -193,48 +219,108 @@ export const DebugMixin = (Base) => class extends Base {
     return entries.filter((e) => e.needs_review && !this._isSkipped(e.id));
   }
 
+  _renderRuleBadgesHTML(rules) {
+    return Object.entries(rules)
+      .filter(([, mode]) => mode !== "review")
+      .map(([type, mode]) => {
+        const { icon, label } = this._reviewTypeMeta(type);
+        const cls = mode === "auto" ? "rv-badge--auto" : "rv-badge--reject";
+        const modeLabel = mode === "auto" ? "Auto" : "Reject";
+        return `<span class="rv-badge ${cls}" data-badge-type="${type}" title="Reset ${label} to Review">${icon} ${modeLabel} ×</span>`;
+      }).join("");
+  }
+
   _renderReviewCardHTML(queue, allEntries) {
     const idx = Math.min(this._reviewIdx || 0, queue.length - 1);
     const entry = queue[idx];
     const total = queue.length;
     const skipDays = this._getReviewSkipDays();
-    const pct = Math.round(((idx) / total) * 100);
-    const cat = this._escapeHtml(entry.category || "general");
-    const subj = this._escapeHtml(entry.subject || "");
-    const content = this._escapeHtml(entry.content || "");
-    const conf = entry.confidence != null ? `${Math.round(entry.confidence * 100)}%` : "—";
-    const prov = entry.provenance ? `<span class="kn-prov">${this._escapeHtml(entry.provenance)}</span>` : "";
+    const pct = Math.round((idx / total) * 100);
+    const rules = this._getReviewRules();
+    const entryType = this._reviewTypeForEntry(entry);
+    const { icon, label } = this._reviewTypeMeta(entryType);
+
+    const isProposal = entry.category === "proposal";
+    let cardContent;
+    if (isProposal) {
+      const entityName = this._escapeHtml(entry.entity_name || entry.subject || "");
+      const areaName = this._escapeHtml(entry.area_name || "");
+      const labelName = this._escapeHtml(entry.label_name || "");
+      const action = entryType === "area_assignment"
+        ? `${icon} <strong>${entityName}</strong> → area <strong>${areaName}</strong>`
+        : `${icon} <strong>${labelName}</strong> → <strong>${entityName}</strong>`;
+      cardContent = `<div class="rv-content">${action}</div>
+        <div class="rv-meta">${this._escapeHtml(entry.subject || "")} · ${this._escapeHtml(entryType)}</div>`;
+    } else {
+      const conf = entry.confidence != null ? ` · ${Math.round(entry.confidence * 100)}%` : "";
+      const subj = entry.subject ? ` · ${this._escapeHtml(entry.subject)}` : "";
+      cardContent = `<div class="rv-content">${this._escapeHtml(entry.content || "")}</div>
+        <div class="rv-meta">${this._escapeHtml(entry.category || "general")}${subj}${conf}</div>`;
+    }
+
+    const badges = this._renderRuleBadgesHTML(rules);
+
     return `
-      <div class="review-flow" id="review-flow">
-        <div class="review-flow-header">
-          <span class="review-flow-title">⚠ Review queue</span>
-          <span class="review-flow-progress">${idx + 1} / ${total}</span>
-          <div class="review-flow-bar"><div class="review-flow-bar-fill" style="width:${pct}%"></div></div>
+      <div class="rv-wrap" id="review-flow">
+        <div class="rv-head">
+          <span class="rv-title">⚠ Review</span>
+          <span class="rv-prog">${idx + 1} / ${total}</span>
+          <div class="rv-bar"><div class="rv-bar-fill" style="width:${pct}%"></div></div>
+          ${badges}
         </div>
-        <div class="review-flow-card">
-          <div class="review-flow-meta">
-            <span class="kn-cat">${cat}</span>
-            ${subj ? `<span class="kn-subj">${subj}</span>` : ""}
-            <span class="kn-conf">conf: ${conf}</span>
-            ${prov}
-          </div>
-          <div class="review-flow-content">${content}</div>
-        </div>
-        <div class="review-flow-actions">
-          <button class="review-btn review-btn-approve" id="review-approve" title="Approve — mark as reviewed, keep">✅ Approve</button>
-          <button class="review-btn review-btn-reject" id="review-reject" title="Reject — delete this fact">🗑 Reject</button>
-          <button class="review-btn review-btn-skip" id="review-skip" title="Skip for ${skipDays} day(s)">⏭ Skip</button>
-          <label class="review-skip-days-label" title="Days to hide after skipping">
-            Hide for <input type="number" id="review-skip-days" min="1" max="365" value="${skipDays}" style="width:40px;padding:1px 4px"> days
+        <div class="rv-card">${cardContent}</div>
+        <div class="rv-actions">
+          <button class="rv-btn rv-btn-approve" id="review-approve">✅ Approve</button>
+          <button class="rv-btn rv-btn-reject" id="review-reject">🗑 Reject</button>
+          <button class="rv-btn rv-btn-skip" id="review-skip">⏭ Skip</button>
+          <label class="rv-skip-days">
+            Hide for <input type="number" id="review-skip-days" min="1" max="365" value="${skipDays}" style="width:36px;padding:1px 3px"> days
           </label>
         </div>
-      </div>
-    `;
+        <div class="rv-bulk">
+          For all ${label}:
+          <button class="rv-bulk-btn rv-bulk-approve" data-bulk-type="${entryType}">✅ Approve all</button>
+          <button class="rv-bulk-btn rv-bulk-reject" data-bulk-type="${entryType}">🗑 Reject all</button>
+        </div>
+      </div>`;
   }
 
-  _wireReviewCard(body, queue, allEntries, categories) {
-    const flow = body.querySelector("#review-flow");
+  async _applyBulkRule(type, mode, queue, allEntries, container, onDone) {
+    const token = this._hass.auth.data.access_token;
+    const targets = queue.filter((e) => this._reviewTypeForEntry(e) === type);
+    await Promise.all(targets.map((e) => {
+      if (mode === "auto") {
+        if (e.category === "proposal") {
+          return fetch("/api/kyber/proposals/approve", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ entry_id: e.id }),
+          });
+        }
+        return fetch("/api/kyber/knowledge", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ id: e.id, user_rating: 1, needs_review: false }),
+        });
+      }
+      return fetch(`/api/kyber/knowledge?id=${encodeURIComponent(e.id)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }));
+    // Remove processed entries from queue in-place
+    for (let i = queue.length - 1; i >= 0; i--) {
+      if (this._reviewTypeForEntry(queue[i]) === type) queue.splice(i, 1);
+    }
+    this._reviewIdx = 0;
+    this._redrawReviewFlow(container, queue, allEntries, onDone);
+  }
+
+  _wireReviewFlow(container, queue, allEntries, onDone) {
+    const flow = container.querySelector("#review-flow");
     if (!flow) return;
+
+    const redraw = () => this._redrawReviewFlow(container, queue, allEntries, onDone);
 
     flow.querySelector("#review-skip-days").addEventListener("change", (e) => {
       const v = parseInt(e.target.value, 10);
@@ -245,17 +331,22 @@ export const DebugMixin = (Base) => class extends Base {
       const idx = Math.min(this._reviewIdx || 0, queue.length - 1);
       const entry = queue[idx];
       const token = this._hass.auth.data.access_token;
-      // Clear needs_review flag via knowledge update endpoint
-      await fetch("/api/kyber/knowledge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ id: entry.id, user_rating: 1, needs_review: false }),
-      });
-      // Remove from queue and advance
+      if (entry.category === "proposal") {
+        await fetch("/api/kyber/proposals/approve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ entry_id: entry.id }),
+        });
+      } else {
+        await fetch("/api/kyber/knowledge", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ id: entry.id, user_rating: 1, needs_review: false }),
+        });
+      }
       queue.splice(idx, 1);
-      if (queue.length === 0) { this._reviewIdx = 0; this._renderDebugTab("memory"); return; }
       this._reviewIdx = Math.min(idx, queue.length - 1);
-      this._refreshReviewCard(body, queue, allEntries, categories);
+      redraw();
     });
 
     flow.querySelector("#review-reject").addEventListener("click", async () => {
@@ -268,9 +359,8 @@ export const DebugMixin = (Base) => class extends Base {
         headers: { Authorization: `Bearer ${token}` },
       });
       queue.splice(idx, 1);
-      if (queue.length === 0) { this._reviewIdx = 0; this._renderDebugTab("memory"); return; }
       this._reviewIdx = Math.min(idx, queue.length - 1);
-      this._refreshReviewCard(body, queue, allEntries, categories);
+      redraw();
     });
 
     flow.querySelector("#review-skip").addEventListener("click", () => {
@@ -278,22 +368,71 @@ export const DebugMixin = (Base) => class extends Base {
       const entry = queue[idx];
       this._skipEntry(entry.id);
       queue.splice(idx, 1);
-      if (queue.length === 0) { this._reviewIdx = 0; this._renderDebugTab("memory"); return; }
       this._reviewIdx = Math.min(idx, queue.length - 1);
-      this._refreshReviewCard(body, queue, allEntries, categories);
+      redraw();
+    });
+
+    flow.querySelectorAll(".rv-bulk-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const type = btn.dataset.bulkType;
+        const mode = btn.classList.contains("rv-bulk-approve") ? "auto" : "reject";
+        const { label } = this._reviewTypeMeta(type);
+        const modeLabel = mode === "auto" ? "approve" : "reject";
+        if (!confirm(`Set all future ${label} to ${modeLabel} automatically?`)) return;
+        this._setReviewRule(type, mode);
+        this._applyBulkRule(type, mode, queue, allEntries, container, onDone);
+      });
+    });
+
+    flow.querySelectorAll(".rv-badge").forEach((badge) => {
+      badge.addEventListener("click", () => {
+        const type = badge.dataset.badgeType;
+        this._setReviewRule(type, "review");
+        redraw();
+      });
+    });
+  }
+
+  _redrawReviewFlow(container, queue, allEntries, onDone) {
+    if (queue.length === 0) { onDone(); return; }
+    const flow = container.querySelector("#review-flow");
+    const tmp = document.createElement("div");
+    tmp.innerHTML = this._renderReviewCardHTML(queue, allEntries);
+    const newFlow = tmp.firstElementChild;
+    if (flow) flow.replaceWith(newFlow);
+    else container.appendChild(newFlow);
+    this._wireReviewFlow(container, queue, allEntries, onDone);
+  }
+
+  // Thin wrappers — debug pane vs chat pane differ only in what happens when queue empties
+  _wireReviewCard(body, queue, allEntries, categories) {
+    this._wireReviewFlow(body, queue, allEntries, () => {
+      this._reviewIdx = 0;
+      this._renderDebugTab("memory");
     });
   }
 
   _refreshReviewCard(body, queue, allEntries, categories) {
-    const flow = body.querySelector("#review-flow");
-    if (!flow) return;
-    if (queue.length === 0) { flow.remove(); return; }
-    const newHtml = this._renderReviewCardHTML(queue, allEntries);
-    const tmp = document.createElement("div");
-    tmp.innerHTML = newHtml;
-    const newFlow = tmp.firstElementChild;
-    flow.replaceWith(newFlow);
-    this._wireReviewCard(body, queue, allEntries, categories);
+    this._redrawReviewFlow(body, queue, allEntries, () => {
+      this._reviewIdx = 0;
+      this._renderDebugTab("memory");
+    });
+  }
+
+  async _checkChatReviewQueue() {
+    const container = this.shadowRoot && this.shadowRoot.getElementById("chat-review-queue");
+    if (!container) return;
+    try {
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const entries = data.entries || [];
+      const queue = this._buildReviewQueue(entries);
+      if (queue.length === 0) { container.innerHTML = ""; return; }
+      container.innerHTML = this._renderReviewCardHTML(queue, entries);
+      this._wireReviewFlow(container, queue, entries, () => { container.innerHTML = ""; });
+    } catch { /* silently fail — don't block chat */ }
   }
 
   _timeAgo(unixTs) {
