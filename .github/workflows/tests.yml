@@ -52,6 +52,9 @@ jobs:
         run: npm ci
         working-directory: www/kyber
 
+      - name: Check JS syntax
+        run: node --check www/kyber/kyber-panel.js && for f in www/kyber/src/*.js; do node --check "$f"; done
+
       - name: Run JS tests
         run: npm test
         working-directory: www/kyber

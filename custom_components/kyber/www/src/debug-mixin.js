@@ -296,6 +296,8 @@ export const DebugMixin = (Base) => class extends Base {
     flow.replaceWith(newFlow);
     this._wireReviewCard(body, queue, allEntries, categories);
   }
+
+  _timeAgo(unixTs) {
     const secs = Math.floor(Date.now() / 1000) - unixTs;
     if (secs < 60) return `${secs}s ago`;
     if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
