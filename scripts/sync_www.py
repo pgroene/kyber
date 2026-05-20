@@ -28,6 +28,7 @@ EXCLUDE_NAMES = {
     "plan-cards-mixin.js",
     "codemirror-bundle.js",
     "icon.png",
+    "manifest.json",  # must NOT be in www/ mirror — Hassfest treats it as a second integration
 }
 
 
