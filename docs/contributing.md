@@ -155,12 +155,55 @@ If your PR changes any visible UI behaviour:
 
 ## Branch Protection (main)
 
-The `main` branch is protected:
+The `main` branch is protected via GitHub branch protection rules. **Direct pushes to `main` are blocked** — all changes must go through a Pull Request.
 
-- Direct pushes are blocked
-- PRs require **1 approving review**
-- **All 3 CI checks** must pass
-- Stale reviews are dismissed when new commits are pushed
+### What is enforced
+
+| Rule | Setting |
+|---|---|
+| Direct push to `main` | ❌ Blocked |
+| Force push to `main` | ❌ Blocked |
+| Branch deletion | ❌ Blocked |
+| Required CI checks | ✅ All 3 must pass (see below) |
+| Required reviews | ✅ 1 approving review |
+| Branch must be up-to-date | ✅ Yes (no merge with stale base) |
+| Admin bypass | ⚠️ Admins can bypass with `--admin` flag (for hotfixes only) |
+
+### Required CI checks
+
+All three must pass **on the `pull_request` event** before merge is allowed:
+
+- `Tests/Python tests (pull_request)`
+- `Tests/JS tests (pull_request)`
+- `Tests/UI tests (Playwright) (pull_request)`
+
+The `Hassfest` check is **not** a required check (pre-existing upstream issue).
+
+### Workflow summary
+
+```
+git checkout main
+git pull origin main
+git checkout -b feature/my-thing   # or fix/ or docs/
+
+# ... make changes, commit ...
+
+git push origin feature/my-thing
+gh pr create --base main --head feature/my-thing --title "..."
+# → wait for CI → get 1 review → squash-merge via GitHub UI or:
+gh pr merge <number> --squash
+```
+
+### Admin bypass (hotfixes only)
+
+In exceptional cases (e.g. version bumps after a squash-merge) an admin can bypass protection:
+
+```bash
+git push --no-verify origin main   # bypasses pre-push hook only — GitHub still enforces branch rules
+gh pr merge <number> --squash --admin  # bypasses GitHub branch protection
+```
+
+Use sparingly. Prefer PRs for all changes.
 
 ---
 
