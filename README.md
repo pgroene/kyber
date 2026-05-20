@@ -11,6 +11,8 @@
 
 Kyber is a local AI chat panel for Home Assistant, powered by your **Ollama** instance. Chat with your smart home, manage entities, edit automations, and build dashboards — all without leaving HA.
 
+![Kyber chat agent](docs/chat-agent-kyber.png)
+
 ## Install via HACS
 
 1. In HACS → **Integrations** → ⋮ → **Custom repositories**
