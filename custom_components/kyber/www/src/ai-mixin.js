@@ -255,6 +255,9 @@ export const AIMixin = (Base) => class extends Base {
       if (this._chatAbort) this._chatAbort.abort(new Error("Request timed out (90s). The AI narrator may be busy — try again in a moment."));
     }, 90_000);
 
+    // chatDone is hoisted above try so the finally block can stop the progress poll
+    let chatDone = false;
+
     try {
       const token = this._hass.auth.data.access_token;
 
@@ -311,7 +314,6 @@ export const AIMixin = (Base) => class extends Base {
       });
 
       // Poll progress while the main request is in flight
-      let chatDone = false;
       this._pollProgress(requestId, () => chatDone).catch((err) => {
         console.error("[kyber] poll progress crashed", err);
       });
@@ -390,6 +392,7 @@ export const AIMixin = (Base) => class extends Base {
       this._appendMessage(msg, "error");
       this._setStatus(msg, "error");
     } finally {
+      chatDone = true; // always stop the progress poll, even on error/abort
       clearTimeout(_chatTimeoutId);
       this._chatAbort = null;
       askBtn.disabled = false;
@@ -932,6 +935,7 @@ export const AIMixin = (Base) => class extends Base {
   async _pollProgress(requestId, isDone) {
     let cursor = 0;
     let polls = 0;
+    let consecutiveFails = 0;
     while (!isDone()) {
       try {
         const token = this._hass.auth.data.access_token;
@@ -939,6 +943,7 @@ export const AIMixin = (Base) => class extends Base {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (r.ok) {
+          consecutiveFails = 0;
           const data = await r.json();
           polls += 1;
           if (data.events && data.events.length) {
@@ -950,11 +955,22 @@ export const AIMixin = (Base) => class extends Base {
           }
           cursor = data.next || cursor;
           if (data.status === "done") return;
+        } else if (r.status === 401) {
+          // Token expired or request was cleaned up — stop polling, main fetch handles auth
+          console.warn("[kyber] progress poll stopped: 401 unauthorized");
+          return;
         } else {
+          consecutiveFails += 1;
           console.warn("[kyber] progress fetch HTTP", r.status);
+          if (consecutiveFails >= 5) {
+            console.warn("[kyber] progress poll stopped after", consecutiveFails, "consecutive failures");
+            return;
+          }
         }
       } catch (err) {
+        consecutiveFails += 1;
         console.warn("[kyber] progress poll error", err);
+        if (consecutiveFails >= 5) return;
       }
       await new Promise((res) => setTimeout(res, 200));
     }

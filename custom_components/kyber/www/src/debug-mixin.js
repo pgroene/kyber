@@ -40,6 +40,7 @@ export const DebugMixin = (Base) => class extends Base {
   async _renderDebugMemory(body) {
     const token = this._hass.auth.data.access_token;
     const resp = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching knowledge`);
     const data = await resp.json();
     const entries = data.entries || [];
     const categories = data.categories || [];
@@ -687,6 +688,7 @@ export const DebugMixin = (Base) => class extends Base {
   async _renderDebugLastTurn(body) {
     const token = this._hass.auth.data.access_token;
     const resp = await fetch("/api/kyber/debug/last_turn", { headers: { Authorization: `Bearer ${token}` } });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching last turn`);
     const data = await resp.json();
     const snap = data.snapshot;
     if (!snap) {
@@ -779,6 +781,7 @@ export const DebugMixin = (Base) => class extends Base {
   async _renderDebugStatus(body) {
     const token = this._hass.auth.data.access_token;
     const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching status`);
     const data = await resp.json();
     const k = data.knowledge || {};
     const lt = data.last_turn;
