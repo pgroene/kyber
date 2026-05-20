@@ -494,7 +494,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             return json.dumps({
                 "entity_id": entity_id,
                 **_project_entity(entity_id, state, entry),
-            })
+            }, default=str)
         # Default: trim noisy metadata
         _DROP_ATTRS = {
             "supported_features", "supported_color_modes", "effect_list",
@@ -515,7 +515,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             "attributes": attrs,
             "area_id": area_id,
             "area_name": area_name,
-        })
+        }, default=str)
 
     if name == "get_area_entities":
         area_query = (call.get("area") or "").strip().lower()
