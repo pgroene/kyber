@@ -24,6 +24,7 @@ from homeassistant.helpers import label_registry as lr
 
 from custom_components.kyber.const import DOMAIN
 from custom_components.kyber.http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView
+from custom_components.kyber.knowledge import get_store as get_knowledge_store
 
 # Correct patch target — all tests must use this path
 _PATCH_GENERATE = "custom_components.kyber.http_api.async_generate_data"
@@ -367,7 +368,8 @@ async def test_context_includes_labels(
 async def test_context_includes_automations(
     hass: HomeAssistant, setup_integration, hass_client
 ) -> None:
-    """The instructions should reflect the automation count in the home summary."""
+    """Automations are accessible via the search_automations tool; the home summary
+    should reflect the automation count."""
     hass.states.async_set(
         "automation.morning_lights", "on",
         attributes={"friendly_name": "Morning Lights"},
@@ -384,14 +386,16 @@ async def test_context_includes_automations(
         resp = await client.post("/api/kyber/complete", json={"prompt": "list automations"})
 
     assert resp.status == 200
-    # Automations appear as a count in the home summary, not as individual listings.
-    assert "automation" in captured["v"].lower()
+    # Automations are accessed via search_automations/get_automation tools, not
+    # pre-listed in the context. Verify the home summary counter reflects them.
+    assert "1 automations" in captured["v"]
 
 
 async def test_context_includes_scripts(
     hass: HomeAssistant, setup_integration, hass_client
 ) -> None:
-    """The instructions should reflect the script count in the home summary."""
+    """Scripts are accessible via the search_automations tool; the home summary
+    should reflect the script count."""
     hass.states.async_set(
         "script.welcome_home", "off",
         attributes={"friendly_name": "Welcome Home"},
@@ -408,8 +412,8 @@ async def test_context_includes_scripts(
         resp = await client.post("/api/kyber/complete", json={"prompt": "list scripts"})
 
     assert resp.status == 200
-    # Scripts appear as a count in the home summary, not as individual listings.
-    assert "script" in captured["v"].lower()
+    # Scripts are accessed via tools, not pre-listed in context.
+    assert "1 scripts" in captured["v"]
 
 
 async def test_dashboards_included_in_context(
@@ -495,7 +499,7 @@ async def test_dashboard_editor_mode_injects_yaml_section(
 
     assert resp.status == 200
     instr = captured["v"]
-    assert "DASHBOARD EDITOR" in instr.upper() or "dashboard" in instr.lower()
+    assert "DASHBOARD EDITOR" in instr.upper()
     assert "title: My Dashboard" in instr
 
 
@@ -622,11 +626,70 @@ async def test_execute_unknown_entity_returns_error(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "assign_label", "entity_id": "light.nonexistent", "label_id": "outdoor"}], "approved": True},
+        json={"approved": True, "actions": [{"type": "assign_label", "entity_id": "light.nonexistent", "label_id": "outdoor"}]},
     )
     assert resp.status == 200
     data = await resp.json()
     assert data["results"][0]["status"] == "error"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /labels
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def test_labels_endpoint_includes_narrator_metadata_and_aliases(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Labels endpoint should enrich entities with narrator metadata and aliases."""
+    area_reg = ar.async_get(hass)
+    entity_reg = er.async_get(hass)
+    label_reg = lr.async_get(hass)
+    area = area_reg.async_create("Living Room")
+    entry = entity_reg.async_get_or_create("light", "test", "lamp_labels", suggested_object_id="lamp_labels")
+    label = label_reg.async_create("kyber:climate")
+    entity_reg.async_update_entity(entry.entity_id, area_id=area.id, labels={label.label_id})
+    hass.states.async_set(entry.entity_id, "on", {"friendly_name": "Reading Lamp"})
+
+    kstore = get_knowledge_store(hass)
+    await kstore.async_load()
+    await kstore.async_add(
+        "general",
+        "A narrated lamp description.",
+        subject=entry.entity_id,
+        tags=[entry.entity_id, "light"],
+        source="entity_narrator",
+        provenance="AI narrator v6",
+    )
+    await kstore.async_add(
+        "entity_alias",
+        entry.entity_id,
+        subject="reading light",
+        tags=[entry.entity_id, "search_alias"],
+        source="entity_narrator",
+    )
+    await kstore.async_add(
+        "entity_alias",
+        entry.entity_id,
+        subject="cozy lamp",
+        tags=[entry.entity_id, "search_alias"],
+        source="entity_narrator",
+    )
+
+    client = await hass_client()
+    resp = await client.get("/api/kyber/labels")
+
+    assert resp.status == 200
+    data = await resp.json()
+    entity = data[label.label_id]["entities"][0]
+    assert entity == {
+        "entity_id": entry.entity_id,
+        "name": entry.entity_id,
+        "description": "A narrated lamp description.",
+        "domain": "light",
+        "area": "Living Room",
+        "provenance": "AI narrator v6",
+        "aliases": ["cozy lamp", "reading light"],
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -655,6 +718,89 @@ async def test_execute_assign_label(
     assert result["undo_action"]["type"] == "remove_label"
     updated = entity_reg.async_get(entry.entity_id)
     assert "outdoor" in updated.labels
+
+
+async def test_execute_assign_kyber_label_creates_knowledge_entry_when_missing(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Assigning a kyber label should seed general knowledge when none exists."""
+    area_reg = ar.async_get(hass)
+    entity_reg = er.async_get(hass)
+    label_reg = lr.async_get(hass)
+    area = area_reg.async_create("Kitchen")
+    entry = entity_reg.async_get_or_create(
+        "sensor",
+        "mqtt",
+        "coffee_maker_power",
+        suggested_object_id="coffee_maker_power",
+    )
+    entity_reg.async_update_entity(entry.entity_id, area_id=area.id)
+    label = label_reg.async_create("kyber:coffee")
+    hass.states.async_set(
+        entry.entity_id,
+        "on",
+        {"friendly_name": "Coffee Maker Power", "device_class": "power"},
+    )
+
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"approved": True, "actions": [{"type": "assign_label", "entity_id": entry.entity_id, "label_id": label.label_id}]},
+    )
+
+    assert resp.status == 200
+    kstore = get_knowledge_store(hass)
+    await kstore.async_load()
+    entries = [
+        item for item in await kstore.async_search(category="general", subject=entry.entity_id, limit=10, exclude_low_quality=False)
+        if item.get("subject") == entry.entity_id
+    ]
+    created = next(item for item in entries if item.get("source") == "label_assignment")
+    assert created["content"] == (
+        "sensor entity 'Coffee Maker Power' [sensor.coffee_maker_power], located in Kitchen. "
+        "Provided by the mqtt integration. Device class: power. Tagged with label 'kyber:coffee'."
+    )
+    assert created["tags"] == [
+        entry.entity_id,
+        "sensor",
+        "labeled",
+        "kyber:coffee",
+        "label_assignment",
+    ]
+    assert created["confidence"] == 0.75
+
+
+async def test_execute_assign_kyber_label_skips_knowledge_when_general_entry_exists(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Assigning a kyber label should not add duplicate baseline knowledge."""
+    entity_reg = er.async_get(hass)
+    label_reg = lr.async_get(hass)
+    entry = entity_reg.async_get_or_create("light", "test", "lamp_existing", suggested_object_id="lamp_existing")
+    label = label_reg.async_create("kyber:lighting")
+    kstore = get_knowledge_store(hass)
+    await kstore.async_load()
+    await kstore.async_add(
+        "general",
+        "Existing knowledge.",
+        subject=entry.entity_id,
+        tags=[entry.entity_id, "light"],
+        source="manual",
+    )
+
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"approved": True, "actions": [{"type": "assign_label", "entity_id": entry.entity_id, "label_id": label.label_id}]},
+    )
+
+    assert resp.status == 200
+    entries = [
+        item for item in await kstore.async_search(category="general", subject=entry.entity_id, limit=10, exclude_low_quality=False)
+        if item.get("subject") == entry.entity_id
+    ]
+    assert len(entries) == 1
+    assert entries[0]["source"] == "manual"
 
 
 async def test_execute_remove_label(
@@ -696,7 +842,7 @@ async def test_execute_rename_entity(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "rename_entity", "entity_id": entry.entity_id, "name": "Desk Light"}], "approved": True},
+        json={"approved": True, "actions": [{"type": "rename_entity", "entity_id": entry.entity_id, "name": "Desk Light"}]},
     )
 
     assert resp.status == 200
@@ -720,7 +866,7 @@ async def test_execute_assign_area(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "assign_area", "entity_id": entry.entity_id, "area_id": area.id}], "approved": True},
+        json={"approved": True, "actions": [{"type": "assign_area", "entity_id": entry.entity_id, "area_id": area.id}]},
     )
 
     assert resp.status == 200
@@ -742,7 +888,7 @@ async def test_execute_assign_area_nonexistent_returns_error(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "assign_area", "entity_id": entry.entity_id, "area_id": "no_such_area"}], "approved": True},
+        json={"approved": True, "actions": [{"type": "assign_area", "entity_id": entry.entity_id, "area_id": "no_such_area"}]},
     )
 
     assert resp.status == 200
@@ -761,7 +907,7 @@ async def test_execute_create_area(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "create_area", "name": "Garage"}], "approved": True},
+        json={"approved": True, "actions": [{"type": "create_area", "name": "Garage"}]},
     )
 
     assert resp.status == 200
@@ -782,7 +928,7 @@ async def test_execute_create_area_missing_name_returns_error(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "create_area", "name": ""}], "approved": True},
+        json={"approved": True, "actions": [{"type": "create_area", "name": ""}]},
     )
 
     assert resp.status == 200
@@ -800,7 +946,7 @@ async def test_execute_rename_area(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "rename_area", "area_id": area.id, "name": "New Name"}], "approved": True},
+        json={"approved": True, "actions": [{"type": "rename_area", "area_id": area.id, "name": "New Name"}]},
     )
 
     assert resp.status == 200
@@ -824,7 +970,7 @@ async def test_execute_delete_area(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "delete_area", "area_id": area.id}], "approved": True},
+        json={"approved": True, "actions": [{"type": "delete_area", "area_id": area.id}]},
     )
 
     assert resp.status == 200
@@ -844,7 +990,7 @@ async def test_execute_delete_area_nonexistent_returns_error(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "delete_area", "area_id": "no_such_area"}], "approved": True},
+        json={"approved": True, "actions": [{"type": "delete_area", "area_id": "no_such_area"}]},
     )
 
     assert resp.status == 200

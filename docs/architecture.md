@@ -137,7 +137,7 @@ All endpoints require HA authentication (`requires_auth = True`).
 | `/api/kyber/knowledge/feedback` | `POST` | Apply user/auto ratings to memory entries |
 | `/api/kyber/knowledge/purge` | `POST` | Purge low-quality or stale knowledge entries |
 | `/api/kyber/area_suggestions/dismiss` | `POST` | Dismiss a proactive area assignment suggestion |
-| `/api/kyber/labels` | `GET` | List all `kyber:*` labels with their assigned entities |
+| `/api/kyber/labels` | `GET` | List all `kyber:*` labels with enriched entity metadata from narrator knowledge |
 | `/api/kyber/self_update` | `GET`, `POST` | Check (`GET`) or install (`POST`) latest release directly from GitHub |
 | `/api/kyber/debug/last_turn` | `GET` | Return the latest captured debug snapshot |
 | `/api/kyber/debug/tool_history` | `GET` | Return recent tool-call history ring buffer |
@@ -152,6 +152,10 @@ All endpoints require HA authentication (`requires_auth = True`).
 | `/api/kyber/prompt_tests/run` | `POST` | Run one or all prompt regression tests |
 | `/api/kyber/prompt_tests/capture` | `POST` | Capture current AI response as a test baseline |
 | `/api/kyber/prompt_tests/regenerate` | `POST` | Re-run a test and update its expected output |
+
+`/api/kyber/labels` returns each labeled entity with `entity_id`, `name`, `domain`, resolved `area`, narrator-backed `description`, narrator `provenance`, and `aliases` collected from `entity_alias` knowledge entries tagged with that entity.
+
+When `assign_label` applies a `kyber:*` label and the entity has no existing `general` knowledge entry yet, Kyber now seeds one `label_assignment` memory entry so later searches and the labels API have a baseline description even before the narrator runs.
 
 ---
 

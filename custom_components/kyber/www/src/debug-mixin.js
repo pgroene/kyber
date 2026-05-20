@@ -154,14 +154,24 @@ export const DebugMixin = (Base) => class extends Base {
   _reviewSkipDaysKey() { return "kyber_review_skip_days"; }
   _reviewRulesKey() { return "kyber_review_rules_v1"; }
 
+  _getLocalStorage() {
+    try {
+      if (typeof globalThis.localStorage !== "undefined") return globalThis.localStorage;
+      if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
+    } catch {
+      // Ignore storage access errors in non-browser test environments.
+    }
+    return null;
+  }
+
   _getReviewSkipDays() {
-    const stored = localStorage.getItem(this._reviewSkipDaysKey());
+    const stored = this._getLocalStorage()?.getItem(this._reviewSkipDaysKey());
     return stored ? parseInt(stored, 10) : 7;
   }
 
   _getReviewRules() {
     try {
-      const raw = localStorage.getItem(this._reviewRulesKey());
+      const raw = this._getLocalStorage()?.getItem(this._reviewRulesKey());
       const defaults = { area_assignment: "review", label_assignment: "review", knowledge: "review" };
       return raw ? { ...defaults, ...JSON.parse(raw) } : defaults;
     } catch { return { area_assignment: "review", label_assignment: "review", knowledge: "review" }; }
@@ -170,7 +180,7 @@ export const DebugMixin = (Base) => class extends Base {
   _setReviewRule(type, mode) {
     const rules = this._getReviewRules();
     rules[type] = mode;
-    localStorage.setItem(this._reviewRulesKey(), JSON.stringify(rules));
+    this._getLocalStorage()?.setItem(this._reviewRulesKey(), JSON.stringify(rules));
   }
 
   _reviewTypeMeta(type) {
@@ -186,14 +196,14 @@ export const DebugMixin = (Base) => class extends Base {
 
   _getSkippedIds() {
     try {
-      const raw = localStorage.getItem(this._reviewSkipKey());
+      const raw = this._getLocalStorage()?.getItem(this._reviewSkipKey());
       if (!raw) return {};
       return JSON.parse(raw);
     } catch { return {}; }
   }
 
   _setSkippedIds(map) {
-    localStorage.setItem(this._reviewSkipKey(), JSON.stringify(map));
+    this._getLocalStorage()?.setItem(this._reviewSkipKey(), JSON.stringify(map));
   }
 
   _skipEntry(id) {
@@ -246,16 +256,29 @@ export const DebugMixin = (Base) => class extends Base {
       const entityName = this._escapeHtml(entry.entity_name || entry.subject || "");
       const areaName = this._escapeHtml(entry.area_name || "");
       const labelName = this._escapeHtml(entry.label_name || "");
-      const action = entryType === "area_assignment"
-        ? `${icon} <strong>${entityName}</strong> → area <strong>${areaName}</strong>`
-        : `${icon} <strong>${labelName}</strong> → <strong>${entityName}</strong>`;
-      cardContent = `<div class="rv-content">${action}</div>
-        <div class="rv-meta">${this._escapeHtml(entry.subject || "")} · ${this._escapeHtml(entryType)}</div>`;
+      const entityId = this._escapeHtml(entry.subject || "");
+      const proposalType = entry.proposal_type || entryType;
+      const proposalIcon = proposalType === "area_assignment" ? "📍" : "🏷";
+      const action = proposalType === "area_assignment"
+        ? `Wijs <strong>${entityName}</strong> toe aan gebied <strong>${areaName}</strong>`
+        : `Ken label <strong>${labelName}</strong> toe aan <strong>${entityName}</strong>`;
+      const memory = proposalType === "area_assignment"
+        ? `De ${entityName} (${entityId}) staat in de ${areaName}.`
+        : `De ${entityName} (${entityId}) is gemarkeerd als ${labelName}.`;
+      cardContent = `
+        <div class="review-flow-proposal-icon">${proposalIcon}</div>
+        <div class="review-flow-proposal-action">${action}</div>
+        <div class="review-flow-proposal-entity">${entityId}</div>
+        <div class="review-flow-proposal-memory">
+          <span class="review-flow-memory-label">💾 Geheugen:</span>
+          ${memory}
+        </div>`;
     } else {
       const conf = entry.confidence != null ? ` · ${Math.round(entry.confidence * 100)}%` : "";
       const subj = entry.subject ? ` · ${this._escapeHtml(entry.subject)}` : "";
+      const prov = entry.provenance ? ` · ${this._escapeHtml(entry.provenance)}` : "";
       cardContent = `<div class="rv-content">${this._escapeHtml(entry.content || "")}</div>
-        <div class="rv-meta">${this._escapeHtml(entry.category || "general")}${subj}${conf}</div>`;
+        <div class="rv-meta">${this._escapeHtml(entry.category || "general")}${subj}${conf}${prov}</div>`;
     }
 
     const badges = this._renderRuleBadgesHTML(rules);
@@ -299,10 +322,10 @@ export const DebugMixin = (Base) => class extends Base {
             body: JSON.stringify({ entry_id: e.id }),
           });
         }
-        return fetch("/api/kyber/knowledge", {
+        return fetch("/api/kyber/knowledge/feedback", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ id: e.id, user_rating: 1, needs_review: false }),
+          body: JSON.stringify({ rating: 5, knowledge_ids: [e.id], auto: true }),
         });
       }
       return fetch(`/api/kyber/knowledge?id=${encodeURIComponent(e.id)}`, {
@@ -326,7 +349,7 @@ export const DebugMixin = (Base) => class extends Base {
 
     flow.querySelector("#review-skip-days").addEventListener("change", (e) => {
       const v = parseInt(e.target.value, 10);
-      if (v > 0) localStorage.setItem(this._reviewSkipDaysKey(), String(v));
+      if (v > 0) this._getLocalStorage()?.setItem(this._reviewSkipDaysKey(), String(v));
     });
 
     flow.querySelector("#review-approve").addEventListener("click", async () => {
@@ -334,17 +357,29 @@ export const DebugMixin = (Base) => class extends Base {
       const entry = queue[idx];
       const token = this._hass.auth.data.access_token;
       if (entry.category === "proposal") {
-        await fetch("/api/kyber/proposals/approve", {
+        const resp = await fetch("/api/kyber/proposals/approve", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
           body: JSON.stringify({ entry_id: entry.id }),
         });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          this._setStatus(`Failed: ${err.message || resp.statusText}`, "error");
+          return;
+        }
+        const result = await resp.json();
+        this._setStatus(`✓ ${result.memory || "Goedgekeurd"}`, "ok");
       } else {
-        await fetch("/api/kyber/knowledge", {
+        const resp = await fetch("/api/kyber/knowledge/feedback", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ id: entry.id, user_rating: 1, needs_review: false }),
+          body: JSON.stringify({ rating: 5, knowledge_ids: [entry.id], auto: true }),
         });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          this._setStatus(`Failed: ${err.message || resp.statusText}`, "error");
+          return;
+        }
       }
       queue.splice(idx, 1);
       this._reviewIdx = Math.min(idx, queue.length - 1);

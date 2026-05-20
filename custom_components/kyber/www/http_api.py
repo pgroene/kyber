@@ -16,6 +16,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
 from homeassistant.helpers.storage import Store
@@ -476,11 +477,11 @@ def _build_prompt_sections(body_fields: dict, context: str, request: "web.Reques
     instructions = (
         f"{context}\n\n"
         f"{automation_guidance}"
+        f"{yaml_section}"
         f"{lovelace_ref}"
         f"{response_mode_block}"
         f"{user_section}"
         f"{dashboard_section}"
-        f"{yaml_section}"
         f"---\n\n"
         f"{conversation_block}"
         f"User: {user_prompt}\n"
@@ -1836,8 +1837,78 @@ class KyberView(HomeAssistantView):
                     user_prompt,
                     history,
                 )
+
+                if area_suggestions:
+                    try:
+                        _kstore = get_knowledge_store(hass)
+                        for _sug in area_suggestions:
+                            if _sug.get("applied"):
+                                continue
+                            _eid = _sug.get("entity_id", "")
+                            _fname = _sug.get("friendly_name") or _eid
+                            _aname = _sug.get("suggested_area_name", "")
+                            _aid = _sug.get("suggested_area_id", "")
+                            if _eid and _aid:
+                                await _kstore.async_add_proposal(
+                                    proposal_type="area_assignment",
+                                    subject=_eid,
+                                    content=f"📍 {_fname} toewijzen aan {_aname}",
+                                    pending_action={"type": "assign_area", "entity_id": _eid, "area_id": _aid},
+                                    entity_name=_fname,
+                                    area_name=_aname,
+                                )
+                    except Exception as _prop_err:  # noqa: BLE001
+                        _LOGGER.debug("Kyber: area proposal save failed (non-critical): %s", _prop_err)
         except Exception as _area_err:  # noqa: BLE001
             _LOGGER.debug("Kyber: area suggestion detection failed (non-critical): %s", _area_err)
+
+        if plan_block:
+            _proposal_action_types = {"assign_area", "assign_label"}
+            _plan_actions = plan_block.get("actions") or []
+            if any(_a.get("type") in _proposal_action_types for _a in _plan_actions):
+                try:
+                    _kstore2 = get_knowledge_store(hass)
+                    _er2 = er.async_get(hass)
+                    _ar2 = ar.async_get(hass)
+                    _lr2 = lr.async_get(hass)
+                    for _action in _plan_actions:
+                        _atype = _action.get("type")
+                        _eid2 = _action.get("entity_id", "")
+                        if not _eid2:
+                            continue
+                        _state2 = hass.states.get(_eid2)
+                        _reg2 = _er2.async_get(_eid2)
+                        _fname2 = (
+                            (_state2.attributes.get("friendly_name") if _state2 else None)
+                            or (_reg2.name if _reg2 else None)
+                            or _eid2
+                        )
+                        if _atype == "assign_area":
+                            _area_id2 = _action.get("area_id", "")
+                            _area_entry2 = _ar2.async_get_area(_area_id2) if _area_id2 else None
+                            _aname2 = _area_entry2.name if _area_entry2 else _area_id2
+                            await _kstore2.async_add_proposal(
+                                proposal_type="area_assignment",
+                                subject=_eid2,
+                                content=f"📍 {_fname2} toewijzen aan {_aname2}",
+                                pending_action={"type": "assign_area", "entity_id": _eid2, "area_id": _area_id2},
+                                entity_name=_fname2,
+                                area_name=_aname2,
+                            )
+                        elif _atype == "assign_label":
+                            _label_id2 = _action.get("label_id", "")
+                            _label_entry2 = _lr2.async_get_label(_label_id2) if _label_id2 else None
+                            _lname2 = (_label_entry2.name if _label_entry2 else None) or _label_id2
+                            await _kstore2.async_add_proposal(
+                                proposal_type="label_assignment",
+                                subject=_eid2,
+                                content=f"🏷 Label '{_lname2}' toewijzen aan {_fname2}",
+                                pending_action={"type": "assign_label", "entity_id": _eid2, "label_id": _label_id2},
+                                entity_name=_fname2,
+                                label_name=_lname2,
+                            )
+                except Exception as _prop2_err:  # noqa: BLE001
+                    _LOGGER.debug("Kyber: plan proposal save failed (non-critical): %s", _prop2_err)
 
         return self.json({
             "response": response_text,
@@ -2081,17 +2152,66 @@ class KyberLabelsView(HomeAssistantView):
         hass: HomeAssistant = request.app["hass"]
         label_reg = lr.async_get(hass)
         entity_reg = er.async_get(hass)
+        area_reg = ar.async_get(hass)
+        device_reg = dr.async_get(hass)
+        kstore = get_knowledge_store(hass)
+        await kstore.async_load()
         from .device_type_labels import DEVICE_TYPE_LABELS
+
+        narrator_by_entity: dict[str, dict[str, Any]] = {}
+        aliases_by_entity: dict[str, set[str]] = {}
+        for knowledge_entry in kstore._entries.values():  # noqa: SLF001
+            subject = str(knowledge_entry.get("subject") or "").strip()
+            if (
+                knowledge_entry.get("category") == "general"
+                and knowledge_entry.get("source") == "entity_narrator"
+                and subject
+            ):
+                existing = narrator_by_entity.get(subject)
+                if existing is None or int(knowledge_entry.get("updated", 0) or 0) >= int(existing.get("updated", 0) or 0):
+                    narrator_by_entity[subject] = knowledge_entry
+                continue
+            if knowledge_entry.get("category") != "entity_alias":
+                continue
+            alias_term = subject
+            if not alias_term:
+                continue
+            for tag in knowledge_entry.get("tags") or []:
+                tag_key = str(tag or "").strip().lower()
+                if not tag_key:
+                    continue
+                aliases_by_entity.setdefault(tag_key, set()).add(alias_term)
+
+        def _resolve_area_name(entry: er.RegistryEntry) -> str:
+            area_id = entry.area_id
+            if not area_id and entry.device_id:
+                device_entry = device_reg.async_get(entry.device_id)
+                if device_entry:
+                    area_id = device_entry.area_id
+            if not area_id:
+                return ""
+            area_entry = area_reg.async_get_area(area_id)
+            return area_entry.name if area_entry else ""
 
         result = {}
         for label in label_reg.async_list_labels():
             if not label.name.startswith("kyber:"):
                 continue
-            entities = [
-                {"entity_id": e.entity_id, "name": e.name or e.entity_id}
-                for e in entity_reg.entities.values()
-                if label.label_id in (e.labels or set())
-            ]
+            entities = []
+            for entity_entry in entity_reg.entities.values():
+                if label.label_id not in (entity_entry.labels or set()):
+                    continue
+                entity_id = entity_entry.entity_id
+                narrator_entry = narrator_by_entity.get(entity_id)
+                entities.append({
+                    "entity_id": entity_id,
+                    "name": entity_entry.name or entity_id,
+                    "description": str((narrator_entry or {}).get("content") or ""),
+                    "domain": entity_id.split(".", 1)[0],
+                    "area": _resolve_area_name(entity_entry),
+                    "provenance": str((narrator_entry or {}).get("provenance") or ""),
+                    "aliases": sorted(aliases_by_entity.get(entity_id.lower(), set())),
+                })
             cfg = DEVICE_TYPE_LABELS.get(label.label_id, {})
             result[label.label_id] = {
                 "label_id": label.label_id,
@@ -2101,3 +2221,88 @@ class KyberLabelsView(HomeAssistantView):
                 "entities": entities,
             }
         return self.json(result)
+
+
+class KyberProposalApproveView(HomeAssistantView):
+    """POST /api/kyber/proposals/approve — execute a pending proposal and store memory."""
+
+    url = "/api/kyber/proposals/approve"
+    name = "api:kyber:proposals_approve"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return self.json_message("Invalid JSON", HTTPStatus.BAD_REQUEST)
+
+        entry_id: str = str(body.get("entry_id", "")).strip()
+        if not entry_id:
+            return self.json_message("Missing 'entry_id'", HTTPStatus.BAD_REQUEST)
+
+        kstore = get_knowledge_store(hass)
+        await kstore.async_load()
+
+        entry = kstore._entries.get(entry_id)  # noqa: SLF001
+        if not entry:
+            return self.json_message("Proposal not found", HTTPStatus.NOT_FOUND)
+        if entry.get("category") != "proposal":
+            return self.json_message("Entry is not a proposal", HTTPStatus.BAD_REQUEST)
+
+        pending_action: dict[str, Any] = entry.get("pending_action") or {}
+        if not pending_action:
+            return self.json_message("Proposal has no pending action", HTTPStatus.BAD_REQUEST)
+
+        action_type: str = pending_action.get("type", "")
+        entity_id: str = pending_action.get("entity_id", "")
+        entity_reg = er.async_get(hass)
+        label_reg = lr.async_get(hass)
+
+        reg_entry = entity_reg.async_get(entity_id) if entity_id else None
+        if not reg_entry:
+            return self.json_message(f"Entity '{entity_id}' not found", HTTPStatus.NOT_FOUND)
+
+        if action_type == "assign_area":
+            area_id: str = pending_action.get("area_id", "")
+            entity_reg.async_update_entity(entity_id, area_id=area_id or None)
+            result_msg = f"Assigned {entity_id} to area '{area_id}'"
+        elif action_type == "assign_label":
+            label_id: str = pending_action.get("label_id", "")
+            if not label_id:
+                return self.json_message("Missing label_id in pending_action", HTTPStatus.BAD_REQUEST)
+            if label_reg.async_get_label(label_id) is None:
+                label_reg.async_create(label_id)
+            old_labels = set(reg_entry.labels or set())
+            new_labels = old_labels | {label_id}
+            entity_reg.async_update_entity(entity_id, labels=new_labels)
+            result_msg = f"Assigned label '{label_id}' to {entity_id}"
+        else:
+            return self.json_message(f"Unsupported proposal action type: {action_type}", HTTPStatus.BAD_REQUEST)
+
+        entity_name: str = entry.get("entity_name", "") or entity_id
+        area_name: str = entry.get("area_name", "")
+        label_name: str = entry.get("label_name", "")
+        proposal_type: str = entry.get("proposal_type", action_type)
+
+        if proposal_type == "area_assignment" and area_name:
+            memory_content = f"De {entity_name} ({entity_id}) staat in de {area_name}."
+        elif proposal_type == "label_assignment" and label_name:
+            memory_content = f"De {entity_name} ({entity_id}) is gemarkeerd als {label_name}."
+        else:
+            memory_content = entry.get("content", f"{entity_id}: {action_type} approved")
+
+        await kstore.async_add(
+            category="general",
+            content=memory_content,
+            subject=entity_id,
+            source="proposal_approve",
+            tags=[entity_id, proposal_type, "approved"],
+            confidence=1.0,
+        )
+
+        entry["needs_review"] = False
+        entry["updated"] = int(time.time())
+        await kstore._persist()  # noqa: SLF001
+
+        return self.json({"status": "ok", "executed": result_msg, "memory": memory_content})

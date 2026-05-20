@@ -38,6 +38,7 @@ CATEGORIES = {
     "device_chain",    # X depends on Y (TV behind switch.tv_power)
     "language_hint",   # locale-specific vocabulary (seeded from language_hints.py)
     "general",         # anything else
+    "proposal",        # pending review items that execute on approval
 }
 
 
@@ -321,6 +322,41 @@ class KnowledgeStore:
             await self._persist(invalidate_index=True)
         else:
             self._index_dirty = True
+        return entry
+
+    async def async_add_proposal(
+        self,
+        proposal_type: str,
+        subject: str,
+        content: str,
+        pending_action: dict[str, Any],
+        *,
+        entity_name: str = "",
+        area_name: str = "",
+        label_name: str = "",
+        source: str = "system",
+        confidence: float = 0.9,
+    ) -> dict[str, Any]:
+        """Add a pending proposal (area or label assignment) to the review queue."""
+        entry = await self.async_add(
+            category="proposal",
+            content=content,
+            subject=subject,
+            source=source,
+            confidence=confidence,
+            _save=False,
+        )
+        entry["needs_review"] = True
+        entry["pending_action"] = pending_action
+        entry["proposal_type"] = proposal_type
+        if entity_name:
+            entry["entity_name"] = entity_name
+        if area_name:
+            entry["area_name"] = area_name
+        if label_name:
+            entry["label_name"] = label_name
+        entry["updated"] = int(time.time())
+        await self._persist(invalidate_index=True)
         return entry
 
     async def async_force_save(self) -> None:
