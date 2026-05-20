@@ -2,27 +2,33 @@
   "config": {
     "step": {
       "user": {
-        "title": "Kyber — Select AI entity",
-        "description": "Select the AI task entity provided by your Ollama (or other AI) integration.",
+        "title": "Kyber — Setup",
+        "description": "Select your AI task entity and configure token limit and startup behaviour.",
         "data": {
-          "ai_task_entity_id": "AI Task Entity"
-        }
-      },
-      "model_config": {
-        "title": "Kyber — Model settings",
-        "description": "Configure token limit and startup behaviour for **{entity_id}**. Max tokens has been pre-filled to **{suggested_tokens}** based on the detected model.",
-        "data": {
+          "ai_task_entity_id": "AI Task Entity",
           "max_tokens": "Max Tokens (context window size)",
           "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)",
           "run_initial_analyze": "Run 1 initial analyze pass after install",
-          "initial_deep_learning_runs": "Initial deep learning runs (1-10, recommended: 10)"
+          "initial_deep_learning_runs": "Initial deep learning runs (1-10, recommended: 10)",
+          "narrator_enabled": "Enable entity narrator",
+          "narrator_max_batch": "Narrator batch size",
+          "narrator_ai_task_entity_id": "Narrator AI Task Entity (optional, defaults to main entity)",
+          "area_assignment_mode": "Area assignment mode"
         }
       },
       "reconfigure": {
-        "title": "Kyber — Change AI entity",
-        "description": "Select a different AI task entity. All other settings are preserved.",
+        "title": "Kyber — Reconfigure",
+        "description": "Update your AI task entity and settings.",
         "data": {
-          "ai_task_entity_id": "AI Task Entity"
+          "ai_task_entity_id": "AI Task Entity",
+          "max_tokens": "Max Tokens (context window size)",
+          "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)",
+          "run_initial_analyze": "Run 1 initial analyze pass after install",
+          "initial_deep_learning_runs": "Initial deep learning runs (1-10, recommended: 10)",
+          "narrator_enabled": "Enable entity narrator",
+          "narrator_max_batch": "Narrator batch size",
+          "narrator_ai_task_entity_id": "Narrator AI Task Entity (optional, defaults to main entity)",
+          "area_assignment_mode": "Area assignment mode"
         }
       }
     },
