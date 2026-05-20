@@ -88,8 +88,19 @@ def _infer_max_tokens(hass: HomeAssistant, entity_id: str) -> int:
     return DEFAULT_MAX_TOKENS
 
 
-def _build_entity_schema(hass: HomeAssistant, default_entity: str = "") -> vol.Schema:
-    """Step-1 schema: only the entity selector."""
+def _build_setup_schema(
+    hass: HomeAssistant,
+    default_entity: str = "",
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    enable_debug: bool = DEFAULT_ENABLE_DEBUG_VIEWS,
+    run_initial_analyze: bool = DEFAULT_RUN_INITIAL_ANALYZE,
+    deep_learning_runs: int = DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
+    narrator_enabled: bool = DEFAULT_NARRATOR_ENABLED,
+    narrator_max_batch: int = DEFAULT_NARRATOR_MAX_BATCH,
+    narrator_ai_entity: str = "",
+    area_assignment_mode: str = DEFAULT_AREA_ASSIGNMENT_MODE,
+) -> vol.Schema:
+    """Single-step setup schema: entity selector + all settings."""
     if not default_entity:
         registry = er.async_get(hass)
         ai_task_entities = [
@@ -104,6 +115,16 @@ def _build_entity_schema(hass: HomeAssistant, default_entity: str = "") -> vol.S
             vol.Required(CONF_AI_TASK_ENTITY_ID, default=default_entity): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="ai_task")
             ),
+            **_build_options_schema(
+                max_tokens=max_tokens,
+                enable_debug=enable_debug,
+                run_initial_analyze=run_initial_analyze,
+                deep_learning_runs=deep_learning_runs,
+                narrator_enabled=narrator_enabled,
+                narrator_max_batch=narrator_max_batch,
+                narrator_ai_entity=narrator_ai_entity,
+                area_assignment_mode=area_assignment_mode,
+            ).schema,
         }
     )
 
@@ -169,13 +190,10 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    def __init__(self) -> None:
-        self._entity_id: str = ""
-
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Step 1 — pick the AI task entity."""
+        """Single-step setup — pick AI entity and configure all settings."""
         errors: dict[str, str] = {}
 
         if self._async_current_entries():
@@ -186,58 +204,42 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
             if not _entity_exists(self.hass, entity_id):
                 errors[CONF_AI_TASK_ENTITY_ID] = "entity_not_found"
             else:
-                self._entity_id = entity_id
-                return await self.async_step_model_config()
+                return self.async_create_entry(
+                    title="Kyber",
+                    data={
+                        CONF_AI_TASK_ENTITY_ID: entity_id,
+                        CONF_MAX_TOKENS: int(user_input.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)),
+                        CONF_ENABLE_DEBUG_VIEWS: bool(
+                            user_input.get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)
+                        ),
+                        CONF_RUN_INITIAL_ANALYZE: bool(
+                            user_input.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)
+                        ),
+                        CONF_INITIAL_DEEP_LEARNING_RUNS: int(
+                            user_input.get(
+                                CONF_INITIAL_DEEP_LEARNING_RUNS,
+                                DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
+                            )
+                        ),
+                        CONF_NARRATOR_MAX_BATCH: int(
+                            user_input.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)
+                        ),
+                        CONF_NARRATOR_ENABLED: bool(
+                            user_input.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED)
+                        ),
+                        CONF_NARRATOR_AI_TASK_ENTITY_ID: str(
+                            user_input.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")
+                        ).strip(),
+                        CONF_AREA_ASSIGNMENT_MODE: str(
+                            user_input.get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE)
+                        ),
+                    },
+                )
 
         return self.async_show_form(
             step_id="user",
-            data_schema=_build_entity_schema(self.hass),
+            data_schema=_build_setup_schema(self.hass),
             errors=errors,
-        )
-
-    async def async_step_model_config(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Step 2 — configure tokens and options, pre-filled from entity."""
-        if user_input is not None and CONF_MAX_TOKENS in user_input:
-            return self.async_create_entry(
-                title="Kyber",
-                data={
-                    CONF_AI_TASK_ENTITY_ID: self._entity_id,
-                    CONF_MAX_TOKENS: int(user_input.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)),
-                    CONF_ENABLE_DEBUG_VIEWS: bool(
-                        user_input.get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)
-                    ),
-                    CONF_RUN_INITIAL_ANALYZE: bool(
-                        user_input.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)
-                    ),
-                    CONF_INITIAL_DEEP_LEARNING_RUNS: int(
-                        user_input.get(
-                            CONF_INITIAL_DEEP_LEARNING_RUNS,
-                            DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
-                        )
-                    ),
-                    CONF_NARRATOR_MAX_BATCH: int(
-                        user_input.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)
-                    ),
-                    CONF_NARRATOR_ENABLED: bool(
-                        user_input.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED)
-                    ),
-                    CONF_NARRATOR_AI_TASK_ENTITY_ID: str(
-                        user_input.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")
-                    ).strip(),
-                },
-            )
-
-        suggested_tokens = _infer_max_tokens(self.hass, self._entity_id)
-
-        return self.async_show_form(
-            step_id="model_config",
-            data_schema=_build_options_schema(max_tokens=suggested_tokens),
-            description_placeholders={
-                "entity_id": self._entity_id,
-                "suggested_tokens": str(suggested_tokens),
-            },
         )
 
     @staticmethod
@@ -266,7 +268,7 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
         current_entity = reconfigure_entry.data.get(CONF_AI_TASK_ENTITY_ID, "")
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=_build_entity_schema(self.hass, current_entity),
+            data_schema=_build_setup_schema(self.hass, default_entity=current_entity),
             errors=errors,
         )
 
