@@ -372,3 +372,269 @@ def language_display_name(lang_code: str) -> str:
     """Return the English display name for a language code."""
     lang = LANGUAGE_HINTS.get(lang_code)
     return lang["name"] if lang else lang_code
+
+
+# Static map: native appliance word (any language) → English search term(s).
+# Used for knowledge retrieval before AI query expansion so the model cannot
+# accidentally conflate appliances via shared brand names (e.g. "miele" matches
+# both washing machine and dishwasher).
+_APPLIANCE_TRANSLATIONS: dict[str, list[str]] = {
+    # Dutch
+    "afwasmachine": ["dishwasher"],
+    "vaatwasser": ["dishwasher"],
+    "wasmachine": ["washing machine"],
+    "droger": ["dryer"],
+    "droogkast": ["dryer"],
+    "magnetron": ["microwave"],
+    "koelkast": ["refrigerator", "fridge"],
+    "vriezer": ["freezer"],
+    "waterkoker": ["kettle"],
+    "broodrooster": ["toaster"],
+    "afzuigkap": ["extractor hood"],
+    "koffiezetapparaat": ["coffee maker"],
+    "koffiemachine": ["coffee maker"],
+    "espressomachine": ["espresso machine"],
+    # German
+    "geschirrspüler": ["dishwasher"],
+    "spülmaschine": ["dishwasher"],
+    "waschmaschine": ["washing machine"],
+    "trockner": ["dryer"],
+    "backofen": ["oven"],
+    "mikrowelle": ["microwave"],
+    "kühlschrank": ["refrigerator", "fridge"],
+    "gefrierschrank": ["freezer"],
+    "wasserkocher": ["kettle"],
+    "kaffeemaschine": ["coffee maker"],
+    "espressomaschine": ["espresso machine"],
+    # French
+    "lave-vaisselle": ["dishwasher"],
+    "lave-linge": ["washing machine"],
+    "sèche-linge": ["dryer"],
+    "réfrigérateur": ["refrigerator", "fridge"],
+    "congélateur": ["freezer"],
+    "bouilloire": ["kettle"],
+    "grille-pain": ["toaster"],
+    "cafetière": ["coffee maker"],
+    # Spanish
+    "lavavajillas": ["dishwasher"],
+    "lavadora": ["washing machine"],
+    "secadora": ["dryer"],
+    "frigorífico": ["refrigerator", "fridge"],
+    "congelador": ["freezer"],
+    "hervidor": ["kettle"],
+    "tostadora": ["toaster"],
+    # Italian
+    "lavastoviglie": ["dishwasher"],
+    "lavatrice": ["washing machine"],
+    "asciugatrice": ["dryer"],
+    "frigorifero": ["refrigerator", "fridge"],
+    "congelatore": ["freezer"],
+    "bollitore": ["kettle"],
+    "tostapane": ["toaster"],
+    "lavastoviglie": ["dishwasher"],
+    # Portuguese
+    "lava-louças": ["dishwasher"],
+    "máquina de lavar": ["washing machine"],
+    "secadora": ["dryer"],
+    "frigorífico": ["refrigerator", "fridge"],
+    "congelador": ["freezer"],
+    "chaleira": ["kettle"],
+    "torradeira": ["toaster"],
+}
+
+
+def get_appliance_translations(text: str) -> list[str]:
+    """Return English appliance terms for any native-language appliance words in *text*.
+
+    Runs a simple substring scan against the static map — no AI call needed.
+    Returns an empty list when nothing matches.
+    """
+    lower = text.lower()
+    found: list[str] = []
+    for word, english_terms in _APPLIANCE_TRANSLATIONS.items():
+        if word in lower:
+            found.extend(t for t in english_terms if t not in found)
+    return found
+
+
+# ── Static word-level translator ─────────────────────────────────────────────
+# Maps individual home-automation words (rooms, devices, actions) from each
+# supported language to their English equivalents.  Used to translate user
+# queries to English before TF-IDF knowledge retrieval, since the knowledge
+# store is indexed over English text.
+#
+# Multi-word appliance terms are handled separately by _APPLIANCE_TRANSLATIONS
+# (applied first as substring replacements before word-level substitution).
+
+_WORD_TRANSLATIONS: dict[str, str] = {
+    # ── Dutch (nl) ───────────────────────────────────────────────────────────
+    # Rooms
+    "woonkamer": "living room",
+    "slaapkamer": "bedroom",
+    "werkkamer": "office",
+    "kantoor": "office",
+    "keuken": "kitchen",
+    "badkamer": "bathroom",
+    "hal": "hallway",
+    "gang": "hallway",
+    "tuin": "garden",
+    "zolder": "attic",
+    "kelder": "basement",
+    "eetkamer": "dining room",
+    "garage": "garage",
+    # Devices
+    "lamp": "light",
+    "licht": "light",
+    "verlichting": "lighting",
+    "televisie": "television",
+    "muziek": "music",
+    "speaker": "speaker",
+    "geluid": "sound",
+    "verwarming": "heating",
+    "thermostaat": "thermostat",
+    "gordijnen": "curtains",
+    "jaloezieen": "blinds",
+    "rolluik": "shutter",
+    "ventilator": "fan",
+    "airco": "ac",
+    # Actions
+    "aanzetten": "turn on",
+    "uitzetten": "turn off",
+    "inschakelen": "turn on",
+    "uitschakelen": "turn off",
+    "starten": "start",
+    "stoppen": "stop",
+    "pauzeren": "pause",
+    "hervatten": "resume",
+    "instellen": "set",
+    "aanpassen": "adjust",
+    "verhoog": "increase",
+    "verlaag": "decrease",
+    "helderder": "brighter",
+    "donkerder": "dimmer",
+    "maximaal": "maximum",
+    "minimaal": "minimum",
+    # ── German (de) ──────────────────────────────────────────────────────────
+    # Rooms
+    "wohnzimmer": "living room",
+    "schlafzimmer": "bedroom",
+    "küche": "kitchen",
+    "badezimmer": "bathroom",
+    "flur": "hallway",
+    "garten": "garden",
+    "büro": "office",
+    "arbeitszimmer": "office",
+    "esszimmer": "dining room",
+    "keller": "basement",
+    # Devices
+    "lampe": "light",
+    "licht": "light",
+    "fernseher": "television",
+    "musik": "music",
+    "lautsprecher": "speaker",
+    "heizung": "heating",
+    "thermostat": "thermostat",
+    "jalousien": "blinds",
+    "rollladen": "shutter",
+    "klimaanlage": "ac",
+    # Actions
+    "einschalten": "turn on",
+    "ausschalten": "turn off",
+    "anmachen": "turn on",
+    "ausmachen": "turn off",
+    "starten": "start",
+    "stoppen": "stop",
+    "einstellen": "set",
+    "heller": "brighter",
+    "dunkler": "dimmer",
+    # ── French (fr) ──────────────────────────────────────────────────────────
+    # Rooms
+    "salon": "living room",
+    "chambre": "bedroom",
+    "cuisine": "kitchen",
+    "couloir": "hallway",
+    "jardin": "garden",
+    "bureau": "office",
+    "cave": "basement",
+    # Devices
+    "lumière": "light",
+    "lampe": "light",
+    "télé": "television",
+    "musique": "music",
+    "chauffage": "heating",
+    "volets": "shutters",
+    "stores": "blinds",
+    "climatiseur": "ac",
+    # Actions
+    "allumer": "turn on",
+    "éteindre": "turn off",
+    "démarrer": "start",
+    "arrêter": "stop",
+    "régler": "set",
+    # ── Spanish (es) ─────────────────────────────────────────────────────────
+    # Rooms
+    "salón": "living room",
+    "dormitorio": "bedroom",
+    "cocina": "kitchen",
+    "baño": "bathroom",
+    "pasillo": "hallway",
+    "jardín": "garden",
+    "oficina": "office",
+    "comedor": "dining room",
+    "garaje": "garage",
+    # Devices
+    "luz": "light",
+    "lámpara": "light",
+    "televisor": "television",
+    "música": "music",
+    "calefacción": "heating",
+    "persianas": "blinds",
+    "cortinas": "curtains",
+    # Actions
+    "encender": "turn on",
+    "apagar": "turn off",
+    "iniciar": "start",
+    "detener": "stop",
+    "ajustar": "adjust",
+    # ── Italian (it) ─────────────────────────────────────────────────────────
+    # Rooms
+    "soggiorno": "living room",
+    "camera": "bedroom",
+    "cucina": "kitchen",
+    "bagno": "bathroom",
+    "corridoio": "hallway",
+    "giardino": "garden",
+    "ufficio": "office",
+    # Devices
+    "luce": "light",
+    "lampada": "light",
+    "televisore": "television",
+    "musica": "music",
+    "riscaldamento": "heating",
+    "persiane": "blinds",
+    "tende": "curtains",
+    # Actions
+    "accendere": "turn on",
+    "spegnere": "turn off",
+    "avviare": "start",
+    "fermare": "stop",
+    "regolare": "set",
+}
+
+
+def translate_query_to_english(text: str) -> str:
+    """Translate a user query to English for TF-IDF knowledge retrieval.
+
+    Applies multi-word appliance substitutions first, then word-by-word
+    substitution for rooms/devices/actions.  Unknown words are kept as-is
+    (entity names and proper nouns are typically language-neutral).
+    """
+    result = text.lower()
+    # Step 1: multi-word appliance terms (e.g. "afwasmachine" → "dishwasher")
+    for native, english_terms in _APPLIANCE_TRANSLATIONS.items():
+        if native in result:
+            result = result.replace(native, english_terms[0])
+    # Step 2: word-by-word substitution
+    words = result.split()
+    result = " ".join(_WORD_TRANSLATIONS.get(w, w) for w in words)
+    return result.strip()

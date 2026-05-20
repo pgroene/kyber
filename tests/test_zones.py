@@ -10,7 +10,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 
 from custom_components.kyber.tool_execution import _execute_tool
-from custom_components.kyber.intent_and_context import _build_context
 
 
 def _inject_zone(hass: HomeAssistant, entity_id: str, name: str, lat: float, lon: float, passive: bool = False) -> None:
@@ -104,6 +103,7 @@ async def test_get_zone_occupants_missing_zone_param(hass: HomeAssistant, setup_
 
 async def test_build_context_includes_zones(hass: HomeAssistant, setup_integration) -> None:
     """_build_context includes zone names in the generated prompt."""
+    from custom_components.kyber.intent_and_context import _build_context
     _inject_zone(hass, "zone.home", "Home", 52.0, 4.0)
     _inject_zone(hass, "zone.work", "Work", 52.1, 4.1)
 
@@ -117,6 +117,7 @@ async def test_build_context_includes_zones(hass: HomeAssistant, setup_integrati
 
 async def test_build_context_passive_zones_excluded_from_block(hass: HomeAssistant, setup_integration) -> None:
     """Passive zones do not appear in the zones_block."""
+    from custom_components.kyber.intent_and_context import _build_context
     _inject_zone(hass, "zone.secret", "Secret", 52.3, 4.3, passive=True)
 
     context, stats = _build_context(hass)
@@ -131,6 +132,7 @@ async def test_build_context_passive_zones_excluded_from_block(hass: HomeAssista
 
 async def test_build_context_person_locations_shown(hass: HomeAssistant, setup_integration) -> None:
     """Person locations appear in the context when persons have a known location."""
+    from custom_components.kyber.intent_and_context import _build_context
     _inject_person(hass, "person.peter", "Peter", "home")
 
     context, _ = _build_context(hass)

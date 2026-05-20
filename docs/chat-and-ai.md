@@ -14,7 +14,8 @@ The **AI Chat** panel is the core of Kyber. It gives you a conversational interf
 6. [[CHANGE] Tagging](#change-tagging)
 7. [Entity Autocomplete](#entity-autocomplete)
 8. [Context Awareness](#context-awareness)
-9. [Slash Commands](#slash-commands)
+9. [Multi-language Support](#multi-language-support)
+10. [Slash Commands](#slash-commands)
 
 ---
 
@@ -278,6 +279,38 @@ Kyber also injects a short “query type → first tool” router near the top o
 ### Custom card awareness
 
 If you have custom Lovelace cards installed (e.g. via HACS), their JS resource URLs are fetched once per session and included in context. The AI will use `type: custom:<card-name>` syntax automatically when those cards are available.
+
+---
+
+## Multi-language Support
+
+Kyber works in English, Dutch, German, French, Spanish, and Italian — no configuration needed.
+
+Write your message in whatever language feels natural. The AI always replies in the same language you used.
+
+```
+You: Zet de woonkamer lampen aan op 60%
+You: Schalte das Licht im Schlafzimmer aus
+You: Allume les lumières du salon
+```
+
+### How it works
+
+Kyber's knowledge store is indexed in English (entity notes, memory facts, area mappings). When you write in a non-English language, your query is silently translated to English before the knowledge lookup so the right facts surface — then the AI replies in your language.
+
+This is fully automatic. The system detects whether non-English messages have been sent recently (last 10 prompts) and enables translation only when needed. Once all recent messages are English again, it switches back. You will never see any indication of this happening.
+
+### Supported languages
+
+| Language | Rooms | Devices | Actions | Appliances |
+|---|---|---|---|---|
+| Dutch (nl) | ✓ | ✓ | ✓ | ✓ |
+| German (de) | ✓ | ✓ | ✓ | ✓ |
+| French (fr) | ✓ | ✓ | ✓ | ✓ |
+| Spanish (es) | ✓ | ✓ | ✓ | ✓ |
+| Italian (it) | ✓ | ✓ | ✓ | ✓ |
+
+Entity IDs and proper names are always passed through unchanged — they are language-neutral by design.
 
 ---
 

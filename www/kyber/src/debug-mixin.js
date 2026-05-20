@@ -272,10 +272,12 @@ export const DebugMixin = (Base) => class extends Base {
         <div class="rv-actions">
           <button class="rv-btn rv-btn-approve" id="review-approve">✅ Approve</button>
           <button class="rv-btn rv-btn-reject" id="review-reject">🗑 Reject</button>
-          <button class="rv-btn rv-btn-skip" id="review-skip">⏭ Skip</button>
-          <label class="rv-skip-days">
-            Hide for <input type="number" id="review-skip-days" min="1" max="365" value="${skipDays}" style="width:36px;padding:1px 3px"> days
-          </label>
+          <div class="rv-skip-group">
+            <button class="rv-btn rv-btn-skip" id="review-skip">⏭ Skip</button>
+            <label class="rv-skip-days">
+              Hide for <input type="number" id="review-skip-days" min="1" max="365" value="${skipDays}" style="width:36px;padding:1px 3px"> days
+            </label>
+          </div>
         </div>
         <div class="rv-bulk">
           For all ${label}:

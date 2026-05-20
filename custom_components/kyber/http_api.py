@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import json
 import logging
 import re
@@ -36,7 +37,7 @@ from .const import (
     SYSTEM_PROMPT_TEMPLATE,
 )
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
-from .language_hints import detect_language, get_hints_for_language, language_display_name
+from .language_hints import detect_language, get_appliance_translations, translate_query_to_english
 from .analyzer import analyze_automations as _analyze_automations
 from .source import (
     read_automations as _src_read_automations,
@@ -552,19 +553,37 @@ async def _inject_knowledge_into_instructions(
 
     Returns (updated_instructions, relevant_knowledge).
     """
-    # Expand the query into synonyms/related terms for better cross-lingual matching.
-    # "koffie" → ["koffie","coffee","espresso","nespresso",...] so entity notes for the
-    # espresso machine surface even though the user typed a different word.
-    extra_queries: list[str] = []
-    if entity_id:
-        try:
-            extra_queries = await _expand_search_query(hass, entity_id, user_prompt)
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("Kyber: query expansion failed: %s", err)
+    # Adaptive translation: track detected language of last 10 prompts in hass.data.
+    # Silently switches to English-translated search queries when non-English use is
+    # detected, reverts once the last 10 prompts are all English again.
+    _LANG_HISTORY_KEY = "kyber_lang_history"
+    _lang_history: deque[str] = hass.data.setdefault(
+        _LANG_HISTORY_KEY, deque(maxlen=10)
+    )
+    _detected_lang_early = detect_language(user_prompt)
+    _was_active = any(lang != "en" for lang in _lang_history)
+    _lang_history.append(_detected_lang_early)
+    _translation_active = any(lang != "en" for lang in _lang_history)
+
+    if _translation_active != _was_active:
+        _LOGGER.info(
+            "Kyber: translation mode %s (history: %s)",
+            "ON" if _translation_active else "OFF",
+            list(_lang_history),
+        )
+
+    if _translation_active and _detected_lang_early != "en":
+        _en_query = translate_query_to_english(user_prompt)
+        _LOGGER.debug("Kyber: query translated '%s' → '%s'", user_prompt[:60], _en_query[:60])
+        search_query = _en_query
+        extra_queries: list[str] = [user_prompt] if _en_query != user_prompt else []
+    else:
+        search_query = user_prompt
+        extra_queries = []
 
     try:
         relevant_knowledge = await kstore.async_pick_relevant(
-            user_prompt, max_entries=8, extra_queries=extra_queries
+            search_query, max_entries=10, extra_queries=extra_queries
         )
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Kyber: knowledge lookup failed: %s", err)
@@ -592,6 +611,20 @@ async def _inject_knowledge_into_instructions(
                 or e.get("category") in ("entity_alias", "area_alias")
             ]
         relevant_knowledge = filtered_knowledge  # empty = inject nothing
+
+        # Deduplicate by subject — the same fact can match multiple query
+        # expansions (e.g. two synonyms both retrieve "washing machine time").
+        # Results are already sorted by score descending so the first hit wins.
+        _seen_subjects: set[str] = set()
+        _deduped: list = []
+        for _e in relevant_knowledge:
+            _subj = (_e.get("subject") or "").strip().lower()
+            if _subj and _subj in _seen_subjects:
+                continue
+            _deduped.append(_e)
+            if _subj:
+                _seen_subjects.add(_subj)
+        relevant_knowledge = _deduped
 
         # Report which facts were selected so the user can see them in
         # the live progress card AND in the debug snapshot.
@@ -639,52 +672,6 @@ async def _inject_knowledge_into_instructions(
         else:
             instructions = instructions + _kn_section
         await kstore.async_record_hit([e["id"] for e in relevant_knowledge])
-
-    # Inject language-specific vocabulary hints when the user writes in a
-    # non-English language.  These are stored as knowledge entries with
-    # category="language_hint" and are retrieved deterministically by tag
-    # (not by TF-IDF score) so they are always complete and consistent.
-    _detected_lang = detect_language(user_prompt)
-    if _detected_lang != "en":
-        _lang_hints = await kstore.async_get_by_tag(
-            _detected_lang, category="language_hint"
-        )
-        if _lang_hints:
-            _lang_name = language_display_name(_detected_lang)
-            _LOGGER.info(
-                "Kyber: detected language '%s' (%s) \u2014 injecting %d vocabulary hints",
-                _detected_lang, _lang_name, len(_lang_hints),
-            )
-            _progress_emit(hass, request_id, {
-                "type": "info",
-                "message": f"Detected language: {_lang_name} \u2014 injecting vocabulary hints",
-            })
-            lang_lines = [
-                "",
-                f"## Language hints ({_lang_name})",
-                "The user is writing in "
-                + _lang_name
-                + ". Use the vocabulary below to map their words to HA domains, "
-                "service calls, and entity types. These hints are helpers \u2014 always "
-                "confirm entity IDs with tool calls; never guess them.",
-            ]
-            for hint_entry in _lang_hints:
-                lang_lines.append(f"- {hint_entry.get('content', '')}")
-            # Same as knowledge: inject before the final "User:" turn.
-            _lang_section = "\n" + "\n".join(lang_lines) + "\n"
-            _inject_pt = instructions.rfind("\nUser:")
-            if _inject_pt != -1:
-                instructions = instructions[:_inject_pt] + _lang_section + instructions[_inject_pt:]
-            else:
-                instructions = instructions + _lang_section
-        else:
-            _LOGGER.debug(
-                "Kyber: language '%s' detected but no vocabulary hints found in knowledge store "
-                "(expected entries with tag '%s', category 'language_hint') — "
-                "responses may lack locale-specific vocabulary. "
-                "Check that language hints were seeded at startup.",
-                _detected_lang, _detected_lang,
-            )
 
     return instructions, relevant_knowledge
 
@@ -825,6 +812,7 @@ async def _run_ai_loop(
     tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
     tool_log: list = []  # summary of tool calls for UI feedback
     executed_calls_cache: dict = {}  # signature → result str (dedup across rounds)
+    _seen_entity_scores: dict[str, float] = {}  # entity_id → best score shown so far
     response_text = ""
     _loop_redirect_given = False  # allow one redirect hint before falling back to synthesis
     _auto_plan_rescued = False    # set when call_service tool call is auto-converted to plan
@@ -877,13 +865,31 @@ async def _run_ai_loop(
             "message": f"Asking AI (round {_round + 1})\u2026",
         })
         _t_start = time.monotonic()
+        _AI_CALL_TIMEOUT = 180  # seconds — Ollama can be slow on loaded hardware
         try:
-            result = await async_generate_data(
-                hass,
-                task_name=f"{DOMAIN}_complete",
-                entity_id=entity_id,
-                instructions=loop_instructions,
+            result = await asyncio.wait_for(
+                async_generate_data(
+                    hass,
+                    task_name=f"{DOMAIN}_complete",
+                    entity_id=entity_id,
+                    instructions=loop_instructions,
+                ),
+                timeout=_AI_CALL_TIMEOUT,
             )
+        except asyncio.TimeoutError:
+            _elapsed_ms = int((time.monotonic() - _t_start) * 1000)
+            _LOGGER.error(
+                "Kyber: AI call TIMED OUT after %dms (%ds limit) — entity=%s round=%d prompt_tokens~%d",
+                _elapsed_ms, _AI_CALL_TIMEOUT, entity_id, _round + 1, _prompt_tokens_est,
+            )
+            _progress_emit(hass, request_id, {
+                "type": "error",
+                "message": f"AI timed out after {_AI_CALL_TIMEOUT}s — Ollama may be overloaded",
+            })
+            _progress_complete(hass, request_id)
+            raise HomeAssistantError(
+                f"AI call timed out after {_AI_CALL_TIMEOUT}s"
+            ) from None
         except HomeAssistantError as err:
             _elapsed_ms = int((time.monotonic() - _t_start) * 1000)
             _LOGGER.error(
@@ -1086,6 +1092,31 @@ async def _run_ai_loop(
                         )
                         tool_result_data = _filtered
                         tool_result_str = json.dumps(_filtered)
+
+                # Seen-entity exclusion: on round 2+, drop entities whose score is no
+                # better than what was already shown in a previous search_entities round.
+                # If a later query returns the same entity with a higher score (more
+                # relevant match), it is kept so the model sees the improved context.
+                if _round > 0 and _seen_entity_scores:
+                    _eid_keys = [k for k in tool_result_data if isinstance(k, str) and "." in k and not k.startswith("_")]
+                    _to_drop = []
+                    for _eid in _eid_keys:
+                        _new_score = float((tool_result_data[_eid] or {}).get("_score") or 0)
+                        _old_score = _seen_entity_scores.get(_eid, -1)
+                        if _new_score <= _old_score:
+                            _to_drop.append(_eid)
+                    if _to_drop:
+                        tool_result_data = {k: v for k, v in tool_result_data.items() if k not in _to_drop}
+                        if not any(isinstance(k, str) and "." in k and not k.startswith("_") for k in tool_result_data):
+                            tool_result_data["_note"] = "All matches already shown in a previous round with equal or better relevance."
+                        tool_result_str = json.dumps(tool_result_data)
+                        _LOGGER.debug("Kyber: search_entities round %d — dropped %d already-seen entities (score not improved)", _round, len(_to_drop))
+
+                # Record best score seen per entity for future rounds
+                for _eid in (k for k in tool_result_data if isinstance(k, str) and "." in k and not k.startswith("_")):
+                    _score = float((tool_result_data[_eid] or {}).get("_score") or 0)
+                    if _score > _seen_entity_scores.get(_eid, -1):
+                        _seen_entity_scores[_eid] = _score
 
             # Also record aliases from get_entity_state: when entity_id words
             # overlap with the user prompt we know the user was asking about that

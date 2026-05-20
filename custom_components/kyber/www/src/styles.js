@@ -672,9 +672,12 @@ export const STYLES = `
   .rv-btn-approve { background: var(--success-color, #4caf50); color: #fff; }
   .rv-btn-reject  { background: var(--error-color, #f44336); color: #fff; }
   .rv-btn-skip    { background: transparent; color: var(--secondary-text-color); border: 1px solid var(--divider-color); }
+  .rv-skip-group {
+    display: flex; align-items: center; gap: 5px; margin-left: auto;
+  }
   .rv-skip-days {
     font-size: 0.75em; color: var(--secondary-text-color); display: flex;
-    align-items: center; gap: 3px; margin-left: auto;
+    align-items: center; gap: 3px;
   }
   .rv-skip-days input {
     border: 1px solid var(--divider-color, #ccc); border-radius: 3px;

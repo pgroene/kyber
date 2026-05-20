@@ -69,16 +69,18 @@ def _load_deep():
 
 def test_parse_facts_handles_clean_json():
     mod = _load_deep()
-    raw = '[{"category":"area_alias","subject":"office","content":"werkkamer = office","tags":["dutch"],"confidence":0.8}]'
+    content = "werkkamer = office (Dutch word 'werkkamer' maps to the English room name 'office')"
+    raw = f'[{{"category":"area_alias","subject":"office","content":"{content}","tags":["dutch"],"confidence":0.8}}]'
     facts = mod._parse_facts(raw)
     assert len(facts) == 1
-    assert facts[0]["content"] == "werkkamer = office"
+    assert facts[0]["content"] == content
     assert facts[0]["confidence"] == 0.8
 
 
 def test_parse_facts_strips_markdown_fence():
     mod = _load_deep()
-    raw = '```json\n[{"category":"general","content":"A fact","confidence":0.7}]\n```'
+    content = "This is a general fact about the home automation system configuration."
+    raw = f'```json\n[{{"category":"general","content":"{content}","confidence":0.7}}]\n```'
     facts = mod._parse_facts(raw)
     assert len(facts) == 1
     assert facts[0]["category"] == "general"
@@ -92,7 +94,9 @@ def test_parse_facts_returns_empty_on_garbage():
 
 def test_parse_facts_clamps_confidence():
     mod = _load_deep()
-    raw = '[{"content":"x","confidence":99},{"content":"y","confidence":-3}]'
+    content_a = "High-confidence fact: the kitchen light turns on at sunset automatically."
+    content_b = "Low-confidence fact: the bedroom sensor might be misconfigured in the system."
+    raw = f'[{{"content":"{content_a}","confidence":99}},{{"content":"{content_b}","confidence":-3}}]'
     facts = mod._parse_facts(raw)
     assert facts[0]["confidence"] == 1.0
     assert facts[1]["confidence"] == 0.0
@@ -100,10 +104,11 @@ def test_parse_facts_clamps_confidence():
 
 def test_parse_facts_skips_empty_content():
     mod = _load_deep()
-    raw = '[{"content":""},{"content":"ok"}]'
+    valid_content = "This fact has enough content to pass the minimum length requirement check."
+    raw = f'[{{"content":""}},{{"content":"{valid_content}"}}]'
     facts = mod._parse_facts(raw)
     assert len(facts) == 1
-    assert facts[0]["content"] == "ok"
+    assert facts[0]["content"] == valid_content
 
 
 def test_build_prompt_includes_alias_and_yaml_body():

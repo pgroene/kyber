@@ -1,10 +1,11 @@
-﻿{
+{
     "domain": "kyber",
     "name": "Kyber",
     "codeowners": ["@pgroene"],
     "config_flow": true,
     "dependencies": ["ai_task", "http", "lovelace"],
     "documentation": "https://github.com/pgroene/kyber",
+    "homeassistant": "2025.2.0",
     "iot_class": "local_polling",
     "issue_tracker": "https://github.com/pgroene/kyber/issues",
     "requirements": [],

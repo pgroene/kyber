@@ -23,7 +23,7 @@ def mock_dependencies(hass: HomeAssistant) -> None:
 
 
 async def test_form_shown(hass: HomeAssistant) -> None:
-    """Config flow should show expected setup fields."""
+    """Config flow step 1 should show the AI task entity selector."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
@@ -32,34 +32,38 @@ async def test_form_shown(hass: HomeAssistant) -> None:
     assert result["step_id"] == "user"
     schema_keys = [str(k) for k in result["data_schema"].schema.keys()]
     assert any("ai_task_entity_id" in k for k in schema_keys)
-    assert any("max_tokens" in k for k in schema_keys)
-    assert any("run_initial_analyze" in k for k in schema_keys)
-    assert any("initial_deep_learning_runs" in k for k in schema_keys)
 
 
 async def test_creates_entry_with_entity_id(hass: HomeAssistant) -> None:
-    """Submitting a valid ai_task entity ID should create a config entry."""
+    """Submitting a valid ai_task entity ID should proceed to step 2, then create entry."""
     entity_reg = er.async_get(hass)
     entity_reg.async_get_or_create(
         "ai_task", "ollama", "ollama_ai_task", suggested_object_id="ollama_ai_task"
     )
 
+    # Step 1: entity selection
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        user_input={
-            "ai_task_entity_id": "ai_task.ollama_ai_task",
-            "max_tokens": 2048,
-        },
+        user_input={"ai_task_entity_id": "ai_task.ollama_ai_task"},
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "model_config"
+    schema_keys = [str(k) for k in result["data_schema"].schema.keys()]
+    assert any("max_tokens" in k for k in schema_keys)
+
+    # Step 2: model config
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"max_tokens": 2048},
     )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["ai_task_entity_id"] == "ai_task.ollama_ai_task"
     assert result["data"]["max_tokens"] == 2048
-    assert result["data"]["run_initial_analyze"] is True
-    assert result["data"]["initial_deep_learning_runs"] == 10
 
 
 async def test_no_ai_task_entity_shows_error(hass: HomeAssistant) -> None:
@@ -69,10 +73,7 @@ async def test_no_ai_task_entity_shows_error(hass: HomeAssistant) -> None:
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        user_input={
-            "ai_task_entity_id": "ai_task.does_not_exist",
-            "max_tokens": 2048,
-        },
+        user_input={"ai_task_entity_id": "ai_task.does_not_exist"},
     )
 
     assert result["type"] == FlowResultType.FORM
@@ -83,16 +84,22 @@ async def test_max_tokens_below_minimum_returns_form_error(hass: HomeAssistant) 
     """Submitting max_tokens=255 (below schema minimum of 256) should raise InvalidData."""
     from homeassistant.data_entry_flow import InvalidData
 
+    entity_reg = er.async_get(hass)
+    entity_reg.async_get_or_create(
+        "ai_task", "ollama", "ollama_ai_task", suggested_object_id="ollama_ai_task"
+    )
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"ai_task_entity_id": "ai_task.ollama_ai_task"},
+    )
+    assert result["step_id"] == "model_config"
     with pytest.raises(InvalidData):
         await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            user_input={
-                "ai_task_entity_id": "ai_task.ollama_ai_task",
-                "max_tokens": 255,
-            },
+            user_input={"max_tokens": 255},
         )
 
 
@@ -100,16 +107,22 @@ async def test_max_tokens_above_maximum_returns_form_error(hass: HomeAssistant) 
     """Submitting max_tokens=2000001 (above schema maximum of 2000000) should raise InvalidData."""
     from homeassistant.data_entry_flow import InvalidData
 
+    entity_reg = er.async_get(hass)
+    entity_reg.async_get_or_create(
+        "ai_task", "ollama", "ollama_ai_task", suggested_object_id="ollama_ai_task"
+    )
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"ai_task_entity_id": "ai_task.ollama_ai_task"},
+    )
+    assert result["step_id"] == "model_config"
     with pytest.raises(InvalidData):
         await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            user_input={
-                "ai_task_entity_id": "ai_task.ollama_ai_task",
-                "max_tokens": 2_000_001,
-            },
+            user_input={"max_tokens": 2_000_001},
         )
 
 
@@ -125,10 +138,12 @@ async def test_creates_entry_with_large_max_tokens(hass: HomeAssistant) -> None:
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        user_input={
-            "ai_task_entity_id": "ai_task.ollama_ai_task",
-            "max_tokens": 100_000,
-        },
+        user_input={"ai_task_entity_id": "ai_task.ollama_ai_task"},
+    )
+    assert result["step_id"] == "model_config"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"max_tokens": 100_000},
     )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
@@ -139,14 +154,22 @@ async def test_initial_deep_learning_runs_above_maximum_returns_form_error(hass:
     """Submitting initial_deep_learning_runs=11 should raise InvalidData."""
     from homeassistant.data_entry_flow import InvalidData
 
+    entity_reg = er.async_get(hass)
+    entity_reg.async_get_or_create(
+        "ai_task", "ollama", "ollama_ai_task", suggested_object_id="ollama_ai_task"
+    )
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"ai_task_entity_id": "ai_task.ollama_ai_task"},
+    )
+    assert result["step_id"] == "model_config"
     with pytest.raises(InvalidData):
         await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={
-                "ai_task_entity_id": "ai_task.ollama_ai_task",
                 "max_tokens": 2048,
                 "initial_deep_learning_runs": 11,
             },
@@ -188,10 +211,12 @@ async def test_creates_entry_with_cloud_entity(hass: HomeAssistant) -> None:
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        user_input={
-            "ai_task_entity_id": "ai_task.home_assistant_cloud_data_generation",
-            "max_tokens": 4096,
-        },
+        user_input={"ai_task_entity_id": "ai_task.home_assistant_cloud_data_generation"},
+    )
+    assert result["step_id"] == "model_config"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"max_tokens": 4096},
     )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
