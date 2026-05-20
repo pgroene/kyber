@@ -615,7 +615,7 @@ export const SlashMixin = (Base) => class extends Base {
       info = await this._hass.callApi("GET", "kyber/self_update");
     } catch (err) {
       this._setStatus("");
-      this._showMsg(`⚠️ Could not reach update endpoint: ${err.message}`);
+      this._showMsg(`⚠️ Could not reach update endpoint: ${err?.message || err?.error || String(err)}`);
       return;
     }
     this._setStatus("");

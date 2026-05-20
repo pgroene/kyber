@@ -1970,7 +1970,8 @@ class KyberSelfUpdateView(HomeAssistantView):
 
         current = _get_installed_version(hass)
         try:
-            session = hass.helpers.aiohttp_client.async_get_clientsession(hass)
+            from homeassistant.helpers.aiohttp_client import async_get_clientsession
+            session = async_get_clientsession(hass)
             async with session.get(
                 self._GITHUB_API,
                 headers={"Accept": "application/vnd.github+json"},
@@ -2004,7 +2005,8 @@ class KyberSelfUpdateView(HomeAssistantView):
 
         # 1. Fetch release metadata
         try:
-            session = hass.helpers.aiohttp_client.async_get_clientsession(hass)
+            from homeassistant.helpers.aiohttp_client import async_get_clientsession
+            session = async_get_clientsession(hass)
             async with session.get(
                 self._GITHUB_API,
                 headers={"Accept": "application/vnd.github+json"},
