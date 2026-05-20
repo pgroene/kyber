@@ -71,6 +71,64 @@ def _cosine(a: dict[str, float], b: dict[str, float]) -> float:
     return _vec_dot(a, b) / (_vec_norm(a) * _vec_norm(b))
 
 
+# ── Domain-intent boosting ──────────────────────────────────────────────────
+# When a user query contains domain-specific keywords (e.g. "muziek"),
+# entries whose subject starts with the matching HA domain (e.g.
+# "media_player.") receive a score boost so they are not crowded out by
+# structural/infrastructure entities (e.g. adaptive_lighting switches) that
+# happen to share an area name with the query.
+
+_DOMAIN_INTENT: dict[str, list[str]] = {
+    "media_player": [
+        "muziek", "music", "speelt", "playing", "speel", "play",
+        "radio", "stream", "song", "playlist", "speaker", "luidspreker",
+        "afspelen", "volume", "album", "artiest", "artist", "track",
+        "nummer", "liedje", "geluid", "audio",
+    ],
+    "light": [
+        "licht", "lamp", "lampen", "lights", "dimmer", "brightness",
+        "helderheid", "kleur", "color", "colour", "verlicht", "verlichting",
+        "spots", "spot", "spotlight",
+    ],
+    "climate": [
+        "temperatuur", "temperature", "warm", "koud", "cold", "hot",
+        "heating", "cooling", "thermostat", "thermostaat", "verwarming",
+        "koeling", "graden", "degrees",
+    ],
+    "cover": [
+        "gordijn", "gordijnen", "curtain", "curtains", "jaloezie",
+        "jaloezieën", "blind", "blinds", "shutter", "shutters",
+        "rolluik", "rolgordijn", "zonnescherm",
+    ],
+    "binary_sensor": [
+        "beweging", "motion", "aanwezig", "presence", "open", "deur",
+        "raam", "window",
+    ],
+    "vacuum": [
+        "stofzuiger", "robot", "vacuum", "schoonmaken", "clean", "zuigen",
+    ],
+}
+
+# Domains that are structural/infrastructure and should be suppressed unless
+# the query is explicitly about them.  Applied when query has NO matching
+# domain intent keywords.
+_INFRASTRUCTURE_PREFIXES = (
+    "switch.adaptive_lighting_",
+)
+
+_DOMAIN_BOOST = 0.15          # added to sim when entry domain matches intent
+_INFRA_PENALTY = 0.12         # subtracted from sim for infra entities
+
+
+def _detect_domain_intents(query_words: set[str]) -> set[str]:
+    """Return HA domain prefixes implied by keywords in the query."""
+    domains: set[str] = set()
+    for domain, keywords in _DOMAIN_INTENT.items():
+        if query_words & set(keywords):
+            domains.add(domain)
+    return domains
+
+
 class KnowledgeStore:
     """In-memory cache backed by HA Store for persistence."""
 
@@ -148,6 +206,16 @@ class KnowledgeStore:
         area tag or entity_id segment in an entry, the score is boosted so that
         e.g. "slaapkamer" returns slaapkamer facts above woonkamer facts even when
         both have similar TF-IDF weights.
+
+        Domain-intent boost: when the query contains domain keywords (e.g.
+        "muziek" → media_player domain), entries whose subject starts with that
+        domain prefix receive an additional boost so they rank above structural
+        entities (e.g. adaptive_lighting switches) that share the area name.
+
+        Infrastructure penalty: adaptive_lighting and other infrastructure
+        entities receive a slight penalty when the query contains no
+        domain-specific keywords, preventing them from crowding out relevant
+        entities.
         """
         await self.async_load()
         if not query or not self._entries:
@@ -157,22 +225,34 @@ class KnowledgeStore:
         if not qv:
             return []
 
-        # Pre-compute query word set for exact-match boost.
+        # Pre-compute query word set for exact-match and domain-intent boosts.
         query_words = set(_TOKEN_RE.findall(query.lower()))
+        domain_intents = _detect_domain_intents(query_words)
 
         scored: list[tuple[float, dict[str, Any]]] = []
         for eid, vec in self._vectors.items():
             sim = _cosine(qv, vec)
             if sim >= min_score:
                 entry = dict(self._entries[eid])
-                # Boost when a query word exactly matches an area tag or entity_id segment.
+                subject = (entry.get("subject") or "").lower()
                 if query_words:
                     tags = set(t.lower() for t in (entry.get("tags") or []) if t)
-                    subject = (entry.get("subject") or "").lower()
                     subject_tokens = set(_TOKEN_RE.findall(subject))
+                    # Boost for exact area/entity token matches.
                     exact_hits = len(query_words & (tags | subject_tokens))
                     if exact_hits:
                         sim = min(1.0, sim + 0.12 * exact_hits)
+                # Domain-intent boost: push matching domain entries to the top.
+                if domain_intents:
+                    for domain in domain_intents:
+                        if subject.startswith(domain + "."):
+                            sim = min(1.0, sim + _DOMAIN_BOOST)
+                            break
+                # Infrastructure penalty: suppress structural entities when
+                # the query has no explicit domain keywords for them.
+                if not domain_intents or "light" not in domain_intents:
+                    if any(subject.startswith(pfx) for pfx in _INFRASTRUCTURE_PREFIXES):
+                        sim = max(0.0, sim - _INFRA_PENALTY)
                 entry["_score"] = round(sim, 4)
                 scored.append((sim, entry))
         scored.sort(key=lambda p: p[0], reverse=True)
