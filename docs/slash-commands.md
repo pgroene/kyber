@@ -92,6 +92,12 @@ Toggles **Autopilot mode**. When autopilot is active, the ⚡ Autopilot ON badge
 /autopilot off
 ```
 
+Commands that make changes show a **confirmation card** before executing. Destructive operations display a red danger variant:
+
+![Command card — safe action](images/10-command-card-safe.png)
+
+![Command card — dangerous action](images/11-command-card-danger.png)
+
 ---
 
 ## Dashboard Commands

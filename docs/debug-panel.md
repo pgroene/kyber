@@ -89,3 +89,5 @@ From the Last Turn tab, click **Download Debug Bundle** to get a sanitised ZIP c
 This file can be attached to GitHub issues to help diagnose problems.
 
 The same bundle is available at `/api/kyber/debug/bug-report` (GET).
+
+![Bug report dialog](images/16-bug-report-dialog.png)

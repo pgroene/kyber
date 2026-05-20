@@ -15,6 +15,10 @@ When the editor is open, the toolbar shows the current automation/dashboard name
 
 This gives a quick visual confirmation of which file is being edited. The label updates automatically when you switch dashboards via the dropdown.
 
+![Automation editor with breadcrumb](images/14-editor-automation.png)
+
+![Dashboard editor with breadcrumb](images/15-editor-dashboard.png)
+
 ---
 
 ## Automation / Script Editor
