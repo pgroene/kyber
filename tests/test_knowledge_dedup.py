@@ -189,3 +189,83 @@ class TestDedupCleanMarker:
         v3_markers = [e for e in store._entries.values()
                       if e.get("subject") == store._DEDUP_CLEAN_SUBJECT and e.get("content") == "3"]
         assert len(v3_markers) == 1
+
+
+# ---------------------------------------------------------------------------
+# Signal-word filter in async_pick_relevant
+# ---------------------------------------------------------------------------
+
+class TestSignalWordFilter:
+    """async_pick_relevant must drop entries that share only generic/stopword
+    query terms with the query.  Reproduces the "mijn espresso machine" bug
+    where 'washing machine' entries were returned because 'machine' matched."""
+
+    def _make_store_with_entries(self, entries: dict) -> object:
+        store = _make_store()
+        store._entries = entries
+        store._index_dirty = True
+        return store
+
+    def test_espresso_query_drops_washing_machine_entries(self):
+        """'mijn espresso machine' must not return entries about washing machine."""
+        store = self._make_store_with_entries({
+            "wm1": {"id": "wm1", "subject": "washing machine", "content": "input_boolean.autostart_washingmachine",
+                    "category": "entity_alias", "source": "manual", "tags": [],
+                    "confidence": 0.95, "hits": 0, "created": 1, "updated": 1},
+            "wm2": {"id": "wm2", "subject": "washing machine time", "content": "sensor.washing_machine_remaining_time",
+                    "category": "entity_alias", "source": "manual", "tags": [],
+                    "confidence": 0.8, "hits": 0, "created": 1, "updated": 1},
+        })
+        results = _run(store.async_pick_relevant("mijn espresso machine"))
+        subjects = [r.get("subject", "") for r in results]
+        assert not any("washing" in s for s in subjects), (
+            f"Washing machine entries should not appear for 'espresso' query; got: {subjects}"
+        )
+
+    def test_espresso_query_keeps_espresso_entry(self):
+        """An actual espresso entry must be returned for 'mijn espresso machine'."""
+        store = self._make_store_with_entries({
+            "wm1": {"id": "wm1", "subject": "washing machine", "content": "input_boolean.autostart_washingmachine",
+                    "category": "entity_alias", "source": "manual", "tags": [],
+                    "confidence": 0.95, "hits": 0, "created": 1, "updated": 1},
+            "esp": {"id": "esp", "subject": "espresso machine", "content": "switch.espresso_power",
+                    "category": "entity_alias", "source": "manual", "tags": [],
+                    "confidence": 0.9, "hits": 0, "created": 1, "updated": 1},
+        })
+        results = _run(store.async_pick_relevant("mijn espresso machine"))
+        subjects = [r.get("subject", "") for r in results]
+        assert any("espresso" in s for s in subjects), (
+            f"Espresso entry should be returned; got: {subjects}"
+        )
+        assert not any("washing" in s for s in subjects), (
+            f"Washing machine should be excluded; got: {subjects}"
+        )
+
+    def test_no_signal_words_returns_all(self):
+        """A query with only stopwords/generic words skips signal filtering."""
+        store = self._make_store_with_entries({
+            "a": {"id": "a", "subject": "machine", "content": "sensor.foo",
+                  "category": "entity_alias", "source": "manual", "tags": [],
+                  "confidence": 0.9, "hits": 0, "created": 1, "updated": 1},
+        })
+        # "mijn machine" → "mijn" is stopword, "machine" is generic → no signal words
+        results = _run(store.async_pick_relevant("mijn machine"))
+        # Should still return the entry (no filter applied)
+        assert len(results) >= 1
+
+    def test_area_alias_always_kept(self):
+        """area_alias entries are always kept regardless of signal-word mismatch."""
+        store = self._make_store_with_entries({
+            "aa": {"id": "aa", "subject": "living room", "content": "zitkamer",
+                   "category": "area_alias", "source": "manual", "tags": [],
+                   "confidence": 1.0, "hits": 0, "created": 1, "updated": 1},
+            "wm": {"id": "wm", "subject": "washing machine", "content": "sensor.wm",
+                   "category": "entity_alias", "source": "manual", "tags": [],
+                   "confidence": 0.9, "hits": 0, "created": 1, "updated": 1},
+        })
+        results = _run(store.async_pick_relevant("mijn espresso machine"))
+        subjects = [r.get("subject", "") for r in results]
+        # area_alias "living room" should survive (no espresso signal word in it)
+        assert any("living room" in s for s in subjects), (
+            f"area_alias should survive signal-word filter; got: {subjects}"
+        )

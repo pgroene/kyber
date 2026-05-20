@@ -120,6 +120,48 @@ _INFRASTRUCTURE_PREFIXES = (
 _DOMAIN_BOOST = 0.15          # added to sim when entry domain matches intent
 _INFRA_PENALTY = 0.12         # subtracted from sim for infra entities
 
+# ── Signal-word filter ───────────────────────────────────────────────────────
+# After hybrid retrieval we check whether retrieved entries actually share a
+# "signal word" with the query.  Signal words are non-stopword, non-generic
+# query tokens — the words that distinguish "espresso machine" from "washing
+# machine".  If an entry shares no signal words with the query, it matched
+# only on peripheral terms (like "machine") and is dropped so the AI isn't
+# misled.  Only applied when the query contains at least one signal word.
+
+_QUERY_STOPWORDS: frozenset[str] = frozenset({
+    # Dutch
+    "mijn", "de", "het", "een", "is", "zijn", "heeft", "van", "in", "op",
+    "aan", "met", "voor", "naar", "bij", "over", "door", "kan", "wil",
+    "wat", "welk", "welke", "ons", "uw", "hun", "dit", "dat", "deze",
+    "die", "niet", "wel", "ook", "nog", "al", "maar", "en", "of", "als",
+    "dan", "er", "je", "ik", "ze", "we", "hij", "zij", "hoe", "zet",
+    "doe", "maak", "zet", "aan", "uit",
+    # English
+    "my", "the", "a", "an", "is", "are", "has", "have", "of", "in",
+    "on", "at", "with", "for", "to", "from", "by", "about", "can",
+    "will", "would", "what", "which", "this", "that", "these", "those",
+    "not", "also", "but", "and", "or", "if", "then", "there", "you",
+    "i", "they", "he", "she", "it", "how", "where", "when", "turn",
+    "set", "get", "put", "show", "tell", "give", "make",
+})
+
+# Generic device nouns — too common to serve as signal words alone.
+_GENERIC_DEVICE_WORDS: frozenset[str] = frozenset({
+    "machine", "apparaat", "device", "sensor", "switch", "light", "lamp",
+    "ding", "entity", "smart", "home", "huis", "kamer", "room",
+    "system", "systeem", "unit", "module", "power", "energy",
+})
+
+
+def _query_signal_words(query: str) -> frozenset[str]:
+    """Return the 'signal words' in a query — specific, non-generic tokens.
+
+    These are tokens that must appear in a retrieved entry for the match to
+    be considered relevant.  Stopwords and generic device nouns are excluded.
+    """
+    tokens = {w.lower() for w in _TOKEN_RE.findall(query) if len(w) > 2}
+    return frozenset(tokens - _QUERY_STOPWORDS - _GENERIC_DEVICE_WORDS)
+
 
 def _detect_domain_intents(query_words: set[str]) -> set[str]:
     """Return HA domain prefixes implied by keywords in the query."""
@@ -686,8 +728,29 @@ class KnowledgeStore:
         # Re-sort after subject dedup (order may change)
         deduped = sorted(seen_subjects.values(), key=lambda x: x["_score"], reverse=True)
 
-        if deduped[:max_entries]:
-            return deduped[:max_entries]
+        # Signal-word filter: if the query contains specific non-generic terms
+        # (e.g. "espresso"), only keep entries that actually contain at least
+        # one of those terms.  This prevents "espresso machine" from returning
+        # "washing machine" entries that matched only on the generic word
+        # "machine".  Entries with category "area_alias" are always kept —
+        # they anchor the user's home geography regardless of query terms.
+        signal = _query_signal_words(prompt)
+        if signal:
+            def _entry_has_signal(entry: dict[str, Any]) -> bool:
+                if entry.get("category") == "area_alias":
+                    return True
+                blob = " ".join([
+                    (entry.get("subject") or "").lower(),
+                    (entry.get("content") or "").lower(),
+                    " ".join(str(t).lower() for t in (entry.get("tags") or [])),
+                ]).lower()
+                return any(sw in blob for sw in signal)
+            filtered = [e for e in deduped if _entry_has_signal(e)]
+        else:
+            filtered = deduped
+
+        if filtered[:max_entries]:
+            return filtered[:max_entries]
         # Fallback: always include high-confidence area aliases as background.
         aliases = await self.async_search("", category="area_alias", limit=max_entries)
         return [{**e, "_score": 0.0, "_source": "fallback_alias"} for e in aliases]
