@@ -374,6 +374,39 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
     else:
         labels_block = ""
 
+    # Zones block — list GPS zones (skip passive/hidden ones like zone.home_2 helpers)
+    zone_states = sorted(
+        [s for s in all_states if s.entity_id.startswith("zone.") and not s.attributes.get("passive", False)],
+        key=lambda s: s.attributes.get("friendly_name", s.entity_id),
+    )
+    if zone_states:
+        zone_parts = []
+        for zs in zone_states:
+            zname = _sanitize_prompt_value(
+                str(zs.attributes.get("friendly_name") or zs.entity_id.split(".", 1)[-1]), max_len=60
+            )
+            icon = zs.attributes.get("icon", "")
+            icon_str = f" {icon}" if icon else ""
+            zone_parts.append(f"{zname}{icon_str}")
+        zones_block = "\n**Zones (GPS):** " + ", ".join(zone_parts)
+    else:
+        zones_block = ""
+
+    # Person locations — add to notable state
+    person_location_lines: list[str] = []
+    for s in sorted(all_states, key=lambda s: s.entity_id):
+        if not s.entity_id.startswith("person."):
+            continue
+        pname = _sanitize_prompt_value(
+            str(s.attributes.get("friendly_name") or s.entity_id.split(".", 1)[-1]), max_len=40
+        )
+        loc = _sanitize_prompt_value(str(s.state), max_len=60) if s.state not in ("unknown", "unavailable", "") else None
+        if loc:
+            person_location_lines.append(f"  {pname}: {loc}")
+    if person_location_lines:
+        person_block = "\n### Person Locations\n" + "\n".join(person_location_lines) + "\n"
+        notable_state_block = person_block + notable_state_block
+
     tz_name = str(getattr(hass.config, "time_zone", "UTC") or "UTC")
     timezone_block = f"**Timezone:** {tz_name} — display all times in this timezone, not UTC.\n"
 
@@ -381,6 +414,7 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
         "entity_count": entity_count,
         "automation_count": automation_count,
         "area_count": len(areas),
+        "zone_count": len(zone_states),
         "lights_on": area_stats["total_lights_on"],
         "unavailable_count": area_stats["unavailable_count"],
         "low_battery_count": area_stats["low_battery_count"],
@@ -391,6 +425,7 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
         home_summary=home_summary,
         areas_block=("\n" + areas_block) if areas_block else "",
         labels_block=labels_block,
+        zones_block=zones_block,
         timezone_block=timezone_block,
         notable_state_block=notable_state_block,
     )

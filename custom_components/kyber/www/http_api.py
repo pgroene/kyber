@@ -282,7 +282,7 @@ _RESPONSE_MODE_INFORMATIONAL = (
     "- After tool result (entity LIST): list EVERY SINGLE entity from the result. If result has 83 items, output 83 bullets. NEVER stop at 5/10/20. NEVER write '...' or 'and more'.\n"
     "- After tool result (single entity state): extract ONLY the attribute(s) the user asked about. Do NOT dump all attributes. E.g. for 'what time does the sun set?' → show only next_setting, NOT next_dawn/noon/elevation/azimuth.\n"
     "- Show times in the local timezone from context ('Timezone'), not UTC. Convert if needed.\n"
-    "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, list_integrations, get_integration_entities, search_automations, get_automation.\n"
+    "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, get_zones, get_zone_occupants, list_integrations, get_integration_entities, search_automations, get_automation.\n"
     "- For questions about WHEN/WHAT TIME/SCHEDULE something happens (e.g. 'what time do the lights turn on', 'when does X trigger', 'what happens at sunrise'), use search_automations(query='<keyword>') — NOT search_entities. Then call get_automation(id='...') for details.\n"
     "- For questions about integration-specific data (energy prices, weather, solar/inverter, P1 meter, etc.): "
     "call list_integrations ONCE, scan the result for a matching platform name and sample_entities, "
@@ -303,7 +303,7 @@ _RESPONSE_MODE_ACTION = (
     "- Entity IDs already in context or tool results? → output plan block directly.\n"
     "- If user says 'those'/'them'/'it' → use the entities from the conversation history above.\n"
     "- Control devices via plan/actions block (call_service). Editing areas/labels/names uses assign_area/rename_entity/assign_label actions. NOT open_editor.\n"
-    "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, list_integrations, get_integration_entities, search_automations, get_automation.\n"
+    "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, get_zones, get_zone_occupants, list_integrations, get_integration_entities, search_automations, get_automation.\n"
     "- For 'fix/organise/order my entities': call list_entities_without_area, then propose a plan with assign_area actions.\n"
     "- No preamble. No footer.\n"
     "<</RULES>>\n\n"
@@ -957,7 +957,7 @@ async def _run_ai_loop(
                 _TOOL_CALL_TYPES = {
                     "list_entities_by_domain", "get_entity_state", "get_area_entities",
                     "list_entities_by_label", "search_entities", "get_areas", "get_labels",
-                    "list_entities_without_area",
+                    "get_zones", "get_zone_occupants", "list_entities_without_area",
                 }
                 tool_calls = [
                     {**a, "name": a["type"]}
