@@ -17,14 +17,22 @@
           "run_initial_analyze": "Run 1 initial analyze pass after install",
           "initial_deep_learning_runs": "Initial deep learning runs (1-10, recommended: 10)"
         }
+      },
+      "reconfigure": {
+        "title": "Kyber — Change AI entity",
+        "description": "Select a different AI task entity. All other settings are preserved.",
+        "data": {
+          "ai_task_entity_id": "AI Task Entity"
+        }
       }
     },
     "error": {
-      "entity_not_found": "The selected AI task entity was not found. Make sure your Ollama integration is set up and the entity exists.",
+      "entity_not_found": "The selected AI task entity was not found. Make sure your AI integration (e.g. Ollama, Home Assistant Cloud, OpenAI) is set up and the entity exists.",
       "cannot_connect": "Could not reach the AI provider. Check your integration configuration."
     },
     "abort": {
-      "already_configured": "Kyber is already configured."
+      "already_configured": "Kyber is already configured.",
+      "reconfigure_successful": "Kyber has been reconfigured with the new AI entity."
     }
   },
   "options": {
