@@ -77,6 +77,11 @@ _SKIP_ATTRS: frozenset[str] = frozenset({
     "min_color_temp_kelvin", "max_color_temp_kelvin",
 })
 
+# Button actions that warrant a natural-language action alias, e.g. "start dishwasher".
+_BUTTON_ACTION_WORDS: frozenset[str] = frozenset({
+    "start", "stop", "pause", "resume", "cancel", "reset", "identify", "open", "close",
+})
+
 # Regex matching opaque hex/numeric segments common in Zigbee/Z-Wave entity IDs.
 _CRYPTIC_RE = re.compile(
     r"(0x[0-9a-f]{6,}|_[0-9a-f]{8,}|_[0-9]{10,})",
@@ -759,6 +764,35 @@ async def async_narrate_entities(
                             _LOGGER.warning("Kyber narrator: alias store failed for %s/%s: %s", eid, term, alias_err)
                     if skipped_aliases:
                         stats["low_quality"] = stats.get("low_quality", 0) + skipped_aliases
+                    # For button entities with "Device - Action" friendly names,
+                    # emit a natural-language action alias: "start dishwasher" → entity_id.
+                    # This helps the AI find the correct button when the user says
+                    # "start the dishwasher" rather than knowing the entity_id.
+                    if domain == "button" and " - " in name:
+                        _parts = name.rsplit(" - ", 1)
+                        if len(_parts) == 2:
+                            _device_part, _action_part = _parts[0].strip(), _parts[1].strip().lower()
+                            if _action_part in _BUTTON_ACTION_WORDS:
+                                _device_lower = _device_part.lower()
+                                if manufacturer and _device_lower.startswith(manufacturer.lower()):
+                                    _device_lower = _device_lower[len(manufacturer):].strip()
+                                _action_alias = f"{_action_part} {_device_lower}".strip()
+                                if _alias_is_plausible(_action_alias, eid, description, name, manufacturer):
+                                    try:
+                                        await kstore.async_add(
+                                            "entity_alias",
+                                            eid,
+                                            subject=_action_alias,
+                                            tags=[eid, "narrator-v3", "button_action_alias"],
+                                            source="entity_narrator",
+                                            confidence=0.85,
+                                            _save=False,
+                                        )
+                                    except Exception as btn_err:  # noqa: BLE001
+                                        _LOGGER.warning(
+                                            "Kyber narrator: button action alias store failed for %s: %s",
+                                            eid, btn_err,
+                                        )
                 else:
                     # Low-quality: description missing or entity_id not anchored.
                     # Store a low-confidence marker so this entity is skipped on the
