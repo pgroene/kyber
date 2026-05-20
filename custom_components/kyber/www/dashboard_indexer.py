@@ -222,6 +222,28 @@ def get_dashboard_entity_names(hass: Any) -> dict[str, str]:
     return dict(hass.data.get(DASHBOARD_ENTITY_NAMES_KEY) or {})
 
 
+# Domain-level semantic phrases for the general knowledge entry.
+_DOMAIN_SEMANTIC: dict[str, str] = {
+    "switch":        "switch (on/off)",
+    "light":         "light (on/off, dimmable)",
+    "media_player":  "media player",
+    "climate":       "thermostat/climate control",
+    "cover":         "cover/blind/shutter",
+    "lock":          "lock",
+    "fan":           "fan",
+    "vacuum":        "vacuum robot",
+    "sensor":        "sensor (read-only)",
+    "binary_sensor": "binary sensor (on/off)",
+    "input_boolean": "toggle/helper",
+    "automation":    "automation",
+    "script":        "script",
+    "button":        "button (press to trigger)",
+    "number":        "numeric input",
+    "select":        "option selector",
+    "input_select":  "option selector",
+}
+
+
 async def async_store_dashboard_labels(hass: Any, kstore: Any) -> int:
     """Store each named dashboard entity as its own knowledge entry.
 
@@ -245,24 +267,77 @@ async def async_store_dashboard_labels(hass: Any, kstore: Any) -> int:
     if not names:
         return 0
 
+    # Build a set of area names (lowercase) so we can skip labels that are
+    # just area names — these add noise but no useful meaning (e.g. a battery
+    # sensor in "Werkkamer" labelled "Werkkamer" tells the AI nothing new).
+    area_names_lower: set[str] = set()
+    try:
+        from homeassistant.helpers import area_registry as ar, entity_registry as er
+        area_reg = ar.async_get(hass)
+        entity_reg = er.async_get(hass)
+        area_names_lower = {a.name.lower() for a in area_reg.async_list_areas()}
+    except Exception:  # noqa: BLE001
+        area_reg = None
+        entity_reg = None
+
+    written = 0
     for entity_id, label in names.items():
         domain = entity_id.split(".")[0]
-        content = (
-            f"{entity_id} is labelled '{label}' on the user's dashboard."
-        )
+
+        # Skip labels that are just an area name — they carry no extra meaning.
+        if label.lower() in area_names_lower:
+            continue
+        # Skip very short or purely numeric labels.
+        if len(label.strip()) < 3:
+            continue
+
+        tags = [entity_id, domain, label.lower(), "dashboard"]
+
+        # 1. entity_alias: subject = label (what the user calls it),
+        #    content = entity_id.  This is the standard alias format so the
+        #    AI can resolve "turn on werkkamer monitors" → entity_id.
         await kstore.async_add(
             "entity_alias",
-            content,
-            subject=entity_id,
-            tags=[entity_id, domain, label.lower(), "dashboard"],
+            entity_id,
+            subject=label.lower(),
+            tags=tags,
             source="dashboard_indexer",
             confidence=0.95,
             provenance="dashboard card name",
             _save=False,
         )
 
+        # 2. general entry: a semantic description using domain knowledge so
+        #    the AI understands *what* the entity does, not just its label.
+        domain_phrase = _DOMAIN_SEMANTIC.get(domain, domain)
+        area_name: str | None = None
+        if entity_reg and area_reg:
+            try:
+                entry = entity_reg.async_get(entity_id)
+                if entry and entry.area_id:
+                    area_obj = area_reg.async_get_area(entry.area_id)
+                    area_name = area_obj.name if area_obj else None
+            except Exception:  # noqa: BLE001
+                pass
+        area_suffix = f" in the {area_name}" if area_name else ""
+        general_content = (
+            f"{domain_phrase} '{label}' [{entity_id}]{area_suffix}. "
+            f"Dashboard label: '{label}'."
+        )
+        await kstore.async_add(
+            "general",
+            general_content,
+            subject=entity_id,
+            tags=tags,
+            source="dashboard_indexer",
+            confidence=0.9,
+            provenance="dashboard card name",
+            _save=False,
+        )
+        written += 1
+
     await kstore.async_force_save()
     _LOGGER.info(
-        "Kyber dashboard indexer: stored %d label entries in knowledge store", len(names)
+        "Kyber dashboard indexer: stored %d label entries in knowledge store", written
     )
-    return len(names)
+    return written
