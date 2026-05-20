@@ -288,6 +288,63 @@ def _state_matches(state_obj: Any, state_filter: str | list | None) -> bool:
     return actual == str(state_filter)
 
 
+def _get_run_counts_sync(hass: HomeAssistant, days: int = 30) -> dict[str, int]:
+    """Query the HA recorder for automation trigger counts over the last *days* days.
+
+    Returns ``{entity_id: count}`` mapping.  Must be called from an executor
+    thread (i.e. inside a function passed to ``async_add_executor_job``).
+    Returns an empty dict on any error so callers always get a safe result.
+    """
+    try:
+        from homeassistant.components.recorder.util import session_scope  # type: ignore[import]
+        from sqlalchemy import text as _sql
+        import json as _json
+        from datetime import datetime, timedelta, timezone
+
+        cutoff_ts = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
+        counts: dict[str, int] = {}
+
+        with session_scope(hass=hass, read_only=True) as session:
+            try:
+                # HA 2023+ schema: event_data in a separate table; float time_fired_ts.
+                rows = session.execute(
+                    _sql(
+                        "SELECT ed.shared_data, COUNT(*) "
+                        "FROM events e "
+                        "JOIN event_data ed ON e.data_id = ed.data_id "
+                        "WHERE e.event_type = 'automation_triggered' "
+                        "AND e.time_fired_ts > :cutoff "
+                        "GROUP BY e.data_id"
+                    ),
+                    {"cutoff": cutoff_ts},
+                ).fetchall()
+            except Exception:  # noqa: BLE001
+                try:
+                    # Older schema: event_data column inline on events table.
+                    rows = session.execute(
+                        _sql(
+                            "SELECT event_data, COUNT(*) FROM events "
+                            "WHERE event_type = 'automation_triggered' "
+                            "GROUP BY event_data"
+                        )
+                    ).fetchall()
+                except Exception:  # noqa: BLE001
+                    rows = []
+
+            for row in rows:
+                try:
+                    d = _json.loads(row[0])
+                    eid = d.get("entity_id", "")
+                    if eid:
+                        counts[eid] = counts.get(eid, 0) + int(row[1])
+                except Exception:  # noqa: BLE001
+                    pass
+
+        return counts
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
     """Execute a tool call and return the result as a JSON string."""
     call = resolve_tool_call(call)
@@ -323,10 +380,11 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         attrs = st.attributes if st else {}
         domain = eid.split(".")[0]
         if fields_set is None:
+            # For entity-discovery tools, domain is already encoded in the entity_id key —
+            # omit it to keep each row lean and reduce token usage.
             row: dict = {
                 "name": attrs.get("friendly_name", eid),
                 "state": st.state if st else "unknown",
-                "domain": domain,
             }
             dc = attrs.get("device_class")
             if dc:
@@ -577,7 +635,21 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             kept_slugs.append(slug)
 
         query_display = query or ", ".join(query_list)
-        return json.dumps(final or {"info": f"No entities matching '{query_display}'"})
+        if not final:
+            return json.dumps({"info": f"No entities matching '{query_display}'"})
+
+        # Cap results to keep the tool response within token budget.
+        # The model should narrow its query if it needs more — the hint tells it how many were cut.
+        _MAX_SEARCH_RESULTS = 25
+        total_matches = len(final)
+        if total_matches > _MAX_SEARCH_RESULTS:
+            final = dict(list(final.items())[:_MAX_SEARCH_RESULTS])
+            final["_total_matches"] = total_matches  # type: ignore[assignment]
+            final["_note"] = (  # type: ignore[assignment]
+                f"Showing top {_MAX_SEARCH_RESULTS} of {total_matches} matches — "
+                "add a domain, area, or state filter to narrow results."
+            )
+        return json.dumps(final)
 
     if name == "list_entities_without_area":
         domain_filter = (call.get("domain") or "").strip().lower()
@@ -694,14 +766,44 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
     # ── Automation / script / blueprint source readers ────────────────
     # Expose the *raw* YAML configs so the model can deeply reason about
     # trigger/condition/action structures (not just state attributes).
+
+    def _enrich_with_run_state(items: list[dict]) -> list[dict]:
+        """Add last_triggered + run_count from HA state + recorder, sort by frequency."""
+        # Build lookup: friendly_name.lower() -> (last_triggered str | None, entity_id)
+        state_by_name: dict[str, tuple[str | None, str]] = {}
+        for state in hass.states.async_all("automation"):
+            fname = (state.attributes.get("friendly_name") or "").lower()
+            lt = state.attributes.get("last_triggered")
+            state_by_name[fname] = (str(lt) if lt else None, state.entity_id)
+
+        run_counts = _get_run_counts_sync(hass)
+
+        for it in items:
+            alias_key = (it.get("alias") or "").lower()
+            lt, eid = state_by_name.get(alias_key, (None, ""))
+            it["last_triggered"] = lt
+            it["run_count"] = run_counts.get(eid, 0) if eid else 0
+
+        # Sort: most-run first, then most-recently-triggered as tiebreaker.
+        # Never-run automations (no count, no last_triggered) are pushed to the end.
+        has_activity = [x for x in items if x.get("last_triggered") or x.get("run_count")]
+        never_ran = [x for x in items if not x.get("last_triggered") and not x.get("run_count")]
+        # Two-pass stable sort: secondary key first (last_triggered desc), then primary (run_count desc).
+        has_activity.sort(key=lambda x: x.get("last_triggered") or "", reverse=True)
+        has_activity.sort(key=lambda x: -(x.get("run_count") or 0))
+        return has_activity + never_ran
+
     if name == "list_automations":
         try:
             items = _src_read_automations(hass)
         except Exception as err:  # noqa: BLE001
             return json.dumps({"error": f"Read failed: {err}"})
+        items = _enrich_with_run_state(items)
         out = [{
             "id": it.get("id"),
             "alias": it.get("alias"),
+            "last_triggered": it.get("last_triggered"),
+            "run_count": it.get("run_count"),
             "mode": it.get("mode"),
             "num_triggers": it.get("num_triggers"),
             "num_actions": it.get("num_actions"),
@@ -717,6 +819,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             items = _src_read_automations(hass)
         except Exception as err:  # noqa: BLE001
             return json.dumps({"error": f"Read failed: {err}"})
+        items = _enrich_with_run_state(items)
         # Match by id (exact), then alias (case-insensitive), then entity_id suffix
         match = None
         for it in items:
@@ -748,6 +851,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             items = _src_read_automations(hass)
         except Exception as err:  # noqa: BLE001
             return json.dumps({"error": f"Read failed: {err}"})
+        items = _enrich_with_run_state(items)
         q_words = query.split()
         results = []
         for it in items:
@@ -765,9 +869,20 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
                     score += 1
             if score == 0:
                 continue
+            # Boost automations that have actually run; penalise never-triggered.
+            # Higher run counts get a bigger boost to surface frequently-used automations.
+            rc = it.get("run_count") or 0
+            if rc > 10:
+                score += 2
+            elif rc > 0 or it.get("last_triggered"):
+                score += 1
+            elif not it.get("last_triggered"):
+                score = max(0, score - 1)
             results.append({
                 "id": it.get("id"),
                 "alias": it.get("alias"),
+                "last_triggered": it.get("last_triggered"),
+                "run_count": it.get("run_count"),
                 "description": it.get("description"),
                 "mode": it.get("mode"),
                 "num_triggers": it.get("num_triggers"),
