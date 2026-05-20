@@ -273,6 +273,25 @@ export const DebugMixin = (Base) => class extends Base {
           <span class="review-flow-memory-label">💾 Geheugen:</span>
           ${memory}
         </div>`;
+    } else if (entry.category === "entity_alias") {
+      // subject = alias term the user might say; content = entity_id it maps to.
+      // Show the alias text prominently — that's what's being approved/rejected.
+      const aliasText = this._escapeHtml(entry.subject || "");
+      const entityId = entry.content || "";
+      const conf = entry.confidence != null ? ` · ${Math.round(entry.confidence * 100)}%` : "";
+      const prov = entry.provenance ? ` · ${this._escapeHtml(entry.provenance)}` : "";
+      // Enrich with entity friendly name + area from hass.states if available
+      const state = this._hass?.states?.[entityId];
+      const fname = state?.attributes?.friendly_name;
+      const areaId = state?.attributes?.area_id;
+      const entityLabel = fname
+        ? `${this._escapeHtml(fname)} <span class="rv-entity-id">(${this._escapeHtml(entityId)})</span>`
+        : `<span class="rv-entity-id">${this._escapeHtml(entityId)}</span>`;
+      cardContent = `
+        <div class="rv-alias-question">Is this alias correct?</div>
+        <div class="rv-alias-term">"${aliasText}"</div>
+        <div class="rv-alias-arrow">→ ${entityLabel}</div>
+        <div class="rv-meta">entity_alias${conf}${prov}</div>`;
     } else {
       const conf = entry.confidence != null ? ` · ${Math.round(entry.confidence * 100)}%` : "";
       const subj = entry.subject ? ` · ${this._escapeHtml(entry.subject)}` : "";
