@@ -199,7 +199,7 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Step 2 — configure tokens and options, pre-filled from entity."""
-        if user_input is not None:
+        if user_input is not None and CONF_MAX_TOKENS in user_input:
             return self.async_create_entry(
                 title="Kyber",
                 data={
