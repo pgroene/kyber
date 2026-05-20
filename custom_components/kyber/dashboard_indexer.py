@@ -131,7 +131,7 @@ def _extract_entities(obj: Any) -> set[str]:
     entities: set[str] = set()
     if isinstance(obj, dict):
         for key, val in obj.items():
-            if key == "entity" and isinstance(val, str) and _looks_like_entity(val):
+            if key in ("entity", "badge") and isinstance(val, str) and _looks_like_entity(val):
                 entities.add(val)
             elif key == "entities" and isinstance(val, list):
                 for item in val:

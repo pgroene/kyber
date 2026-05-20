@@ -163,7 +163,7 @@ def _entity_fact(
 
 
 # Bump this when the fact format changes to force re-exploration of all entities.
-_EXPLORER_VERSION = 4
+_EXPLORER_VERSION = 5
 _EXPLORER_VERSION_TAG = f"explorer-v{_EXPLORER_VERSION}"
 
 
@@ -328,12 +328,22 @@ async def async_startup_explore_all(
     area_reg = ar.async_get(hass)
 
     # Collect all entities to process
-    all_entities: list[tuple[str, str, str, str | None, str | None, str | None, str | None]] = []
-    # (entity_id, name, platform, domain, device_class, unit, area_name)
+    all_entities: list[tuple[str, str, str, str | None, str | None, str | None, str | None, str | None]] = []
+    # (entity_id, name, platform, domain, device_class, unit, area_name, state_str, original_name)
     for entry in entity_reg.entities.values():
         plat = entry.platform or "unknown"
         if plat in _SKIP_PLATFORMS:
             continue
+
+        # Skip disabled or hidden entities — they have no live state and the AI cannot query them.
+        if getattr(entry, "disabled_by", None) or getattr(entry, "hidden_by", None):
+            continue
+
+        # Skip diagnostic / config category entities (battery level, signal strength, etc.)
+        entity_category = str(getattr(entry, "entity_category", None) or "")
+        if entity_category in ("diagnostic", "config"):
+            continue
+
         eid = entry.entity_id
         if eid in existing_entities:
             continue
@@ -356,7 +366,20 @@ async def async_startup_explore_all(
         area_obj = area_reg.async_get_area(area_id) if area_id else None
         area_name = area_obj.name if area_obj else None
 
-        all_entities.append((eid, name, plat, domain, device_class or None, unit or None, area_name, state_str))
+        # Capture the integration's original name when the user has renamed the entity.
+        original_name_raw = getattr(entry, "original_name", None)
+        user_name = getattr(entry, "name", None)  # None if not user-renamed
+        original_name: str | None = None
+        if (
+            original_name_raw
+            and user_name
+            and isinstance(original_name_raw, str)
+            and isinstance(user_name, str)
+            and original_name_raw.strip() != user_name.strip()
+        ):
+            original_name = original_name_raw.strip()
+
+        all_entities.append((eid, name, plat, domain, device_class or None, unit or None, area_name, state_str, original_name))
 
     total = len(all_entities)
     _set_progress(status="phase2_entities", phase="entities", total=total, done=0, current_platform="")
@@ -365,7 +388,7 @@ async def async_startup_explore_all(
     entity_count = 0
     unsaved = 0
     for row in all_entities:
-        eid, name, plat, domain, device_class, unit, area_name, state_str = row
+        eid, name, plat, domain, device_class, unit, area_name, state_str, original_name = row
         try:
             content, tags = _entity_fact(eid, name, plat, domain, device_class, unit, area_name, state_str)
             await kstore.async_add(
@@ -379,6 +402,20 @@ async def async_startup_explore_all(
             )
             entity_count += 1
             unsaved += 1
+
+            # When the user renamed an entity, store the original integration name as an
+            # alias so queries using the original name still find the right entity.
+            if original_name:
+                await kstore.async_add(
+                    "entity_alias",
+                    eid,
+                    subject=original_name,
+                    tags=[eid, "original_name", _EXPLORER_VERSION_TAG],
+                    source="entity_explorer",
+                    confidence=0.75,
+                    _save=False,
+                )
+                unsaved += 1
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Entity fact failed for %s: %s", eid, err)
 

@@ -268,3 +268,50 @@ async def test_empty_names_returns_zero():
 
     assert count == 0
     assert kstore._added == []
+
+
+# ── _extract_entities badge support ──────────────────────────────────────────
+
+class TestExtractEntitiesBadge:
+    """Verify that _extract_entities picks up 'badge' key alongside 'entity'."""
+
+    def test_badge_key_extracted(self):
+        config = {"badge": "sensor.outside_temp"}
+        result = mod._extract_entities(config)
+        assert "sensor.outside_temp" in result
+
+    def test_entity_key_still_extracted(self):
+        config = {"entity": "light.living_room"}
+        result = mod._extract_entities(config)
+        assert "light.living_room" in result
+
+    def test_badge_and_entity_both_extracted(self):
+        config = {
+            "entity": "light.hall",
+            "badge": "binary_sensor.door",
+        }
+        result = mod._extract_entities(config)
+        assert "light.hall" in result
+        assert "binary_sensor.door" in result
+
+    def test_badge_nested_in_cards_list(self):
+        config = {
+            "cards": [
+                {"badge": "sensor.garden_temp"},
+                {"entity": "switch.outdoor_plug"},
+            ]
+        }
+        result = mod._extract_entities(config)
+        assert "sensor.garden_temp" in result
+        assert "switch.outdoor_plug" in result
+
+    def test_non_entity_badge_value_ignored(self):
+        """A badge value that isn't an entity_id should be ignored."""
+        config = {"badge": "not_an_entity"}
+        result = mod._extract_entities(config)
+        assert "not_an_entity" not in result
+
+    def test_badge_invalid_string_ignored(self):
+        """Numeric or dict badge values don't crash and return nothing."""
+        assert mod._extract_entities({"badge": 42}) == set()
+        assert mod._extract_entities({"badge": {}}) == set()
