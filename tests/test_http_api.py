@@ -368,7 +368,8 @@ async def test_context_includes_labels(
 async def test_context_includes_automations(
     hass: HomeAssistant, setup_integration, hass_client
 ) -> None:
-    """The instructions should reflect the automation count in the home summary."""
+    """Automations are accessible via the search_automations tool; the home summary
+    should reflect the automation count."""
     hass.states.async_set(
         "automation.morning_lights", "on",
         attributes={"friendly_name": "Morning Lights"},
@@ -385,14 +386,16 @@ async def test_context_includes_automations(
         resp = await client.post("/api/kyber/complete", json={"prompt": "list automations"})
 
     assert resp.status == 200
-    # Automations appear as a count in the home summary, not as individual listings.
-    assert "automation" in captured["v"].lower()
+    # Automations are accessed via search_automations/get_automation tools, not
+    # pre-listed in the context. Verify the home summary counter reflects them.
+    assert "1 automations" in captured["v"]
 
 
 async def test_context_includes_scripts(
     hass: HomeAssistant, setup_integration, hass_client
 ) -> None:
-    """The instructions should reflect the script count in the home summary."""
+    """Scripts are accessible via the search_automations tool; the home summary
+    should reflect the script count."""
     hass.states.async_set(
         "script.welcome_home", "off",
         attributes={"friendly_name": "Welcome Home"},
@@ -409,8 +412,8 @@ async def test_context_includes_scripts(
         resp = await client.post("/api/kyber/complete", json={"prompt": "list scripts"})
 
     assert resp.status == 200
-    # Scripts appear as a count in the home summary, not as individual listings.
-    assert "script" in captured["v"].lower()
+    # Scripts are accessed via tools, not pre-listed in context.
+    assert "1 scripts" in captured["v"]
 
 
 async def test_dashboards_included_in_context(
@@ -496,7 +499,7 @@ async def test_dashboard_editor_mode_injects_yaml_section(
 
     assert resp.status == 200
     instr = captured["v"]
-    assert "DASHBOARD EDITOR" in instr.upper() or "dashboard" in instr.lower()
+    assert "DASHBOARD EDITOR" in instr.upper()
     assert "title: My Dashboard" in instr
 
 
@@ -623,7 +626,7 @@ async def test_execute_unknown_entity_returns_error(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "assign_label", "entity_id": "light.nonexistent", "label_id": "outdoor"}], "approved": True},
+        json={"approved": True, "actions": [{"type": "assign_label", "entity_id": "light.nonexistent", "label_id": "outdoor"}]},
     )
     assert resp.status == 200
     data = await resp.json()
@@ -839,7 +842,7 @@ async def test_execute_rename_entity(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "rename_entity", "entity_id": entry.entity_id, "name": "Desk Light"}], "approved": True},
+        json={"approved": True, "actions": [{"type": "rename_entity", "entity_id": entry.entity_id, "name": "Desk Light"}]},
     )
 
     assert resp.status == 200
@@ -863,7 +866,7 @@ async def test_execute_assign_area(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "assign_area", "entity_id": entry.entity_id, "area_id": area.id}], "approved": True},
+        json={"approved": True, "actions": [{"type": "assign_area", "entity_id": entry.entity_id, "area_id": area.id}]},
     )
 
     assert resp.status == 200
@@ -885,7 +888,7 @@ async def test_execute_assign_area_nonexistent_returns_error(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "assign_area", "entity_id": entry.entity_id, "area_id": "no_such_area"}], "approved": True},
+        json={"approved": True, "actions": [{"type": "assign_area", "entity_id": entry.entity_id, "area_id": "no_such_area"}]},
     )
 
     assert resp.status == 200
@@ -904,7 +907,7 @@ async def test_execute_create_area(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "create_area", "name": "Garage"}], "approved": True},
+        json={"approved": True, "actions": [{"type": "create_area", "name": "Garage"}]},
     )
 
     assert resp.status == 200
@@ -925,7 +928,7 @@ async def test_execute_create_area_missing_name_returns_error(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "create_area", "name": ""}], "approved": True},
+        json={"approved": True, "actions": [{"type": "create_area", "name": ""}]},
     )
 
     assert resp.status == 200
@@ -943,7 +946,7 @@ async def test_execute_rename_area(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "rename_area", "area_id": area.id, "name": "New Name"}], "approved": True},
+        json={"approved": True, "actions": [{"type": "rename_area", "area_id": area.id, "name": "New Name"}]},
     )
 
     assert resp.status == 200
@@ -967,7 +970,7 @@ async def test_execute_delete_area(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "delete_area", "area_id": area.id}], "approved": True},
+        json={"approved": True, "actions": [{"type": "delete_area", "area_id": area.id}]},
     )
 
     assert resp.status == 200
@@ -987,7 +990,7 @@ async def test_execute_delete_area_nonexistent_returns_error(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "delete_area", "area_id": "no_such_area"}], "approved": True},
+        json={"approved": True, "actions": [{"type": "delete_area", "area_id": "no_such_area"}]},
     )
 
     assert resp.status == 200

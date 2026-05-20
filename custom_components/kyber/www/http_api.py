@@ -477,11 +477,11 @@ def _build_prompt_sections(body_fields: dict, context: str, request: "web.Reques
     instructions = (
         f"{context}\n\n"
         f"{automation_guidance}"
+        f"{yaml_section}"
         f"{lovelace_ref}"
         f"{response_mode_block}"
         f"{user_section}"
         f"{dashboard_section}"
-        f"{yaml_section}"
         f"---\n\n"
         f"{conversation_block}"
         f"User: {user_prompt}\n"
