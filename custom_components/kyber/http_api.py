@@ -1828,6 +1828,194 @@ class KyberAreaSuggestionsView(HomeAssistantView):
         return self.json({"status": "dismissed", "id": report_id})
 
 
+class KyberSelfUpdateView(HomeAssistantView):
+    """POST /api/kyber/self_update — download and install the latest Kyber release from GitHub."""
+
+    url = "/api/kyber/self_update"
+    name = "api:kyber:self_update"
+    requires_auth = True
+
+    _GITHUB_API = "https://api.github.com/repos/pgroene/kyber/releases/latest"
+
+    async def get(self, request: web.Request) -> web.Response:
+        """Return current and latest version without installing."""
+        hass: HomeAssistant = request.app["hass"]
+        from pathlib import Path as _Path
+        import importlib.metadata as _meta
+
+        current = _get_installed_version(hass)
+        try:
+            session = hass.helpers.aiohttp_client.async_get_clientsession(hass)
+            async with session.get(
+                self._GITHUB_API,
+                headers={"Accept": "application/vnd.github+json"},
+                timeout=aiohttp_timeout(10),
+            ) as resp:
+                if resp.status != 200:
+                    return self.json({"error": f"GitHub API returned {resp.status}"}, status_code=502)
+                release = await resp.json()
+        except Exception as exc:
+            return self.json({"error": str(exc)}, status_code=502)
+
+        latest = (release.get("tag_name") or "").lstrip("v")
+        return self.json({
+            "current_version": current,
+            "latest_version": latest,
+            "update_available": _version_newer(latest, current),
+            "release_url": release.get("html_url"),
+            "release_notes": (release.get("body") or "")[:500],
+        })
+
+    async def post(self, request: web.Request) -> web.Response:
+        """Download latest release zip and extract over /config/custom_components/kyber/."""
+        hass: HomeAssistant = request.app["hass"]
+        import io, zipfile, shutil, tempfile
+        from pathlib import Path as _Path
+
+        data = await request.json() if request.content_length else {}
+        with_restart = bool(data.get("restart", False))
+
+        current = _get_installed_version(hass)
+
+        # 1. Fetch release metadata
+        try:
+            session = hass.helpers.aiohttp_client.async_get_clientsession(hass)
+            async with session.get(
+                self._GITHUB_API,
+                headers={"Accept": "application/vnd.github+json"},
+                timeout=aiohttp_timeout(10),
+            ) as resp:
+                if resp.status != 200:
+                    return self.json({"error": f"GitHub API returned {resp.status}"}, status_code=502)
+                release = await resp.json()
+        except Exception as exc:
+            return self.json({"error": f"Failed to fetch release info: {exc}"}, status_code=502)
+
+        latest = (release.get("tag_name") or "").lstrip("v")
+        zipball_url = release.get("zipball_url")
+        if not zipball_url:
+            return self.json({"error": "No zipball_url in release"}, status_code=502)
+
+        # Only allow downloads from github.com to prevent open-redirect abuse
+        from urllib.parse import urlparse as _urlparse
+        _host = _urlparse(zipball_url).netloc.lower()
+        if not (_host == "api.github.com" or _host.endswith(".github.com") or _host == "codeload.github.com"):
+            return self.json({"error": f"Refusing download from untrusted host: {_host}"}, status_code=400)
+
+        if not _version_newer(latest, current):
+            return self.json({
+                "current_version": current,
+                "latest_version": latest,
+                "update_available": False,
+                "message": f"Already on latest version {current}",
+            })
+
+        # 2. Download zip
+        try:
+            async with session.get(
+                zipball_url,
+                headers={"Accept": "application/vnd.github+json"},
+                timeout=aiohttp_timeout(120),
+            ) as resp:
+                if resp.status != 200:
+                    return self.json({"error": f"Download failed: HTTP {resp.status}"}, status_code=502)
+                zip_bytes = await resp.read()
+        except Exception as exc:
+            return self.json({"error": f"Download error: {exc}"}, status_code=502)
+
+        # 3. Extract in a thread (zipfile is synchronous)
+        config_dir = _Path(hass.config.config_dir)
+
+        def _extract() -> list[str]:
+            extracted = []
+            with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+                # GitHub zipballs have a top-level dir like "pgroene-kyber-{sha}/"
+                members = zf.namelist()
+                prefix = members[0].split("/")[0] + "/"
+
+                for member in members:
+                    if not member.startswith(prefix):
+                        continue
+                    rel = member[len(prefix):]  # strip top-level dir
+
+                    # We care about custom_components/kyber/ and www/kyber/
+                    for src_root, dst_root in [
+                        ("custom_components/kyber/", config_dir / "custom_components" / "kyber"),
+                        ("www/kyber/", config_dir / "www" / "kyber"),
+                    ]:
+                        if not rel.startswith(src_root):
+                            continue
+                        file_rel = rel[len(src_root):]
+                        if not file_rel or file_rel.endswith("/"):
+                            continue  # directory entry
+
+                        dest = (dst_root / file_rel).resolve()
+                        # Guard against path traversal: dest must stay inside dst_root
+                        if not str(dest).startswith(str(dst_root.resolve())):
+                            _LOGGER.warning("kyber self_update: skipping unsafe path %s", member)
+                            continue
+
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        with zf.open(member) as src, open(dest, "wb") as dst:
+                            shutil.copyfileobj(src, dst)
+                        extracted.append(str(dest.relative_to(config_dir)))
+            return extracted
+
+        try:
+            extracted = await hass.async_add_executor_job(_extract)
+        except Exception as exc:
+            return self.json({"error": f"Extraction failed: {exc}"}, status_code=500)
+
+        result = {
+            "current_version": current,
+            "latest_version": latest,
+            "update_available": False,
+            "updated": True,
+            "files_updated": len(extracted),
+            "message": f"Updated from {current} to {latest}. Restart Home Assistant to apply.",
+            "release_url": release.get("html_url"),
+        }
+
+        if with_restart:
+            hass.async_create_task(
+                hass.services.async_call("homeassistant", "restart", {})
+            )
+            result["message"] = f"Updated to {latest}. Restarting Home Assistant…"
+            result["restarting"] = True
+
+        return self.json(result)
+
+
+def _get_installed_version(hass: HomeAssistant) -> str:
+    """Read the installed Kyber version from manifest.json."""
+    from pathlib import Path as _Path
+    import json as _json
+    manifest_path = _Path(__file__).parent / "manifest.json"
+    try:
+        return _json.loads(manifest_path.read_text()).get("version", "unknown")
+    except Exception:
+        return "unknown"
+
+
+def _version_newer(candidate: str, current: str) -> bool:
+    """Return True if candidate version is strictly newer than current."""
+    try:
+        def _parse(v: str):
+            return tuple(int(x) for x in v.lstrip("v").split("."))
+        return _parse(candidate) > _parse(current)
+    except Exception:
+        return candidate != current and bool(candidate)
+
+
+try:
+    from aiohttp import ClientTimeout as _ClientTimeout
+    def aiohttp_timeout(seconds: int):
+        return _ClientTimeout(total=seconds)
+except Exception:
+    def aiohttp_timeout(seconds: int):  # type: ignore[misc]
+        return None
+
+
 class KyberLabelsView(HomeAssistantView):
     """GET /api/kyber/labels — list all kyber: labels with their entities."""
 

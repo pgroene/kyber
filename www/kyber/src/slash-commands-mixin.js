@@ -51,9 +51,11 @@ const _HELP_DATA = {
   reset:      { icon: "🔄", desc: "Clear the current chat", cmds: [
     { usage: "/reset", desc: "Shows a danger confirm card — on Execute, clears all messages and history" },
   ]},
-  update:     { icon: "⬆️", desc: "Update Kyber to the latest version via HACS", cmds: [
-    { usage: "/update",         desc: "Check for updates — if none found, refreshes HACS to detect new releases" },
-    { usage: "/update restart", desc: "Install update and restart Home Assistant automatically" },
+  update:     { icon: "⬆️", desc: "Update Kyber to the latest version", cmds: [
+    { usage: "/update",                desc: "Check for updates via HACS and install if available" },
+    { usage: "/update restart",        desc: "Install via HACS and restart Home Assistant automatically" },
+    { usage: "/update force",          desc: "Bypass HACS — download directly from GitHub and install" },
+    { usage: "/update force restart",  desc: "Bypass HACS, install and restart Home Assistant" },
   ]},
   help:       { icon: "❓", desc: "Show help for Kyber slash commands", cmds: [
     { usage: "/help",           desc: "Overview of all commands" },
@@ -166,7 +168,7 @@ export const SlashMixin = (Base) => class extends Base {
       session:    ["new", "list", "switch", "delete", "help"],
       memory:     ["list", "search", "add", "delete", "analyze", "deep", "stats", "help"],
       knowledge:  ["list", "search", "add", "delete", "analyze", "deep", "stats", "help"],
-      update:     ["restart", "help"],
+      update:     ["restart", "force", "help"],
       help:       ["autopilot", "dashboard", "automation", "script", "blueprint", "area", "session", "memory", "reset", "update", "help"],
       reset:      [],
     };
@@ -488,15 +490,21 @@ export const SlashMixin = (Base) => class extends Base {
       case "area":       return this._cmdArea(action, nameArg);
       case "knowledge":
       case "memory":     return this._handleKnowledgeCommand(argStr.trim());
-      case "update":     return this._cmdUpdate(action === "restart");
+      case "update":     return this._cmdUpdate(action, nameArg);
     }
   }
 
   // ──── /update ────────────────────────────────────────────────────
 
-  _cmdUpdate(withRestart = false) {
-    // Find the Kyber update entity provided by HACS (update.kyber or similar).
-    // HACS may name it update.kyber, update.kyber_home_assistant_integration, etc.
+  async _cmdUpdate(action = "", nameArg = "") {
+    const force = action === "force";
+    const withRestart = force ? nameArg.trim().toLowerCase() === "restart" : action === "restart";
+
+    if (force) {
+      return this._cmdUpdateForce(withRestart);
+    }
+
+    // ── Default: use HACS update entity ──────────────────────────────
     const allUpdateEntities = Object.values(this._hass.states || {}).filter(
       (s) => s.entity_id.startsWith("update.")
     );
@@ -506,43 +514,42 @@ export const SlashMixin = (Base) => class extends Base {
 
     if (!updateEntity) {
       const known = allUpdateEntities.map((s) => s.entity_id).join(", ") || "none";
-      this._showMsg(`⚠️ No update entity found for Kyber. Make sure HACS is installed and Kyber is managed by HACS.\n\nUpdate entities on this system: ${known}`);
+      this._showMsg(
+        `⚠️ No HACS update entity found for Kyber.\n\nUpdate entities: ${known}\n\n` +
+        `Use **/update force** to install directly from GitHub without HACS.`
+      );
       return;
     }
 
-    const entityId      = updateEntity.entity_id;
-    const installedVer  = (updateEntity.attributes.installed_version || "unknown").replace(/^v/i, "");
-    const latestVer     = (updateEntity.attributes.latest_version    || "unknown").replace(/^v/i, "");
-    const hasUpdate     = updateEntity.state === "on";
-    const releaseUrl    = updateEntity.attributes.release_url       || null;
+    const entityId     = updateEntity.entity_id;
+    const installedVer = (updateEntity.attributes.installed_version || "unknown").replace(/^v/i, "");
+    const latestVer    = (updateEntity.attributes.latest_version    || "unknown").replace(/^v/i, "");
+    const hasUpdate    = updateEntity.state === "on";
+    const releaseUrl   = updateEntity.attributes.release_url || null;
 
     if (!hasUpdate) {
-      // No update detected — offer a refresh so HACS re-checks GitHub for new releases
       this._buildCommandCard({
         icon: "🔄",
-        title: "Kyber is up-to-date",
-        detail: `Installed: v${installedVer} (entity: ${entityId})\nIf a new release was just published, HACS may not have detected it yet.`,
-        executeLabel: "🔄 Refresh",
+        title: "Kyber is up-to-date (via HACS)",
+        detail: `Installed: v${installedVer}\nIf a newer release exists, use **/update force** to install directly from GitHub.`,
+        executeLabel: "🔄 Refresh HACS",
         onConfirm: async (card) => {
           const btn = card.querySelector(".btn-cmd-execute");
           btn.textContent = "⏳ Refreshing…";
           try {
             await this._hass.callService("homeassistant", "update_entity", { entity_id: entityId });
             btn.textContent = "✅ Refreshed";
-            // Re-read state after refresh
             await new Promise((r) => setTimeout(r, 1500));
             const refreshed = this._hass.states[entityId];
             const nowLatest = (refreshed?.attributes?.latest_version || "").replace(/^v/i, "");
-            const nowHas = refreshed?.state === "on";
-            if (nowHas) {
+            if (refreshed?.state === "on") {
               this._appendMessage(`⬆️ Update found! Kyber v${nowLatest} is available. Run **/update** again to install.`, "assistant");
             } else {
-              this._appendMessage(`✅ Kyber v${installedVer} is up-to-date (just refreshed from GitHub).`, "assistant");
+              this._appendMessage(`✅ Kyber v${installedVer} is up-to-date (just refreshed from GitHub).\n\nTip: use **/update force** to install directly without HACS.`, "assistant");
             }
             this._checkUpdateBadge();
           } catch (err) {
-            btn.textContent = "▶ Execute";
-            btn.disabled = false;
+            btn.textContent = "▶ Execute"; btn.disabled = false;
             card.querySelector(".btn-cmd-cancel").disabled = false;
             this._setStatus(`Refresh failed: ${err.message}`, "error");
           }
@@ -551,31 +558,80 @@ export const SlashMixin = (Base) => class extends Base {
       return;
     }
 
-    const detail = `v${installedVer} → v${latestVer}${withRestart ? " + Home Assistant will restart" : ""}`;
-    const warning = withRestart ? "Home Assistant will restart after the update. Active sessions will be interrupted." : null;
-
     this._buildCommandCard({
       icon: "⬆️",
-      title: `Update Kyber${withRestart ? " + Restart" : ""}`,
-      detail,
-      warning,
+      title: `Update Kyber via HACS${withRestart ? " + Restart" : ""}`,
+      detail: `v${installedVer} → v${latestVer}${withRestart ? "\n⚠️ HA will restart after update." : ""}`,
+      warning: withRestart ? "Home Assistant will restart. Active sessions will be interrupted." : null,
       onConfirm: async (card) => {
         const btn = card.querySelector(".btn-cmd-execute");
-        btn.textContent = `⏳ Downloading v${latestVer}…`;
+        btn.textContent = `⏳ Installing v${latestVer}…`;
         try {
           await this._hass.callService("update", "install", { entity_id: entityId });
           btn.textContent = `✅ Kyber v${latestVer} installed`;
-          this._appendMessage(`✅ Kyber updated to **v${latestVer}**${releaseUrl ? ` — [release notes](${releaseUrl})` : ""}.${withRestart ? "\n⏳ Restarting Home Assistant…" : ""}`, "assistant");
+          this._appendMessage(`✅ Kyber updated to **v${latestVer}**${releaseUrl ? ` — [release notes](${releaseUrl})` : ""}.${withRestart ? "\n⏳ Restarting…" : ""}`, "assistant");
           this._checkUpdateBadge();
           if (withRestart) {
             await new Promise((r) => setTimeout(r, 1500));
             await this._hass.callService("homeassistant", "restart", {});
           }
         } catch (err) {
-          btn.textContent = "▶ Execute";
-          btn.disabled = false;
+          btn.textContent = "▶ Execute"; btn.disabled = false;
           card.querySelector(".btn-cmd-cancel").disabled = false;
           this._setStatus(`Update failed: ${err.message}`, "error");
+        }
+      },
+    });
+  }
+
+  // ── /update force — bypass HACS, download directly from GitHub ───
+  async _cmdUpdateForce(withRestart = false) {
+    this._setStatus("Checking GitHub for latest Kyber release…");
+    let info;
+    try {
+      info = await this._hass.callApi("GET", "kyber/self_update");
+    } catch (err) {
+      this._setStatus("");
+      this._showMsg(`⚠️ Could not reach update endpoint: ${err.message}`);
+      return;
+    }
+    this._setStatus("");
+
+    const { current_version, latest_version, update_available, release_url, release_notes } = info;
+
+    if (!update_available) {
+      this._showMsg(`✅ Kyber v${current_version} is already the latest version (GitHub: v${latest_version}).`);
+      this._checkUpdateBadge();
+      return;
+    }
+
+    const detail = [
+      `v${current_version} → v${latest_version}`,
+      release_notes ? `\n📋 ${release_notes.trim()}` : "",
+      withRestart ? "\n⚠️ Home Assistant will restart after installing." : "",
+    ].filter(Boolean).join("");
+
+    this._buildCommandCard({
+      icon: "⬆️",
+      title: `Force-update Kyber${withRestart ? " + Restart" : ""}`,
+      detail,
+      warning: withRestart ? "Home Assistant will restart. Active sessions will be interrupted." : null,
+      onConfirm: async (card) => {
+        const btn = card.querySelector(".btn-cmd-execute");
+        btn.textContent = `⏳ Downloading v${latest_version}…`;
+        try {
+          const result = await this._hass.callApi("POST", "kyber/self_update", { restart: withRestart });
+          btn.textContent = `✅ Updated to v${latest_version}`;
+          this._appendMessage(
+            `✅ Kyber force-updated to **v${latest_version}**${release_url ? ` — [release notes](${release_url})` : ""}.` +
+            (result.restarting ? "\n⏳ Restarting Home Assistant…" : "\n🔄 Restart HA to apply the new version."),
+            "assistant"
+          );
+          this._checkUpdateBadge();
+        } catch (err) {
+          btn.textContent = "▶ Execute"; btn.disabled = false;
+          card.querySelector(".btn-cmd-cancel").disabled = false;
+          this._setStatus(`Force-update failed: ${err.message}`, "error");
         }
       },
     });
