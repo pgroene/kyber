@@ -17,6 +17,13 @@
           "run_initial_analyze": "Run 1 initial analyze pass after install",
           "initial_deep_learning_runs": "Initial deep learning runs (1-10, recommended: 10)"
         }
+      },
+      "reconfigure": {
+        "title": "Kyber — Change AI entity",
+        "description": "Select a different AI task entity. All other settings are preserved.",
+        "data": {
+          "ai_task_entity_id": "AI Task Entity"
+        }
       }
     },
     "error": {
@@ -24,7 +31,8 @@
       "cannot_connect": "Could not reach the AI provider. Check your integration configuration."
     },
     "abort": {
-      "already_configured": "Kyber is already configured."
+      "already_configured": "Kyber is already configured.",
+      "reconfigure_successful": "Kyber has been reconfigured with the new AI entity."
     }
   },
   "options": {
