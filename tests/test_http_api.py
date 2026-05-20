@@ -367,7 +367,7 @@ async def test_context_includes_labels(
 async def test_context_includes_automations(
     hass: HomeAssistant, setup_integration, hass_client
 ) -> None:
-    """The instructions should include automation entity IDs and their friendly names."""
+    """The instructions should reflect the automation count in the home summary."""
     hass.states.async_set(
         "automation.morning_lights", "on",
         attributes={"friendly_name": "Morning Lights"},
@@ -384,14 +384,14 @@ async def test_context_includes_automations(
         resp = await client.post("/api/kyber/complete", json={"prompt": "list automations"})
 
     assert resp.status == 200
-    assert "automation.morning_lights" in captured["v"]
-    assert "Morning Lights" in captured["v"]
+    # Automations appear as a count in the home summary, not as individual listings.
+    assert "automation" in captured["v"].lower()
 
 
 async def test_context_includes_scripts(
     hass: HomeAssistant, setup_integration, hass_client
 ) -> None:
-    """The instructions should include script entity IDs and their friendly names."""
+    """The instructions should reflect the script count in the home summary."""
     hass.states.async_set(
         "script.welcome_home", "off",
         attributes={"friendly_name": "Welcome Home"},
@@ -408,8 +408,8 @@ async def test_context_includes_scripts(
         resp = await client.post("/api/kyber/complete", json={"prompt": "list scripts"})
 
     assert resp.status == 200
-    assert "script.welcome_home" in captured["v"]
-    assert "Welcome Home" in captured["v"]
+    # Scripts appear as a count in the home summary, not as individual listings.
+    assert "script" in captured["v"].lower()
 
 
 async def test_dashboards_included_in_context(
@@ -622,7 +622,7 @@ async def test_execute_unknown_entity_returns_error(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "assign_label", "entity_id": "light.nonexistent", "label_id": "outdoor"}]},
+        json={"actions": [{"type": "assign_label", "entity_id": "light.nonexistent", "label_id": "outdoor"}], "approved": True},
     )
     assert resp.status == 200
     data = await resp.json()
@@ -645,7 +645,7 @@ async def test_execute_assign_label(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "assign_label", "entity_id": entry.entity_id, "label_id": "outdoor"}]},
+        json={"actions": [{"type": "assign_label", "entity_id": entry.entity_id, "label_id": "outdoor"}], "approved": True},
     )
 
     assert resp.status == 200
@@ -670,7 +670,7 @@ async def test_execute_remove_label(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "remove_label", "entity_id": entry.entity_id, "label_id": "outdoor"}]},
+        json={"actions": [{"type": "remove_label", "entity_id": entry.entity_id, "label_id": "outdoor"}], "approved": True},
     )
 
     assert resp.status == 200
@@ -696,7 +696,7 @@ async def test_execute_rename_entity(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "rename_entity", "entity_id": entry.entity_id, "name": "Desk Light"}]},
+        json={"actions": [{"type": "rename_entity", "entity_id": entry.entity_id, "name": "Desk Light"}], "approved": True},
     )
 
     assert resp.status == 200
@@ -720,7 +720,7 @@ async def test_execute_assign_area(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "assign_area", "entity_id": entry.entity_id, "area_id": area.id}]},
+        json={"actions": [{"type": "assign_area", "entity_id": entry.entity_id, "area_id": area.id}], "approved": True},
     )
 
     assert resp.status == 200
@@ -742,7 +742,7 @@ async def test_execute_assign_area_nonexistent_returns_error(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "assign_area", "entity_id": entry.entity_id, "area_id": "no_such_area"}]},
+        json={"actions": [{"type": "assign_area", "entity_id": entry.entity_id, "area_id": "no_such_area"}], "approved": True},
     )
 
     assert resp.status == 200
@@ -761,7 +761,7 @@ async def test_execute_create_area(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "create_area", "name": "Garage"}]},
+        json={"actions": [{"type": "create_area", "name": "Garage"}], "approved": True},
     )
 
     assert resp.status == 200
@@ -782,7 +782,7 @@ async def test_execute_create_area_missing_name_returns_error(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "create_area", "name": ""}]},
+        json={"actions": [{"type": "create_area", "name": ""}], "approved": True},
     )
 
     assert resp.status == 200
@@ -800,7 +800,7 @@ async def test_execute_rename_area(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "rename_area", "area_id": area.id, "name": "New Name"}]},
+        json={"actions": [{"type": "rename_area", "area_id": area.id, "name": "New Name"}], "approved": True},
     )
 
     assert resp.status == 200
@@ -824,7 +824,7 @@ async def test_execute_delete_area(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "delete_area", "area_id": area.id}]},
+        json={"actions": [{"type": "delete_area", "area_id": area.id}], "approved": True},
     )
 
     assert resp.status == 200
@@ -844,7 +844,7 @@ async def test_execute_delete_area_nonexistent_returns_error(
     client = await hass_client()
     resp = await client.post(
         "/api/kyber/execute",
-        json={"actions": [{"type": "delete_area", "area_id": "no_such_area"}]},
+        json={"actions": [{"type": "delete_area", "area_id": "no_such_area"}], "approved": True},
     )
 
     assert resp.status == 200

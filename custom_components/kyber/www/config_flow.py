@@ -143,9 +143,9 @@ def _build_options_schema(
             vol.Optional(
                 CONF_NARRATOR_AI_TASK_ENTITY_ID,
                 default=narrator_ai_entity,
-            ): selector.EntitySelector(
+            ): vol.Any("", selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="ai_task")
-            ),
+            )),
             vol.Optional(
                 CONF_AREA_ASSIGNMENT_MODE,
                 default=area_assignment_mode,

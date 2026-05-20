@@ -363,7 +363,7 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
     areas_block = "**Areas:** " + ", ".join(
         f"{_sanitize_prompt_value(a.name, max_len=60)} ({_sanitize_prompt_value(a.id, max_len=60)})"
         for a in sorted(areas, key=lambda a: a.name)
-    ) if areas else ""
+    ) if areas else "**Areas:** (no areas)"
 
     # Labels block — list names so model can reference them directly (up to 30)
     label_list = list(labels)
@@ -426,7 +426,7 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
     context = _safe_format(
         SYSTEM_PROMPT_TEMPLATE,
         home_summary=home_summary,
-        areas_block=("\n" + areas_block) if areas_block else "",
+        areas_block="\n" + areas_block,
         labels_block=labels_block,
         zones_block=zones_block,
         timezone_block=timezone_block,

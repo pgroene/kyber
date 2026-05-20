@@ -247,8 +247,9 @@ export const PlanCardsMixin = (Base) => class extends Base {
                 const f2 = (d2.results || []).filter((r) => r.status !== "ok");
                 if (f2.length === 0) {
                   undoBtn.textContent = "↩ Undone ✓";
-                  resultEl.textContent = "↩ Changes undone.";
-                  resultEl.className = "plan-result";
+                  undoBtn.disabled = true;
+                  resultEl.textContent = "↩ Changes undone successfully.";
+                  resultEl.className = "plan-result success";
                   this._addChatHistory("assistant", `[CHANGE] Undid: ${plan.summary || "previous changes"}`);
                 } else {
                   undoBtn.textContent = `↩ Undo failed (${f2.length} error${f2.length > 1 ? "s" : ""})`;
