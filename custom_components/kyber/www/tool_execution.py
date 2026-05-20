@@ -65,6 +65,10 @@ TOOL_ALIASES: dict[str, str] = {
     "search_automation": "search_automations",
     "list_areas": "get_areas",
     "list_labels": "get_labels",
+    "list_zones": "get_zones",
+    "zone_occupants": "get_zone_occupants",
+    "who_is_in_zone": "get_zone_occupants",
+    "get_zone_persons": "get_zone_occupants",
     "get_entities_by_label": "list_entities_by_label",
     "get_knowledge": "search_knowledge",
     "list_knowledge": "search_knowledge",
@@ -241,6 +245,13 @@ def _tool_result_summary(call: dict[str, Any], result: Any) -> str:
     if name == "get_labels":
         count = len(result) if isinstance(result, dict) else 0
         return f"{count} labels"
+    if name == "get_zones":
+        count = len(result) if isinstance(result, dict) else 0
+        return f"{count} zones"
+    if name == "get_zone_occupants":
+        zone = call.get("zone", "?")
+        count = len(result) if isinstance(result, dict) else 0
+        return f"{count} occupant(s) in zone '{zone}'"
     if name == "explore_integration":
         integration = call.get("integration", "?")
         count = result.get("entity_count", 0) if isinstance(result, dict) else 0
@@ -593,6 +604,44 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         labels = label_reg.async_list_labels()
         return json.dumps({lbl.label_id: lbl.name for lbl in labels})
 
+    if name == "get_zones":
+        # Return all non-passive GPS zones with their key attributes.
+        results = {}
+        for state in hass.states.async_all():
+            if not state.entity_id.startswith("zone."):
+                continue
+            if state.attributes.get("passive", False):
+                continue
+            zone_name = str(state.attributes.get("friendly_name") or state.entity_id.split(".", 1)[-1])
+            results[state.entity_id] = {
+                "name": zone_name,
+                "latitude": state.attributes.get("latitude"),
+                "longitude": state.attributes.get("longitude"),
+                "radius": state.attributes.get("radius"),
+                "icon": state.attributes.get("icon", ""),
+            }
+        return json.dumps(results or {"info": "No zones defined"})
+
+    if name == "get_zone_occupants":
+        # Return persons and device_trackers currently in the requested zone.
+        zone_arg = str(call.get("zone", "")).strip().lower()
+        if not zone_arg:
+            return json.dumps({"error": "zone parameter required"})
+        occupants: dict[str, Any] = {}
+        for state in hass.states.async_all():
+            domain = state.entity_id.split(".")[0]
+            if domain not in ("person", "device_tracker"):
+                continue
+            # state is the zone name (e.g. "home", "work") or entity_id (zone.home)
+            state_val = state.state.lower()
+            zone_entity = f"zone.{state_val}"
+            zone_friendly = state_val
+            # Try to match by zone entity_id or friendly_name
+            if zone_arg in (state_val, zone_entity, f"zone.{zone_arg}"):
+                name_str = str(state.attributes.get("friendly_name") or state.entity_id)
+                occupants[state.entity_id] = {"name": name_str, "state": state.state}
+        return json.dumps(occupants if occupants else {"info": f"Nobody found in zone '{zone_arg}'"})
+
     # ── Knowledge / memory tools ──────────────────────────────────────────
     # Searches the learned-knowledge store for relevant facts (area aliases,
     # entity notes, procedures, device chains). Use when the user uses a
@@ -909,7 +958,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
     valid_tools = [
         "list_entities_by_domain", "get_entity_state", "get_area_entities",
         "list_entities_by_label", "search_entities", "list_entities_without_area",
-        "get_areas", "get_labels",
+        "get_areas", "get_labels", "get_zones", "get_zone_occupants",
         "search_knowledge", "get_entity_notes", "analyze_automations",
         "list_automations", "get_automation", "search_automations",
         "list_scripts", "get_script",
