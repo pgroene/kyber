@@ -10,6 +10,7 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
 
@@ -214,6 +215,7 @@ class KyberExecuteView(HomeAssistantView):
         entity_reg = er.async_get(hass)
         label_reg = lr.async_get(hass)
         area_reg = ar.async_get(hass)
+        device_reg = dr.async_get(hass)
 
         results: list[dict] = []
 
@@ -454,6 +456,8 @@ class KyberExecuteView(HomeAssistantView):
                         continue
                     if label_reg.async_get_label(label_id) is None:
                         label_reg.async_create(label_id)
+                    label_entry = label_reg.async_get_label(label_id)
+                    label_name = label_entry.name if label_entry else label_id
                     old_labels = set(entry.labels)
                     new_labels = old_labels | {label_id}
                     entity_reg.async_update_entity(entity_id, labels=new_labels)
@@ -462,8 +466,57 @@ class KyberExecuteView(HomeAssistantView):
                         "undo_action": {"type": "remove_label", "entity_id": entity_id,
                                         "label_id": label_id,
                                         "current_state": str(new_labels), "new_state": str(old_labels),
-                                        "description": f"Remove label '{label_id}' from {entity_id}"},
+                                        "description": f"Remove label '{label_name}' from {entity_id}"},
                     })
+                    if label_name.startswith("kyber:"):
+                        try:
+                            kstore = get_knowledge_store(hass)
+                            await kstore.async_load()
+                            has_general_entry = any(
+                                item.get("category") == "general"
+                                and str(item.get("subject") or "") == entity_id
+                                for item in kstore._entries.values()  # noqa: SLF001
+                            )
+                            if not has_general_entry:
+                                state = hass.states.get(entity_id)
+                                friendly_name = (
+                                    (state.attributes.get("friendly_name") if state else None)
+                                    or entry.name
+                                    or entry.original_name
+                                    or entity_id
+                                )
+                                domain = entity_id.split(".", 1)[0]
+                                area_id = entry.area_id
+                                if not area_id and entry.device_id:
+                                    device_entry = device_reg.async_get(entry.device_id)
+                                    if device_entry:
+                                        area_id = device_entry.area_id
+                                area_entry = area_reg.async_get_area(area_id) if area_id else None
+                                area_name = area_entry.name if area_entry else ""
+                                integration = (entry.platform or "").strip()
+                                device_class = (
+                                    (state.attributes.get("device_class") if state else None)
+                                    or (entry.device_class if hasattr(entry, "device_class") else None)
+                                    or ""
+                                )
+                                content = f"{domain} entity '{friendly_name}' [{entity_id}]"
+                                if area_name:
+                                    content += f", located in {area_name}"
+                                if integration:
+                                    content += f". Provided by the {integration} integration"
+                                if device_class:
+                                    content += f". Device class: {device_class}"
+                                content += f". Tagged with label '{label_name}'."
+                                await kstore.async_add(
+                                    category="general",
+                                    content=content,
+                                    subject=entity_id,
+                                    tags=[entity_id, domain, "labeled", label_name, "label_assignment"],
+                                    source="label_assignment",
+                                    confidence=0.75,
+                                )
+                        except Exception as err:  # noqa: BLE001
+                            _LOGGER.warning("Label knowledge seed failed for %s: %s", entity_id, err)
 
                 elif action_type == "remove_label":
                     label_id = action.get("label_id", "")

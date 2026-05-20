@@ -24,6 +24,7 @@ from homeassistant.helpers import label_registry as lr
 
 from custom_components.kyber.const import DOMAIN
 from custom_components.kyber.http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView
+from custom_components.kyber.knowledge import get_store as get_knowledge_store
 
 # Correct patch target — all tests must use this path
 _PATCH_GENERATE = "custom_components.kyber.http_api.async_generate_data"
@@ -630,6 +631,65 @@ async def test_execute_unknown_entity_returns_error(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# /labels
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def test_labels_endpoint_includes_narrator_metadata_and_aliases(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Labels endpoint should enrich entities with narrator metadata and aliases."""
+    area_reg = ar.async_get(hass)
+    entity_reg = er.async_get(hass)
+    label_reg = lr.async_get(hass)
+    area = area_reg.async_create("Living Room")
+    entry = entity_reg.async_get_or_create("light", "test", "lamp_labels", suggested_object_id="lamp_labels")
+    label = label_reg.async_create("kyber:climate")
+    entity_reg.async_update_entity(entry.entity_id, area_id=area.id, labels={label.label_id})
+    hass.states.async_set(entry.entity_id, "on", {"friendly_name": "Reading Lamp"})
+
+    kstore = get_knowledge_store(hass)
+    await kstore.async_load()
+    await kstore.async_add(
+        "general",
+        "A narrated lamp description.",
+        subject=entry.entity_id,
+        tags=[entry.entity_id, "light"],
+        source="entity_narrator",
+        provenance="AI narrator v6",
+    )
+    await kstore.async_add(
+        "entity_alias",
+        entry.entity_id,
+        subject="reading light",
+        tags=[entry.entity_id, "search_alias"],
+        source="entity_narrator",
+    )
+    await kstore.async_add(
+        "entity_alias",
+        entry.entity_id,
+        subject="cozy lamp",
+        tags=[entry.entity_id, "search_alias"],
+        source="entity_narrator",
+    )
+
+    client = await hass_client()
+    resp = await client.get("/api/kyber/labels")
+
+    assert resp.status == 200
+    data = await resp.json()
+    entity = data[label.label_id]["entities"][0]
+    assert entity == {
+        "entity_id": entry.entity_id,
+        "name": entry.entity_id,
+        "description": "A narrated lamp description.",
+        "domain": "light",
+        "area": "Living Room",
+        "provenance": "AI narrator v6",
+        "aliases": ["cozy lamp", "reading light"],
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # /execute — label actions
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -655,6 +715,89 @@ async def test_execute_assign_label(
     assert result["undo_action"]["type"] == "remove_label"
     updated = entity_reg.async_get(entry.entity_id)
     assert "outdoor" in updated.labels
+
+
+async def test_execute_assign_kyber_label_creates_knowledge_entry_when_missing(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Assigning a kyber label should seed general knowledge when none exists."""
+    area_reg = ar.async_get(hass)
+    entity_reg = er.async_get(hass)
+    label_reg = lr.async_get(hass)
+    area = area_reg.async_create("Kitchen")
+    entry = entity_reg.async_get_or_create(
+        "sensor",
+        "mqtt",
+        "coffee_maker_power",
+        suggested_object_id="coffee_maker_power",
+    )
+    entity_reg.async_update_entity(entry.entity_id, area_id=area.id)
+    label = label_reg.async_create("kyber:coffee")
+    hass.states.async_set(
+        entry.entity_id,
+        "on",
+        {"friendly_name": "Coffee Maker Power", "device_class": "power"},
+    )
+
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"approved": True, "actions": [{"type": "assign_label", "entity_id": entry.entity_id, "label_id": label.label_id}]},
+    )
+
+    assert resp.status == 200
+    kstore = get_knowledge_store(hass)
+    await kstore.async_load()
+    entries = [
+        item for item in await kstore.async_search(category="general", subject=entry.entity_id, limit=10, exclude_low_quality=False)
+        if item.get("subject") == entry.entity_id
+    ]
+    created = next(item for item in entries if item.get("source") == "label_assignment")
+    assert created["content"] == (
+        "sensor entity 'Coffee Maker Power' [sensor.coffee_maker_power], located in Kitchen. "
+        "Provided by the mqtt integration. Device class: power. Tagged with label 'kyber:coffee'."
+    )
+    assert created["tags"] == [
+        entry.entity_id,
+        "sensor",
+        "labeled",
+        "kyber:coffee",
+        "label_assignment",
+    ]
+    assert created["confidence"] == 0.75
+
+
+async def test_execute_assign_kyber_label_skips_knowledge_when_general_entry_exists(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Assigning a kyber label should not add duplicate baseline knowledge."""
+    entity_reg = er.async_get(hass)
+    label_reg = lr.async_get(hass)
+    entry = entity_reg.async_get_or_create("light", "test", "lamp_existing", suggested_object_id="lamp_existing")
+    label = label_reg.async_create("kyber:lighting")
+    kstore = get_knowledge_store(hass)
+    await kstore.async_load()
+    await kstore.async_add(
+        "general",
+        "Existing knowledge.",
+        subject=entry.entity_id,
+        tags=[entry.entity_id, "light"],
+        source="manual",
+    )
+
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={"approved": True, "actions": [{"type": "assign_label", "entity_id": entry.entity_id, "label_id": label.label_id}]},
+    )
+
+    assert resp.status == 200
+    entries = [
+        item for item in await kstore.async_search(category="general", subject=entry.entity_id, limit=10, exclude_low_quality=False)
+        if item.get("subject") == entry.entity_id
+    ]
+    assert len(entries) == 1
+    assert entries[0]["source"] == "manual"
 
 
 async def test_execute_remove_label(
