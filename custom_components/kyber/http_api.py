@@ -1617,16 +1617,39 @@ class KyberView(HomeAssistantView):
         )
 
         context, context_stats = _build_context(hass)
+
+        # Check for pending area-assignment proposals and warn the model that
+        # area membership is currently incomplete.
+        entity_id: str = self._config[CONF_AI_TASK_ENTITY_ID]
+        kstore = get_knowledge_store(hass)
+        await kstore.async_load()
+        _pending_area = [
+            e for e in await kstore.async_all()
+            if e.get("needs_review") and e.get("category") == "proposal"
+            and e.get("proposal_type") == "area_assignment"
+        ]
+        if _pending_area:
+            _pending_areas_by_area: dict[str, int] = {}
+            for _e in _pending_area:
+                _an = _e.get("area_name") or "unknown"
+                _pending_areas_by_area[_an] = _pending_areas_by_area.get(_an, 0) + 1
+            _area_summary = ", ".join(
+                f"{_an} ({_cnt})" for _an, _cnt in sorted(_pending_areas_by_area.items())
+            )
+            context += (
+                f"\n\n⚠️ **Area assignments in progress** — {len(_pending_area)} entity-to-area "
+                f"assignment(s) are pending user review ({_area_summary}). "
+                f"The entity lists per area are currently **incomplete**; more entities will be "
+                f"added as the review queue is processed. Do not assume an area's entity list is "
+                f"exhaustive."
+            )
+
         sections = _build_prompt_sections(body_fields, context, request)
         instructions = sections["instructions"]
         intent = sections["intent"]
         conversation_block = sections["conversation_block"]
 
-        entity_id: str = self._config[CONF_AI_TASK_ENTITY_ID]
-
-        # Load knowledge store and inject relevant entries into the instructions.
-        kstore = get_knowledge_store(hass)
-        await kstore.async_load()
+        # Inject relevant knowledge entries into the instructions.
         instructions, relevant_knowledge = await _inject_knowledge_into_instructions(
             hass, kstore, user_prompt, instructions, request_id, entity_id=entity_id
         )
