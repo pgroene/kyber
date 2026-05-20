@@ -1,4 +1,4 @@
-﻿"""Automation / scene / script analyzer for knowledge inference.
+"""Automation / scene / script analyzer for knowledge inference.
 
 Scans existing HA automations, scenes, and scripts to infer relationships
 that aren't in the registries:

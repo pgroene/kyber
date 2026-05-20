@@ -1,4 +1,4 @@
-﻿"""HTTP API view for kyber: proxies AI completion requests."""
+"""HTTP API view for kyber: proxies AI completion requests."""
 from __future__ import annotations
 
 import asyncio

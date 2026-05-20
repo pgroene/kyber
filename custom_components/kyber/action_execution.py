@@ -1,4 +1,4 @@
-﻿"""Action execution and approval helpers extracted from http_api.py."""
+"""Action execution and approval helpers extracted from http_api.py."""
 from __future__ import annotations
 
 import json
