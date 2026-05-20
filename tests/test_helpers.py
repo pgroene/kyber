@@ -91,8 +91,8 @@ def test_tuning_constants_are_centralized_in_const_module():
     """Inline tuning limits should be sourced from const.py."""
     assert _const.MAX_INSTRUCTIONS_CHARS == 32_000
     assert _const.KNOWLEDGE_BUDGET_CHARS == 2_000
-    assert _const.MAX_TOOL_RESULT_CHARS == 6_000
-    assert _const.TOOL_CALL_MAX_ROUNDS == 5
+    assert _const.MAX_TOOL_RESULT_CHARS == 4_000
+    assert _const.TOOL_CALL_MAX_ROUNDS == 3
     assert _http_api._MAX_INSTRUCTIONS_CHARS == _const.MAX_INSTRUCTIONS_CHARS
     assert _http_api._KNOWLEDGE_BUDGET == _const.KNOWLEDGE_BUDGET_CHARS
     assert _http_api._MAX_TOOL_RESULT_CHARS == _const.MAX_TOOL_RESULT_CHARS
