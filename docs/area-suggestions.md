@@ -36,18 +36,20 @@ The detected room name is matched against HA area names using fuzzy matching (ca
 
 ## The Suggestion Card UX
 
-When a suggestion is triggered, a card appears below the AI response:
+When a suggestion is triggered, Kyber now saves it as a **proposal memory entry** instead of showing an immediate assign/dismiss card in the chat. The proposal is added to the **Memory** tab review queue in the debug panel.
+
+A queued area proposal shows:
 
 ```
-📍 Assign area?
-light.ceiling_kitchen_01 has no area.
-Assign it to "Kitchen"?
-
-  [✓ Assign]   [✗ Dismiss]
+📍 Wijs koffiezetapparaat toe aan gebied keuken
+switch.koffiezetapparaat
+💾 Geheugen: De koffiezetapparaat (switch.koffiezetapparaat) staat in de keuken.
 ```
 
-- **Assign** — calls the HA entity registry to assign the entity to the detected area, then removes the card.
-- **Dismiss** — posts `POST /api/kyber/area_suggestions/dismiss` with `{ entity_id, area_id }` to suppress future suggestions for this entity+area pair.
+- **Approve** — posts `POST /api/kyber/proposals/approve` with the proposal `entry_id`, assigns the entity to the suggested area, and creates the Dutch memory sentence shown on the card.
+- **Reject** — deletes the proposal entry from the knowledge store.
+- **Skip** — temporarily hides the proposal from the review queue.
+- **Dismiss** on the proactive chat suggestion still posts `POST /api/kyber/area_suggestions/dismiss` with `{ entity_id, area_id }` to suppress future suggestions for that entity+area pair.
 
 Dismissals are stored in `.storage/kyber.dismissed_suggestions`. A dismissed suggestion will never reappear for the same entity/area combination.
 

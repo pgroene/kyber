@@ -675,6 +675,56 @@ export const STYLES = `
   .rv-skip-group {
     display: flex; align-items: center; gap: 5px; margin-left: auto;
   }
+  .review-flow-proposal-icon {
+    font-size: 2rem;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .review-flow-proposal-action {
+    font-size: 1rem;
+    text-align: center;
+    margin-bottom: 6px;
+    line-height: 1.4;
+  }
+  .review-flow-proposal-entity {
+    font-size: 0.78rem;
+    color: var(--secondary-text-color, #888);
+    text-align: center;
+    margin-bottom: 10px;
+    font-family: monospace;
+  }
+  .review-flow-proposal-memory {
+    background: var(--secondary-background-color, #f5f5f5);
+    border-left: 3px solid var(--primary-color, #03a9f4);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 0.82rem;
+    color: var(--primary-text-color);
+    margin-top: 4px;
+  }
+  .review-flow-memory-label {
+    font-weight: bold;
+    margin-right: 4px;
+  }
+  .review-flow-actions {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .review-btn {
+    padding: 5px 14px; border-radius: 6px; border: none; cursor: pointer;
+    font-size: 0.85em; font-weight: 500; transition: opacity 0.15s;
+  }
+  .review-btn:hover { opacity: 0.85; }
+  .review-btn-approve { background: var(--success-color, #4caf50); color: #fff; }
+  .review-btn-reject  { background: var(--error-color, #f44336); color: #fff; }
+  .review-btn-skip    { background: var(--secondary-background-color, rgba(255,255,255,0.1)); color: var(--primary-text-color); border: 1px solid var(--divider-color); }
+  .review-skip-days-label {
+    font-size: 0.8em; color: var(--secondary-text-color); display: flex;
+    align-items: center; gap: 4px; margin-left: auto;
+  }
+  .review-skip-days-label input {
+    border: 1px solid var(--divider-color, #ccc); border-radius: 3px;
+    background: transparent; color: var(--primary-text-color);
+  }
   .rv-skip-days {
     font-size: 0.75em; color: var(--secondary-text-color); display: flex;
     align-items: center; gap: 3px;
