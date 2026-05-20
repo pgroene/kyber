@@ -8,7 +8,10 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
 
-from custom_components.kyber.knowledge import get_store as get_knowledge_store
+def get_knowledge_store(hass):
+    """Get knowledge store via live sys.modules so conftest restoration takes effect."""
+    import sys
+    return sys.modules["custom_components.kyber.knowledge"].get_store(hass)
 
 _PATCH_GENERATE = "custom_components.kyber.http_api.async_generate_data"
 _PATCH_AREA_SUGGESTIONS = "custom_components.kyber.area_assignment.async_detect_conversation_suggestions"
