@@ -5,11 +5,19 @@ import pytest
 
 try:
     from homeassistant.core import HomeAssistant
+    from homeassistant.helpers import storage as _ha_storage
     from homeassistant.setup import async_setup_component
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
     from custom_components.kyber.const import DOMAIN
     from custom_components.kyber import async_setup_entry
+
+    # Capture the real Store class at import time, before any stub test file
+    # can overwrite it. Several test files do:
+    #   sys.modules["homeassistant.helpers.storage"].Store = _Stub
+    # at module scope, permanently corrupting the real Store for the pytest
+    # session. The restore_ha_store fixture below undoes this before each test.
+    _REAL_STORE = _ha_storage.Store
 
     _HA_AVAILABLE = True
 except (ImportError, ModuleNotFoundError):
@@ -17,6 +25,19 @@ except (ImportError, ModuleNotFoundError):
 
 
 if _HA_AVAILABLE:
+    @pytest.fixture(autouse=True)
+    def restore_ha_store():
+        """Restore the real Store class before each test.
+
+        Stub test files overwrite homeassistant.helpers.storage.Store at module
+        scope. mock_storage() (used by the hass fixture) accesses Store._async_load,
+        which the stub doesn't have. Restoring the real class here prevents the
+        AttributeError from contaminating unrelated tests.
+        """
+        _ha_storage.Store = _REAL_STORE
+        yield
+        _ha_storage.Store = _REAL_STORE
+
     @pytest.fixture(autouse=True)
     def auto_enable_custom_integrations(enable_custom_integrations):
         """Enable custom integrations for all tests in this package."""
