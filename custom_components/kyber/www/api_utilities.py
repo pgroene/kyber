@@ -181,7 +181,7 @@ class KyberSummarizeView(HomeAssistantView):
                 entity_id=entity_id,
                 instructions=instructions,
             )
-        except HomeAssistantError as err:
+        except Exception as err:  # noqa: BLE001 — summarize must never fail
             _LOGGER.error("Summarize AI task failed: %s", err)
             # Fall back: append messages as plain text rather than failing
             fallback_lines = [f"[{m.get('role','user').upper()}] {m.get('content','')}" for m in messages]
