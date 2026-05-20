@@ -27,20 +27,24 @@ Or use the quick-add button:
 
 ## Features
 
-- 💬 **AI Chat** — ask questions and give commands in natural language; automatic language detection with locale-specific vocabulary hints (Dutch supported out of the box)
+- 💬 **AI Chat** — ask questions and give commands in natural language; automatic language detection with locale-specific vocabulary hints (Dutch, German, French, Spanish, Italian, Portuguese)
 - 📋 **Proposal Cards** — review changes before they're applied, with one-click Undo
 - ⚡ **Autopilot Mode** — auto-execute proposals for hands-free operation
 - ✏️ **Automation & Script Editor** — CodeMirror 6 YAML editor with AI assistance
 - 📊 **Dashboard Editor** — edit Lovelace dashboards as YAML, create new dashboards
-- 🔧 **Slash Commands** — `/dashboard`, `/automation`, `/script`, `/blueprint`, `/area`
+- 🔧 **Slash Commands** — `/dashboard`, `/automation`, `/script`, `/blueprint`, `/area`, `/memory`, `/update` and more — see [docs/slash-commands.md](docs/slash-commands.md)
+- 🏷️ **Kyber Labels** — tag entities with `kyber:*` labels (e.g. `kyber:important`, `kyber:appliance`) via `/area label`; Kyber uses these to prioritise context
+- 🤖 **AI Entity Narrator** — on startup, Kyber batches all entities and generates rich descriptions and natural-language search aliases (e.g. "koffiezetapparaat" → `switch.onoff_keuken_espresso`). Alias quality is filtered for plausibility. See [docs/narrator.md](docs/narrator.md)
+- 📍 **Proactive Area Suggestions** — when you mention a room and nearby entities have no area assigned, Kyber shows a one-click assignment card. See [docs/area-suggestions.md](docs/area-suggestions.md)
 - 🔒 **100% Local** — all AI inference runs on your own Ollama instance; nothing leaves your network
-- 🔌 **Integration Explorer** — on startup Kyber automatically indexes every loaded HA integration: sensor names, entity IDs (including groups, template sensors, input helpers, utility meters), and natural-language capability descriptions. Stored as searchable knowledge facts so the AI can answer "what is my solar yield?" without you having to say "goodwe"
-- 🔬 **Deep Analyzer** — on-demand AI extraction of durable home facts from automations / scripts / blueprints across **8 analytical lenses**: daily routines, device inventory, occupancy patterns, time/location triggers, energy usage, safety rules, entity relationships & dependencies, and automation purpose & use case
-- 🧠 **Hybrid memory retrieval** — knowledge entries are indexed with an in-memory TF-IDF embedding; each turn picks the top facts via cosine similarity blended with keyword overlap. Selected facts are streamed to the live progress card so you can see what Kyber recalled. See [docs/pipeline.md](docs/pipeline.md) for the full request lifecycle
-- 🔁 **Tool-calling loop** — up to 5 rounds of tool calls per turn; duplicate call detection with targeted redirect hints prevents the AI from looping. Tool name aliases resolve common model typos/variants automatically
-- 🗂️ **Conversation sessions** — named sessions with full rolling history and automatic compaction via summarization
-- 🐞 **Kyber Debug panel** — a dedicated second sidebar entry (`/kyber-debug`) with five tabs: **Memory** (browse/rate/refine all knowledge), **Last turn** (full system prompt, tool log, knowledge used, one-click debug bundle), **Status** (entity explorer + narrator progress, download debug bundle), **📋 Logs** (live ring buffer of the last 2,000 Kyber log records with level filter + download), and **Tests**
-- 📦 **Debug bundle download** — every assistant turn has a downloadable ZIP with the user prompt, the full expanded system prompt the model actually saw, picked memory entries, tool log, progress events, captured `kyber.*` logs and the response — perfect for filing a precise issue
+- 🔌 **Integration Explorer** — on startup Kyber automatically indexes every loaded HA integration: sensor names, entity IDs, and natural-language capability descriptions as searchable knowledge facts
+- 🔬 **Deep Analyzer** — on-demand AI extraction of durable home facts across **8 analytical lenses**: daily routines, device inventory, occupancy patterns, time/location triggers, energy usage, safety rules, entity relationships & dependencies, and automation purpose & use case
+- 🧠 **Hybrid memory retrieval** — in-memory TF-IDF embedding with cosine similarity + keyword overlap blending; selected facts streamed to the live progress card
+- 🔁 **Tool-calling loop** — up to 5 rounds of tool calls per turn; duplicate call detection with targeted redirect hints; tool name alias resolution
+- 🗂️ **Conversation sessions** — named sessions with full rolling history and automatic compaction
+- 🔄 **Self-update** — `/update force` installs the latest GitHub release directly, bypassing HACS. See [docs/slash-commands.md](docs/slash-commands.md)
+- 🐞 **Kyber Debug panel** — a dedicated sidebar entry (`/kyber-debug`) with five tabs: Memory, Last Turn, Status, Logs, Tests. See [docs/debug-panel.md](docs/debug-panel.md)
+- 📦 **Debug bundle download** — every turn produces a downloadable ZIP with the full system prompt, tool log, memory picks, and response
 
 ## Quick Start
 

@@ -114,18 +114,23 @@ HA reloads all integrations on start. No browser action is required.
 
 ### Dev loop — JavaScript changes
 
-After editing frontend files, sync them to the integration and restart Home Assistant:
+The frontend consists of multiple files under `www/kyber/src/` (mixins) plus the main `www/kyber/kyber-panel.js`. After editing any frontend file:
 
-1. Edit `www/kyber/kyber-panel.js` (source of truth for dev + tests).
-2. Copy to `custom_components/kyber/www/kyber-panel.js` (shipped version).
-3. Restart the container: `docker restart kyber-ha`
-4. Hard-refresh the browser (`Ctrl+Shift+R` / `Cmd+Shift+R`).
+1. Edit source files under `www/kyber/` (source of truth for dev + tests).
+2. Run `scripts/sync_www.py` to copy changed files to `custom_components/kyber/www/` (shipped version).
+3. Bump the JS cache-buster version in `__init__.py` (`module_url="/local/kyber/kyber-panel.js?v1=N"` → `?v1=N+1`).
+4. Restart the container: `docker restart kyber-ha`
+5. Hard-refresh the browser (`Ctrl+Shift+R` / `Cmd+Shift+R`).
 
 ```bash
-# Quick sync helper
-cp www/kyber/kyber-panel.js custom_components/kyber/www/kyber-panel.js
+# Sync changed files (checks hashes, only copies what changed)
+python scripts/sync_www.py
+
+# Then restart
 docker restart kyber-ha
 ```
+
+> **Important:** Skipping the version bump causes the browser to serve the old cached JS. The pre-push hook will block pushes if `www/` and `custom_components/kyber/www/` are out of sync.
 
 ## 5. Running Tests
 

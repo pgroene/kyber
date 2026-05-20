@@ -14,14 +14,30 @@ The panel is mounted in the HA sidebar at `/kyber` and communicates exclusively 
 
 ---
 
-## Frontend (`www/kyber/kyber-panel.js`)
+## Frontend (`www/kyber/`)
 
-A single-file custom element registered as `<kyber-panel>` using the Shadow DOM. It is served from `/local/kyber/kyber-panel.js` (HA's `www/` directory) and loaded by the panel registration in `__init__.py`.
+The frontend is a custom element `<kyber-panel>` using Shadow DOM, split across multiple files via ES module mixins. The entry point is `www/kyber/kyber-panel.js`, which imports and composes the mixins:
+
+```
+kyber-panel.js
+  └── extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixin(KnowledgeMixin(SessionMixin(UtilsMixin(HTMLElement))))))))
+        │
+        ├── src/slash-commands-mixin.js   — All /command handlers + autocomplete
+        ├── src/ai-mixin.js               — _askAI(), _appendAIResponse(), tool loop
+        ├── src/plan-cards-mixin.js       — _buildPlanCard(), _buildCommandCard()
+        ├── src/editor-mixin.js           — CodeMirror 6 setup, save/load for automations/dashboards
+        ├── src/debug-mixin.js            — Debug panel rendering, bundle download
+        ├── src/knowledge-mixin.js        — Memory panel, fact cards, deep analysis
+        ├── src/session-mixin.js          — Session CRUD, switching, persistence
+        └── src/utils-mixin.js            — _showMsg, _setStatus, _escapeHtml, etc.
+```
+
+> **Convention:** every slash command sub-action MUST be listed in `CMD_SUBS` in `slash-commands-mixin.js` and have a corresponding entry in `_HELP_DATA.cmds` with a description. This ensures autocomplete works for all commands.
 
 ### Dependencies
 
-- **CodeMirror 6** — bundled separately in `codemirror-bundle.js`. Provides the YAML editor with syntax highlighting, folding, bracket matching, and autocompletion.
-- **HA built-ins** — accesses `this.hass` (injected by HA) for `hass.callApi`, `hass.callWS`, `hass.panels`, and state data, and uses authenticated `fetch` calls to Kyber backend endpoints.
+- **CodeMirror 6** — bundled separately in `codemirror-bundle.js`.
+- **HA built-ins** — `this.hass.callApi()`, `this.hass.callWS()`, `this.hass.panels`, state data.
 
 ### Key State Properties
 
@@ -119,11 +135,23 @@ All endpoints require HA authentication (`requires_auth = True`).
 | `/api/kyber/knowledge/analyze` | `GET`, `POST` | Analyze home config and propose memory entries |
 | `/api/kyber/knowledge/analyze_deep` | `GET`, `POST` | Deep analysis pipeline for durable memory extraction |
 | `/api/kyber/knowledge/feedback` | `POST` | Apply user/auto ratings to memory entries |
+| `/api/kyber/knowledge/purge` | `POST` | Purge low-quality or stale knowledge entries |
+| `/api/kyber/area_suggestions/dismiss` | `POST` | Dismiss a proactive area assignment suggestion |
+| `/api/kyber/labels` | `GET` | List all `kyber:*` labels with their assigned entities |
+| `/api/kyber/self_update` | `GET`, `POST` | Check (`GET`) or install (`POST`) latest release directly from GitHub |
 | `/api/kyber/debug/last_turn` | `GET` | Return the latest captured debug snapshot |
 | `/api/kyber/debug/tool_history` | `GET` | Return recent tool-call history ring buffer |
 | `/api/kyber/debug/status` | `GET` | Debug overview: memory/session/turn/tool status |
 | `/api/kyber/debug/bundle` | `GET` | Download ZIP debug bundle for a specific `request_id` |
+| `/api/kyber/debug/bug-report` | `GET` | Download a sanitised bug report bundle |
+| `/api/kyber/debug/logs` | `GET` | Return recent log records from the in-memory ring buffer |
 | `/api/kyber/debug/mode` | `GET`, `POST` | Read/update runtime UI debug-mode flag |
+| `/api/kyber/export/memory` | `GET` | Export all knowledge entries as JSON |
+| `/api/kyber/export/home-state` | `GET` | Export full home state snapshot as JSON |
+| `/api/kyber/prompt_tests` | `GET`, `POST`, `DELETE` | Prompt regression test case management |
+| `/api/kyber/prompt_tests/run` | `POST` | Run one or all prompt regression tests |
+| `/api/kyber/prompt_tests/capture` | `POST` | Capture current AI response as a test baseline |
+| `/api/kyber/prompt_tests/regenerate` | `POST` | Re-run a test and update its expected output |
 
 ---
 

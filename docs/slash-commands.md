@@ -34,13 +34,18 @@ Slash commands let you control Home Assistant resources directly from the Kyber 
 | `/session list` | List all chat sessions |
 | `/session switch <name>` | Switch to a different session |
 | `/session delete` | Delete the current session |
-| `/knowledge` or `/memory` | Open memory panel (list entries) |
-| `/knowledge search <q>` | Search memory entries |
-| `/knowledge analyze` | Analyze home config and propose memory entries |
-| `/knowledge delete <id>` | Delete a memory entry by id |
+| `/update` | Check for updates and install via HACS |
+| `/update restart` | Install via HACS and restart Home Assistant |
+| `/update force` | Bypass HACS — download directly from GitHub |
+| `/update force restart` | Download from GitHub and restart HA |
+| `/memory list` | List all saved memory entries |
+| `/memory search <q>` | Search memory entries by keyword |
+| `/memory add <text>` | Add a new fact directly from chat |
+| `/memory analyze` | Analyze home config and propose memory entries |
+| `/memory deep` | Start deep background analysis (6-lens rotation) |
+| `/memory stats` | Show entry counts by category and source |
+| `/memory delete <id>` | Delete a memory entry by id |
 | `/reset` | Clear chat and start over |
-| `/update` | Install latest Kyber version via HACS |
-| `/update restart` | Install latest Kyber version and restart HA |
 | `/help [command]` | Show all commands or detailed help |
 
 ---
@@ -51,17 +56,30 @@ Slash commands let you control Home Assistant resources directly from the Kyber 
 
 Checks whether a newer version of Kyber is available (via HACS) and installs it if so. Reports the version being downloaded inline in the chat.
 
-- If Kyber is already up-to-date, shows a confirmation message and does nothing.
-- Requires HACS to be installed and Kyber to be managed by HACS (a `update.kyber` entity must exist).
+- If Kyber is already up-to-date, shows a confirmation with an option to refresh HACS.
+- Requires HACS to be installed and Kyber to be managed by HACS.
 
 ```
 /update
 /update restart
 ```
 
-**`/update restart`** — same as `/update`, but also restarts Home Assistant automatically after the installation completes. This is useful during development to skip the manual restart step.
+**`/update restart`** — same as `/update`, but also restarts Home Assistant automatically after installation.
 
-> **Note:** `/update restart` will interrupt any active chat sessions. Home Assistant will be unavailable for ~30 seconds.
+### `/update force`
+
+Bypasses HACS entirely. Fetches the latest release directly from GitHub (`api.github.com/repos/pgroene/kyber/releases/latest`), downloads the zipball, and extracts `custom_components/kyber/` and `www/kyber/` into your HA config directory.
+
+Use this when HACS fails to detect a new version or when you want to update without HACS.
+
+```
+/update force
+/update force restart
+```
+
+**Security:** the download URL is validated against `github.com`/`api.github.com` before fetching. File extraction uses a path-traversal guard. Requires HA authentication.
+
+> **Note:** After a force-update, restart Home Assistant to load the new Python code.
 
 ---
 
@@ -356,17 +374,42 @@ Filters memory entries by query text.
 /knowledge search bedroom thermostat
 ```
 
+### `/knowledge add <text>`
+
+Adds a new fact directly to the knowledge store without going through AI analysis.
+
+```
+/memory add The living room thermostat is controlled by climate.living_room
+/memory add Peter works from home on Tuesdays and Thursdays
+```
+
 ### `/knowledge analyze`
 
-Runs backend analysis and shows proposed memory facts from your current setup.
+Runs backend analysis of your automations/scripts and shows proposed memory facts from your current setup.
 
 ```
 /knowledge analyze
 ```
 
+### `/knowledge deep`
+
+Starts a deep background analysis using 6 analytical lenses (daily routines, device inventory, occupancy patterns, time/location triggers, energy usage, safety rules). Runs asynchronously and reports progress in chat.
+
+```
+/memory deep
+```
+
+### `/knowledge stats`
+
+Shows a summary of memory entries broken down by category and source.
+
+```
+/memory stats
+```
+
 ### `/knowledge delete <id>`
 
-Deletes the specified memory entry.
+Deletes the specified memory entry. Supports autocomplete — typing `/memory delete ` shows matching entry IDs and previews.
 
 ```
 /knowledge delete abcd1234

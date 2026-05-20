@@ -158,6 +158,8 @@ export const SlashMixin = (Base) => class extends Base {
 
     // ── Unified sub-action autocomplete for every command ─────────────
     // Matches: /<cmd> <partial-sub>  (e.g. "/dashboard op" → "open,…")
+    // Convention: every slash command sub-action MUST be listed in CMD_SUBS
+    // and have a corresponding entry in _HELP_DATA.cmds for the description.
     const CMD_SUBS = {
       autopilot:  ["on", "off"],
       dashboard:  ["open", "close", "save", "new", "delete", "help"],
@@ -172,6 +174,27 @@ export const SlashMixin = (Base) => class extends Base {
       help:       ["autopilot", "dashboard", "automation", "script", "blueprint", "area", "session", "memory", "reset", "update", "help"],
       reset:      [],
     };
+
+    // ── Third-level autocomplete: /update force <partial> → restart ────
+    const updateForceAc = val.match(/^\/update\s+force\s+(\w*)$/i);
+    if (updateForceAc) {
+      const partial = (updateForceAc[1] || "").toLowerCase();
+      const opts = ["restart"];
+      const matches = opts
+        .filter((s) => s.startsWith(partial))
+        .map((s) => ({
+          entity_id: `/update force ${s}`,
+          friendly_name: (_HELP_DATA.update?.cmds || []).find((c) => c.usage === `/update force ${s}`)?.desc || "",
+        }));
+      if (matches.length) {
+        this._acItems = matches;
+        this._acToken = val;
+        this._acIndex = -1;
+        this._buildAcList(true);
+        return;
+      }
+    }
+
     const cmdSubAc = val.match(/^\/(autopilot|dashboard|automation|script|blueprint|area|session|memory|knowledge|update|help|reset)\s+(\w*)$/i);
     if (cmdSubAc) {
       const cmd = cmdSubAc[1].toLowerCase();

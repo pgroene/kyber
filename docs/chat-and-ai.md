@@ -349,11 +349,22 @@ Slash commands are typed directly in the prompt box and execute without going to
 ### Knowledge / Memory
 
 ```
-/knowledge                 — list memory entries
-/memory                    — alias for /knowledge
-/knowledge search <q>      — search memory entries
-/knowledge analyze         — propose facts from your current setup
-/knowledge delete <id>     — delete a memory entry
+/memory                    — list memory entries  (/knowledge is an alias)
+/memory search <q>         — search entries by keyword, category, or tag
+/memory add <text>         — add a new fact directly
+/memory analyze            — propose facts from your current setup
+/memory deep               — start deep background analysis (6-lens rotation)
+/memory stats              — show entry counts by category and source
+/memory delete <id>        — delete a memory entry (autocomplete on IDs)
+```
+
+### Update
+
+```
+/update                    — check for updates via HACS and install
+/update restart            — install via HACS + restart HA
+/update force              — bypass HACS, download direct from GitHub
+/update force restart      — download direct from GitHub + restart HA
 ```
 
 ### Utility
@@ -364,6 +375,35 @@ Slash commands are typed directly in the prompt box and execute without going to
 ```
 
 All slash commands that make changes show a **confirmation card** with an Execute and Cancel button before taking effect. Destructive operations (delete) display an additional danger warning.
+
+---
+
+## Area Suggestion Cards
+
+Kyber watches for entities that have no area assigned. When it detects one, it proactively shows a suggestion card in the chat:
+
+```
+🏠 onoff_keuken_espresso_307 has no area — assign to Keuken?
+
+[ ✓ Assign ]   [ ✕ Dismiss ]
+```
+
+Clicking **Assign** calls the execute endpoint to set the area. Clicking **Dismiss** records the dismissal so the same suggestion isn't shown again.
+
+### Location intent detection
+
+If you type a statement like:
+
+```
+De espresso machine staat in de keuken
+The coffee maker is in the kitchen
+```
+
+Kyber classifies this as an **action intent** (not a question) and triggers the area assignment flow automatically — no need to use a slash command.
+
+**Supported location phrases:**
+- Dutch: *staat in, zit in, hangt in, ligt in, hoort in, staan in*
+- English: *is in the, belongs in, located in, placed in*
 
 ---
 
