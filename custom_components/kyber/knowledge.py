@@ -160,10 +160,16 @@ class KnowledgeStore:
         return " ".join(p for p in parts if p)
 
     def _rebuild_index(self) -> None:
-        """Recompute IDF and per-entry TF-IDF vectors over current corpus."""
+        """Recompute IDF and per-entry TF-IDF vectors over current corpus.
+
+        low_quality entries are excluded: they are "already attempted" markers
+        only and must not pollute IDF weights or appear in semantic search.
+        """
         docs: dict[str, list[str]] = {}
         df: dict[str, int] = {}
         for eid, entry in self._entries.items():
+            if "low_quality" in (entry.get("tags") or []):
+                continue
             toks = _tokenize(self._entry_blob(entry))
             docs[eid] = toks
             for t in set(toks):
@@ -232,9 +238,13 @@ class KnowledgeStore:
 
         scored: list[tuple[float, dict[str, Any]]] = []
         for eid, vec in self._vectors.items():
+            entry = self._entries[eid]
+            # Skip low-quality entries — same filter as keyword search.
+            if "low_quality" in (entry.get("tags") or []):
+                continue
             sim = _cosine(qv, vec)
             if sim >= min_score:
-                entry = dict(self._entries[eid])
+                entry = dict(entry)
                 subject = (entry.get("subject") or "").lower()
                 if query_words:
                     tags = set(t.lower() for t in (entry.get("tags") or []) if t)
@@ -317,6 +327,21 @@ class KnowledgeStore:
             "updated": now,
             "hits": 0,
         }
+        # Supersede dedup: when a higher-quality source stores a general entry
+        # for a subject, evict any existing entity_explorer entry for the same
+        # subject so both don't compete in retrieval.
+        _SUPERSEDES = {"entity_narrator": {"entity_explorer"}}
+        if subject_stripped and category == "general":
+            evict_sources = _SUPERSEDES.get(source, set())
+            if evict_sources:
+                to_evict = [
+                    eid for eid, e in self._entries.items()
+                    if e.get("subject", "").strip() == subject_stripped
+                    and e.get("source") in evict_sources
+                    and e.get("category") == "general"
+                ]
+                for eid in to_evict:
+                    del self._entries[eid]
         self._entries[entry_id] = entry
         if _save:
             await self._persist(invalidate_index=True)
@@ -637,8 +662,32 @@ class KnowledgeStore:
                     merged[e["id"]] = {**e, "_score": kw_score, "_source": "keyword"}
 
         ranked = sorted(merged.values(), key=lambda x: x["_score"], reverse=True)
-        if ranked[:max_entries]:
-            return ranked[:max_entries]
+
+        # Subject-level dedup: when multiple entries describe the same entity,
+        # keep the best one. Prefer entity_narrator > entity_explorer for the
+        # same subject (narrator adds human-readable context; explorer is mostly
+        # a structural fallback).
+        _SOURCE_PRIORITY = {"entity_narrator": 0, "deep-analyzer": 1, "integration_explorer": 2,
+                            "entity_explorer": 3}
+        seen_subjects: dict[str, dict] = {}
+        for entry in ranked:
+            subj = (entry.get("subject") or "").strip().lower()
+            if not subj:
+                continue
+            existing = seen_subjects.get(subj)
+            if existing is None:
+                seen_subjects[subj] = entry
+            else:
+                # Replace if this entry has higher source priority OR same priority + higher score
+                my_pri = _SOURCE_PRIORITY.get(entry.get("source", ""), 99)
+                ex_pri = _SOURCE_PRIORITY.get(existing.get("source", ""), 99)
+                if my_pri < ex_pri or (my_pri == ex_pri and entry["_score"] > existing["_score"]):
+                    seen_subjects[subj] = entry
+        # Re-sort after subject dedup (order may change)
+        deduped = sorted(seen_subjects.values(), key=lambda x: x["_score"], reverse=True)
+
+        if deduped[:max_entries]:
+            return deduped[:max_entries]
         # Fallback: always include high-confidence area aliases as background.
         aliases = await self.async_search("", category="area_alias", limit=max_entries)
         return [{**e, "_score": 0.0, "_source": "fallback_alias"} for e in aliases]
