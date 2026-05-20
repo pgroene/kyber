@@ -159,7 +159,8 @@ def _build_options_schema(
                     mode=selector.SelectSelectorMode.LIST,
                 )
             ),
-        }
+        },
+        extra=vol.ALLOW_EXTRA,
     )
 
 
