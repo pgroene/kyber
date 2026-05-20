@@ -41,7 +41,7 @@ DEFAULT_NARRATOR_ENABLED = True
 MAX_INSTRUCTIONS_CHARS = 32_000
 KNOWLEDGE_BUDGET_CHARS = 2_000
 MAX_TOOL_RESULT_CHARS = 4_000
-TOOL_CALL_MAX_ROUNDS = 5
+TOOL_CALL_MAX_ROUNDS = 3
 
 # Known model-family → typical max context window (tokens).
 # Used to pre-fill the max_tokens field in the config flow.

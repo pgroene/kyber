@@ -118,8 +118,11 @@ _ACTION_KEYWORDS: frozenset[str] = frozenset({
     "organise", "organize", "order my", "sort my", "clean up", "tidy",
     "propose", "suggest changes", "suggest a plan",
     # Media / device control
-    "stop", "pause", "resume", "play", "mute", "unmute", "skip", "next",
+    "start", "stop", "pause", "resume", "play", "mute", "unmute", "skip", "next",
     "volume", "restart", "reboot", "activate", "deactivate",
+    "run", "launch", "begin",
+    # Dutch start/run variants
+    "starten", "opstarten", "opstart",
     # Confirmation words — user is approving a pending action
     "yes", "ok", "sure", "go ahead", "do it", "confirm", "execute", "proceed",
     "ja", "ja doe maar", "doe maar", "prima", "goed",  # Dutch confirmations
