@@ -84,9 +84,14 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     this._hass = hass;
     if (!this._rendered) {
       this._render();
+      // Run once after first render — auth is already present in normal HA flow
+      if (hass?.auth?.data?.access_token) {
+        this._loadMemoryCount();
+        this._checkChatReviewQueue();
+      }
     } else {
       if (!this._historyRestored) this._restorePersistedHistory();
-      // When auth token first becomes available and panel is already rendered, load memory count
+      // Fallback: also trigger if auth somehow arrives after render
       if (!wasAuthed && hass?.auth?.data?.access_token) {
         this._loadMemoryCount();
         this._checkChatReviewQueue();
