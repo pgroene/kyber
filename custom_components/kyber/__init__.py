@@ -544,9 +544,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
 
 async def async_unload_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bool:
     """Unload a config entry."""
-    # Remove the debug panel if we registered one so reloads can re-evaluate.
+    # Remove panels so reloads and removals cleanly re-evaluate registration.
     try:
         from homeassistant.components.frontend import async_remove_panel
+        async_remove_panel(hass, "kyber")
         async_remove_panel(hass, "kyber-debug")
     except Exception:  # noqa: BLE001
         pass
