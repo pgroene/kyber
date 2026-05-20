@@ -622,60 +622,76 @@ export const STYLES = `
     padding: 1px 6px; border-radius: 3px; font-size: 10px;
   }
 
-  /* ── Review flow flashcard ── */
-  .review-flow {
-    background: var(--card-background-color);
-    border: 2px solid var(--warning-color, #ff9800);
-    border-radius: 8px; padding: 12px 14px; margin-bottom: 14px;
+  /* ── Review flow (compact rv-* classes) ── */
+  .chat-review-queue { border-bottom: 1px solid var(--divider-color, #3a3a3c); }
+  .rv-wrap {
+    background: var(--card-background-color, var(--secondary-background-color));
+    border-left: 3px solid var(--warning-color, #ff9800);
+    padding: 8px 10px;
   }
-  .review-flow-header {
-    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+  .rv-head {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;
   }
-  .review-flow-title {
-    font-weight: 600; font-size: 0.9em; color: var(--warning-color, #ff9800);
+  .rv-title {
+    font-weight: 600; font-size: 0.82em; color: var(--warning-color, #ff9800); white-space: nowrap;
   }
-  .review-flow-progress {
-    font-size: 0.82em; color: var(--secondary-text-color);
+  .rv-prog {
+    font-size: 0.78em; color: var(--secondary-text-color);
     background: var(--secondary-background-color, rgba(255,255,255,0.08));
-    padding: 2px 8px; border-radius: 10px; white-space: nowrap;
+    padding: 1px 6px; border-radius: 10px; white-space: nowrap;
   }
-  .review-flow-bar {
-    flex: 1; height: 4px; background: var(--divider-color, rgba(255,255,255,0.1));
-    border-radius: 2px; overflow: hidden;
+  .rv-bar {
+    flex: 1; height: 3px; background: var(--divider-color, rgba(255,255,255,0.1));
+    border-radius: 2px; overflow: hidden; min-width: 30px;
   }
-  .review-flow-bar-fill {
+  .rv-bar-fill {
     height: 100%; background: var(--warning-color, #ff9800);
     border-radius: 2px; transition: width 0.25s;
   }
-  .review-flow-card {
+  .rv-badge {
+    font-size: 0.75em; padding: 1px 7px; border-radius: 10px; cursor: pointer;
+    border: none; font-weight: 500; white-space: nowrap;
+  }
+  .rv-badge:hover { opacity: 0.8; }
+  .rv-badge--auto   { background: var(--success-color, #4caf50); color: #fff; }
+  .rv-badge--reject { background: var(--error-color, #f44336); color: #fff; }
+  .rv-card {
     background: var(--secondary-background-color, rgba(255,255,255,0.05));
-    border-radius: 6px; padding: 10px 12px; margin-bottom: 10px;
+    border-radius: 5px; padding: 6px 9px; margin-bottom: 6px;
   }
-  .review-flow-meta {
-    display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px;
+  .rv-content { font-size: 0.9em; line-height: 1.4; color: var(--primary-text-color); }
+  .rv-meta { font-size: 0.76em; color: var(--secondary-text-color); margin-top: 3px; }
+  .rv-actions {
+    display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-bottom: 5px;
   }
-  .review-flow-content {
-    font-size: 0.92em; line-height: 1.5; color: var(--primary-text-color);
+  .rv-btn {
+    padding: 3px 10px; border-radius: 5px; border: none; cursor: pointer;
+    font-size: 0.8em; font-weight: 500; transition: opacity 0.15s;
   }
-  .review-flow-actions {
-    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  .rv-btn:hover { opacity: 0.85; }
+  .rv-btn-approve { background: var(--success-color, #4caf50); color: #fff; }
+  .rv-btn-reject  { background: var(--error-color, #f44336); color: #fff; }
+  .rv-btn-skip    { background: transparent; color: var(--secondary-text-color); border: 1px solid var(--divider-color); }
+  .rv-skip-days {
+    font-size: 0.75em; color: var(--secondary-text-color); display: flex;
+    align-items: center; gap: 3px; margin-left: auto;
   }
-  .review-btn {
-    padding: 5px 14px; border-radius: 6px; border: none; cursor: pointer;
-    font-size: 0.85em; font-weight: 500; transition: opacity 0.15s;
-  }
-  .review-btn:hover { opacity: 0.85; }
-  .review-btn-approve { background: var(--success-color, #4caf50); color: #fff; }
-  .review-btn-reject  { background: var(--error-color, #f44336); color: #fff; }
-  .review-btn-skip    { background: var(--secondary-background-color, rgba(255,255,255,0.1)); color: var(--primary-text-color); border: 1px solid var(--divider-color); }
-  .review-skip-days-label {
-    font-size: 0.8em; color: var(--secondary-text-color); display: flex;
-    align-items: center; gap: 4px; margin-left: auto;
-  }
-  .review-skip-days-label input {
+  .rv-skip-days input {
     border: 1px solid var(--divider-color, #ccc); border-radius: 3px;
     background: transparent; color: var(--primary-text-color);
   }
+  .rv-bulk {
+    font-size: 0.78em; color: var(--secondary-text-color);
+    display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+    padding-top: 4px; border-top: 1px solid var(--divider-color, rgba(255,255,255,0.08));
+  }
+  .rv-bulk-btn {
+    padding: 2px 8px; border-radius: 4px; border: none; cursor: pointer;
+    font-size: 0.9em; font-weight: 500; transition: opacity 0.15s;
+  }
+  .rv-bulk-btn:hover { opacity: 0.8; }
+  .rv-bulk-approve { background: rgba(76,175,80,0.18); color: var(--success-color, #4caf50); border: 1px solid var(--success-color, #4caf50); }
+  .rv-bulk-reject  { background: rgba(244,67,54,0.12); color: var(--error-color, #f44336); border: 1px solid var(--error-color, #f44336); }
   .kn-conf { color: var(--secondary-text-color, #aaa); font-size: 10px; }
   .kn-stars { cursor: pointer; }
   .kn-star { color: #555; font-size: 12px; cursor: pointer; }
