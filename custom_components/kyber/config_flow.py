@@ -140,19 +140,25 @@ def _build_options_schema(
     narrator_ai_entity: str = "",
     area_assignment_mode: str = DEFAULT_AREA_ASSIGNMENT_MODE,
 ) -> vol.Schema:
-    """Step-2 / options schema: all settings except entity."""
+    """Options schema: all settings except entity."""
     return vol.Schema(
         {
-            vol.Optional(CONF_MAX_TOKENS, default=max_tokens): vol.All(
-                int, vol.Range(min=256, max=2_000_000)
+            vol.Optional(CONF_MAX_TOKENS, default=max_tokens): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=256, max=2_000_000, step=1, mode=selector.NumberSelectorMode.BOX
+                )
             ),
-            vol.Optional(CONF_ENABLE_DEBUG_VIEWS, default=enable_debug): bool,
-            vol.Optional(CONF_RUN_INITIAL_ANALYZE, default=run_initial_analyze): bool,
+            vol.Optional(CONF_ENABLE_DEBUG_VIEWS, default=enable_debug): selector.BooleanSelector(),
+            vol.Optional(CONF_RUN_INITIAL_ANALYZE, default=run_initial_analyze): selector.BooleanSelector(),
             vol.Optional(
                 CONF_INITIAL_DEEP_LEARNING_RUNS,
                 default=deep_learning_runs,
-            ): vol.All(int, vol.Range(min=1, max=10)),
-            vol.Optional(CONF_NARRATOR_ENABLED, default=narrator_enabled): bool,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=10, step=1, mode=selector.NumberSelectorMode.SLIDER
+                )
+            ),
+            vol.Optional(CONF_NARRATOR_ENABLED, default=narrator_enabled): selector.BooleanSelector(),
             vol.Optional(
                 CONF_NARRATOR_MAX_BATCH,
                 default=narrator_max_batch,
@@ -163,10 +169,9 @@ def _build_options_schema(
             ),
             vol.Optional(
                 CONF_NARRATOR_AI_TASK_ENTITY_ID,
-                default=narrator_ai_entity,
-            ): vol.Any("", selector.EntitySelector(
+            ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="ai_task")
-            )),
+            ),
             vol.Optional(
                 CONF_AREA_ASSIGNMENT_MODE,
                 default=area_assignment_mode,
