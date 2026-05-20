@@ -159,7 +159,20 @@ def _alias_is_plausible(
         | _tokens(manufacturer or "")
     )
 
-    return bool(term_tokens & entity_tokens)
+    intersection = term_tokens & entity_tokens
+    if not intersection:
+        return False
+
+    # Require at least one overlapping token that is NOT just the entity domain
+    # name.  Without this, any alias containing the word "light" would match
+    # every light entity — e.g. "light in the living room" would pass for
+    # light.light_slaapkamer_fedde_407 purely because "light" appears in both.
+    domain = entity_id.split(".")[0] if "." in entity_id else ""
+    domain_tokens = _tokens(domain)
+    if domain_tokens and intersection <= domain_tokens:
+        return False
+
+    return True
 
 
 def is_interesting(
