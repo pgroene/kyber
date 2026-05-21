@@ -356,7 +356,7 @@ async def _auto_record_search_alias(kstore: Any, query: str, entity_ids: list[st
         )
         _LOGGER.debug("Kyber: auto-saved search alias '%s' → %s", query, entity_str)
         return f"'{query}' → {entity_str}"
-    except Exception as err:  # noqa: BLE001
+    except BaseException as err:  # noqa: BLE001 — catch CancelledError too
         _LOGGER.debug("Kyber: auto-record search alias failed (non-critical): %s", err)
         return None
 
@@ -843,7 +843,7 @@ async def _run_ai_loop(
     history: list,
     intent: str,
 ) -> tuple:
-    """Run the AI tool-calling loop; return (response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions).
+    """Run the AI tool-calling loop; return (response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, aliases_saved).
 
     May raise HomeAssistantError if the AI provider fails.
     """
@@ -1389,7 +1389,7 @@ async def _run_ai_loop(
                 )
             break
 
-    return response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions
+    return response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved
 
 
 def _extract_response_components(
@@ -1843,7 +1843,7 @@ class KyberView(HomeAssistantView):
         _progress_emit(hass, request_id, {"type": "info", "message": f"Built context: {context_stats.get('entity_count', 0)} entities, {context_stats.get('area_count', 0)} areas"})
 
         try:
-            response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions = \
+            response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved = \
                 await _run_ai_loop(hass, entity_id, instructions, kstore, user_prompt, request_id, history, intent)
         except HomeAssistantError as err:
             _progress_complete(hass, request_id)
@@ -1857,7 +1857,8 @@ class KyberView(HomeAssistantView):
                 f"Internal error: {type(err).__name__}: {err}", HTTPStatus.INTERNAL_SERVER_ERROR
             )
 
-        components = _extract_response_components(response_text, intent, user_prompt, hass, tool_log)
+        try:
+            components = _extract_response_components(response_text, intent, user_prompt, hass, tool_log)
         response_text = components["response_text"]
         yaml_blocks = components["yaml_blocks"]
         plan_block = components["plan_block"]
@@ -2074,21 +2075,30 @@ class KyberView(HomeAssistantView):
                 except Exception as _prop2_err:  # noqa: BLE001
                     _LOGGER.debug("Kyber: plan proposal save failed (non-critical): %s", _prop2_err)
 
-        return self.json({
-            "response": response_text,
-            "yaml_blocks": yaml_blocks,
-            "plan": plan_block,
-            "clarify": clarify_block,
-            "context_stats": context_stats,
-            "tool_log": tool_log,
-            "knowledge_used": knowledge_used_ids,
-            "auto_rating": auto_rating,
-            "request_id": request_id,
-            "learned_fact": learned_fact,
-            "elapsed_ms": _total_ms,
-            "area_suggestions": area_suggestions or None,
-            "aliases_saved": _aliases_saved or None,
-        })
+            return self.json({
+                "response": response_text,
+                "yaml_blocks": yaml_blocks,
+                "plan": plan_block,
+                "clarify": clarify_block,
+                "context_stats": context_stats,
+                "tool_log": tool_log,
+                "knowledge_used": knowledge_used_ids,
+                "auto_rating": auto_rating,
+                "request_id": request_id,
+                "learned_fact": learned_fact,
+                "elapsed_ms": _total_ms,
+                "area_suggestions": area_suggestions or None,
+                "aliases_saved": _aliases_saved or None,
+            })
+        except Exception as _post_err:
+            _LOGGER.exception(
+                "Kyber: unhandled error in post-loop response building (type=%s): %s",
+                type(_post_err).__name__, _post_err,
+            )
+            return self.json_message(
+                f"Internal error: {type(_post_err).__name__}: {_post_err}",
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
 
 
 class KyberAreaSuggestionsView(HomeAssistantView):
@@ -2387,7 +2397,10 @@ class KyberLabelsView(HomeAssistantView):
                 "color": label.color or cfg.get("color", ""),
                 "entities": entities,
             }
-        return self.json(result)
+            return self.json(result)
+        except Exception as _err:
+            _LOGGER.exception("Kyber: unhandled error in KyberLabelsView.get (type=%s): %s", type(_err).__name__, _err)
+            return self.json_message(f"Internal error: {_err}", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
 class KyberProposalApproveView(HomeAssistantView):
