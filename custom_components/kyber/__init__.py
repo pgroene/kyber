@@ -504,7 +504,7 @@ def _make_update_listener() -> Any:
 async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bool:
     """Set up Kyber from a config entry."""
     config = {**entry.data, **(entry.options or {})}
-    _LOGGER.warning("Kyber: loading integration v0.4.5, panel v176")
+    _LOGGER.info("Kyber: loading integration v0.5.0")
 
     debug_enabled = _resolve_debug_enabled(entry)
     hass.data[_DEBUG_MODE_KEY] = debug_enabled
@@ -629,8 +629,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
 
     entry.async_on_unload(entry.add_update_listener(_make_update_listener()))
 
-    _LOGGER.warning(
-        "Kyber set up OK — panel registered, AI entity: %s, debug_views=%s",
+    _LOGGER.info(
+        "Kyber set up OK — AI entity: %s, debug_views=%s",
         config.get(CONF_AI_TASK_ENTITY_ID),
         debug_enabled,
     )

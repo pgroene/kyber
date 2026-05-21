@@ -76,6 +76,7 @@ try:
     # their real objects before any test file is imported.
     import custom_components.kyber as _kyber_pkg
     import custom_components.kyber.analyzer as _kyber_analyzer
+    import custom_components.kyber.api_utilities as _kyber_api_utilities
     import custom_components.kyber.const as _kyber_const_mod
     import custom_components.kyber.debug_and_diagnostics as _kyber_debug
     import custom_components.kyber.entity_narrator as _kyber_entity_narrator
@@ -113,6 +114,7 @@ try:
     _STUB_REPLACED_KYBER_MODULES = {
         "custom_components.kyber":                          _kyber_pkg,
         "custom_components.kyber.analyzer":                 _kyber_analyzer,
+        "custom_components.kyber.api_utilities":            _kyber_api_utilities,
         "custom_components.kyber.const":                    _kyber_const_mod,
         "custom_components.kyber.debug_and_diagnostics":    _kyber_debug,
         "custom_components.kyber.http_api":                 _kyber_http_api,
