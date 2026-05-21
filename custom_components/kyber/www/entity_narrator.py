@@ -728,6 +728,10 @@ async def async_narrate_entities(
             while elapsed < 45.0:
                 if hass.data.get(_CHAT_BUSY_KEY):
                     _ai_task.cancel()
+                    try:
+                        await _ai_task
+                    except asyncio.CancelledError:
+                        pass
                     _LOGGER.info("Kyber narrator: AI call cancelled mid-flight — chat active")
                     ai_failed = True
                     break
@@ -738,6 +742,10 @@ async def async_narrate_entities(
                     break
             if not ai_failed and raw is None:
                 _ai_task.cancel()
+                try:
+                    await _ai_task
+                except asyncio.CancelledError:
+                    pass
                 stats["errors"] += 1
                 ai_failed = True
             if not ai_failed:

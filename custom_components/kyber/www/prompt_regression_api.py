@@ -25,10 +25,10 @@ from .debug_and_diagnostics import _DEBUG_SNAPSHOTS_KEY as _DEBUG_TURNS_KEY
 
 _LOGGER = logging.getLogger(__name__)
 
-# Path to test case directories (relative to HA config dir, or absolute).
-# In practice the runner uses ROOT/tests/prompt_regression/cases, but the API
-# stores the cases path relative to the integration source root.
-_CASES_DIR = Path(__file__).resolve().parents[3] / "tests" / "prompt_regression" / "cases"
+
+def _cases_dir(hass: HomeAssistant) -> Path:
+    """Return the test-case storage directory, rooted in the HA config dir."""
+    return Path(hass.config.config_dir) / "kyber_regression_tests" / "cases"
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +138,9 @@ class KyberPromptTestsView(HomeAssistantView):
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
-        cases = _load_test_cases(_CASES_DIR)
+        hass: HomeAssistant = request.app["hass"]
+        cases_dir = _cases_dir(hass)
+        cases = _load_test_cases(cases_dir)
         result = []
         for case in cases:
             case_dir = Path(case["_dir"])
@@ -154,7 +156,7 @@ class KyberPromptTestsView(HomeAssistantView):
                 "last_run": last_run,
                 "run_count": len(history),
             })
-        return self.json({"cases": result, "count": len(result), "cases_dir": str(_CASES_DIR)})
+        return self.json({"cases": result, "count": len(result), "cases_dir": str(cases_dir)})
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +171,7 @@ class KyberPromptTestsRunView(HomeAssistantView):
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
         body: dict[str, Any] = {}
         try:
             body = await request.json()
@@ -179,7 +182,7 @@ class KyberPromptTestsRunView(HomeAssistantView):
         version = _kyber_version()
         model = body.get("model", "offline")
 
-        cases = _load_test_cases(_CASES_DIR)
+        cases = _load_test_cases(_cases_dir(hass))
         if case_id:
             cases = [c for c in cases if c.get("id") == case_id]
 
@@ -310,7 +313,7 @@ class KyberPromptTestsCaptureView(HomeAssistantView):
             })
 
         # Save files
-        case_dir = _CASES_DIR / case_id
+        case_dir = _cases_dir(hass) / case_id
         try:
             case_dir.mkdir(parents=True, exist_ok=True)
             (case_dir / "test.json").write_text(
@@ -324,7 +327,7 @@ class KyberPromptTestsCaptureView(HomeAssistantView):
             )
         except Exception as exc:
             _LOGGER.error("prompt_tests: failed to save test case: %s", exc)
-            return self.json_message(f"Failed to save: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return self.json({"error": f"Failed to save: {exc}"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
         return self.json({
             "id": case_id,
@@ -346,6 +349,7 @@ class KyberPromptTestsRegenerateView(HomeAssistantView):
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
         body: dict[str, Any] = {}
         try:
             body = await request.json()
@@ -353,7 +357,7 @@ class KyberPromptTestsRegenerateView(HomeAssistantView):
             pass
 
         case_id = body.get("case_id")
-        cases = _load_test_cases(_CASES_DIR)
+        cases = _load_test_cases(_cases_dir(hass))
         if case_id:
             cases = [c for c in cases if c.get("id") == case_id]
 

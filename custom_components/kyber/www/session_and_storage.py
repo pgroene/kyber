@@ -104,12 +104,25 @@ async def _async_load_chat_store(hass: HomeAssistant) -> dict[str, Any]:
         return data
     # Migrate users from old {history, compacted_summary} format to sessions format
     migrated = False
+    pre_migration_users: dict[str, Any] = {}
     for uid, udata in list(users.items()):
         if isinstance(udata, dict) and "sessions" not in udata and "history" in udata:
+            pre_migration_users[uid] = udata  # snapshot for rollback
             users[uid] = _migrate_user_to_sessions(udata)
             migrated = True
     if migrated:
-        await _async_save_chat_store(hass, data)
+        try:
+            await _async_save_chat_store(hass, data)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning(
+                "Kyber: chat history migration succeeded in memory but failed to persist "
+                "(%s). History will be re-migrated on next restart — no data is lost.",
+                err,
+            )
+            # Roll back in-memory changes so callers see the original format;
+            # the next startup will migrate again from the persisted old data.
+            for uid, original in pre_migration_users.items():
+                users[uid] = original
     return data
 
 

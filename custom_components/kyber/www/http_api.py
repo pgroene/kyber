@@ -32,6 +32,28 @@ from .const import (
     AUTOMATION_EDITOR_GUIDANCE,
     CONF_AI_TASK_ENTITY_ID,
     CONF_AREA_ASSIGNMENT_MODE,
+    CONF_CLOUD_PROVIDER,
+    CONF_CLOUD_USE_FOR_CHAT,
+    CLOUD_PROVIDER_ANTHROPIC,
+    CLOUD_PROVIDER_AZURE,
+    CLOUD_PROVIDER_OPENAI,
+    DEFAULT_CLOUD_PROVIDER,
+    DEFAULT_CLOUD_USE_FOR_CHAT,
+    CONF_AZURE_ENDPOINT,
+    CONF_AZURE_API_KEY,
+    CONF_AZURE_DEPLOYMENT,
+    CONF_AZURE_API_VERSION,
+    DEFAULT_AZURE_API_VERSION,
+    AZURE_MAX_TOKENS,
+    CONF_OPENAI_API_KEY,
+    CONF_OPENAI_MODEL,
+    CONF_OPENAI_BASE_URL,
+    DEFAULT_OPENAI_MODEL,
+    OPENAI_MAX_TOKENS,
+    CONF_ANTHROPIC_API_KEY,
+    CONF_ANTHROPIC_MODEL,
+    DEFAULT_ANTHROPIC_MODEL,
+    ANTHROPIC_MAX_TOKENS,
     CONF_LABEL_ASSIGNMENT_MODE,
     DOMAIN,
     KNOWLEDGE_BUDGET_CHARS,
@@ -100,7 +122,7 @@ from .api_utilities import (
     _PROGRESS_KEY,
     _progress_emit, _progress_complete,
     KyberProgressView, KyberSaveView, _SUMMARIZE_SYSTEM_PROMPT, KyberSummarizeView,
-    async_ai_call,
+    async_ai_call, async_azure_ai_call, async_openai_ai_call, async_anthropic_ai_call,
 )
 from .prompt_regression_api import (
     KyberPromptTestsView, KyberPromptTestsRunView,
@@ -842,102 +864,168 @@ async def _run_ai_loop(
     request_id: str,
     history: list,
     intent: str,
+    config: dict | None = None,
 ) -> tuple:
     """Run the AI tool-calling loop; return (response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, aliases_saved).
 
     May raise HomeAssistantError if the AI provider fails.
     """
+    _cfg = config or {}
+
+    # ── Cloud provider detection ──────────────────────────────────────────────
+    # Explicit cloud_provider key takes precedence; fall back to legacy Azure detection
+    _cloud_provider = str(_cfg.get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER)).strip()
+    _cloud_use_for_chat = bool(_cfg.get(CONF_CLOUD_USE_FOR_CHAT, DEFAULT_CLOUD_USE_FOR_CHAT))
+
+    _azure_endpoint = str(_cfg.get(CONF_AZURE_ENDPOINT, "")).strip()
+    _azure_api_key = str(_cfg.get(CONF_AZURE_API_KEY, "")).strip()
+    _azure_deployment = str(_cfg.get(CONF_AZURE_DEPLOYMENT, "")).strip()
+    _azure_api_version = str(_cfg.get(CONF_AZURE_API_VERSION, DEFAULT_AZURE_API_VERSION)).strip() or DEFAULT_AZURE_API_VERSION
+
+    _openai_api_key = str(_cfg.get(CONF_OPENAI_API_KEY, "")).strip()
+    _openai_model = str(_cfg.get(CONF_OPENAI_MODEL, DEFAULT_OPENAI_MODEL)).strip() or DEFAULT_OPENAI_MODEL
+    _openai_base_url = str(_cfg.get(CONF_OPENAI_BASE_URL, "")).strip()
+
+    _anthropic_api_key = str(_cfg.get(CONF_ANTHROPIC_API_KEY, "")).strip()
+    _anthropic_model = str(_cfg.get(CONF_ANTHROPIC_MODEL, DEFAULT_ANTHROPIC_MODEL)).strip() or DEFAULT_ANTHROPIC_MODEL
+
+    # Backward compat: if cloud_provider not yet set but azure credentials present, treat as azure
+    if _cloud_provider == DEFAULT_CLOUD_PROVIDER and _azure_endpoint and _azure_api_key and _azure_deployment:
+        _cloud_provider = CLOUD_PROVIDER_AZURE
+        _cloud_use_for_chat = True
+
+    _use_azure = _cloud_use_for_chat and _cloud_provider == CLOUD_PROVIDER_AZURE and bool(_azure_endpoint and _azure_api_key and _azure_deployment)
+    _use_openai = _cloud_use_for_chat and _cloud_provider == CLOUD_PROVIDER_OPENAI and bool(_openai_api_key)
+    _use_anthropic = _cloud_use_for_chat and _cloud_provider == CLOUD_PROVIDER_ANTHROPIC and bool(_anthropic_api_key)
+
     # Qwen3 thinking mode emits <think>…</think> blocks that break plan/tool parsing.
     if "qwen3" in entity_id.lower():
         instructions = "/no_think\n" + instructions
 
     # ── Pre-flight: log entity state + check Ollama health ───────────────────
-    _entity_state = hass.states.get(entity_id)
-    _entity_state_str = _entity_state.state if _entity_state else "not_found"
-    _entity_attrs = dict(_entity_state.attributes) if _entity_state else {}
-    _model_name = (
-        _entity_attrs.get("model_id") or _entity_attrs.get("model")
-        or _entity_attrs.get("model_name")
-    )
-    # If entity attrs didn't give us a model name, try the config entry directly
-    if not _model_name:
-        try:
-            from homeassistant.helpers import entity_registry as _er
-            _ent_reg = _er.async_get(hass)
-            _ent_entry = _ent_reg.async_get(entity_id)
-            if _ent_entry and _ent_entry.config_entry_id:
-                _cfg = hass.config_entries.async_get_entry(_ent_entry.config_entry_id)
-                if _cfg:
-                    _cfg_data = dict(_cfg.data or {})
-                    _model_name = _cfg_data.get("model") or _cfg_data.get("model_name")
-        except Exception:  # noqa: BLE001
-            pass
-    _model_name = _model_name or entity_id
-    _LOGGER.info(
-        "Kyber: AI pre-flight — entity=%s state=%s model=%s",
-        entity_id, _entity_state_str, _model_name,
-    )
-
-    # Warn immediately if the entity is unavailable
-    if _entity_state_str in ("unavailable", "unknown", "not_found"):
-        _LOGGER.warning(
-            "Kyber: AI entity '%s' is %s — request will likely fail",
-            entity_id, _entity_state_str,
-        )
-        _progress_emit(hass, request_id, {
-            "type": "warning",
-            "message": f"⚠️ AI entity '{entity_id}' is {_entity_state_str}. Ollama may be offline.",
-        })
-
-    # Check Ollama health asynchronously (non-blocking — we still proceed)
-    _health = await _check_ollama_health(hass, entity_id)
-    if _health.get("error"):
-        _LOGGER.warning("Kyber: Ollama health check: %s", _health["error"])
-        _progress_emit(hass, request_id, {
-            "type": "warning",
-            "message": f"⚠️ Ollama: {_health['error']}",
-        })
-    else:
-        _running = _health.get("running_models", [])
-        _model_names = [m.get("name", "?") for m in _running]
-        _available = _health.get("available_models", [])
-        _ollama_url = _health.get("ollama_url", "unknown")
+    if _use_azure:
+        _model_name = f"azure/{_azure_deployment}"
         _LOGGER.info(
-            "Kyber: Ollama reachable — endpoint=%s | entity=%s | configured model=%s | %d loaded: %s | %d pulled: %s",
-            _ollama_url, entity_id, _model_name,
-            len(_running), ", ".join(_model_names) or "none",
-            len(_available), ", ".join(_available) or "none",
+            "Kyber: AI pre-flight — provider=Azure endpoint=%s deployment=%s",
+            _azure_endpoint, _azure_deployment,
         )
         _progress_emit(hass, request_id, {
             "type": "debug",
-            "message": (
-                f"[AI→] endpoint={_ollama_url} entity={entity_id} "
-                f"model={_model_name} | pulled: {', '.join(_available) or 'none'}"
-            ),
+            "message": f"[AI→] provider=Azure endpoint={_azure_endpoint} deployment={_azure_deployment}",
         })
-        # Warn if the configured model isn't pulled at all.
-        # Skip this check if we couldn't resolve the model name (fell back to entity_id).
-        _model_base = _model_name.split(":")[0].lower()
-        _pulled_bases = [m.split(":")[0].lower() for m in _available]
-        _model_is_entity_id = _model_name == entity_id
-        if _available and not _model_is_entity_id and _model_base not in _pulled_bases:
+    elif _use_openai:
+        _model_name = f"openai/{_openai_model}"
+        _LOGGER.info(
+            "Kyber: AI pre-flight — provider=OpenAI model=%s base_url=%s",
+            _openai_model, _openai_base_url or "https://api.openai.com",
+        )
+        _progress_emit(hass, request_id, {
+            "type": "debug",
+            "message": f"[AI→] provider=OpenAI model={_openai_model}",
+        })
+    elif _use_anthropic:
+        _model_name = f"anthropic/{_anthropic_model}"
+        _LOGGER.info(
+            "Kyber: AI pre-flight — provider=Anthropic model=%s",
+            _anthropic_model,
+        )
+        _progress_emit(hass, request_id, {
+            "type": "debug",
+            "message": f"[AI→] provider=Anthropic model={_anthropic_model}",
+        })
+    else:
+        _entity_state = hass.states.get(entity_id)
+        _entity_state_str = _entity_state.state if _entity_state else "not_found"
+        _entity_attrs = dict(_entity_state.attributes) if _entity_state else {}
+        _model_name = (
+            _entity_attrs.get("model_id") or _entity_attrs.get("model")
+            or _entity_attrs.get("model_name")
+        )
+        # If entity attrs didn't give us a model name, try the config entry directly
+        if not _model_name:
+            try:
+                from homeassistant.helpers import entity_registry as _er
+                _ent_reg = _er.async_get(hass)
+                _ent_entry = _ent_reg.async_get(entity_id)
+                if _ent_entry and _ent_entry.config_entry_id:
+                    _entry_cfg = hass.config_entries.async_get_entry(_ent_entry.config_entry_id)
+                    if _entry_cfg:
+                        _entry_data = dict(_entry_cfg.data or {})
+                        _model_name = _entry_data.get("model") or _entry_data.get("model_name")
+            except Exception:  # noqa: BLE001
+                pass
+        _model_name = _model_name or entity_id
+        _LOGGER.info(
+            "Kyber: AI pre-flight — entity=%s state=%s model=%s",
+            entity_id, _entity_state_str, _model_name,
+        )
+
+        # Warn immediately if the entity is unavailable
+        if _entity_state_str in ("unavailable", "unknown", "not_found"):
             _LOGGER.warning(
-                "Kyber: model '%s' is not pulled — run `ollama pull %s`",
-                _model_name, _model_base,
+                "Kyber: AI entity '%s' is %s — request will likely fail",
+                entity_id, _entity_state_str,
             )
             _progress_emit(hass, request_id, {
                 "type": "warning",
+                "message": f"⚠️ AI entity '{entity_id}' is {_entity_state_str}. Ollama may be offline.",
+            })
+
+        # Check Ollama health asynchronously (non-blocking — we still proceed)
+        _health = await _check_ollama_health(hass, entity_id)
+        if _health.get("error"):
+            _LOGGER.warning("Kyber: Ollama health check: %s", _health["error"])
+            _progress_emit(hass, request_id, {
+                "type": "warning",
+                "message": f"⚠️ Ollama: {_health['error']}",
+            })
+        else:
+            _running = _health.get("running_models", [])
+            _model_names = [m.get("name", "?") for m in _running]
+            _available = _health.get("available_models", [])
+            _ollama_url = _health.get("ollama_url", "unknown")
+            _LOGGER.info(
+                "Kyber: Ollama reachable — endpoint=%s | entity=%s | configured model=%s | %d loaded: %s | %d pulled: %s",
+                _ollama_url, entity_id, _model_name,
+                len(_running), ", ".join(_model_names) or "none",
+                len(_available), ", ".join(_available) or "none",
+            )
+            _progress_emit(hass, request_id, {
+                "type": "debug",
                 "message": (
-                    f"⚠️ Model '{_model_name}' is not pulled. "
-                    f"Run `ollama pull {_model_base}` on your Ollama host. "
-                    f"Pulled models: {', '.join(_available) or 'none'}"
+                    f"[AI→] endpoint={_ollama_url} entity={entity_id} "
+                    f"model={_model_name} | pulled: {', '.join(_available) or 'none'}"
                 ),
             })
+            # Warn if the configured model isn't pulled at all.
+            # Skip this check if we couldn't resolve the model name (fell back to entity_id).
+            _model_base = _model_name.split(":")[0].lower()
+            _pulled_bases = [m.split(":")[0].lower() for m in _available]
+            _model_is_entity_id = _model_name == entity_id
+            if _available and not _model_is_entity_id and _model_base not in _pulled_bases:
+                _LOGGER.warning(
+                    "Kyber: model '%s' is not pulled — run `ollama pull %s`",
+                    _model_name, _model_base,
+                )
+                _progress_emit(hass, request_id, {
+                    "type": "warning",
+                    "message": (
+                        f"⚠️ Model '{_model_name}' is not pulled. "
+                        f"Run `ollama pull {_model_base}` on your Ollama host. "
+                        f"Pulled models: {', '.join(_available) or 'none'}"
+                    ),
+                })
     # ─────────────────────────────────────────────────────────────────────────
 
     # Determine the actual context window for this AI entity (reads num_ctx / context_length
     # from entity state attributes, falls back to model-name lookup, then DEFAULT_MAX_TOKENS).
-    _ctx_window: int = _infer_max_tokens(hass, entity_id)
+    # Azure OpenAI deployments support up to 128K tokens.
+    _ctx_window: int = (
+        AZURE_MAX_TOKENS if _use_azure else
+        OPENAI_MAX_TOKENS if _use_openai else
+        ANTHROPIC_MAX_TOKENS if _use_anthropic else
+        _infer_max_tokens(hass, entity_id)
+    )
     _ctx_warn_tokens: int = int(_ctx_window * 0.85)   # 85 % fill → warn
     _ctx_hint_tokens: int = int(_ctx_window * 0.75)   # 75 % fill → inject brief-reply hint
 
@@ -1002,15 +1090,52 @@ async def _run_ai_loop(
         _t_start = time.monotonic()
         _AI_CALL_TIMEOUT = 180  # seconds — Ollama can be slow on loaded hardware
         try:
-            result = await asyncio.wait_for(
-                async_ai_call(
-                    hass,
-                    task_name=f"{DOMAIN}_complete",
-                    entity_id=entity_id,
-                    instructions=loop_instructions,
-                ),
-                timeout=_AI_CALL_TIMEOUT,
-            )
+            if _use_azure:
+                result = await asyncio.wait_for(
+                    async_azure_ai_call(
+                        task_name=f"{DOMAIN}_complete",
+                        endpoint=_azure_endpoint,
+                        api_key=_azure_api_key,
+                        deployment=_azure_deployment,
+                        api_version=_azure_api_version,
+                        instructions=loop_instructions,
+                        history=history,
+                    ),
+                    timeout=_AI_CALL_TIMEOUT,
+                )
+            elif _use_openai:
+                result = await asyncio.wait_for(
+                    async_openai_ai_call(
+                        task_name=f"{DOMAIN}_complete",
+                        api_key=_openai_api_key,
+                        model=_openai_model,
+                        base_url=_openai_base_url or None,
+                        instructions=loop_instructions,
+                        history=history,
+                    ),
+                    timeout=_AI_CALL_TIMEOUT,
+                )
+            elif _use_anthropic:
+                result = await asyncio.wait_for(
+                    async_anthropic_ai_call(
+                        task_name=f"{DOMAIN}_complete",
+                        api_key=_anthropic_api_key,
+                        model=_anthropic_model,
+                        instructions=loop_instructions,
+                        history=history,
+                    ),
+                    timeout=_AI_CALL_TIMEOUT,
+                )
+            else:
+                result = await asyncio.wait_for(
+                    async_ai_call(
+                        hass,
+                        task_name=f"{DOMAIN}_complete",
+                        entity_id=entity_id,
+                        instructions=loop_instructions,
+                    ),
+                    timeout=_AI_CALL_TIMEOUT,
+                )
         except asyncio.TimeoutError:
             _elapsed_ms = int((time.monotonic() - _t_start) * 1000)
             _record_model_call(hass, entity_id, _elapsed_ms, 0, success=False)
@@ -1360,12 +1485,50 @@ async def _run_ai_loop(
                 try:
                     _progress_emit(hass, request_id, {"type": "thinking", "stage": "synthesize"})
                     _t_synth = time.monotonic()
-                    synth_result = await async_ai_call(
-                        hass,
-                        task_name=f"{DOMAIN}_complete",
-                        entity_id=entity_id,
-                        instructions=synth_prompt,
-                    )
+                    # Route synthesis through the same provider as the main loop
+                    if _use_azure:
+                        synth_result = await asyncio.wait_for(
+                            async_azure_ai_call(
+                                task_name=f"{DOMAIN}_complete",
+                                endpoint=_azure_endpoint,
+                                api_key=_azure_api_key,
+                                deployment=_azure_deployment,
+                                api_version=_azure_api_version,
+                                instructions=synth_prompt,
+                                history=[],
+                            ),
+                            timeout=_AI_CALL_TIMEOUT,
+                        )
+                    elif _use_openai:
+                        synth_result = await asyncio.wait_for(
+                            async_openai_ai_call(
+                                task_name=f"{DOMAIN}_complete",
+                                api_key=_openai_api_key,
+                                model=_openai_model,
+                                base_url=_openai_base_url or None,
+                                instructions=synth_prompt,
+                                history=[],
+                            ),
+                            timeout=_AI_CALL_TIMEOUT,
+                        )
+                    elif _use_anthropic:
+                        synth_result = await asyncio.wait_for(
+                            async_anthropic_ai_call(
+                                task_name=f"{DOMAIN}_complete",
+                                api_key=_anthropic_api_key,
+                                model=_anthropic_model,
+                                instructions=synth_prompt,
+                                history=[],
+                            ),
+                            timeout=_AI_CALL_TIMEOUT,
+                        )
+                    else:
+                        synth_result = await async_ai_call(
+                            hass,
+                            task_name=f"{DOMAIN}_complete",
+                            entity_id=entity_id,
+                            instructions=synth_prompt,
+                        )
                     _synth_ms = int((time.monotonic() - _t_synth) * 1000)
                     synth_text = (
                         synth_result.data
@@ -1844,25 +2007,38 @@ class KyberView(HomeAssistantView):
 
         try:
             response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved = \
-                await _run_ai_loop(hass, entity_id, instructions, kstore, user_prompt, request_id, history, intent)
+                await _run_ai_loop(hass, entity_id, instructions, kstore, user_prompt, request_id, history, intent, config=self._config)
         except HomeAssistantError as err:
             _progress_complete(hass, request_id)
+            _debug_detach_log_capture(_debug_log_handler)
+            hass.data[_CHAT_BUSY_KEY] = False
+            hass.data.get("kyber_preempt_event", None) and hass.data["kyber_preempt_event"].clear()
             return self.json_message(
                 f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
             )
         except Exception as err:  # noqa: BLE001
             _LOGGER.exception("Kyber: unexpected error during AI loop (type=%s)", type(err).__name__)
             _progress_complete(hass, request_id)
+            _debug_detach_log_capture(_debug_log_handler)
+            hass.data[_CHAT_BUSY_KEY] = False
+            hass.data.get("kyber_preempt_event", None) and hass.data["kyber_preempt_event"].clear()
             return self.json_message(
                 f"Internal error: {type(err).__name__}: {err}", HTTPStatus.INTERNAL_SERVER_ERROR
             )
 
         try:
             components = _extract_response_components(response_text, intent, user_prompt, hass, tool_log)
-        response_text = components["response_text"]
-        yaml_blocks = components["yaml_blocks"]
-        plan_block = components["plan_block"]
-        clarify_block = components["clarify_block"]
+            response_text = components["response_text"]
+            yaml_blocks = components["yaml_blocks"]
+            plan_block = components["plan_block"]
+            clarify_block = components["clarify_block"]
+        except Exception as _ce:  # noqa: BLE001
+            _LOGGER.exception("Kyber: _extract_response_components failed (type=%s): %s", type(_ce).__name__, _ce)
+            _progress_complete(hass, request_id)
+            _debug_detach_log_capture(_debug_log_handler)
+            hass.data[_CHAT_BUSY_KEY] = False
+            hass.data.get("kyber_preempt_event", None) and hass.data["kyber_preempt_event"].clear()
+            return self.json_message(f"Internal error: {type(_ce).__name__}: {_ce}", HTTPStatus.INTERNAL_SERVER_ERROR)
 
         _progress_complete(hass, request_id)
         plan_block = _annotate_plan_approval(plan_block)
@@ -2075,30 +2251,21 @@ class KyberView(HomeAssistantView):
                 except Exception as _prop2_err:  # noqa: BLE001
                     _LOGGER.debug("Kyber: plan proposal save failed (non-critical): %s", _prop2_err)
 
-            return self.json({
-                "response": response_text,
-                "yaml_blocks": yaml_blocks,
-                "plan": plan_block,
-                "clarify": clarify_block,
-                "context_stats": context_stats,
-                "tool_log": tool_log,
-                "knowledge_used": knowledge_used_ids,
-                "auto_rating": auto_rating,
-                "request_id": request_id,
-                "learned_fact": learned_fact,
-                "elapsed_ms": _total_ms,
-                "area_suggestions": area_suggestions or None,
-                "aliases_saved": _aliases_saved or None,
-            })
-        except Exception as _post_err:
-            _LOGGER.exception(
-                "Kyber: unhandled error in post-loop response building (type=%s): %s",
-                type(_post_err).__name__, _post_err,
-            )
-            return self.json_message(
-                f"Internal error: {type(_post_err).__name__}: {_post_err}",
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-            )
+        return self.json({
+            "response": response_text,
+            "yaml_blocks": yaml_blocks,
+            "plan": plan_block,
+            "clarify": clarify_block,
+            "context_stats": context_stats,
+            "tool_log": tool_log,
+            "knowledge_used": knowledge_used_ids,
+            "auto_rating": auto_rating,
+            "request_id": request_id,
+            "learned_fact": learned_fact,
+            "elapsed_ms": _total_ms,
+            "area_suggestions": area_suggestions or None,
+            "aliases_saved": _aliases_saved or None,
+        })
 
 
 class KyberAreaSuggestionsView(HomeAssistantView):
@@ -2397,6 +2564,7 @@ class KyberLabelsView(HomeAssistantView):
                 "color": label.color or cfg.get("color", ""),
                 "entities": entities,
             }
+        try:
             return self.json(result)
         except Exception as _err:
             _LOGGER.exception("Kyber: unhandled error in KyberLabelsView.get (type=%s): %s", type(_err).__name__, _err)

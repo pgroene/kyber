@@ -17,6 +17,7 @@ from homeassistant.helpers import selector
 
 # Section keys — used as dict keys in user_input when form is submitted
 _SECTION_MODEL = "model_config"
+_SECTION_CLOUD = "cloud_config"
 _SECTION_AGENTS = "agents"
 _SECTION_AREA = "area_assignment"
 _SECTION_DEVELOPER = "developer"
@@ -24,6 +25,26 @@ _SECTION_DEVELOPER = "developer"
 from .const import (
     CONF_AI_TASK_ENTITY_ID,
     CONF_NARRATOR_AI_TASK_ENTITY_ID,
+    CONF_CLOUD_PROVIDER,
+    CONF_CLOUD_USE_FOR_CHAT,
+    CLOUD_PROVIDER_NONE,
+    CLOUD_PROVIDER_AZURE,
+    CLOUD_PROVIDER_OPENAI,
+    CLOUD_PROVIDER_ANTHROPIC,
+    DEFAULT_CLOUD_PROVIDER,
+    DEFAULT_CLOUD_USE_FOR_CHAT,
+    CONF_AZURE_ENDPOINT,
+    CONF_AZURE_API_KEY,
+    CONF_AZURE_DEPLOYMENT,
+    CONF_AZURE_API_VERSION,
+    DEFAULT_AZURE_API_VERSION,
+    CONF_OPENAI_API_KEY,
+    CONF_OPENAI_MODEL,
+    CONF_OPENAI_BASE_URL,
+    DEFAULT_OPENAI_MODEL,
+    CONF_ANTHROPIC_API_KEY,
+    CONF_ANTHROPIC_MODEL,
+    DEFAULT_ANTHROPIC_MODEL,
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_MAX_TOKENS,
@@ -174,6 +195,17 @@ def _build_options_schema(
     narrator_max_limit: int = 2_000_000,
     area_assignment_mode: str = DEFAULT_AREA_ASSIGNMENT_MODE,
     label_assignment_mode: str = DEFAULT_LABEL_ASSIGNMENT_MODE,
+    cloud_provider: str = DEFAULT_CLOUD_PROVIDER,
+    cloud_use_for_chat: bool = DEFAULT_CLOUD_USE_FOR_CHAT,
+    azure_endpoint: str = "",
+    azure_api_key: str = "",
+    azure_deployment: str = "",
+    azure_api_version: str = DEFAULT_AZURE_API_VERSION,
+    openai_api_key: str = "",
+    openai_model: str = DEFAULT_OPENAI_MODEL,
+    openai_base_url: str = "",
+    anthropic_api_key: str = "",
+    anthropic_model: str = DEFAULT_ANTHROPIC_MODEL,
 ) -> vol.Schema:
     """Options schema grouped into sections."""
     model_fields: dict = {}
@@ -200,11 +232,50 @@ def _build_options_schema(
         )
     )
 
+    # Cloud provider fields — select provider, optionally use for chat, then provider-specific credentials
+    _azure_endpoint_key = vol.Optional(CONF_AZURE_ENDPOINT, default=azure_endpoint) if azure_endpoint else vol.Optional(CONF_AZURE_ENDPOINT)
+    _azure_key_key = vol.Optional(CONF_AZURE_API_KEY, default=azure_api_key) if azure_api_key else vol.Optional(CONF_AZURE_API_KEY)
+    _azure_dep_key = vol.Optional(CONF_AZURE_DEPLOYMENT, default=azure_deployment) if azure_deployment else vol.Optional(CONF_AZURE_DEPLOYMENT)
+    _openai_key_key = vol.Optional(CONF_OPENAI_API_KEY, default=openai_api_key) if openai_api_key else vol.Optional(CONF_OPENAI_API_KEY)
+    _openai_base_key = vol.Optional(CONF_OPENAI_BASE_URL, default=openai_base_url) if openai_base_url else vol.Optional(CONF_OPENAI_BASE_URL)
+    _anthropic_key_key = vol.Optional(CONF_ANTHROPIC_API_KEY, default=anthropic_api_key) if anthropic_api_key else vol.Optional(CONF_ANTHROPIC_API_KEY)
+
+    cloud_fields: dict = {
+        vol.Optional(CONF_CLOUD_PROVIDER, default=cloud_provider): selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    {"value": CLOUD_PROVIDER_NONE, "label": "None (use local HA ai_task entity)"},
+                    {"value": CLOUD_PROVIDER_AZURE, "label": "Azure AI Foundry"},
+                    {"value": CLOUD_PROVIDER_OPENAI, "label": "OpenAI (or compatible: Groq, Mistral, OpenRouter…)"},
+                    {"value": CLOUD_PROVIDER_ANTHROPIC, "label": "Anthropic (Claude)"},
+                ],
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        ),
+        vol.Optional(CONF_CLOUD_USE_FOR_CHAT, default=cloud_use_for_chat): selector.BooleanSelector(),
+        # Azure AI Foundry credentials
+        _azure_endpoint_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
+        _azure_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+        _azure_dep_key: selector.TextSelector(),
+        vol.Optional(CONF_AZURE_API_VERSION, default=azure_api_version): selector.TextSelector(),
+        # OpenAI credentials (also works for Groq, Mistral, OpenRouter etc. via base URL)
+        _openai_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+        vol.Optional(CONF_OPENAI_MODEL, default=openai_model): selector.TextSelector(),
+        _openai_base_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
+        # Anthropic (Claude) credentials
+        _anthropic_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+        vol.Optional(CONF_ANTHROPIC_MODEL, default=anthropic_model): selector.TextSelector(),
+    }
+
     return vol.Schema(
         {
             vol.Optional(_SECTION_MODEL): section(
                 vol.Schema(model_fields),
                 {"collapsed": collapsed},
+            ),
+            vol.Optional(_SECTION_CLOUD): section(
+                vol.Schema(cloud_fields),
+                {"collapsed": True},
             ),
             vol.Optional(_SECTION_AGENTS): section(
                 vol.Schema(
@@ -389,6 +460,7 @@ class KyberOptionsFlow(OptionsFlow):
             agents = user_input.get(_SECTION_AGENTS, {})
             area = user_input.get(_SECTION_AREA, {})
             developer = user_input.get(_SECTION_DEVELOPER, {})
+            cloud = user_input.get(_SECTION_CLOUD, {})
 
             new_entity_id = str(model.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
             current_entity_id = str(self.config_entry.data.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
@@ -407,18 +479,29 @@ class KyberOptionsFlow(OptionsFlow):
                 )
 
             data: dict[str, Any] = {
-                CONF_MAX_TOKENS: int(model.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)),
-                CONF_NARRATOR_AI_TASK_ENTITY_ID: str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip(),
-                CONF_NARRATOR_MAX_TOKENS: int(model.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS)),
-                CONF_RUN_INITIAL_ANALYZE: bool(agents.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),
-                CONF_DEEP_LEARNING_INTERVAL_DAYS: int(agents.get(CONF_DEEP_LEARNING_INTERVAL_DAYS, DEFAULT_DEEP_LEARNING_INTERVAL_DAYS)),
-                CONF_DEEP_LEARNING_MAX_BATCH: int(agents.get(CONF_DEEP_LEARNING_MAX_BATCH, DEFAULT_DEEP_LEARNING_MAX_BATCH)),
-                CONF_NARRATOR_ENABLED: bool(agents.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED)),
-                CONF_NARRATOR_MAX_BATCH: int(agents.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)),
-                CONF_NARRATOR_INTERVAL_DAYS: int(agents.get(CONF_NARRATOR_INTERVAL_DAYS, DEFAULT_NARRATOR_INTERVAL_DAYS)),
-                CONF_AREA_ASSIGNMENT_MODE: str(area.get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE)),
-                CONF_LABEL_ASSIGNMENT_MODE: str(area.get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE)),
-                CONF_ENABLE_DEBUG_VIEWS: bool(developer.get(CONF_ENABLE_DEBUG_VIEWS, False)),
+                CONF_MAX_TOKENS: int(model.get(CONF_MAX_TOKENS, _get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS))),
+                CONF_NARRATOR_AI_TASK_ENTITY_ID: str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, _get(CONF_NARRATOR_AI_TASK_ENTITY_ID, ""))).strip(),
+                CONF_NARRATOR_MAX_TOKENS: int(model.get(CONF_NARRATOR_MAX_TOKENS, _get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS))),
+                CONF_RUN_INITIAL_ANALYZE: bool(agents.get(CONF_RUN_INITIAL_ANALYZE, _get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE))),
+                CONF_DEEP_LEARNING_INTERVAL_DAYS: int(agents.get(CONF_DEEP_LEARNING_INTERVAL_DAYS, _get(CONF_DEEP_LEARNING_INTERVAL_DAYS, DEFAULT_DEEP_LEARNING_INTERVAL_DAYS))),
+                CONF_DEEP_LEARNING_MAX_BATCH: int(agents.get(CONF_DEEP_LEARNING_MAX_BATCH, _get(CONF_DEEP_LEARNING_MAX_BATCH, DEFAULT_DEEP_LEARNING_MAX_BATCH))),
+                CONF_NARRATOR_ENABLED: bool(agents.get(CONF_NARRATOR_ENABLED, _get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED))),
+                CONF_NARRATOR_MAX_BATCH: int(agents.get(CONF_NARRATOR_MAX_BATCH, _get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH))),
+                CONF_NARRATOR_INTERVAL_DAYS: int(agents.get(CONF_NARRATOR_INTERVAL_DAYS, _get(CONF_NARRATOR_INTERVAL_DAYS, DEFAULT_NARRATOR_INTERVAL_DAYS))),
+                CONF_AREA_ASSIGNMENT_MODE: str(area.get(CONF_AREA_ASSIGNMENT_MODE, _get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE))),
+                CONF_LABEL_ASSIGNMENT_MODE: str(area.get(CONF_LABEL_ASSIGNMENT_MODE, _get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE))),
+                CONF_ENABLE_DEBUG_VIEWS: bool(developer.get(CONF_ENABLE_DEBUG_VIEWS, _get(CONF_ENABLE_DEBUG_VIEWS, False))),
+                CONF_CLOUD_PROVIDER: str(cloud.get(CONF_CLOUD_PROVIDER, _get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER))).strip(),
+                CONF_CLOUD_USE_FOR_CHAT: bool(cloud.get(CONF_CLOUD_USE_FOR_CHAT, _get(CONF_CLOUD_USE_FOR_CHAT, DEFAULT_CLOUD_USE_FOR_CHAT))),
+                CONF_AZURE_ENDPOINT: str(cloud.get(CONF_AZURE_ENDPOINT, _get(CONF_AZURE_ENDPOINT, ""))).strip(),
+                CONF_AZURE_API_KEY: str(cloud.get(CONF_AZURE_API_KEY, _get(CONF_AZURE_API_KEY, ""))).strip(),
+                CONF_AZURE_DEPLOYMENT: str(cloud.get(CONF_AZURE_DEPLOYMENT, _get(CONF_AZURE_DEPLOYMENT, ""))).strip(),
+                CONF_AZURE_API_VERSION: str(cloud.get(CONF_AZURE_API_VERSION, _get(CONF_AZURE_API_VERSION, DEFAULT_AZURE_API_VERSION))).strip(),
+                CONF_OPENAI_API_KEY: str(cloud.get(CONF_OPENAI_API_KEY, _get(CONF_OPENAI_API_KEY, ""))).strip(),
+                CONF_OPENAI_MODEL: str(cloud.get(CONF_OPENAI_MODEL, _get(CONF_OPENAI_MODEL, DEFAULT_OPENAI_MODEL))).strip(),
+                CONF_OPENAI_BASE_URL: str(cloud.get(CONF_OPENAI_BASE_URL, _get(CONF_OPENAI_BASE_URL, ""))).strip(),
+                CONF_ANTHROPIC_API_KEY: str(cloud.get(CONF_ANTHROPIC_API_KEY, _get(CONF_ANTHROPIC_API_KEY, ""))).strip(),
+                CONF_ANTHROPIC_MODEL: str(cloud.get(CONF_ANTHROPIC_MODEL, _get(CONF_ANTHROPIC_MODEL, DEFAULT_ANTHROPIC_MODEL))).strip(),
             }
             if new_entity_id:
                 data[CONF_AI_TASK_ENTITY_ID] = new_entity_id
@@ -456,6 +539,17 @@ class KyberOptionsFlow(OptionsFlow):
             narrator_max_limit=narrator_max_limit,
             area_assignment_mode=str(_get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE)),
             label_assignment_mode=str(_get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE)),
+            cloud_provider=str(_get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER)),
+            cloud_use_for_chat=bool(_get(CONF_CLOUD_USE_FOR_CHAT, DEFAULT_CLOUD_USE_FOR_CHAT)),
+            azure_endpoint=str(_get(CONF_AZURE_ENDPOINT, "")),
+            azure_api_key=str(_get(CONF_AZURE_API_KEY, "")),
+            azure_deployment=str(_get(CONF_AZURE_DEPLOYMENT, "")),
+            azure_api_version=str(_get(CONF_AZURE_API_VERSION, DEFAULT_AZURE_API_VERSION)),
+            openai_api_key=str(_get(CONF_OPENAI_API_KEY, "")),
+            openai_model=str(_get(CONF_OPENAI_MODEL, DEFAULT_OPENAI_MODEL)),
+            openai_base_url=str(_get(CONF_OPENAI_BASE_URL, "")),
+            anthropic_api_key=str(_get(CONF_ANTHROPIC_API_KEY, "")),
+            anthropic_model=str(_get(CONF_ANTHROPIC_MODEL, DEFAULT_ANTHROPIC_MODEL)),
         )
 
         from .model_stats import format_stats as _fmt_stats, format_run_stats as _fmt_run_stats

@@ -473,33 +473,38 @@ def _resolve_debug_enabled(entry: ConfigEntry) -> bool:
 
 _NARRATOR_ONLY_KEYS: frozenset[str] = frozenset({CONF_NARRATOR_MAX_BATCH})
 
+_BG_TASKS_KEY = "kyber_bg_tasks"
 
-async def _update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the entry when options change — but skip reload for narrator-only tweaks.
 
-    Changing CONF_NARRATOR_MAX_BATCH while the narrator is running would cancel
-    the background task; the new run then finds all entities already narrated and
-    exits immediately.  The batch size is read at the start of each narrator run,
-    so we can safely absorb those changes without a reload.
-    """
-    old_opts = entry.options or {}
-    # HA passes the new values in entry.options before calling this listener,
-    # so we compare against the previous snapshot stored in entry.data.
-    changed_keys = {
-        k for k in set(old_opts) | set(entry.data)
-        if old_opts.get(k) != entry.data.get(k)
-    }
-    if changed_keys and changed_keys.issubset(_NARRATOR_ONLY_KEYS):
-        _LOGGER.debug(
-            "Kyber: narrator-only options changed %s — skipping reload", changed_keys
-        )
-        return
-    await hass.config_entries.async_reload(entry.entry_id)
+def _make_update_listener() -> Any:
+    """Return an update listener that correctly diffs consecutive options snapshots."""
+    state: dict[str, Any] = {"prev_opts": None}
+
+    async def _listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+        new_opts = entry.options or {}
+        if state["prev_opts"] is None:
+            # First call: use entry.data as baseline (initial setup values).
+            state["prev_opts"] = dict(entry.data)
+        prev_opts = state["prev_opts"]
+        changed_keys = {
+            k for k in set(prev_opts) | set(new_opts)
+            if prev_opts.get(k) != new_opts.get(k)
+        }
+        state["prev_opts"] = dict(new_opts)
+        if changed_keys and changed_keys.issubset(_NARRATOR_ONLY_KEYS):
+            _LOGGER.debug(
+                "Kyber: narrator-only options changed %s — skipping reload", changed_keys
+            )
+            return
+        await hass.config_entries.async_reload(entry.entry_id)
+
+    return _listener
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bool:
     """Set up Kyber from a config entry."""
-    config = dict(entry.data)
+    config = {**entry.data, **(entry.options or {})}
+    _LOGGER.info("Kyber: loading integration v0.5.0")
 
     debug_enabled = _resolve_debug_enabled(entry)
     hass.data[_DEBUG_MODE_KEY] = debug_enabled
@@ -579,7 +584,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
             sidebar_icon="mdi:robot",
-            module_url="/local/kyber/kyber-panel.js?v=174",
+            module_url="/local/kyber/kyber-panel.js?v=176",
         )
     except Exception:  # noqa: BLE001
         _LOGGER.debug("Panel registration skipped (test environment)")
@@ -594,7 +599,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
                 webcomponent_name="kyber-panel",
                 sidebar_title="Kyber Debug",
                 sidebar_icon="mdi:bug",
-                module_url="/local/kyber/kyber-panel.js?v=174",
+                module_url="/local/kyber/kyber-panel.js?v=176",
                 config={"mode": "debug"},
             )
         except Exception:  # noqa: BLE001
@@ -602,7 +607,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
 
     # Always schedule the initial learning task; the function itself guards
     # against re-running via CONF_INITIAL_LEARNING_DONE.
-    hass.async_create_task(_async_run_initial_learning(hass, entry))
+    _bg_task_list: list[Any] = []
+    hass.data[_BG_TASKS_KEY] = _bg_task_list
+    _bg_task_list.append(hass.async_create_task(_async_run_initial_learning(hass, entry)))
 
     # Seed language vocabulary hints and explore integrations AFTER HA has
     # fully started — this avoids contending with other integration setups.
@@ -615,15 +622,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
 
     @_callback
     def _on_ha_started(_hass: HomeAssistant) -> None:
-        _asyncio.ensure_future(_async_seed_language_hints(_hass))
-        _asyncio.ensure_future(_async_explore_integrations(_hass, entry))
+        _bg_task_list.append(_asyncio.ensure_future(_async_seed_language_hints(_hass)))
+        _bg_task_list.append(_asyncio.ensure_future(_async_explore_integrations(_hass, entry)))
 
     async_at_start(hass, _on_ha_started)
 
-    entry.async_on_unload(entry.add_update_listener(_update_listener))
+    entry.async_on_unload(entry.add_update_listener(_make_update_listener()))
 
-    _LOGGER.warning(
-        "Kyber set up OK — panel registered, AI entity: %s, debug_views=%s",
+    _LOGGER.info(
+        "Kyber set up OK — AI entity: %s, debug_views=%s",
         config.get(CONF_AI_TASK_ENTITY_ID),
         debug_enabled,
     )
@@ -632,6 +639,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
 
 async def async_unload_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bool:
     """Unload a config entry."""
+    # Cancel any tracked background tasks started during setup.
+    import asyncio as _asyncio
+    _bg_tasks = hass.data.pop(_BG_TASKS_KEY, [])
+    for _task in _bg_tasks:
+        if not _task.done():
+            _task.cancel()
+            try:
+                await _task
+            except (_asyncio.CancelledError, Exception):
+                pass
     # Remove panels so reloads and removals cleanly re-evaluate registration.
     try:
         from homeassistant.components.frontend import async_remove_panel
@@ -644,6 +661,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bo
     if _handler:
         logging.getLogger("custom_components.kyber").removeHandler(_handler)
     return True
+
 
 
 

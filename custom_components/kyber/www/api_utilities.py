@@ -18,7 +18,7 @@ except ImportError:  # HA < 2025.2 (test environments)
     async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
         raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
 
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
+from .const import CONF_AI_TASK_ENTITY_ID, CONF_AZURE_ENDPOINT, CONF_AZURE_API_KEY, CONF_AZURE_DEPLOYMENT, CONF_AZURE_API_VERSION, DEFAULT_AZURE_API_VERSION, DOMAIN
 from .session_and_storage import (
     _async_load_chat_store, _async_save_chat_store,
     _migrate_user_to_sessions, _get_active_session, _sanitize_history,
@@ -82,12 +82,12 @@ async def async_ai_call(
     except Exception as err:
         elapsed_ms = int((_time.monotonic() - _t0) * 1000)
         _AI_LOG.error(
-            "[AI✗] task=%s entity=%s model=%s elapsed=%dms\n--- PROMPT ---\n%s\n--- ERROR ---\n%s",
+            "[AI✗] task=%s entity=%s model=%s elapsed=%dms\n--- PROMPT (first 200 chars) ---\n%s\n--- ERROR ---\n%s",
             task_name,
             entity_id,
             _model_name,
             elapsed_ms,
-            instructions,
+            str(instructions)[:200],
             err,
         )
         raise
@@ -104,6 +104,320 @@ async def async_ai_call(
             "…" if len(raw) > _AI_LOG_RESPONSE_CHARS else "",
         )
     return result
+
+
+class _AzureAIResult:
+    """Minimal wrapper so Azure responses are compatible with async_ai_call callers."""
+    __slots__ = ("data",)
+
+    def __init__(self, text: str) -> None:
+        self.data = text
+
+
+async def async_azure_ai_call(
+    *,
+    task_name: str,
+    endpoint: str,
+    api_key: str,
+    deployment: str,
+    api_version: str,
+    instructions: str,
+    history: list | None = None,
+) -> _AzureAIResult:
+    """Call Azure AI Foundry (Azure OpenAI) chat completions directly via aiohttp.
+
+    Returns an _AzureAIResult with .data = response text string.
+    Raises HomeAssistantError on HTTP / connection errors.
+    Retries up to 3 times on HTTP 429 (rate limit), honouring the Retry-After header.
+    """
+    import asyncio as _asyncio
+    import aiohttp as _aiohttp
+
+    url = (
+        f"{endpoint.rstrip('/')}/openai/deployments/{deployment}"
+        f"/chat/completions?api-version={api_version}"
+    )
+    messages: list[dict] = []
+    if history:
+        for entry in history:
+            role = entry.get("role", "user")
+            content = entry.get("content", "")
+            if role in ("user", "assistant", "system") and content:
+                messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": instructions})
+
+    payload = {"messages": messages}
+    headers = {
+        "api-key": api_key,
+        "Content-Type": "application/json",
+    }
+
+    _AI_LOG.debug(
+        "[Azure→] task=%s deployment=%s url=%s messages=%d prompt_chars=%d",
+        task_name, deployment, url, len(messages), len(instructions),
+    )
+
+    _MAX_RETRIES = 3
+    data: dict | None = None
+    for _attempt in range(_MAX_RETRIES):
+        try:
+            async with _aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
+                    if resp.status == 429:
+                        try:
+                            _retry_after = min(int(resp.headers.get("Retry-After", "20")), 60)
+                        except (ValueError, TypeError):
+                            _retry_after = 60
+                        if _attempt < _MAX_RETRIES - 1:
+                            _AI_LOG.warning(
+                                "[Azure] Rate limited (429) — waiting %ds before retry (attempt %d/%d)",
+                                _retry_after, _attempt + 1, _MAX_RETRIES,
+                            )
+                            await _asyncio.sleep(_retry_after)
+                            continue
+                        raise HomeAssistantError(
+                            f"⏳ Azure rate limit — too many requests. Try again in {_retry_after}s."
+                        )
+                    if resp.status != 200:
+                        body = await resp.text()
+                        _AI_LOG.error(
+                            "[Azure✗] task=%s deployment=%s status=%d body=%s",
+                            task_name, deployment, resp.status, body[:500],
+                        )
+                        raise HomeAssistantError(
+                            f"Azure AI Foundry returned HTTP {resp.status}: {body[:200]}"
+                        )
+                    data = await resp.json()
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            _AI_LOG.error("[Azure✗] task=%s deployment=%s error=%s", task_name, deployment, err)
+            raise HomeAssistantError(f"Azure AI Foundry connection error: {err}") from err
+        break  # success — exit retry loop
+
+    if data is None:
+        raise HomeAssistantError("Azure AI Foundry: no response received after retries")
+
+    try:
+        text: str = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as err:
+        raise HomeAssistantError(f"Azure AI Foundry unexpected response format: {err}") from err
+
+    _AI_LOG.debug(
+        "[Azure←] task=%s deployment=%s response_chars=%d",
+        task_name, deployment, len(text),
+    )
+    return _AzureAIResult(text)
+
+
+async def async_openai_ai_call(
+    *,
+    task_name: str,
+    api_key: str,
+    model: str,
+    instructions: str,
+    history: list | None = None,
+    base_url: str | None = None,
+) -> _AzureAIResult:
+    """Call OpenAI chat completions directly via aiohttp.
+
+    Returns an _AzureAIResult with .data = response text string.
+    Raises HomeAssistantError on HTTP / connection errors.
+    Retries up to 3 times on HTTP 429 (rate limit), honouring the Retry-After header.
+    Compatible with any OpenAI-compatible endpoint via base_url.
+    """
+    import asyncio as _asyncio
+    import aiohttp as _aiohttp
+
+    _base = (base_url or "https://api.openai.com").rstrip("/")
+    url = f"{_base}/v1/chat/completions"
+
+    messages: list[dict] = []
+    if history:
+        for entry in history:
+            role = entry.get("role", "user")
+            content = entry.get("content", "")
+            if role in ("user", "assistant", "system") and content:
+                messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": instructions})
+
+    payload = {"model": model, "messages": messages}
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    _AI_LOG.debug(
+        "[OpenAI→] task=%s model=%s url=%s messages=%d prompt_chars=%d",
+        task_name, model, url, len(messages), len(instructions),
+    )
+
+    _MAX_RETRIES = 3
+    data: dict | None = None
+    for _attempt in range(_MAX_RETRIES):
+        try:
+            async with _aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
+                    if resp.status == 429:
+                        try:
+                            _retry_after = min(int(resp.headers.get("Retry-After", "20")), 60)
+                        except (ValueError, TypeError):
+                            _retry_after = 60
+                        if _attempt < _MAX_RETRIES - 1:
+                            _AI_LOG.warning(
+                                "[OpenAI] Rate limited (429) — waiting %ds before retry (attempt %d/%d)",
+                                _retry_after, _attempt + 1, _MAX_RETRIES,
+                            )
+                            await _asyncio.sleep(_retry_after)
+                            continue
+                        raise HomeAssistantError(
+                            f"⏳ OpenAI rate limit — too many requests. Try again in {_retry_after}s."
+                        )
+                    if resp.status != 200:
+                        body = await resp.text()
+                        _AI_LOG.error(
+                            "[OpenAI✗] task=%s model=%s status=%d body=%s",
+                            task_name, model, resp.status, body[:500],
+                        )
+                        raise HomeAssistantError(
+                            f"OpenAI returned HTTP {resp.status}: {body[:200]}"
+                        )
+                    data = await resp.json()
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            _AI_LOG.error("[OpenAI✗] task=%s model=%s error=%s", task_name, model, err)
+            raise HomeAssistantError(f"OpenAI connection error: {err}") from err
+        break  # success — exit retry loop
+
+    if data is None:
+        raise HomeAssistantError("OpenAI: no response received after retries")
+
+    try:
+        text: str = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as err:
+        raise HomeAssistantError(f"OpenAI unexpected response format: {err}") from err
+
+    _AI_LOG.debug(
+        "[OpenAI←] task=%s model=%s response_chars=%d",
+        task_name, model, len(text),
+    )
+    return _AzureAIResult(text)
+
+
+async def async_anthropic_ai_call(
+    *,
+    task_name: str,
+    api_key: str,
+    model: str,
+    instructions: str,
+    history: list | None = None,
+) -> _AzureAIResult:
+    """Call Anthropic Claude via the Messages API.
+
+    Returns an _AzureAIResult with .data = response text string.
+    Raises HomeAssistantError on HTTP / connection errors.
+    Retries up to 3 times on HTTP 429, honouring the Retry-After header.
+    """
+    import asyncio as _asyncio
+    import aiohttp as _aiohttp
+
+    url = "https://api.anthropic.com/v1/messages"
+
+    # Build messages list — Anthropic requires strict user/assistant alternation.
+    # System messages from history are prepended as a system prompt.
+    system_parts: list[str] = []
+    messages: list[dict] = []
+    if history:
+        for entry in history:
+            role = entry.get("role", "user")
+            content = entry.get("content", "")
+            if not content:
+                continue
+            if role == "system":
+                system_parts.append(content)
+            elif role in ("user", "assistant"):
+                # Ensure alternation — merge consecutive same-role entries
+                if messages and messages[-1]["role"] == role:
+                    messages[-1]["content"] += "\n" + content
+                else:
+                    messages.append({"role": role, "content": content})
+    # Current turn
+    if messages and messages[-1]["role"] == "user":
+        messages[-1]["content"] += "\n" + instructions
+    else:
+        messages.append({"role": "user", "content": instructions})
+
+    payload: dict = {
+        "model": model,
+        "max_tokens": 8096,
+        "messages": messages,
+    }
+    if system_parts:
+        payload["system"] = "\n\n".join(system_parts)
+
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+    }
+
+    _AI_LOG.debug(
+        "[Anthropic→] task=%s model=%s messages=%d prompt_chars=%d",
+        task_name, model, len(messages), len(instructions),
+    )
+
+    _MAX_RETRIES = 3
+    data: dict | None = None
+    for _attempt in range(_MAX_RETRIES):
+        try:
+            async with _aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
+                    if resp.status == 429:
+                        try:
+                            _retry_after = min(int(resp.headers.get("retry-after", "20")), 60)
+                        except (ValueError, TypeError):
+                            _retry_after = 60
+                        if _attempt < _MAX_RETRIES - 1:
+                            _AI_LOG.warning(
+                                "[Anthropic] Rate limited (429) — waiting %ds before retry (attempt %d/%d)",
+                                _retry_after, _attempt + 1, _MAX_RETRIES,
+                            )
+                            await _asyncio.sleep(_retry_after)
+                            continue
+                        raise HomeAssistantError(
+                            f"⏳ Anthropic rate limit — too many requests. Try again in {_retry_after}s."
+                        )
+                    if resp.status != 200:
+                        body = await resp.text()
+                        _AI_LOG.error(
+                            "[Anthropic✗] task=%s model=%s status=%d body=%s",
+                            task_name, model, resp.status, body[:500],
+                        )
+                        raise HomeAssistantError(
+                            f"Anthropic returned HTTP {resp.status}: {body[:200]}"
+                        )
+                    data = await resp.json()
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            _AI_LOG.error("[Anthropic✗] task=%s model=%s error=%s", task_name, model, err)
+            raise HomeAssistantError(f"Anthropic connection error: {err}") from err
+        break  # success — exit retry loop
+
+    if data is None:
+        raise HomeAssistantError("Anthropic: no response received after retries")
+
+    try:
+        text: str = data["content"][0]["text"]
+    except (KeyError, IndexError, TypeError) as err:
+        raise HomeAssistantError(f"Anthropic unexpected response format: {err}") from err
+
+    _AI_LOG.debug(
+        "[Anthropic←] task=%s model=%s response_chars=%d",
+        task_name, model, len(text),
+    )
+    return _AzureAIResult(text)
 
 
 def _progress_emit(hass: HomeAssistant, request_id: str, event: dict) -> None:

@@ -341,55 +341,56 @@ class KnowledgeStore:
         _save: bool = True,
     ) -> dict[str, Any]:
         await self.async_load()
-        if category not in CATEGORIES:
-            category = "general"
-        content_stripped = content.strip()
-        subject_stripped = (subject or "").strip()
-        # Dedup: skip if identical content+subject+category already exists.
-        for existing in self._entries.values():
-            if (
-                existing.get("content", "").strip() == content_stripped
-                and existing.get("subject", "").strip() == subject_stripped
-                and existing.get("category") == category
-            ):
-                return existing
-        entry_id = uuid.uuid4().hex[:12]
-        now = int(time.time())
-        entry = {
-            "id": entry_id,
-            "category": category,
-            "subject": subject_stripped,
-            "content": content_stripped,
-            "tags": [t.strip().lower() for t in (tags or []) if t.strip()],
-            "source": source,
-            "provenance": (provenance or "").strip(),
-            "confidence": max(0.0, min(1.0, float(confidence))),
-            "user_rating": max(0, min(5, int(user_rating))),
-            "created": now,
-            "updated": now,
-            "hits": 0,
-        }
-        # Supersede dedup: when a higher-quality source stores a general entry
-        # for a subject, evict any existing entity_explorer entry for the same
-        # subject so both don't compete in retrieval.
-        _SUPERSEDES = {"entity_narrator": {"entity_explorer"}}
-        if subject_stripped and category == "general":
-            evict_sources = _SUPERSEDES.get(source, set())
-            if evict_sources:
-                to_evict = [
-                    eid for eid, e in self._entries.items()
-                    if e.get("subject", "").strip() == subject_stripped
-                    and e.get("source") in evict_sources
-                    and e.get("category") == "general"
-                ]
-                for eid in to_evict:
-                    del self._entries[eid]
-        self._entries[entry_id] = entry
-        if _save:
-            await self._persist(invalidate_index=True)
-        else:
-            self._index_dirty = True
-        return entry
+        async with self._lock:
+            if category not in CATEGORIES:
+                category = "general"
+            content_stripped = content.strip()
+            subject_stripped = (subject or "").strip()
+            # Dedup: skip if identical content+subject+category already exists.
+            for existing in self._entries.values():
+                if (
+                    existing.get("content", "").strip() == content_stripped
+                    and existing.get("subject", "").strip() == subject_stripped
+                    and existing.get("category") == category
+                ):
+                    return existing
+            entry_id = uuid.uuid4().hex[:12]
+            now = int(time.time())
+            entry = {
+                "id": entry_id,
+                "category": category,
+                "subject": subject_stripped,
+                "content": content_stripped,
+                "tags": [t.strip().lower() for t in (tags or []) if t.strip()],
+                "source": source,
+                "provenance": (provenance or "").strip(),
+                "confidence": max(0.0, min(1.0, float(confidence))),
+                "user_rating": max(0, min(5, int(user_rating))),
+                "created": now,
+                "updated": now,
+                "hits": 0,
+            }
+            # Supersede dedup: when a higher-quality source stores a general entry
+            # for a subject, evict any existing entity_explorer entry for the same
+            # subject so both don't compete in retrieval.
+            _SUPERSEDES = {"entity_narrator": {"entity_explorer"}}
+            if subject_stripped and category == "general":
+                evict_sources = _SUPERSEDES.get(source, set())
+                if evict_sources:
+                    to_evict = [
+                        eid for eid, e in self._entries.items()
+                        if e.get("subject", "").strip() == subject_stripped
+                        and e.get("source") in evict_sources
+                        and e.get("category") == "general"
+                    ]
+                    for eid in to_evict:
+                        del self._entries[eid]
+            self._entries[entry_id] = entry
+            if _save:
+                await self._persist(invalidate_index=True)
+            else:
+                self._index_dirty = True
+            return entry
 
     async def async_add_proposal(
         self,
@@ -432,33 +433,35 @@ class KnowledgeStore:
 
     async def async_update(self, entry_id: str, **changes: Any) -> dict[str, Any] | None:
         await self.async_load()
-        entry = self._entries.get(entry_id)
-        if not entry:
-            return None
-        allowed = {"category", "subject", "content", "tags", "confidence",
-                   "source", "provenance", "user_rating"}
-        index_fields = {"category", "subject", "content", "tags"}
-        invalidate_index = False
-        for k, v in changes.items():
-            if k in allowed:
-                if k == "confidence":
-                    v = max(0.0, min(1.0, float(v)))
-                elif k == "user_rating":
-                    v = max(0, min(5, int(v)))
-                if entry.get(k) != v and k in index_fields:
-                    invalidate_index = True
-                entry[k] = v
-        entry["updated"] = int(time.time())
-        await self._persist(invalidate_index=invalidate_index)
-        return entry
+        async with self._lock:
+            entry = self._entries.get(entry_id)
+            if not entry:
+                return None
+            allowed = {"category", "subject", "content", "tags", "confidence",
+                       "source", "provenance", "user_rating"}
+            index_fields = {"category", "subject", "content", "tags"}
+            invalidate_index = False
+            for k, v in changes.items():
+                if k in allowed:
+                    if k == "confidence":
+                        v = max(0.0, min(1.0, float(v)))
+                    elif k == "user_rating":
+                        v = max(0, min(5, int(v)))
+                    if entry.get(k) != v and k in index_fields:
+                        invalidate_index = True
+                    entry[k] = v
+            entry["updated"] = int(time.time())
+            await self._persist(invalidate_index=invalidate_index)
+            return entry
 
     async def async_delete(self, entry_id: str) -> bool:
         await self.async_load()
-        if entry_id in self._entries:
-            del self._entries[entry_id]
-            await self._persist(invalidate_index=True)
-            return True
-        return False
+        async with self._lock:
+            if entry_id in self._entries:
+                del self._entries[entry_id]
+                await self._persist(invalidate_index=True)
+                return True
+            return False
 
     async def async_all(self) -> list[dict[str, Any]]:
         await self.async_load()

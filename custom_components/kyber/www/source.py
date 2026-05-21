@@ -193,7 +193,9 @@ def read_blueprint(hass: HomeAssistant, rel_path: str) -> dict[str, Any]:
     """Return the FULL parsed blueprint config (caller MUST validate path)."""
     base = Path(hass.config.config_dir).resolve()
     target = (base / rel_path).resolve()
-    if not str(target).startswith(str(base)):
+    try:
+        target.relative_to(base)
+    except ValueError:
         return {"error": "path escapes config dir"}
     if not target.exists():
         return {"error": "not found"}
