@@ -139,12 +139,20 @@ async def async_ensure_kyber_label(hass: HomeAssistant, device_type: str) -> str
 
     if label_reg.async_get_label(label_id) is None:
         try:
-            label_reg.async_create(
-                name=label_name,
-                icon=cfg.get("icon", ""),
-                color=cfg.get("color", ""),
-                label_id=label_id,
-            )
+            try:
+                label_reg.async_create(
+                    name=label_name,
+                    icon=cfg.get("icon", ""),
+                    color=cfg.get("color", ""),
+                    label_id=label_id,
+                )
+            except TypeError:
+                # HA versions that dropped the label_id kwarg — create without it
+                label_reg.async_create(
+                    name=label_name,
+                    icon=cfg.get("icon", ""),
+                    color=cfg.get("color", ""),
+                )
             _LOGGER.info("Kyber: created label '%s' (%s)", label_name, label_id)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber: could not create label '%s': %s", label_name, err)
