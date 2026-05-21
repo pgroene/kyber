@@ -82,12 +82,12 @@ async def async_ai_call(
     except Exception as err:
         elapsed_ms = int((_time.monotonic() - _t0) * 1000)
         _AI_LOG.error(
-            "[AI✗] task=%s entity=%s model=%s elapsed=%dms\n--- PROMPT ---\n%s\n--- ERROR ---\n%s",
+            "[AI✗] task=%s entity=%s model=%s elapsed=%dms\n--- PROMPT (first 200 chars) ---\n%s\n--- ERROR ---\n%s",
             task_name,
             entity_id,
             _model_name,
             elapsed_ms,
-            instructions,
+            str(instructions)[:200],
             err,
         )
         raise
@@ -164,7 +164,10 @@ async def async_azure_ai_call(
             async with _aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, headers=headers, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
                     if resp.status == 429:
-                        _retry_after = min(int(resp.headers.get("Retry-After", "20")), 60)
+                        try:
+                            _retry_after = min(int(resp.headers.get("Retry-After", "20")), 60)
+                        except (ValueError, TypeError):
+                            _retry_after = 60
                         if _attempt < _MAX_RETRIES - 1:
                             _AI_LOG.warning(
                                 "[Azure] Rate limited (429) — waiting %ds before retry (attempt %d/%d)",
@@ -256,7 +259,10 @@ async def async_openai_ai_call(
             async with _aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, headers=headers, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
                     if resp.status == 429:
-                        _retry_after = min(int(resp.headers.get("Retry-After", "20")), 60)
+                        try:
+                            _retry_after = min(int(resp.headers.get("Retry-After", "20")), 60)
+                        except (ValueError, TypeError):
+                            _retry_after = 60
                         if _attempt < _MAX_RETRIES - 1:
                             _AI_LOG.warning(
                                 "[OpenAI] Rate limited (429) — waiting %ds before retry (attempt %d/%d)",
@@ -368,7 +374,10 @@ async def async_anthropic_ai_call(
             async with _aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, headers=headers, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
                     if resp.status == 429:
-                        _retry_after = min(int(resp.headers.get("retry-after", "20")), 60)
+                        try:
+                            _retry_after = min(int(resp.headers.get("retry-after", "20")), 60)
+                        except (ValueError, TypeError):
+                            _retry_after = 60
                         if _attempt < _MAX_RETRIES - 1:
                             _AI_LOG.warning(
                                 "[Anthropic] Rate limited (429) — waiting %ds before retry (attempt %d/%d)",

@@ -744,7 +744,7 @@ class KyberDebugModeView(HomeAssistantView):
         # Adjust kyber root logger level to match debug mode
         _kyber_root = logging.getLogger("custom_components.kyber")
         if enabled:
-            _kyber_root.setLevel(logging.INFO)
+            _kyber_root.setLevel(logging.DEBUG)
         else:
             _kyber_root.setLevel(logging.WARNING)
         return self.json({"enabled": enabled})
