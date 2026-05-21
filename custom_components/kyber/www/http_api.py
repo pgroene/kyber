@@ -1666,8 +1666,15 @@ class KyberView(HomeAssistantView):
         import time as _time
         _turn_started_at = _time.time()
 
-        # Signal background tasks (narrator) to pause between batches.
+        # Signal background tasks (narrator, deep-analyzer) to pause.
+        # Fire the preempt event so mid-flight AI calls cancel immediately.
         hass.data[_CHAT_BUSY_KEY] = True
+        _preempt_event = hass.data.get("kyber_preempt_event")
+        if _preempt_event is None:
+            import asyncio as _asyncio
+            _preempt_event = _asyncio.Event()
+            hass.data["kyber_preempt_event"] = _preempt_event
+        _preempt_event.set()
         # Wait up to 8s for any in-flight narrator or deep-learning AI call to
         # finish/cancel so Ollama is free before we send the chat request.
         if hass.data.get("kyber_narrator_ai_busy") or hass.data.get("kyber_deep_learning_ai_busy"):
@@ -1680,6 +1687,7 @@ class KyberView(HomeAssistantView):
             body = await request.json()
         except (json.JSONDecodeError, ValueError):
             hass.data[_CHAT_BUSY_KEY] = False
+            _preempt_event.clear()
             return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
 
         body_fields = _parse_request_body(body, request)
@@ -1693,6 +1701,7 @@ class KyberView(HomeAssistantView):
 
         if not user_prompt:
             hass.data[_CHAT_BUSY_KEY] = False
+            _preempt_event.clear()
             _debug_detach_log_capture(_debug_log_handler)
             return self.json_message("Missing 'prompt' field", HTTPStatus.BAD_REQUEST)
 
@@ -1879,6 +1888,7 @@ class KyberView(HomeAssistantView):
         finally:
             _debug_detach_log_capture(_debug_log_handler)
             hass.data[_CHAT_BUSY_KEY] = False
+            hass.data.get("kyber_preempt_event", None) and hass.data["kyber_preempt_event"].clear()
         _total_ms = int((_time.time() - _turn_started_at) * 1000)
         _LOGGER.info(
             "Kyber: request complete — total=%dms entity=%s intent=%s",

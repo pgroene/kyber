@@ -44,14 +44,24 @@ _MAX_FACTS_PER_ITEM = 6
 
 # Shared flag: http_api.py sets this True while a user chat request is active.
 _CHAT_BUSY_KEY = "kyber_chat_busy"
+# asyncio.Event key: fired when chat starts so analyzers can cancel mid-flight.
+_PREEMPT_EVENT_KEY = "kyber_preempt_event"
 # Flag: set True while deep analyzer is calling the AI so chat can wait.
 _DEEP_AI_BUSY_KEY = "kyber_deep_learning_ai_busy"
 # Per-item AI call timeout — prevents a single item from blocking Ollama forever.
 # Set generously for slow hardware (e.g. Orange Pi running local models).
 _AI_CALL_TIMEOUT = 300  # seconds
 
+# Exponential backoff after being preempted by chat (seconds).
+# Resets to index 0 after any successful item without preemption.
+_CHAT_BACKOFF_SECONDS = [10, 20, 40, 80, 160, 300]
+
 # Hard cap on raw config sent to AI (chars). Beyond this we truncate.
 _MAX_CONFIG_CHARS = 6000
+
+
+class _ChatPreemptError(Exception):
+    """Raised when a chat request cancels an in-flight analyzer task."""
 
 # Different analytical lenses — each pass uses a different angle so multiple
 # passes over the same automations produce complementary (non-duplicate) facts.
@@ -323,25 +333,50 @@ def _parse_facts(raw: str, config_entity_ids: list[str] | None = None) -> list[d
 
 
 async def _run_ai(hass: HomeAssistant, ai_entity_id: str, prompt: str) -> str:
+    """Call the AI, cancelling immediately if chat preempts us."""
     try:
         from .api_utilities import async_ai_call  # type: ignore
     except Exception as err:  # noqa: BLE001
         raise HomeAssistantError(f"ai_task not available: {err}")
 
+    preempt_event: asyncio.Event | None = hass.data.get(_PREEMPT_EVENT_KEY)
+
     hass.data[_DEEP_AI_BUSY_KEY] = True
-    try:
-        result = await asyncio.wait_for(
-            async_ai_call(
-                hass,
-                task_name="kyber_deep_analyze",
-                entity_id=ai_entity_id,
-                instructions=prompt,
-            ),
-            timeout=_AI_CALL_TIMEOUT,
+    ai_task: asyncio.Task = asyncio.ensure_future(
+        async_ai_call(
+            hass,
+            task_name="kyber_deep_analyze",
+            entity_id=ai_entity_id,
+            instructions=prompt,
         )
+    )
+    # Also watch the preempt event so we can cancel mid-flight instantly.
+    preempt_task: asyncio.Task | None = (
+        asyncio.ensure_future(preempt_event.wait()) if preempt_event else None
+    )
+    try:
+        watch: set = {ai_task}
+        if preempt_task:
+            watch.add(preempt_task)
+        done, pending = await asyncio.wait(
+            watch,
+            timeout=_AI_CALL_TIMEOUT,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+        if preempt_task is not None and preempt_task in done:
+            # Chat started — cancel AI call and raise so caller can backoff.
+            ai_task.cancel()
+            raise _ChatPreemptError()
+        if ai_task not in done:
+            raise asyncio.TimeoutError()
+        result = ai_task.result()  # re-raises if AI call itself failed
+        return result.data if isinstance(result.data, str) else str(result.data)
     finally:
         hass.data[_DEEP_AI_BUSY_KEY] = False
-    return result.data if isinstance(result.data, str) else str(result.data)
+        if preempt_task and not preempt_task.done():
+            preempt_task.cancel()
 
 
 def _identity(kind: str, item: dict[str, Any]) -> str:
@@ -460,11 +495,12 @@ async def analyze_pending(
     )
     pending_count = min(pending_count, limit)
 
-    def _set_deep_progress(done: int, current: str = "") -> None:
+    def _set_deep_progress(done: int, current: str = "", paused: bool = False) -> None:
         existing = hass.data.get(EXPLORER_PROGRESS_KEY) or {}
+        status = "paused_chat" if paused else ("deep_learning" if done < pending_count else existing.get("status", "done"))
         hass.data[EXPLORER_PROGRESS_KEY] = {
             **existing,
-            "status": "deep_learning" if done < pending_count else existing.get("status", "done"),
+            "status": status,
             "phase": "deep_learning",
             "deep_done": done,
             "deep_total": pending_count,
@@ -474,6 +510,8 @@ async def analyze_pending(
 
     if pending_count > 0:
         _set_deep_progress(0)
+
+    _chat_preempt_count = 0  # tracks consecutive preemptions for backoff
 
     for kind, item in candidates:
         ident = _identity(kind, item)
@@ -489,17 +527,26 @@ async def analyze_pending(
         processed += 1
 
         try:
-            # Yield to active user chat requests before each AI call.
+            # Check preemption before each item (catches chat that started between items).
             if hass.data.get(_CHAT_BUSY_KEY):
-                _LOGGER.info("Kyber deep-analyzer: pausing — user chat request in progress…")
-                while hass.data.get(_CHAT_BUSY_KEY):
-                    await asyncio.sleep(0.5)
-                _LOGGER.info("Kyber deep-analyzer: resuming after chat completed")
+                raise _ChatPreemptError()
 
             _set_deep_progress(processed - 1, ident)
 
             prompt = _build_prompt(kind, item, prompt_variant, entity_names=entity_names, entity_areas=entity_areas, entity_devices=entity_devices)
             raw = await _run_ai(hass, ai_entity_id, prompt)
+        except _ChatPreemptError:
+            _LOGGER.info("Kyber deep-analyzer: preempted by chat — pausing")
+            _set_deep_progress(processed - 1, ident, paused=True)
+            while hass.data.get(_CHAT_BUSY_KEY):
+                await asyncio.sleep(1)
+            backoff = _CHAT_BACKOFF_SECONDS[min(_chat_preempt_count, len(_CHAT_BACKOFF_SECONDS) - 1)]
+            _chat_preempt_count += 1
+            _LOGGER.info("Kyber deep-analyzer: chat ended — resuming in %ds (attempt %d)", backoff, _chat_preempt_count)
+            await asyncio.sleep(backoff)
+            _set_deep_progress(processed - 1, ident)
+            processed -= 1  # re-process this item
+            continue
         except asyncio.TimeoutError:
             _LOGGER.warning(
                 "Kyber deep_analyzer: AI call timed out (%ds) for %s:%s — skipping",
@@ -511,6 +558,9 @@ async def analyze_pending(
             _LOGGER.warning("Kyber deep_analyzer: AI call failed for %s:%s: %s", kind, ident, err)
             errors.append({"kind": kind, "ident": ident, "error": str(err)})
             continue
+
+        # Successful item — reset chat preemption backoff counter.
+        _chat_preempt_count = 0
 
         facts = _parse_facts(raw, config_entity_ids=list(_extract_entity_ids(item)))
         facts = [f for f in facts if f["confidence"] >= _MIN_CONFIDENCE]

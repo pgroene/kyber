@@ -652,6 +652,9 @@ async def async_narrate_entities(
     _consecutive_failures = 0
     _CIRCUIT_BREAKER_THRESHOLD = 3   # back off after this many consecutive failures
     _BACKOFF_SECONDS = [30, 60, 120]  # progressive back-off per failure tier
+    # Chat preemption backoff — separate from circuit breaker.
+    _CHAT_BACKOFF_SECONDS = [10, 20, 40, 80, 160, 300]
+    _chat_preempt_count = 0
 
     for batch_start in range(0, total, batch_size):
         batch = candidates[batch_start: batch_start + batch_size]
@@ -661,7 +664,10 @@ async def async_narrate_entities(
             _LOGGER.info("Kyber narrator: pausing — user chat request in progress…")
             while hass.data.get(_CHAT_BUSY_KEY):
                 await asyncio.sleep(0.5)
-            _LOGGER.info("Kyber narrator: resuming after chat completed")
+            backoff = _CHAT_BACKOFF_SECONDS[min(_chat_preempt_count, len(_CHAT_BACKOFF_SECONDS) - 1)]
+            _chat_preempt_count += 1
+            _LOGGER.info("Kyber narrator: chat ended — resuming in %ds (attempt %d)", backoff, _chat_preempt_count)
+            await asyncio.sleep(backoff)
 
         # Build contexts for every entity in this batch.
         batch_rows: list[tuple[str, str, str, str | None, str | None, str | None, str]] = []
@@ -766,7 +772,12 @@ async def async_narrate_entities(
             _LOGGER.info("Kyber narrator: pausing — waiting for chat to finish…")
             while hass.data.get(_CHAT_BUSY_KEY):
                 await asyncio.sleep(0.5)
-            _LOGGER.info("Kyber narrator: resuming after chat completed")
+            backoff = _CHAT_BACKOFF_SECONDS[min(_chat_preempt_count, len(_CHAT_BACKOFF_SECONDS) - 1)]
+            _chat_preempt_count += 1
+            _LOGGER.info("Kyber narrator: chat ended — resuming in %ds (attempt %d)", backoff, _chat_preempt_count)
+            await asyncio.sleep(backoff)
+        elif not ai_failed:
+            _chat_preempt_count = 0  # reset backoff after successful batch
 
         # Store results — accepted or low-quality marker.
         # Skip entirely on AI error (temporary failure — entity will be retried next run).

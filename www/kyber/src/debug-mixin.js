@@ -794,6 +794,7 @@ export const DebugMixin = (Base) => class extends Base {
       `<tr><td><code>${this._escapeHtml(cat)}</code></td><td>${n}</td></tr>`,
     ).join("");
     const epStatus = ep.status || "idle";
+    const epPaused = epStatus === "paused_chat";
     const epRunning = epStatus === "phase1_summaries" || epStatus === "phase2_entities" || epStatus === "starting" || epStatus === "narrator" || epStatus === "deep_learning";
     const epDone = ep.done ?? 0;
     const epTotal = ep.total ?? 0;
@@ -803,7 +804,9 @@ export const DebugMixin = (Base) => class extends Base {
     const deepDone = ep.deep_done ?? 0;
     const deepTotal = ep.deep_total ?? 0;
     const deepCurrent = ep.deep_current || "";
-    const epLabel = epStatus === "narrator"
+    const epLabel = epPaused
+      ? `⏸ Paused — chat active (deep: ${deepDone} / ${deepTotal}${deepCurrent ? `, ${deepCurrent}` : ""})`
+      : epStatus === "narrator"
       ? `AI narrator ${narratorDone} / ${narratorTotal}…`
       : epStatus === "deep_learning"
         ? `Deep analysis ${deepDone} / ${deepTotal}${deepCurrent ? ` — ${deepCurrent}` : ""}…`
@@ -880,8 +883,8 @@ export const DebugMixin = (Base) => class extends Base {
         ${ep.started_at ? `<tr><th>Started</th><td>${new Date(ep.started_at * 1000).toLocaleTimeString()}</td></tr>` : ""}
       </table>
       ${epProgressBar}
-      ${epStatus === "narrator" ? narratorProgressBar : ""}
-      ${epStatus === "deep_learning" ? deepProgressBar : ""}
+      ${(epStatus === "narrator") ? narratorProgressBar : ""}
+      ${(epStatus === "deep_learning" || epPaused) ? deepProgressBar : ""}
       <div style="margin:6px 0 12px">
         <button id="dbg-run-explorer" style="font-size:0.9em;padding:5px 14px" ${epRunning && epStatus !== "narrator" && epStatus !== "deep_learning" ? "disabled" : ""}>
           🔍 Run Explorer now
@@ -913,7 +916,9 @@ export const DebugMixin = (Base) => class extends Base {
         const djRunning = dj.running === true;
         const djLabel = djRunning
           ? `Running — pass ${dj.run ?? "?"} / ${dj.runs ?? "?"}, item: ${dj.current_item || "…"}`
-          : dj.last_result
+          : epPaused
+            ? `⏸ Paused — waiting for chat (${deepDone} / ${deepTotal} done)`
+            : dj.last_result
             ? `Last run: ${dj.last_result.analyzed ?? 0} analyzed, ${dj.last_result.facts ?? 0} facts in ${dj.last_result.duration_s ?? "?"}s`
             : "Not yet run";
         return `
@@ -922,7 +927,7 @@ export const DebugMixin = (Base) => class extends Base {
             ${dj.running ? `<tr><th>Progress</th><td>${dj.analyzed ?? 0} analyzed · ${dj.facts ?? 0} facts · ${dj.errors ?? 0} errors</td></tr>` : ""}
           </table>
           <div style="margin:6px 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <button id="dbg-run-deep" style="font-size:0.9em;padding:5px 14px" ${djRunning || epStatus === "deep_learning" ? "disabled" : ""}>
+            <button id="dbg-run-deep" style="font-size:0.9em;padding:5px 14px" ${djRunning || epStatus === "deep_learning" || epPaused ? "disabled" : ""}>
               🧠 Run Deep Analysis now
             </button>
             <label style="font-size:0.85em;display:flex;align-items:center;gap:4px">
@@ -1030,8 +1035,8 @@ export const DebugMixin = (Base) => class extends Base {
       });
     }
 
-    // Auto-refresh while explorer or narrator is running
-    if (epRunning) {
+    // Auto-refresh while explorer, narrator, or deep-analyzer is running/paused
+    if (epRunning || epPaused) {
       if (!this._explorerStatusTimer) {
         this._explorerStatusTimer = setInterval(() => {
           const liveBody = this.shadowRoot?.getElementById("debug-body");
