@@ -103,3 +103,26 @@ You can monitor narrator progress in the **Kyber Debug panel** → **Status** ta
 - How many are pending
 - The current narrator version tag
 - Any errors from the last batch run
+
+---
+
+## Chat Priority & Backoff
+
+Chat always takes priority over background narration. When a user message arrives while the narrator is running:
+
+1. **`kyber_preempt_event`** is fired — the narrator's in-flight AI call is cancelled immediately (no waiting for it to finish).
+2. The narrator batch is marked as failed; the status indicator shows `⏸ Paused — chat active`.
+3. After the chat response is sent, the narrator waits before resuming — applying an **exponential backoff**:
+
+   | Preemption count | Wait before resuming |
+   |---|---|
+   | 1st | 10 s |
+   | 2nd | 20 s |
+   | 3rd | 40 s |
+   | 4th | 80 s |
+   | 5th | 160 s |
+   | 6th+ | 300 s (cap) |
+
+   The counter resets to 0 after any successful batch without preemption.
+
+This prevents the narrator from immediately competing with follow-up chat turns sent in quick succession.

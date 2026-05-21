@@ -386,6 +386,8 @@ Shows narrator statistics and lets you trigger a manual run.
 
 **While running**, a `✍️ N/T` badge appears in the chat panel header.
 
+**While paused by chat**, the narrator waits until the current chat response is complete, then applies an exponential backoff (10 → 20 → 40 → 80 → 160 → 300 s) before resuming. See [docs/narrator.md](narrator.md) for details.
+
 ---
 
 ### 3.3 Deep Analysis
@@ -415,6 +417,18 @@ Shows deep analyzer status, progress, and lets you trigger a manual run with con
 │                                                             │
 │  [ 🧠 Run Deep Analysis now ]  ← disabled while running    │
 ```
+
+**While paused by chat:**
+```
+│  Status   │ ⏸ Paused — waiting for chat (18 / 48 done)    │
+│  🧠 ██████████████░░░░░░░░░░░░░░░░░  18 / 48              │
+│                                                             │
+│  [ 🧠 Run Deep Analysis now ]  ← disabled while paused     │
+```
+The in-flight AI call is cancelled immediately when a chat message arrives.
+The analyzer resumes automatically after the chat response with an
+exponential backoff (10 → 20 → 40 → 80 → 160 → 300 s).
+See [docs/pipeline.md § 5b](pipeline.md) for full details.
 
 **Run Now inputs** (in the Deep Analysis row only):
 
