@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from http import HTTPStatus
 from typing import Any
 
@@ -382,7 +383,25 @@ class KyberExecuteView(HomeAssistantView):
                 if svc_entity_id:
                     service_data = {"entity_id": svc_entity_id, **service_data}
                 try:
-                    await hass.services.async_call(domain, service, service_data, blocking=True)
+                    # Inner try: first attempt; retry if HA schema rejects extra keys
+                    # (e.g. light.turn_on rejects color_temp when the entity's
+                    # supported_color_modes doesn't include it — HA 2025.x).
+                    try:
+                        await hass.services.async_call(domain, service, service_data, blocking=True)
+                    except Exception as _svc_err:  # noqa: BLE001
+                        err_str = str(_svc_err)
+                        extra_keys = re.findall(
+                            r"extra keys not allowed @ data\['([^']+)'\]", err_str
+                        )
+                        if extra_keys:
+                            _LOGGER.warning(
+                                "Kyber: call_service %s.%s — retrying without unsupported keys %s",
+                                domain, service, extra_keys,
+                            )
+                            cleaned_data = {k: v for k, v in service_data.items() if k not in extra_keys}
+                            await hass.services.async_call(domain, service, cleaned_data, blocking=True)
+                        else:
+                            raise
                     undo_action = _build_service_undo(domain, service, svc_entity_id, pre_state)
                     result: dict = {"status": "ok", "type": action_type, "entity_id": svc_entity_id or domain}
                     if undo_action:

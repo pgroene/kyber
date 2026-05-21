@@ -1709,6 +1709,10 @@ def _extract_response_components(
     # JSON stays in the text, which is better than a blank response).
     if plan_block:
         response_text = _strip_plan_block(response_text)
+        # If the AI wrote ONLY a plan block (no surrounding text), fall back to
+        # the plan's summary so the chat bubble is never blank.
+        if not response_text and plan_block.get("summary"):
+            response_text = plan_block["summary"]
 
     # Rescue: if the model used open_editor with a non-automation/script entity
     # (e.g. light.*, switch.*), convert to a call_service actions plan.
