@@ -249,7 +249,9 @@ class TestAsyncLoadChatStoreMigration:
     """Migration error handling: save failure must NOT propagate (#114)."""
 
     def _make_hass(self):
-        return MagicMock()
+        hass = MagicMock()
+        hass.data = {}  # use a real dict so _get_or_create_store can store/retrieve values
+        return hass
 
     def test_migration_save_failure_does_not_raise(self):
         """When persisting the migrated store fails, no exception should propagate."""

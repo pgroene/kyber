@@ -1080,12 +1080,37 @@ export const AIMixin = (Base) => class extends Base {
     if (el) el.textContent = label;
   }
 
-  _appendThinkingEvent(html) {
+  /**
+   * Append a thinking event item to the thinking bubble.
+   * @param {string} cssClass  - span CSS class (e.g. "thinking-info")
+   * @param {string} text      - PLAIN TEXT — will be set via textContent (safe)
+   * @param {string} [prefix]  - optional emoji/prefix prepended as text
+   */
+  _appendThinkingEvent(cssClass, text, prefix = "") {
     const events = this.shadowRoot?.getElementById("kyber-thinking-events");
     if (!events) return;
     const item = document.createElement("div");
     item.className = "thinking-event";
-    item.innerHTML = html;
+    const span = document.createElement("span");
+    span.className = cssClass;
+    span.textContent = (prefix ? prefix + " " : "") + text;
+    item.appendChild(span);
+    events.appendChild(item);
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (history) history.scrollTop = history.scrollHeight;
+  }
+
+  /**
+   * Append a multi-element thinking event (tool calls).
+   * All content MUST be pre-escaped with _escapeHTML before calling this.
+   * @param {string} trustedHtml - HTML where all user data is already escaped
+   */
+  _appendThinkingEventHTML(trustedHtml) {
+    const events = this.shadowRoot?.getElementById("kyber-thinking-events");
+    if (!events) return;
+    const item = document.createElement("div");
+    item.className = "thinking-event";
+    item.innerHTML = trustedHtml;
     events.appendChild(item);
     const history = this.shadowRoot?.getElementById("chat-history");
     if (history) history.scrollTop = history.scrollHeight;
@@ -1094,13 +1119,11 @@ export const AIMixin = (Base) => class extends Base {
   _renderProgressEvent(ev) {
     if (!ev || !ev.type) return;
     if (ev.type === "info") {
-      this._appendThinkingEvent(
-        `<span class="thinking-info">ℹ️ ${this._escapeHTML(ev.message || "")}</span>`
-      );
+      this._appendThinkingEvent("thinking-info", ev.message || "", "ℹ️");
     } else if (ev.type === "tool_call") {
       const args = ev.args ? Object.entries(ev.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ") : "";
       this._setThinkingLabel("Calling tool…");
-      this._appendThinkingEvent(
+      this._appendThinkingEventHTML(
         `<span class="thinking-tool-name">🔧 ${this._escapeHTML(ev.name || "?")}</span>` +
         (args ? `<span class="thinking-tool-args"> (${this._escapeHTML(args)})</span>` : "") +
         `<span class="thinking-tool-status thinking-tool-running"> …</span>`
@@ -1148,9 +1171,9 @@ export const AIMixin = (Base) => class extends Base {
     } else if (ev.type === "thinking") {
       this._setThinkingLabel(ev.stage === "follow_up" ? "Reasoning over results…" : "Thinking…");
     } else if (ev.type === "warning") {
-      this._appendThinkingEvent(`<span class="thinking-warning">⚠️ ${this._escapeHTML(ev.message || "")}</span>`);
+      this._appendThinkingEvent("thinking-warning", ev.message || "", "⚠️");
     } else if (ev.type === "error") {
-      this._appendThinkingEvent(`<span class="thinking-error">⚠️ ${this._escapeHTML(ev.message || "error")}</span>`);
+      this._appendThinkingEvent("thinking-error", ev.message || "error", "⚠️");
     }
   }
 

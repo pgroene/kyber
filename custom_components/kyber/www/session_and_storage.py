@@ -1,6 +1,7 @@
 """Session management and chat history storage for Kyber."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from http import HTTPStatus
@@ -23,6 +24,10 @@ _CHAT_MESSAGE_MAX_CHARS = 1500
 _CHAT_SUMMARY_MAX_CHARS = 2000
 _SESSIONS_MAX = 20
 _SESSION_NAME_MAX_CHARS = 80
+
+# hass.data keys for the shared Store instance and its lock
+_STORE_DATA_KEY = f"{DOMAIN}_chat_store_instance"
+_LOCK_DATA_KEY = f"{DOMAIN}_chat_store_lock"
 
 
 def _new_session_id() -> str:
@@ -92,44 +97,54 @@ def _sanitize_summary(summary: Any) -> str:
     return str(summary or "").strip()[:_CHAT_SUMMARY_MAX_CHARS]
 
 
+def _get_or_create_store(hass: HomeAssistant) -> tuple[Store, asyncio.Lock]:
+    """Return the shared Store instance and its lock, creating both on first call."""
+    if _STORE_DATA_KEY not in hass.data:
+        hass.data[_STORE_DATA_KEY] = Store(hass, _CHAT_HISTORY_STORE_VERSION, _CHAT_HISTORY_STORE_KEY)
+    if _LOCK_DATA_KEY not in hass.data:
+        hass.data[_LOCK_DATA_KEY] = asyncio.Lock()
+    return hass.data[_STORE_DATA_KEY], hass.data[_LOCK_DATA_KEY]
+
+
 async def _async_load_chat_store(hass: HomeAssistant) -> dict[str, Any]:
     """Load persisted chat history store, migrating old single-session format if needed."""
-    store: Store[dict[str, Any]] = Store(hass, _CHAT_HISTORY_STORE_VERSION, _CHAT_HISTORY_STORE_KEY)
-    data = await store.async_load()
-    if not isinstance(data, dict):
-        return {"users": {}}
-    users = data.get("users")
-    if not isinstance(users, dict):
-        data["users"] = {}
+    store, lock = _get_or_create_store(hass)
+    async with lock:
+        data = await store.async_load()
+        if not isinstance(data, dict):
+            return {"users": {}}
+        users = data.get("users")
+        if not isinstance(users, dict):
+            data["users"] = {}
+            return data
+        # Migrate users from old {history, compacted_summary} format to sessions format
+        migrated = False
+        pre_migration_users: dict[str, Any] = {}
+        for uid, udata in list(users.items()):
+            if isinstance(udata, dict) and "sessions" not in udata and "history" in udata:
+                pre_migration_users[uid] = udata  # snapshot for rollback
+                users[uid] = _migrate_user_to_sessions(udata)
+                migrated = True
+        if migrated:
+            try:
+                await store.async_save(data)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Kyber: chat history migration succeeded in memory but failed to persist "
+                    "(%s). History will be re-migrated on next restart — no data is lost.",
+                    err,
+                )
+                # Roll back in-memory changes so callers see the original format
+                for uid, original in pre_migration_users.items():
+                    users[uid] = original
         return data
-    # Migrate users from old {history, compacted_summary} format to sessions format
-    migrated = False
-    pre_migration_users: dict[str, Any] = {}
-    for uid, udata in list(users.items()):
-        if isinstance(udata, dict) and "sessions" not in udata and "history" in udata:
-            pre_migration_users[uid] = udata  # snapshot for rollback
-            users[uid] = _migrate_user_to_sessions(udata)
-            migrated = True
-    if migrated:
-        try:
-            await _async_save_chat_store(hass, data)
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning(
-                "Kyber: chat history migration succeeded in memory but failed to persist "
-                "(%s). History will be re-migrated on next restart — no data is lost.",
-                err,
-            )
-            # Roll back in-memory changes so callers see the original format;
-            # the next startup will migrate again from the persisted old data.
-            for uid, original in pre_migration_users.items():
-                users[uid] = original
-    return data
 
 
 async def _async_save_chat_store(hass: HomeAssistant, data: dict[str, Any]) -> None:
     """Persist chat history store."""
-    store: Store[dict[str, Any]] = Store(hass, _CHAT_HISTORY_STORE_VERSION, _CHAT_HISTORY_STORE_KEY)
-    await store.async_save(data)
+    store, lock = _get_or_create_store(hass)
+    async with lock:
+        await store.async_save(data)
 
 
 class KyberHistoryView(HomeAssistantView):

@@ -323,9 +323,17 @@ class KnowledgeStore:
             _LOGGER.info("Kyber knowledge: loaded %d entries", len(self._entries))
 
     async def _persist(self, *, invalidate_index: bool = False) -> None:
+        """Acquire the lock and persist. Use when NOT already holding self._lock."""
+        async with self._lock:
+            await self._persist_unlocked(invalidate_index=invalidate_index)
+
+    async def _persist_unlocked(self, *, invalidate_index: bool = False) -> None:
+        """Persist without acquiring the lock. Must only be called while holding self._lock."""
         if invalidate_index:
             self._index_dirty = True
-        await self._store.async_save({"entries": self._entries})
+        # Take a snapshot so concurrent modifications during async_save don't corrupt the write
+        snapshot = dict(self._entries)
+        await self._store.async_save({"entries": snapshot})
 
     async def async_add(
         self,
@@ -387,7 +395,7 @@ class KnowledgeStore:
                         del self._entries[eid]
             self._entries[entry_id] = entry
             if _save:
-                await self._persist(invalidate_index=True)
+                await self._persist_unlocked(invalidate_index=True)
             else:
                 self._index_dirty = True
             return entry
@@ -451,7 +459,7 @@ class KnowledgeStore:
                         invalidate_index = True
                     entry[k] = v
             entry["updated"] = int(time.time())
-            await self._persist(invalidate_index=invalidate_index)
+            await self._persist_unlocked(invalidate_index=invalidate_index)
             return entry
 
     async def async_delete(self, entry_id: str) -> bool:
@@ -459,7 +467,7 @@ class KnowledgeStore:
         async with self._lock:
             if entry_id in self._entries:
                 del self._entries[entry_id]
-                await self._persist(invalidate_index=True)
+                await self._persist_unlocked(invalidate_index=True)
                 return True
             return False
 
