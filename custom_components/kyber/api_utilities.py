@@ -18,7 +18,7 @@ except ImportError:  # HA < 2025.2 (test environments)
     async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
         raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
 
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
+from .const import CONF_AI_TASK_ENTITY_ID, CONF_AZURE_ENDPOINT, CONF_AZURE_API_KEY, CONF_AZURE_DEPLOYMENT, CONF_AZURE_API_VERSION, DEFAULT_AZURE_API_VERSION, DOMAIN
 from .session_and_storage import (
     _async_load_chat_store, _async_save_chat_store,
     _migrate_user_to_sessions, _get_active_session, _sanitize_history,
@@ -104,6 +104,85 @@ async def async_ai_call(
             "…" if len(raw) > _AI_LOG_RESPONSE_CHARS else "",
         )
     return result
+
+
+class _AzureAIResult:
+    """Minimal wrapper so Azure responses are compatible with async_ai_call callers."""
+    __slots__ = ("data",)
+
+    def __init__(self, text: str) -> None:
+        self.data = text
+
+
+async def async_azure_ai_call(
+    *,
+    task_name: str,
+    endpoint: str,
+    api_key: str,
+    deployment: str,
+    api_version: str,
+    instructions: str,
+    history: list | None = None,
+) -> _AzureAIResult:
+    """Call Azure AI Foundry (Azure OpenAI) chat completions directly via aiohttp.
+
+    Returns an _AzureAIResult with .data = response text string.
+    Raises HomeAssistantError on HTTP / connection errors.
+    """
+    import aiohttp as _aiohttp
+
+    url = (
+        f"{endpoint.rstrip('/')}/openai/deployments/{deployment}"
+        f"/chat/completions?api-version={api_version}"
+    )
+    messages: list[dict] = []
+    if history:
+        for entry in history:
+            role = entry.get("role", "user")
+            content = entry.get("content", "")
+            if role in ("user", "assistant", "system") and content:
+                messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": instructions})
+
+    payload = {"messages": messages}
+    headers = {
+        "api-key": api_key,
+        "Content-Type": "application/json",
+    }
+
+    _AI_LOG.debug(
+        "[Azure→] task=%s deployment=%s url=%s messages=%d prompt_chars=%d",
+        task_name, deployment, url, len(messages), len(instructions),
+    )
+    try:
+        async with _aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    _AI_LOG.error(
+                        "[Azure✗] task=%s deployment=%s status=%d body=%s",
+                        task_name, deployment, resp.status, body[:500],
+                    )
+                    raise HomeAssistantError(
+                        f"Azure AI Foundry returned HTTP {resp.status}: {body[:200]}"
+                    )
+                data = await resp.json()
+    except HomeAssistantError:
+        raise
+    except Exception as err:
+        _AI_LOG.error("[Azure✗] task=%s deployment=%s error=%s", task_name, deployment, err)
+        raise HomeAssistantError(f"Azure AI Foundry connection error: {err}") from err
+
+    try:
+        text: str = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as err:
+        raise HomeAssistantError(f"Azure AI Foundry unexpected response format: {err}") from err
+
+    _AI_LOG.debug(
+        "[Azure←] task=%s deployment=%s response_chars=%d",
+        task_name, deployment, len(text),
+    )
+    return _AzureAIResult(text)
 
 
 def _progress_emit(hass: HomeAssistant, request_id: str, event: dict) -> None:

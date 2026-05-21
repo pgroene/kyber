@@ -17,6 +17,7 @@ from homeassistant.helpers import selector
 
 # Section keys — used as dict keys in user_input when form is submitted
 _SECTION_MODEL = "model_config"
+_SECTION_AZURE = "azure_config"
 _SECTION_AGENTS = "agents"
 _SECTION_AREA = "area_assignment"
 _SECTION_DEVELOPER = "developer"
@@ -24,6 +25,11 @@ _SECTION_DEVELOPER = "developer"
 from .const import (
     CONF_AI_TASK_ENTITY_ID,
     CONF_NARRATOR_AI_TASK_ENTITY_ID,
+    CONF_AZURE_ENDPOINT,
+    CONF_AZURE_API_KEY,
+    CONF_AZURE_DEPLOYMENT,
+    CONF_AZURE_API_VERSION,
+    DEFAULT_AZURE_API_VERSION,
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_MAX_TOKENS,
@@ -174,6 +180,10 @@ def _build_options_schema(
     narrator_max_limit: int = 2_000_000,
     area_assignment_mode: str = DEFAULT_AREA_ASSIGNMENT_MODE,
     label_assignment_mode: str = DEFAULT_LABEL_ASSIGNMENT_MODE,
+    azure_endpoint: str = "",
+    azure_api_key: str = "",
+    azure_deployment: str = "",
+    azure_api_version: str = DEFAULT_AZURE_API_VERSION,
 ) -> vol.Schema:
     """Options schema grouped into sections."""
     model_fields: dict = {}
@@ -200,11 +210,27 @@ def _build_options_schema(
         )
     )
 
+    # Azure AI Foundry fields — when endpoint is filled, Azure is used instead of HA ai_task entity
+    _azure_endpoint_key = vol.Optional(CONF_AZURE_ENDPOINT, default=azure_endpoint) if azure_endpoint else vol.Optional(CONF_AZURE_ENDPOINT)
+    _azure_key_key = vol.Optional(CONF_AZURE_API_KEY, default=azure_api_key) if azure_api_key else vol.Optional(CONF_AZURE_API_KEY)
+    _azure_dep_key = vol.Optional(CONF_AZURE_DEPLOYMENT, default=azure_deployment) if azure_deployment else vol.Optional(CONF_AZURE_DEPLOYMENT)
+
+    azure_fields: dict = {
+        _azure_endpoint_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
+        _azure_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+        _azure_dep_key: selector.TextSelector(),
+        vol.Optional(CONF_AZURE_API_VERSION, default=azure_api_version): selector.TextSelector(),
+    }
+
     return vol.Schema(
         {
             vol.Optional(_SECTION_MODEL): section(
                 vol.Schema(model_fields),
                 {"collapsed": collapsed},
+            ),
+            vol.Optional(_SECTION_AZURE): section(
+                vol.Schema(azure_fields),
+                {"collapsed": True},
             ),
             vol.Optional(_SECTION_AGENTS): section(
                 vol.Schema(
@@ -389,6 +415,7 @@ class KyberOptionsFlow(OptionsFlow):
             agents = user_input.get(_SECTION_AGENTS, {})
             area = user_input.get(_SECTION_AREA, {})
             developer = user_input.get(_SECTION_DEVELOPER, {})
+            azure = user_input.get(_SECTION_AZURE, {})
 
             new_entity_id = str(model.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
             current_entity_id = str(self.config_entry.data.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
@@ -419,6 +446,10 @@ class KyberOptionsFlow(OptionsFlow):
                 CONF_AREA_ASSIGNMENT_MODE: str(area.get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE)),
                 CONF_LABEL_ASSIGNMENT_MODE: str(area.get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE)),
                 CONF_ENABLE_DEBUG_VIEWS: bool(developer.get(CONF_ENABLE_DEBUG_VIEWS, False)),
+                CONF_AZURE_ENDPOINT: str(azure.get(CONF_AZURE_ENDPOINT, "")).strip(),
+                CONF_AZURE_API_KEY: str(azure.get(CONF_AZURE_API_KEY, "")).strip(),
+                CONF_AZURE_DEPLOYMENT: str(azure.get(CONF_AZURE_DEPLOYMENT, "")).strip(),
+                CONF_AZURE_API_VERSION: str(azure.get(CONF_AZURE_API_VERSION, DEFAULT_AZURE_API_VERSION)).strip(),
             }
             if new_entity_id:
                 data[CONF_AI_TASK_ENTITY_ID] = new_entity_id
@@ -456,6 +487,10 @@ class KyberOptionsFlow(OptionsFlow):
             narrator_max_limit=narrator_max_limit,
             area_assignment_mode=str(_get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE)),
             label_assignment_mode=str(_get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE)),
+            azure_endpoint=str(_get(CONF_AZURE_ENDPOINT, "")),
+            azure_api_key=str(_get(CONF_AZURE_API_KEY, "")),
+            azure_deployment=str(_get(CONF_AZURE_DEPLOYMENT, "")),
+            azure_api_version=str(_get(CONF_AZURE_API_VERSION, DEFAULT_AZURE_API_VERSION)),
         )
 
         from .model_stats import format_stats as _fmt_stats, format_run_stats as _fmt_run_stats

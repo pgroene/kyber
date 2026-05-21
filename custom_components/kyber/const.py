@@ -4,6 +4,15 @@ DOMAIN = "kyber"
 
 CONF_AI_TASK_ENTITY_ID = "ai_task_entity_id"
 CONF_NARRATOR_AI_TASK_ENTITY_ID = "narrator_ai_task_entity_id"
+
+# Azure AI Foundry (Azure OpenAI) provider settings
+CONF_AZURE_ENDPOINT = "azure_endpoint"        # e.g. https://my-resource.openai.azure.com
+CONF_AZURE_API_KEY = "azure_api_key"          # resource API key
+CONF_AZURE_DEPLOYMENT = "azure_deployment"    # deployment name, e.g. gpt-4o
+CONF_AZURE_API_VERSION = "azure_api_version"  # e.g. 2024-05-01-preview
+DEFAULT_AZURE_API_VERSION = "2024-05-01-preview"
+# Max context tokens for Azure OpenAI deployments (GPT-4o = 128K)
+AZURE_MAX_TOKENS = 128_000
 CONF_MAX_TOKENS = "max_tokens"
 CONF_ENABLE_DEBUG_VIEWS = "enable_debug_views"
 CONF_USER_NAME = "user_name"
