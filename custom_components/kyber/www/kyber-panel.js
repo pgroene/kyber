@@ -257,6 +257,16 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     // Now render debug tab content (needs hass + debug flag confirmed)
     if (this._mode === "debug") {
       this._renderDebugTab(this._debugTab);
+    } else if (debugEnabled) {
+      // In chat mode with debug ON: reveal the debug pane at the bottom so
+      // the user can see Last turn / Logs without switching to /kyber-debug.
+      const pane = shadow.getElementById("debug-pane");
+      if (pane) {
+        pane.removeAttribute("hidden");
+        pane.classList.remove("debug-pane--standalone");
+      }
+      this._debugTab = this._debugTab || "last_turn";
+      this._renderDebugTab(this._debugTab);
     }
     // Start explorer banner polling in chat mode
     if (this._mode !== "debug") {
