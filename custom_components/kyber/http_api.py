@@ -860,11 +860,20 @@ async def _run_ai_loop(
         _running = _health.get("running_models", [])
         _model_names = [m.get("name", "?") for m in _running]
         _available = _health.get("available_models", [])
+        _ollama_url = _health.get("ollama_url", "unknown")
         _LOGGER.info(
-            "Kyber: Ollama reachable — %d model(s) loaded: %s | %d pulled: %s",
+            "Kyber: Ollama reachable — endpoint=%s | entity=%s | configured model=%s | %d loaded: %s | %d pulled: %s",
+            _ollama_url, entity_id, _model_name,
             len(_running), ", ".join(_model_names) or "none",
             len(_available), ", ".join(_available) or "none",
         )
+        _progress_emit(hass, request_id, {
+            "type": "debug",
+            "message": (
+                f"[AI→] endpoint={_ollama_url} entity={entity_id} "
+                f"model={_model_name} | pulled: {', '.join(_available) or 'none'}"
+            ),
+        })
         # Warn if the configured model isn't pulled at all
         _model_base = _model_name.split(":")[0].lower()
         _pulled_bases = [m.split(":")[0].lower() for m in _available]
