@@ -240,8 +240,7 @@ export const AIMixin = (Base) => class extends Base {
     const askBtn = this.shadowRoot.getElementById("btn-ask");
     askBtn.disabled = true;
     promptInput.value = "";
-
-    // Add user message to history before sending
+    this._lastPrompt = prompt; // save for retry
     this._addChatHistory("user", prompt);
 
     this._appendMessage(prompt, "user");
@@ -338,7 +337,19 @@ export const AIMixin = (Base) => class extends Base {
       if (textOnly) {
         this._addChatHistory("assistant", textOnly);
       }
-      this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null, data.learned_fact || null, data.clarify || null);
+      this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null, data.learned_fact || null, data.clarify || null, data.knowledge_used || []);
+
+      // Show "Onthouden" chips for newly saved search aliases
+      if (data.aliases_saved && data.aliases_saved.length > 0) {
+        const historyEl = this.shadowRoot.getElementById("chat-history");
+        data.aliases_saved.forEach((alias) => {
+          const chip = document.createElement("div");
+          chip.className = "chat-alias-learned";
+          chip.textContent = `💡 Onthouden: ${alias}`;
+          historyEl.appendChild(chip);
+        });
+        historyEl.scrollTop = historyEl.scrollHeight;
+      }
 
       // Render area assignment suggestions / reports
       if (data.area_suggestions && data.area_suggestions.length > 0) {
@@ -543,21 +554,43 @@ export const AIMixin = (Base) => class extends Base {
           if (!chips.includes(label)) chips.push(label);
         }
       });
-      if (chips.length >= 2) return chips.slice(0, 6);
+      if (chips.length >= 2) return chips.slice(0, 12);
 
-      // No bold — extract short verb phrase from each bullet
+      // No bold — use the full bullet text (works for entity IDs and names)
       chips.length = 0;
+      // Domain words → HA domain prefixes for entity ID reconstruction
+      const _DOMAIN_MAP = {
+        switch: "switch", light: "light", sensor: "sensor",
+        binary_sensor: "binary_sensor", cover: "cover",
+        media_player: "media_player", climate: "climate",
+        input_boolean: "input_boolean", scene: "scene",
+        script: "script", automation: "automation",
+        number: "number", select: "select", button: "button",
+      };
       bulletLines.forEach((line) => {
-        const cleaned = line
-          .replace(/^[\-\*•]\s+/, "")
+        const stripped = line.replace(/^[\-\*•]\s+/, "");
+        // Detect leading domain word (e.g. "Switch: entity_name") before stripping
+        const domainMatch = stripped.match(/^(switch|light|sensor|binary[_ ]sensor|cover|media[_ ]player|climate|input[_ ]boolean|scene|script|automation|number|select|button):\s*/i);
+        const domainPrefix = domainMatch
+          ? (_DOMAIN_MAP[domainMatch[1].toLowerCase().replace(/[\s-]/g, "_")] || "") + "."
+          : "";
+        const cleaned = stripped
           .replace(/^(or |and |also )?(do you want to |would you prefer to |would you like to |please |i can )/i, "")
           .replace(/\?.*$/, "")
+          // Strip "(state: ...)" suffix and similar parenthetical status notes
+          .replace(/\s*\(state:[^)]*\)/gi, "")
+          .replace(/\s*\([^)]{0,30}\)\s*$/, "")
+          // Strip leading domain word — keep entity name only
+          .replace(/^(switch|light|sensor|binary.sensor|cover|media.player|climate|input.boolean|scene|script|automation|number|select|button):\s*/i, "")
           .trim();
-        const words = cleaned.split(/\s+/).slice(0, 3);
-        const label = words[0].charAt(0).toUpperCase() + words[0].slice(1) + (words[1] ? " " + words[1] : "");
-        if (label.length > 1 && label.length < 35 && !chips.includes(label)) chips.push(label);
+        // Reconstruct full entity ID when possible (e.g. switch.onoff_keuken_espresso_304)
+        const chipValue = (domainPrefix && /^[a-z0-9_]+$/.test(cleaned))
+          ? domainPrefix + cleaned
+          : cleaned;
+        // Skip junk items: only "...", single chars, or empty
+        if (chipValue.length > 2 && chipValue !== "..." && chipValue.length < 80 && !chips.includes(chipValue)) chips.push(chipValue);
       });
-      if (chips.length >= 2) return chips.slice(0, 6);
+      if (chips.length >= 2) return chips.slice(0, 12);
       chips.length = 0;
     }
 
@@ -574,7 +607,7 @@ export const AIMixin = (Base) => class extends Base {
     const allQuoted = [...strippedText.matchAll(/"([^"]{1,40})"/g)].map((m) => m[1]);
     if (allQuoted.length >= 2) {
       allQuoted.forEach((v) => { if (!chips.includes(v)) chips.push(v); });
-      return chips.slice(0, 6);
+      return chips.slice(0, 12);
     }
 
     return chips;
@@ -582,14 +615,49 @@ export const AIMixin = (Base) => class extends Base {
 
   _appendMessage(text, type) {
     const history = this.shadowRoot.getElementById("chat-history");
+    const wrap = document.createElement("div");
+    wrap.className = `chat-message-wrap ${type}`;
+
     const msg = document.createElement("div");
     msg.className = `chat-message ${type}`;
     msg.textContent = text;
-    history.appendChild(msg);
+    wrap.appendChild(msg);
+
+    // Copy button for user and assistant messages
+    if (type === "user" || type === "assistant") {
+      const copyBtn = document.createElement("button");
+      copyBtn.className = "chat-copy-btn";
+      copyBtn.title = "Copy";
+      copyBtn.textContent = "📋";
+      copyBtn.addEventListener("click", () => {
+        navigator.clipboard.writeText(text).then(() => {
+          copyBtn.textContent = "✓";
+          setTimeout(() => (copyBtn.textContent = "📋"), 1500);
+        });
+      });
+      wrap.appendChild(copyBtn);
+    }
+
+    // Retry button on error messages
+    if (type === "error" && this._lastPrompt) {
+      const retryBtn = document.createElement("button");
+      retryBtn.className = "chat-retry-btn";
+      retryBtn.textContent = "↺ Retry";
+      const savedPrompt = this._lastPrompt;
+      retryBtn.addEventListener("click", () => {
+        wrap.remove();
+        const input = this.shadowRoot.getElementById("prompt-input");
+        if (input) input.value = savedPrompt;
+        this._askAI();
+      });
+      wrap.appendChild(retryBtn);
+    }
+
+    history.appendChild(wrap);
     history.scrollTop = history.scrollHeight;
   }
 
-  _appendAIResponse(fullText, yamlBlocks, plan, learnedFact = null, clarify = null) {
+  _appendAIResponse(fullText, yamlBlocks, plan, learnedFact = null, clarify = null, knowledgeIds = []) {
     const history = this.shadowRoot.getElementById("chat-history");
 
     // Render clarify block: question + option buttons.
@@ -638,6 +706,9 @@ export const AIMixin = (Base) => class extends Base {
       .replace(/```yaml[\s\S]*?```/gi, "")
       .replace(/```plan[\s\S]*?```/gi, "")
       .replace(/^#{1,3}\s*[Pp]lan\s*\n\{[\s\S]*?\n\}\s*/gm, "") // strip bare ## Plan {...} blocks
+      // Strip leaked tool result markers the model sometimes echoes back
+      .replace(/<<\/?TOOL_RESULT>>?/g, "")
+      .replace(/\bUser:\s*$/gm, "")
       .trim();
     if (textOnly) {
       const msg = document.createElement("div");
@@ -645,8 +716,9 @@ export const AIMixin = (Base) => class extends Base {
 
       const hasBold = /\*\*[^*\n]+\*\*/.test(textOnly);
       const isQuestion = /\?/.test(textOnly);
-      // Only show suggestion chips when the AI is explicitly presenting a choice
-      const isChoiceContext = /\b(choose|pick|select|which (?:one|option)|what would you (?:like|prefer)|do you want|I can:?|options?:|confirm|proceed|sure)\b/i.test(textOnly);
+      // Show chips when AI is presenting a choice — English and Dutch patterns
+      const isChoiceContext = /\b(choose|pick|select|which (?:one|option)|what would you (?:like|prefer)|do you want|I can:?|options?:|confirm|proceed|sure)\b/i.test(textOnly)
+        || /\b(welk|welke|welke van|which of|meerdere|multiple|disambig)\b/i.test(textOnly);
 
       if (hasBold) {
         // Render **bold** words as inline adornment buttons
@@ -665,14 +737,54 @@ export const AIMixin = (Base) => class extends Base {
 
       history.appendChild(msg);
 
-      // Fallback chips for non-bold question responses (e.g. Yes/No or quoted options).
+      // Action row: copy + thumbs up/down
+      const actionRow = document.createElement("div");
+      actionRow.className = "chat-feedback-row";
+
+      // Copy button
+      const aiCopyBtn = document.createElement("button");
+      aiCopyBtn.className = "tf-btn-rate chat-copy-btn";
+      aiCopyBtn.title = "Copy";
+      aiCopyBtn.textContent = "📋";
+      aiCopyBtn.addEventListener("click", () => {
+        navigator.clipboard.writeText(textOnly).then(() => {
+          aiCopyBtn.textContent = "✓";
+          setTimeout(() => (aiCopyBtn.textContent = "📋"), 1500);
+        });
+      });
+      actionRow.appendChild(aiCopyBtn);
+
+      // Thumbs up/down
+      if (knowledgeIds !== undefined) {
+        const upBtn = document.createElement("button");
+        upBtn.className = "tf-btn-rate tf-chat-up";
+        upBtn.title = "Helpful";
+        upBtn.textContent = "👍";
+        const downBtn = document.createElement("button");
+        downBtn.className = "tf-btn-rate tf-chat-down";
+        downBtn.title = "Not helpful";
+        downBtn.textContent = "👎";
+        const statusSpan = document.createElement("span");
+        statusSpan.className = "tf-status";
+        upBtn.addEventListener("click", () => this._submitTurnFeedback(5, knowledgeIds, actionRow));
+        downBtn.addEventListener("click", () => this._submitTurnFeedback(1, knowledgeIds, actionRow));
+        actionRow.appendChild(upBtn);
+        actionRow.appendChild(downBtn);
+        actionRow.appendChild(statusSpan);
+      }
+
+      history.appendChild(actionRow);
+
+      // Fallback chips for non-bold question responses (e.g. Yes/No or entity disambiguation).
       // Only shown when the AI is explicitly asking the user to pick an option.
       if (isQuestion && isChoiceContext && !hasBold && !plan) {
         const chips = this._extractSuggestions(textOnly);
         if (chips.length >= 2) {
+          const VISIBLE = 6;
           const chipRow = document.createElement("div");
           chipRow.className = "suggestion-chips";
-          chips.forEach((label) => {
+
+          const makeChip = (label) => {
             const btn = document.createElement("button");
             btn.className = "suggestion-chip";
             btn.textContent = label;
@@ -682,8 +794,22 @@ export const AIMixin = (Base) => class extends Base {
               chipRow.remove();
               this._askAI();
             });
-            chipRow.appendChild(btn);
-          });
+            return btn;
+          };
+
+          chips.slice(0, VISIBLE).forEach((label) => chipRow.appendChild(makeChip(label)));
+
+          if (chips.length > VISIBLE) {
+            const moreBtn = document.createElement("button");
+            moreBtn.className = "suggestion-chip chip-more";
+            moreBtn.textContent = `+${chips.length - VISIBLE} meer`;
+            moreBtn.addEventListener("click", () => {
+              moreBtn.remove();
+              chips.slice(VISIBLE).forEach((label) => chipRow.appendChild(makeChip(label)));
+            });
+            chipRow.appendChild(moreBtn);
+          }
+
           history.appendChild(chipRow);
         }
       }

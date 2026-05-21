@@ -558,13 +558,37 @@ export const AIMixin = (Base) => class extends Base {
 
       // No bold — use the full bullet text (works for entity IDs and names)
       chips.length = 0;
+      // Domain words → HA domain prefixes for entity ID reconstruction
+      const _DOMAIN_MAP = {
+        switch: "switch", light: "light", sensor: "sensor",
+        binary_sensor: "binary_sensor", cover: "cover",
+        media_player: "media_player", climate: "climate",
+        input_boolean: "input_boolean", scene: "scene",
+        script: "script", automation: "automation",
+        number: "number", select: "select", button: "button",
+      };
       bulletLines.forEach((line) => {
-        const cleaned = line
-          .replace(/^[\-\*•]\s+/, "")
+        const stripped = line.replace(/^[\-\*•]\s+/, "");
+        // Detect leading domain word (e.g. "Switch: entity_name") before stripping
+        const domainMatch = stripped.match(/^(switch|light|sensor|binary[_ ]sensor|cover|media[_ ]player|climate|input[_ ]boolean|scene|script|automation|number|select|button):\s*/i);
+        const domainPrefix = domainMatch
+          ? (_DOMAIN_MAP[domainMatch[1].toLowerCase().replace(/[\s-]/g, "_")] || "") + "."
+          : "";
+        const cleaned = stripped
           .replace(/^(or |and |also )?(do you want to |would you prefer to |would you like to |please |i can )/i, "")
           .replace(/\?.*$/, "")
+          // Strip "(state: ...)" suffix and similar parenthetical status notes
+          .replace(/\s*\(state:[^)]*\)/gi, "")
+          .replace(/\s*\([^)]{0,30}\)\s*$/, "")
+          // Strip leading domain word — keep entity name only
+          .replace(/^(switch|light|sensor|binary.sensor|cover|media.player|climate|input.boolean|scene|script|automation|number|select|button):\s*/i, "")
           .trim();
-        if (cleaned.length > 1 && cleaned.length < 80 && !chips.includes(cleaned)) chips.push(cleaned);
+        // Reconstruct full entity ID when possible (e.g. switch.onoff_keuken_espresso_304)
+        const chipValue = (domainPrefix && /^[a-z0-9_]+$/.test(cleaned))
+          ? domainPrefix + cleaned
+          : cleaned;
+        // Skip junk items: only "...", single chars, or empty
+        if (chipValue.length > 2 && chipValue !== "..." && chipValue.length < 80 && !chips.includes(chipValue)) chips.push(chipValue);
       });
       if (chips.length >= 2) return chips.slice(0, 12);
       chips.length = 0;
@@ -682,6 +706,9 @@ export const AIMixin = (Base) => class extends Base {
       .replace(/```yaml[\s\S]*?```/gi, "")
       .replace(/```plan[\s\S]*?```/gi, "")
       .replace(/^#{1,3}\s*[Pp]lan\s*\n\{[\s\S]*?\n\}\s*/gm, "") // strip bare ## Plan {...} blocks
+      // Strip leaked tool result markers the model sometimes echoes back
+      .replace(/<<\/?TOOL_RESULT>>?/g, "")
+      .replace(/\bUser:\s*$/gm, "")
       .trim();
     if (textOnly) {
       const msg = document.createElement("div");
