@@ -73,6 +73,41 @@ export const PlanCardsMixin = (Base) => class extends Base {
     const card = document.createElement("div");
     card.className = "plan-card";
 
+    const DOMAIN_ICONS = {
+      light: "mdi:lightbulb",
+      switch: "mdi:toggle-switch",
+      sensor: "mdi:eye",
+      binary_sensor: "mdi:radiobox-marked",
+      climate: "mdi:thermostat",
+      media_player: "mdi:cast",
+      cover: "mdi:window-shutter-open",
+      fan: "mdi:fan",
+      lock: "mdi:lock",
+      camera: "mdi:cctv",
+      automation: "mdi:robot",
+      script: "mdi:script-text",
+      scene: "mdi:palette",
+      input_boolean: "mdi:toggle-switch",
+      timer: "mdi:timer-outline",
+      number: "mdi:numeric",
+      input_number: "mdi:numeric",
+      select: "mdi:format-list-bulleted",
+      input_select: "mdi:format-list-bulleted",
+      vacuum: "mdi:robot-vacuum",
+      alarm_control_panel: "mdi:shield-home",
+      water_heater: "mdi:water-boiler",
+      humidifier: "mdi:air-humidifier",
+      button: "mdi:gesture-tap-button",
+      input_button: "mdi:gesture-tap-button",
+      input_text: "mdi:form-textbox",
+      person: "mdi:account",
+      device_tracker: "mdi:map-marker",
+      weather: "mdi:cloud",
+      group: "mdi:group",
+    };
+    const ON_STATES = new Set(["on", "open", "home", "playing", "unlocked", "active", "true",
+      "heat", "cool", "auto", "fan_only", "dry", "heat_cool", "heat_cool"]);
+
     const typeLabels = {
       assign_area: "Area",
       rename_entity: "Name",
@@ -99,12 +134,27 @@ export const PlanCardsMixin = (Base) => class extends Base {
       }
     });
 
+    const buildEntityChip = (entityId, missing) => {
+      if (!entityId) return "";
+      const domain = entityId.split(".")[0] || "";
+      const haState = this._hass?.states?.[entityId];
+      const friendlyName = haState?.attributes?.friendly_name || entityId;
+      const icon = haState?.attributes?.icon || DOMAIN_ICONS[domain] || "mdi:home-assistant";
+      const rawState = (haState?.state || "unknown").toLowerCase();
+      const isOn = ON_STATES.has(rawState);
+      const stateClass = rawState === "unavailable" ? "state-unavailable" : isOn ? "state-on" : "state-off";
+      const domainClass = `domain-${domain.replace(/_/g, "-")}`;
+      const nameDisplay = friendlyName.length > 24 ? `${friendlyName.slice(0, 23)}…` : friendlyName;
+      return `<div class="entity-chip ${stateClass} ${domainClass}${missing ? " entity-chip-missing" : ""}" title="${this._escapeHtml(entityId)}">
+        <ha-icon icon="${this._escapeHtml(icon)}" class="entity-chip-icon"></ha-icon>
+        <span class="entity-chip-name">${this._escapeHtml(nameDisplay)}</span>${missing ? '<span class="entity-chip-warn">⚠</span>' : ""}
+      </div>`;
+    };
+
     const changeRows = (plan.actions || [])
       .map((a) => {
         const missing = a.entity_id && invalidEntities.has(a.entity_id);
-        const entityHtml = a.entity_id
-          ? `<span class="change-entity${missing ? " entity-missing" : ""}">${this._escapeHtml(a.entity_id)}${missing ? " ⚠" : ""}</span>`
-          : "";
+        const entityHtml = buildEntityChip(a.entity_id, missing);
         // For service calls, show domain.service as the badge
         const typeLabel = a.type === "call_service"
           ? `${a.domain || "?"}.${a.service || "?"}`
