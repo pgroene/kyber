@@ -573,7 +573,7 @@ class KyberExecuteView(HomeAssistantView):
                 for a in actions
             )
         )
-        if _has_service_failures and _plan_summary:
+        if _has_service_failures:
             try:
                 from .correction_agent import async_try_correct_failures
                 _LOGGER.info(
