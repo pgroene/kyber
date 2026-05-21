@@ -762,18 +762,42 @@ async def _check_ollama_health(hass: Any, entity_id: str) -> dict:
         result["entity_state"] = state.state
         result["entity_attrs"] = dict(state.attributes)
 
-    # 2. Try to find the Ollama URL from HA config entries
+    # 2. Find the Ollama config entry that owns this AI task entity via entity registry.
+    #    Fall back to the first Ollama entry if the entity can't be matched.
     ollama_url: str | None = None
+    ollama_model: str | None = None
     try:
-        for entry in hass.config_entries.async_entries("ollama"):
-            data = dict(entry.data or {})
-            url = data.get("url") or data.get("base_url") or data.get("host")
-            if url:
-                ollama_url = url.rstrip("/")
-                break
+        from homeassistant.helpers import entity_registry as er
+        ent_reg = er.async_get(hass)
+        ent_entry = ent_reg.async_get(entity_id)
+        if ent_entry and ent_entry.config_entry_id:
+            cfg = hass.config_entries.async_get_entry(ent_entry.config_entry_id)
+            if cfg and cfg.domain == "ollama":
+                data = dict(cfg.data or {})
+                url = data.get("url") or data.get("base_url") or data.get("host")
+                if url:
+                    ollama_url = url.rstrip("/")
+                ollama_model = data.get("model") or data.get("model_name")
     except Exception:  # noqa: BLE001
         pass
+
+    if not ollama_url:
+        # Fallback: pick the first Ollama config entry
+        try:
+            for entry in hass.config_entries.async_entries("ollama"):
+                data = dict(entry.data or {})
+                url = data.get("url") or data.get("base_url") or data.get("host")
+                if url:
+                    ollama_url = url.rstrip("/")
+                    if not ollama_model:
+                        ollama_model = data.get("model") or data.get("model_name")
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+
     result["ollama_url"] = ollama_url
+    if ollama_model:
+        result["ollama_model"] = ollama_model
 
     if not ollama_url:
         result["error"] = "Could not determine Ollama URL from config entries"
@@ -830,8 +854,22 @@ async def _run_ai_loop(
     _entity_attrs = dict(_entity_state.attributes) if _entity_state else {}
     _model_name = (
         _entity_attrs.get("model_id") or _entity_attrs.get("model")
-        or _entity_attrs.get("model_name") or entity_id
+        or _entity_attrs.get("model_name")
     )
+    # If entity attrs didn't give us a model name, try the config entry directly
+    if not _model_name:
+        try:
+            from homeassistant.helpers import entity_registry as _er
+            _ent_reg = _er.async_get(hass)
+            _ent_entry = _ent_reg.async_get(entity_id)
+            if _ent_entry and _ent_entry.config_entry_id:
+                _cfg = hass.config_entries.async_get_entry(_ent_entry.config_entry_id)
+                if _cfg:
+                    _cfg_data = dict(_cfg.data or {})
+                    _model_name = _cfg_data.get("model") or _cfg_data.get("model_name")
+        except Exception:  # noqa: BLE001
+            pass
+    _model_name = _model_name or entity_id
     _LOGGER.info(
         "Kyber: AI pre-flight — entity=%s state=%s model=%s",
         entity_id, _entity_state_str, _model_name,
@@ -874,10 +912,12 @@ async def _run_ai_loop(
                 f"model={_model_name} | pulled: {', '.join(_available) or 'none'}"
             ),
         })
-        # Warn if the configured model isn't pulled at all
+        # Warn if the configured model isn't pulled at all.
+        # Skip this check if we couldn't resolve the model name (fell back to entity_id).
         _model_base = _model_name.split(":")[0].lower()
         _pulled_bases = [m.split(":")[0].lower() for m in _available]
-        if _available and _model_base not in _pulled_bases:
+        _model_is_entity_id = _model_name == entity_id
+        if _available and not _model_is_entity_id and _model_base not in _pulled_bases:
             _LOGGER.warning(
                 "Kyber: model '%s' is not pulled — run `ollama pull %s`",
                 _model_name, _model_base,
