@@ -750,6 +750,7 @@ async def _check_ollama_health(hass: Any, entity_id: str) -> dict:
         "entity_attrs": {},
         "ollama_url": None,
         "running_models": [],
+        "available_models": [],
         "queue_depth": 0,
         "reachable": False,
         "error": None,
@@ -778,7 +779,7 @@ async def _check_ollama_health(hass: Any, entity_id: str) -> dict:
         result["error"] = "Could not determine Ollama URL from config entries"
         return result
 
-    # 3. Hit /api/ps for running models + queue depth
+    # 3. Hit /api/ps for running models + /api/tags for pulled models
     try:
         timeout = aiohttp.ClientTimeout(total=5)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -789,6 +790,14 @@ async def _check_ollama_health(hass: Any, entity_id: str) -> dict:
                     result["running_models"] = ps_data.get("models", [])
                 else:
                     result["error"] = f"Ollama /api/ps returned HTTP {resp.status}"
+
+            if result["reachable"]:
+                async with session.get(f"{ollama_url}/api/tags") as resp:
+                    if resp.status == 200:
+                        tags_data = await resp.json()
+                        result["available_models"] = [
+                            m.get("name", "") for m in tags_data.get("models", [])
+                        ]
     except aiohttp.ClientConnectorError as err:
         result["error"] = f"Ollama unreachable: {err}"
     except Exception as err:  # noqa: BLE001
@@ -850,10 +859,28 @@ async def _run_ai_loop(
     else:
         _running = _health.get("running_models", [])
         _model_names = [m.get("name", "?") for m in _running]
+        _available = _health.get("available_models", [])
         _LOGGER.info(
-            "Kyber: Ollama reachable — %d model(s) loaded: %s",
+            "Kyber: Ollama reachable — %d model(s) loaded: %s | %d pulled: %s",
             len(_running), ", ".join(_model_names) or "none",
+            len(_available), ", ".join(_available) or "none",
         )
+        # Warn if the configured model isn't pulled at all
+        _model_base = _model_name.split(":")[0].lower()
+        _pulled_bases = [m.split(":")[0].lower() for m in _available]
+        if _available and _model_base not in _pulled_bases:
+            _LOGGER.warning(
+                "Kyber: model '%s' is not pulled — run `ollama pull %s`",
+                _model_name, _model_base,
+            )
+            _progress_emit(hass, request_id, {
+                "type": "warning",
+                "message": (
+                    f"⚠️ Model '{_model_name}' is not pulled. "
+                    f"Run `ollama pull {_model_base}` on your Ollama host. "
+                    f"Pulled models: {', '.join(_available) or 'none'}"
+                ),
+            })
     # ─────────────────────────────────────────────────────────────────────────
 
     # Determine the actual context window for this AI entity (reads num_ctx / context_length
