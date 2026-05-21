@@ -571,6 +571,25 @@ export const STYLES = `
   .chat-feedback-row .tf-status.ok { color: var(--success-color, #4caf50); }
   .chat-feedback-row .tf-status.flag { color: var(--warning-color, #ff9800); }
 
+  /* Copy button on user messages */
+  .chat-message-wrap { position: relative; display: flex; align-items: flex-start; gap: 4px; }
+  .chat-message-wrap .chat-copy-btn {
+    flex-shrink: 0; align-self: flex-start; margin-top: 2px;
+    background: none; border: none; cursor: pointer; font-size: 13px;
+    opacity: 0; transition: opacity 0.15s; padding: 1px 3px; border-radius: 3px;
+  }
+  .chat-message-wrap:hover .chat-copy-btn { opacity: 0.6; }
+  .chat-message-wrap .chat-copy-btn:hover { opacity: 1 !important; background: rgba(255,255,255,0.08); }
+
+  /* Retry button on error messages */
+  .chat-retry-btn {
+    display: inline-block; margin-top: 4px;
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25);
+    color: inherit; border-radius: 4px; padding: 2px 10px;
+    cursor: pointer; font-size: 12px;
+  }
+  .chat-retry-btn:hover { background: rgba(255,255,255,0.18); }
+
   /* Alias-learned chip shown after AI response */
   .chat-alias-learned {
     font-size: 11px; color: var(--success-color, #4caf50);

@@ -240,8 +240,7 @@ export const AIMixin = (Base) => class extends Base {
     const askBtn = this.shadowRoot.getElementById("btn-ask");
     askBtn.disabled = true;
     promptInput.value = "";
-
-    // Add user message to history before sending
+    this._lastPrompt = prompt; // save for retry
     this._addChatHistory("user", prompt);
 
     this._appendMessage(prompt, "user");
@@ -594,10 +593,45 @@ export const AIMixin = (Base) => class extends Base {
 
   _appendMessage(text, type) {
     const history = this.shadowRoot.getElementById("chat-history");
+    const wrap = document.createElement("div");
+    wrap.className = `chat-message-wrap ${type}`;
+
     const msg = document.createElement("div");
     msg.className = `chat-message ${type}`;
     msg.textContent = text;
-    history.appendChild(msg);
+    wrap.appendChild(msg);
+
+    // Copy button for user and assistant messages
+    if (type === "user" || type === "assistant") {
+      const copyBtn = document.createElement("button");
+      copyBtn.className = "chat-copy-btn";
+      copyBtn.title = "Copy";
+      copyBtn.textContent = "📋";
+      copyBtn.addEventListener("click", () => {
+        navigator.clipboard.writeText(text).then(() => {
+          copyBtn.textContent = "✓";
+          setTimeout(() => (copyBtn.textContent = "📋"), 1500);
+        });
+      });
+      wrap.appendChild(copyBtn);
+    }
+
+    // Retry button on error messages
+    if (type === "error" && this._lastPrompt) {
+      const retryBtn = document.createElement("button");
+      retryBtn.className = "chat-retry-btn";
+      retryBtn.textContent = "↺ Retry";
+      const savedPrompt = this._lastPrompt;
+      retryBtn.addEventListener("click", () => {
+        wrap.remove();
+        const input = this.shadowRoot.getElementById("prompt-input");
+        if (input) input.value = savedPrompt;
+        this._askAI();
+      });
+      wrap.appendChild(retryBtn);
+    }
+
+    history.appendChild(wrap);
     history.scrollTop = history.scrollHeight;
   }
 
@@ -677,19 +711,43 @@ export const AIMixin = (Base) => class extends Base {
 
       history.appendChild(msg);
 
-      // Thumbs up/down feedback row
+      // Action row: copy + thumbs up/down
+      const actionRow = document.createElement("div");
+      actionRow.className = "chat-feedback-row";
+
+      // Copy button
+      const aiCopyBtn = document.createElement("button");
+      aiCopyBtn.className = "tf-btn-rate chat-copy-btn";
+      aiCopyBtn.title = "Copy";
+      aiCopyBtn.textContent = "📋";
+      aiCopyBtn.addEventListener("click", () => {
+        navigator.clipboard.writeText(textOnly).then(() => {
+          aiCopyBtn.textContent = "✓";
+          setTimeout(() => (aiCopyBtn.textContent = "📋"), 1500);
+        });
+      });
+      actionRow.appendChild(aiCopyBtn);
+
+      // Thumbs up/down
       if (knowledgeIds !== undefined) {
-        const feedbackRow = document.createElement("div");
-        feedbackRow.className = "chat-feedback-row";
-        feedbackRow.innerHTML = `<button class="tf-btn-rate tf-chat-up" title="Helpful">👍</button><button class="tf-btn-rate tf-chat-down" title="Not helpful">👎</button><span class="tf-status"></span>`;
-        feedbackRow.querySelector(".tf-chat-up").addEventListener("click", () =>
-          this._submitTurnFeedback(5, knowledgeIds, feedbackRow)
-        );
-        feedbackRow.querySelector(".tf-chat-down").addEventListener("click", () =>
-          this._submitTurnFeedback(1, knowledgeIds, feedbackRow)
-        );
-        history.appendChild(feedbackRow);
+        const upBtn = document.createElement("button");
+        upBtn.className = "tf-btn-rate tf-chat-up";
+        upBtn.title = "Helpful";
+        upBtn.textContent = "👍";
+        const downBtn = document.createElement("button");
+        downBtn.className = "tf-btn-rate tf-chat-down";
+        downBtn.title = "Not helpful";
+        downBtn.textContent = "👎";
+        const statusSpan = document.createElement("span");
+        statusSpan.className = "tf-status";
+        upBtn.addEventListener("click", () => this._submitTurnFeedback(5, knowledgeIds, actionRow));
+        downBtn.addEventListener("click", () => this._submitTurnFeedback(1, knowledgeIds, actionRow));
+        actionRow.appendChild(upBtn);
+        actionRow.appendChild(downBtn);
+        actionRow.appendChild(statusSpan);
       }
+
+      history.appendChild(actionRow);
 
       // Fallback chips for non-bold question responses (e.g. Yes/No or quoted options).
       // Only shown when the AI is explicitly asking the user to pick an option.
