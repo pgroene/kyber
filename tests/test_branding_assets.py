@@ -12,7 +12,11 @@ def test_kyber_branding_assets_exist() -> None:
     assert (_COMPONENT_DIR / "logo.png").is_file()
 
 
-def test_manifest_declares_minimum_homeassistant_version() -> None:
-    """Kyber manifest should pin a minimum Home Assistant core version."""
+def test_manifest_is_valid() -> None:
+    """Kyber manifest should have required fields and correct structure."""
     manifest = json.loads((_COMPONENT_DIR / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["homeassistant"] == "2025.2.0"
+    assert manifest["domain"] == "kyber"
+    assert manifest["name"] == "Kyber"
+    assert "recorder" in manifest.get("after_dependencies", [])
+    # 'homeassistant' min-version key was removed — Hassfest rejects it in newer HA versions
+    assert "homeassistant" not in manifest

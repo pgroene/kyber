@@ -59,9 +59,12 @@ describe("_buildPlanCard — rendering", () => {
     expect(rows.length).toBe(2);
   });
 
-  it("renders the entity_id in each action row", () => {
+  it("renders a rich entity chip with friendly name and entity_id tooltip", () => {
     const { card } = buildPlanCard(simplePlan);
-    expect(card.querySelector(".change-entity").textContent).toContain("light.bedroom");
+    const chip = card.querySelector(".entity-chip");
+    expect(chip).not.toBeNull();
+    expect(chip.textContent).toContain("Bedroom");
+    expect(chip.getAttribute("title")).toBe("light.bedroom");
   });
 
   it("renders type badge with domain.service for call_service actions", () => {

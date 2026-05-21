@@ -189,7 +189,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ actions: actionsToRun, approved }),
+          body: JSON.stringify({ actions: actionsToRun, approved, summary: plan.summary || "" }),
         });
         if (resp.status === 403) {
           const blocked = await resp.json().catch(() => ({}));
