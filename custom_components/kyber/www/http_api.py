@@ -94,11 +94,13 @@ from .knowledge_integration import (
     _FACT_EXTRACTION_PROMPT, _try_extract_learned_fact,
     KyberKnowledgeView, KyberKnowledgeAnalyzeView,
     KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView,
+    KyberNarratorRunView, KyberExplorerRunView, get_deep_job_status,
 )
 from .api_utilities import (
     _PROGRESS_KEY,
     _progress_emit, _progress_complete,
     KyberProgressView, KyberSaveView, _SUMMARIZE_SYSTEM_PROMPT, KyberSummarizeView,
+    async_ai_call,
 )
 from .prompt_regression_api import (
     KyberPromptTestsView, KyberPromptTestsRunView,
@@ -532,7 +534,7 @@ async def _expand_search_query(hass: Any, entity_id: str, user_prompt: str) -> l
             '- "licht woonkamer" → ["licht","light","woonkamer","living room","lamp","verlichting"]\n'
             '- "tv" → ["tv","television","televisie","media_player","samsung","shield"]\n'
         )
-        result = await async_generate_data(
+        result = await async_ai_call(
             hass,
             task_name=f"{DOMAIN}_expand",
             entity_id=entity_id,
@@ -921,7 +923,7 @@ async def _run_ai_loop(
         _AI_CALL_TIMEOUT = 180  # seconds — Ollama can be slow on loaded hardware
         try:
             result = await asyncio.wait_for(
-                async_generate_data(
+                async_ai_call(
                     hass,
                     task_name=f"{DOMAIN}_complete",
                     entity_id=entity_id,
@@ -1278,7 +1280,7 @@ async def _run_ai_loop(
                 try:
                     _progress_emit(hass, request_id, {"type": "thinking", "stage": "synthesize"})
                     _t_synth = time.monotonic()
-                    synth_result = await async_generate_data(
+                    synth_result = await async_ai_call(
                         hass,
                         task_name=f"{DOMAIN}_complete",
                         entity_id=entity_id,

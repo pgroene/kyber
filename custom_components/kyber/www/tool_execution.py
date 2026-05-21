@@ -1112,7 +1112,7 @@ async def _async_execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
 
     if name == "run_ai_task":
         try:
-            from homeassistant.components.ai_task import async_generate_data  # type: ignore[import]
+            from .api_utilities import async_ai_call  # type: ignore[import]
         except ImportError:
             return json.dumps({"error": "ai_task component not available (HA < 2025.2)"})
 
@@ -1132,7 +1132,7 @@ async def _async_execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             return json.dumps({"error": "Missing 'prompt' argument"})
 
         try:
-            result = await async_generate_data(
+            result = await async_ai_call(
                 hass=hass,
                 task_name="kyber_tool_query",
                 entity_id=entity_id,

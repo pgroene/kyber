@@ -186,7 +186,12 @@ def _build_options_schema(
             min=2_000, max=chat_max_limit, step=1, mode=selector.NumberSelectorMode.BOX
         )
     )
-    model_fields[vol.Optional(CONF_NARRATOR_AI_TASK_ENTITY_ID)] = selector.EntitySelector(
+    narrator_key = (
+        vol.Optional(CONF_NARRATOR_AI_TASK_ENTITY_ID, default=narrator_ai_entity)
+        if narrator_ai_entity
+        else vol.Optional(CONF_NARRATOR_AI_TASK_ENTITY_ID)
+    )
+    model_fields[narrator_key] = selector.EntitySelector(
         selector.EntitySelectorConfig(domain="ai_task")
     )
     model_fields[vol.Optional(CONF_NARRATOR_MAX_TOKENS, default=narrator_max_tokens)] = selector.NumberSelector(

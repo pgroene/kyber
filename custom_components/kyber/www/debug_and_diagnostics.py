@@ -14,12 +14,8 @@ from homeassistant.core import HomeAssistant
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
 from .knowledge import get_store as get_knowledge_store
 from .entity_narrator import NARRATOR_STATS_KEY
-
-try:
-    from homeassistant.components.ai_task import async_generate_data
-except ImportError:  # HA < 2025.2 (test environments)
-    async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
-        raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
+from .knowledge_integration import get_deep_job_status as _get_deep_job_status
+from .api_utilities import async_ai_call
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -350,6 +346,7 @@ class KyberDebugStatusView(HomeAssistantView):
             "tool_history_size": len(hass.data.get(_DEBUG_TOOL_HISTORY_KEY, []) or []),
             "explorer_progress": hass.data.get(EXPLORER_PROGRESS_KEY),
             "narrator_stats": hass.data.get(NARRATOR_STATS_KEY),
+            "deep_job": _get_deep_job_status(),
             "storage": {
                 "knowledge_file_bytes": knowledge_bytes,
                 "chat_history_file_bytes": chat_bytes,
@@ -539,7 +536,7 @@ class KyberBugReportView(HomeAssistantView):
             prompt_parts += ["", "Debug bundle summary (PII has been redacted):", bundle_summary]
 
         try:
-            result = await async_generate_data(
+            result = await async_ai_call(
                 hass,
                 task_name=f"{DOMAIN}_bug_report",
                 entity_id=entity_id,

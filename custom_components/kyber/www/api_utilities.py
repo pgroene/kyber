@@ -25,11 +25,74 @@ from .session_and_storage import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+_AI_LOG = logging.getLogger("custom_components.kyber.ai_calls")
 
 # Redefine progress constants (same values as http_api.py)
 _PROGRESS_KEY = "kyber_progress"
 _PROGRESS_MAX_AGE = 300
 _PROGRESS_MAX_ENTRIES = 64
+
+# Max chars logged for prompt/response in normal debug mode.
+_AI_LOG_PROMPT_CHARS = 2000
+_AI_LOG_RESPONSE_CHARS = 1000
+
+
+async def async_ai_call(
+    hass: HomeAssistant,
+    *,
+    task_name: str,
+    entity_id: str,
+    instructions: str,
+    **kwargs: Any,
+) -> Any:
+    """Wrapper around async_generate_data with structured debug logging.
+
+    - In debug mode: logs the full request before sending and the response on return.
+    - Always: logs the full prompt + error on failure (so you can reproduce it).
+    """
+    import time as _time
+    debug: bool = bool(hass.data.get("kyber_debug_mode", False))
+    if debug:
+        _AI_LOG.warning(
+            "[AI→] task=%s entity=%s prompt_chars=%d\n%s%s",
+            task_name,
+            entity_id,
+            len(instructions),
+            instructions[:_AI_LOG_PROMPT_CHARS],
+            "…" if len(instructions) > _AI_LOG_PROMPT_CHARS else "",
+        )
+    _t0 = _time.monotonic()
+    try:
+        result = await async_generate_data(
+            hass,
+            task_name=task_name,
+            entity_id=entity_id,
+            instructions=instructions,
+            **kwargs,
+        )
+    except Exception as err:
+        elapsed_ms = int((_time.monotonic() - _t0) * 1000)
+        _AI_LOG.error(
+            "[AI✗] task=%s entity=%s elapsed=%dms\n--- PROMPT ---\n%s\n--- ERROR ---\n%s",
+            task_name,
+            entity_id,
+            elapsed_ms,
+            instructions,
+            err,
+        )
+        raise
+    elapsed_ms = int((_time.monotonic() - _t0) * 1000)
+    if debug:
+        raw = result.data if isinstance(result.data, str) else str(result.data)
+        _AI_LOG.warning(
+            "[AI←] task=%s elapsed=%dms response_chars=%d\n%s%s",
+            task_name,
+            elapsed_ms,
+            len(raw),
+            raw[:_AI_LOG_RESPONSE_CHARS],
+            "…" if len(raw) > _AI_LOG_RESPONSE_CHARS else "",
+        )
+    return result
 
 
 def _progress_emit(hass: HomeAssistant, request_id: str, event: dict) -> None:
@@ -175,7 +238,7 @@ class KyberSummarizeView(HomeAssistantView):
         entity_id: str = self._config[CONF_AI_TASK_ENTITY_ID]
 
         try:
-            result = await async_generate_data(
+            result = await async_ai_call(
                 hass,
                 task_name=f"{DOMAIN}_summarize",
                 entity_id=entity_id,

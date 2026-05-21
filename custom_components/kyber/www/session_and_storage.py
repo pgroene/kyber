@@ -12,12 +12,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.storage import Store
 
-try:
-    from homeassistant.components.ai_task import async_generate_data
-except ImportError:  # HA < 2025.2 (test environments)
-    async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
-        raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
-
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -421,8 +415,9 @@ class KyberSessionNameView(HomeAssistantView):
         )
 
         entity_id: str = self._config[CONF_AI_TASK_ENTITY_ID]
+        from .api_utilities import async_ai_call  # local to avoid circular import
         try:
-            result = await async_generate_data(
+            result = await async_ai_call(
                 hass,
                 task_name=f"{DOMAIN}_session_name",
                 entity_id=entity_id,
