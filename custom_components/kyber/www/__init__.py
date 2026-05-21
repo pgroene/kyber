@@ -559,7 +559,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     # Install global log handler + set logger level
     _kyber_root = logging.getLogger("custom_components.kyber")
     if debug_enabled:
-        _kyber_root.setLevel(logging.INFO)
+        _kyber_root.setLevel(logging.DEBUG)
     else:
         _kyber_root.setLevel(logging.WARNING)
     _global_handler = KyberGlobalLogHandler(hass)
