@@ -30,6 +30,7 @@ from .const import (
     CLOUD_PROVIDER_NONE,
     CLOUD_PROVIDER_AZURE,
     CLOUD_PROVIDER_OPENAI,
+    CLOUD_PROVIDER_ANTHROPIC,
     DEFAULT_CLOUD_PROVIDER,
     DEFAULT_CLOUD_USE_FOR_CHAT,
     CONF_AZURE_ENDPOINT,
@@ -41,6 +42,9 @@ from .const import (
     CONF_OPENAI_MODEL,
     CONF_OPENAI_BASE_URL,
     DEFAULT_OPENAI_MODEL,
+    CONF_ANTHROPIC_API_KEY,
+    CONF_ANTHROPIC_MODEL,
+    DEFAULT_ANTHROPIC_MODEL,
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_MAX_TOKENS,
@@ -200,6 +204,8 @@ def _build_options_schema(
     openai_api_key: str = "",
     openai_model: str = DEFAULT_OPENAI_MODEL,
     openai_base_url: str = "",
+    anthropic_api_key: str = "",
+    anthropic_model: str = DEFAULT_ANTHROPIC_MODEL,
 ) -> vol.Schema:
     """Options schema grouped into sections."""
     model_fields: dict = {}
@@ -232,6 +238,7 @@ def _build_options_schema(
     _azure_dep_key = vol.Optional(CONF_AZURE_DEPLOYMENT, default=azure_deployment) if azure_deployment else vol.Optional(CONF_AZURE_DEPLOYMENT)
     _openai_key_key = vol.Optional(CONF_OPENAI_API_KEY, default=openai_api_key) if openai_api_key else vol.Optional(CONF_OPENAI_API_KEY)
     _openai_base_key = vol.Optional(CONF_OPENAI_BASE_URL, default=openai_base_url) if openai_base_url else vol.Optional(CONF_OPENAI_BASE_URL)
+    _anthropic_key_key = vol.Optional(CONF_ANTHROPIC_API_KEY, default=anthropic_api_key) if anthropic_api_key else vol.Optional(CONF_ANTHROPIC_API_KEY)
 
     cloud_fields: dict = {
         vol.Optional(CONF_CLOUD_PROVIDER, default=cloud_provider): selector.SelectSelector(
@@ -239,7 +246,8 @@ def _build_options_schema(
                 options=[
                     {"value": CLOUD_PROVIDER_NONE, "label": "None (use local HA ai_task entity)"},
                     {"value": CLOUD_PROVIDER_AZURE, "label": "Azure AI Foundry"},
-                    {"value": CLOUD_PROVIDER_OPENAI, "label": "OpenAI"},
+                    {"value": CLOUD_PROVIDER_OPENAI, "label": "OpenAI (or compatible: Groq, Mistral, OpenRouter…)"},
+                    {"value": CLOUD_PROVIDER_ANTHROPIC, "label": "Anthropic (Claude)"},
                 ],
                 mode=selector.SelectSelectorMode.DROPDOWN,
             )
@@ -250,10 +258,13 @@ def _build_options_schema(
         _azure_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
         _azure_dep_key: selector.TextSelector(),
         vol.Optional(CONF_AZURE_API_VERSION, default=azure_api_version): selector.TextSelector(),
-        # OpenAI credentials
+        # OpenAI credentials (also works for Groq, Mistral, OpenRouter etc. via base URL)
         _openai_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
         vol.Optional(CONF_OPENAI_MODEL, default=openai_model): selector.TextSelector(),
         _openai_base_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
+        # Anthropic (Claude) credentials
+        _anthropic_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+        vol.Optional(CONF_ANTHROPIC_MODEL, default=anthropic_model): selector.TextSelector(),
     }
 
     return vol.Schema(
@@ -489,6 +500,8 @@ class KyberOptionsFlow(OptionsFlow):
                 CONF_OPENAI_API_KEY: str(cloud.get(CONF_OPENAI_API_KEY, "")).strip(),
                 CONF_OPENAI_MODEL: str(cloud.get(CONF_OPENAI_MODEL, DEFAULT_OPENAI_MODEL)).strip(),
                 CONF_OPENAI_BASE_URL: str(cloud.get(CONF_OPENAI_BASE_URL, "")).strip(),
+                CONF_ANTHROPIC_API_KEY: str(cloud.get(CONF_ANTHROPIC_API_KEY, "")).strip(),
+                CONF_ANTHROPIC_MODEL: str(cloud.get(CONF_ANTHROPIC_MODEL, DEFAULT_ANTHROPIC_MODEL)).strip(),
             }
             if new_entity_id:
                 data[CONF_AI_TASK_ENTITY_ID] = new_entity_id
@@ -535,6 +548,8 @@ class KyberOptionsFlow(OptionsFlow):
             openai_api_key=str(_get(CONF_OPENAI_API_KEY, "")),
             openai_model=str(_get(CONF_OPENAI_MODEL, DEFAULT_OPENAI_MODEL)),
             openai_base_url=str(_get(CONF_OPENAI_BASE_URL, "")),
+            anthropic_api_key=str(_get(CONF_ANTHROPIC_API_KEY, "")),
+            anthropic_model=str(_get(CONF_ANTHROPIC_MODEL, DEFAULT_ANTHROPIC_MODEL)),
         )
 
         from .model_stats import format_stats as _fmt_stats, format_run_stats as _fmt_run_stats

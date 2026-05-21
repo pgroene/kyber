@@ -12,6 +12,7 @@ CONF_CLOUD_USE_FOR_CHAT = "cloud_use_for_chat"  # use cloud provider for chat
 CLOUD_PROVIDER_NONE = "none"
 CLOUD_PROVIDER_AZURE = "azure"
 CLOUD_PROVIDER_OPENAI = "openai"
+CLOUD_PROVIDER_ANTHROPIC = "anthropic"
 
 DEFAULT_CLOUD_PROVIDER = CLOUD_PROVIDER_NONE
 DEFAULT_CLOUD_USE_FOR_CHAT = True
@@ -30,6 +31,12 @@ CONF_OPENAI_MODEL = "openai_model"            # model name, e.g. gpt-4o
 CONF_OPENAI_BASE_URL = "openai_base_url"      # optional custom endpoint
 DEFAULT_OPENAI_MODEL = "gpt-4o"
 OPENAI_MAX_TOKENS = 128_000
+
+# Anthropic (Claude) provider settings
+CONF_ANTHROPIC_API_KEY = "anthropic_api_key"  # sk-ant-... key
+CONF_ANTHROPIC_MODEL = "anthropic_model"      # e.g. claude-sonnet-4-5
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5"
+ANTHROPIC_MAX_TOKENS = 200_000                # Claude supports up to 200K context
 CONF_MAX_TOKENS = "max_tokens"
 CONF_ENABLE_DEBUG_VIEWS = "enable_debug_views"
 CONF_USER_NAME = "user_name"

@@ -49,6 +49,10 @@ from .const import (
     CONF_OPENAI_BASE_URL,
     DEFAULT_OPENAI_MODEL,
     OPENAI_MAX_TOKENS,
+    CONF_ANTHROPIC_API_KEY,
+    CONF_ANTHROPIC_MODEL,
+    DEFAULT_ANTHROPIC_MODEL,
+    ANTHROPIC_MAX_TOKENS,
     CONF_LABEL_ASSIGNMENT_MODE,
     DOMAIN,
     KNOWLEDGE_BUDGET_CHARS,
@@ -117,7 +121,7 @@ from .api_utilities import (
     _PROGRESS_KEY,
     _progress_emit, _progress_complete,
     KyberProgressView, KyberSaveView, _SUMMARIZE_SYSTEM_PROMPT, KyberSummarizeView,
-    async_ai_call, async_azure_ai_call, async_openai_ai_call,
+    async_ai_call, async_azure_ai_call, async_openai_ai_call, async_anthropic_ai_call,
 )
 from .prompt_regression_api import (
     KyberPromptTestsView, KyberPromptTestsRunView,
@@ -881,6 +885,9 @@ async def _run_ai_loop(
     _openai_model = str(_cfg.get(CONF_OPENAI_MODEL, DEFAULT_OPENAI_MODEL)).strip() or DEFAULT_OPENAI_MODEL
     _openai_base_url = str(_cfg.get(CONF_OPENAI_BASE_URL, "")).strip()
 
+    _anthropic_api_key = str(_cfg.get(CONF_ANTHROPIC_API_KEY, "")).strip()
+    _anthropic_model = str(_cfg.get(CONF_ANTHROPIC_MODEL, DEFAULT_ANTHROPIC_MODEL)).strip() or DEFAULT_ANTHROPIC_MODEL
+
     # Backward compat: if cloud_provider not yet set but azure credentials present, treat as azure
     if _cloud_provider == DEFAULT_CLOUD_PROVIDER and _azure_endpoint and _azure_api_key and _azure_deployment:
         _cloud_provider = CLOUD_PROVIDER_AZURE
@@ -888,6 +895,7 @@ async def _run_ai_loop(
 
     _use_azure = _cloud_use_for_chat and _cloud_provider == CLOUD_PROVIDER_AZURE and bool(_azure_endpoint and _azure_api_key and _azure_deployment)
     _use_openai = _cloud_use_for_chat and _cloud_provider == CLOUD_PROVIDER_OPENAI and bool(_openai_api_key)
+    _use_anthropic = _cloud_use_for_chat and _cloud_provider == CLOUD_PROVIDER_ANTHROPIC and bool(_anthropic_api_key)
 
     # Qwen3 thinking mode emits <think>…</think> blocks that break plan/tool parsing.
     if "qwen3" in entity_id.lower():
@@ -913,6 +921,16 @@ async def _run_ai_loop(
         _progress_emit(hass, request_id, {
             "type": "debug",
             "message": f"[AI→] provider=OpenAI model={_openai_model}",
+        })
+    elif _use_anthropic:
+        _model_name = f"anthropic/{_anthropic_model}"
+        _LOGGER.info(
+            "Kyber: AI pre-flight — provider=Anthropic model=%s",
+            _anthropic_model,
+        )
+        _progress_emit(hass, request_id, {
+            "type": "debug",
+            "message": f"[AI→] provider=Anthropic model={_anthropic_model}",
         })
     else:
         _entity_state = hass.states.get(entity_id)
@@ -1004,6 +1022,7 @@ async def _run_ai_loop(
     _ctx_window: int = (
         AZURE_MAX_TOKENS if _use_azure else
         OPENAI_MAX_TOKENS if _use_openai else
+        ANTHROPIC_MAX_TOKENS if _use_anthropic else
         _infer_max_tokens(hass, entity_id)
     )
     _ctx_warn_tokens: int = int(_ctx_window * 0.85)   # 85 % fill → warn
@@ -1090,6 +1109,17 @@ async def _run_ai_loop(
                         api_key=_openai_api_key,
                         model=_openai_model,
                         base_url=_openai_base_url or None,
+                        instructions=loop_instructions,
+                        history=history,
+                    ),
+                    timeout=_AI_CALL_TIMEOUT,
+                )
+            elif _use_anthropic:
+                result = await asyncio.wait_for(
+                    async_anthropic_ai_call(
+                        task_name=f"{DOMAIN}_complete",
+                        api_key=_anthropic_api_key,
+                        model=_anthropic_model,
                         instructions=loop_instructions,
                         history=history,
                     ),
