@@ -493,56 +493,74 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
   }
 
   _startStatusPolling() {
-    if (this._statusPollTimer) return;
-    const _poll = async () => {
-      if (!this._hass?.auth?.data?.access_token) return;
-      try {
-        const token = this._hass.auth.data.access_token;
-        const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        const ep = data.explorer_progress || {};
-        const status = ep.status || "idle";
+    clearInterval(this._statusPollInterval);
+    this._checkKyberStatus();
+    this._statusPollInterval = setInterval(() => this._checkKyberStatus(), 5000);
+  }
 
-        const narratorSpan = this.shadowRoot?.getElementById("narrator-progress");
-        const banner = this.shadowRoot?.getElementById("explorer-banner");
-        const bannerText = this.shadowRoot?.getElementById("explorer-banner-text");
+  async _checkKyberStatus() {
+    if (!this._hass?.auth?.data?.access_token) return;
+    try {
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const ep = data.explorer_progress || {};
+      const status = ep.status || "idle";
 
-        // Narrator badge
+      const narratorSpan = this.shadowRoot?.getElementById("narrator-progress");
+      const banner = this.shadowRoot?.getElementById("explorer-banner");
+      const bannerText = this.shadowRoot?.getElementById("explorer-banner-text");
+
+      if (status === "narrator") {
+        const done = ep.narrator_done ?? 0;
+        const total = ep.narrator_total || 0;
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
         if (narratorSpan) {
-          if (status === "narrator") {
-            const done = ep.narrator_done ?? 0;
-            const total = ep.narrator_total ?? 0;
-            narratorSpan.textContent = `✍️ ${done}/${total}`;
-            narratorSpan.removeAttribute("hidden");
-          } else {
-            narratorSpan.setAttribute("hidden", "");
-          }
+          narratorSpan.textContent = `${pct}%`;
+          narratorSpan.removeAttribute("hidden");
         }
-
-        // Explorer / deep-learning banner
         if (banner && bannerText) {
-          if (status === "deep_learning") {
-            const done = ep.deep_done ?? 0;
-            const total = ep.deep_total ?? 0;
-            const cur = ep.deep_current ? ` — ${ep.deep_current}` : "";
-            bannerText.textContent = `Analyzing automations… ${done}/${total}${cur}`;
-            banner.style.display = "";
-            banner.firstChild.textContent = "🧠 ";
-          } else if (status === "phase1_summaries" || status === "phase2_entities" || status === "starting") {
-            bannerText.textContent = "Exploring your home…";
-            banner.style.display = "";
-            banner.firstChild.textContent = "🔍 ";
-          } else {
-            banner.style.display = "none";
-          }
+          bannerText.textContent = `Narry is exploring your home… ${pct}%`;
+          banner.style.display = "";
+          if (banner.firstChild) banner.firstChild.textContent = "✍️ ";
         }
-      } catch (_e) {
-        // Silently ignore polling errors
+      } else if (status === "deep_learning") {
+        const done = ep.deep_done ?? 0;
+        const total = ep.deep_total ?? 0;
+        const cur = ep.deep_current ? ` — ${ep.deep_current}` : "";
+        if (narratorSpan) {
+          narratorSpan.textContent = `🧠 ${done}/${total}`;
+          narratorSpan.removeAttribute("hidden");
+        }
+        if (banner && bannerText) {
+          bannerText.textContent = `Analyzing automations… ${done}/${total}${cur}`;
+          banner.style.display = "";
+          if (banner.firstChild) banner.firstChild.textContent = "🧠 ";
+        }
+      } else if (status === "phase1_summaries" || status === "phase2_entities" || status === "starting") {
+        const done = ep.done ?? 0;
+        const total = ep.total ?? 0;
+        if (narratorSpan) {
+          narratorSpan.textContent = `🔍 ${done}/${total}`;
+          narratorSpan.removeAttribute("hidden");
+        }
+        if (banner && bannerText) {
+          bannerText.textContent = `Exploring your home… ${done}/${total}`;
+          banner.style.display = "";
+          if (banner.firstChild) banner.firstChild.textContent = "🔍 ";
+        }
+      } else {
+        // idle / done / unknown — hide everything
+        if (narratorSpan) narratorSpan.setAttribute("hidden", "");
+        if (banner) banner.style.display = "none";
+        // Self-stop when no active exploration
+        clearInterval(this._statusPollInterval);
+        this._statusPollInterval = null;
       }
-    };
-    _poll();
-    this._statusPollTimer = setInterval(_poll, 5000);
+    } catch (_e) {
+      // Silently ignore polling errors
+    }
   }
 
 }

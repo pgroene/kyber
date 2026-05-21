@@ -592,7 +592,7 @@ export const AIMixin = (Base) => class extends Base {
           if (!chips.includes(label)) chips.push(label);
         }
       });
-      if (chips.length >= 2) return chips.slice(0, 12);
+      if (chips.length >= 2) return chips.slice(0, 6);
 
       // No bold — use the full bullet text (works for entity IDs and names)
       chips.length = 0;
@@ -628,7 +628,7 @@ export const AIMixin = (Base) => class extends Base {
         // Skip junk items: only "...", single chars, or empty
         if (chipValue.length > 2 && chipValue !== "..." && chipValue.length < 80 && !chips.includes(chipValue)) chips.push(chipValue);
       });
-      if (chips.length >= 2) return chips.slice(0, 12);
+      if (chips.length >= 2) return chips.slice(0, 6);
       chips.length = 0;
     }
 

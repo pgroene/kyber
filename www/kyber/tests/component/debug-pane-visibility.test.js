@@ -1,13 +1,13 @@
 import { vi } from "vitest";
 
-function renderPanel(mode = "chat") {
+function renderPanel(mode = "chat", debugEnabled = false) {
   const element = document.createElement("kyber-panel");
   element.panel = { config: { mode } };
   document.body.appendChild(element);
 
   const fetchMock = vi.fn().mockResolvedValue({
     ok: true,
-    json: async () => ({ enabled: true }),
+    json: async () => ({ enabled: debugEnabled }),
   });
   vi.stubGlobal("fetch", fetchMock);
 
@@ -62,7 +62,7 @@ describe("debug pane visibility", () => {
   });
 
   it("shows the debug pane in debug mode", async () => {
-    const { element } = renderPanel("debug");
+    const { element } = renderPanel("debug", true);
     await element._applyModeAndDebugFlag();
 
     const pane = element.shadowRoot.getElementById("debug-pane");
