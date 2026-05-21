@@ -47,7 +47,7 @@ export const EN = {
 
   // Memory popover
   memory_popover_header:  "🧠 Recalled this turn",
-  memory_popover_empty:   "No facts recalled.",
+  memory_popover_empty:   "No facts recalled this turn.",
   memory_popover_view_all:"View all in Memory tab →",
 
   // Status / AI
