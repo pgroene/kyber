@@ -47,7 +47,8 @@ _CHAT_BUSY_KEY = "kyber_chat_busy"
 # Flag: set True while deep analyzer is calling the AI so chat can wait.
 _DEEP_AI_BUSY_KEY = "kyber_deep_learning_ai_busy"
 # Per-item AI call timeout — prevents a single item from blocking Ollama forever.
-_AI_CALL_TIMEOUT = 60  # seconds
+# Set generously for slow hardware (e.g. Orange Pi running local models).
+_AI_CALL_TIMEOUT = 300  # seconds
 
 # Hard cap on raw config sent to AI (chars). Beyond this we truncate.
 _MAX_CONFIG_CHARS = 6000
