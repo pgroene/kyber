@@ -6,7 +6,15 @@ New entries are prepended automatically when a release tag is pushed (see `.gith
 
 ---
 
-## [0.5.5] — 2026-05-22 00:47 +0200
+## [0.5.6] — 2026-05-22 01:00 +0200
+
+### Fixed
+- **Background AI tasks silently falling back** — when the configured AI entity (e.g. Ollama with thinking enabled) returns "does not support thinking", `kyber_summarize`, `kyber_session_name`, and `kyber_fact_extract` now automatically retry via Azure if Azure credentials are configured. Eliminates the repeated ERROR log spam.
+- **Label creation broken on newer HA** — `LabelRegistry.async_create()` removed the `label_id` keyword argument in a recent HA release. Now tries with `label_id` first and falls back without it, eliminating the `unexpected keyword argument 'label_id'` WARNING spam.
+
+---
+
+
 
 ### Added
 - **Self-healing execution** — when a plan action fails, a correction micro-agent automatically re-tries with domain-specific knowledge; result shown in chat with `[🔧 CORRECTION]` marker (closes #187)
