@@ -151,6 +151,21 @@ For each changed-or-new item (up to `limit`), the analyzer:
 Re-runs are cheap: unchanged items just bump the skip counter. The
 Debug → Memory sub-tab exposes this as a 🧬 "Deep analyze" button.
 
+### Chat preemption
+
+Chat always takes priority over the deep analyzer. When a user message
+arrives while the analyzer is running:
+
+1. **`kyber_preempt_event`** is fired — the in-flight Ollama call (up to
+   300 s) is cancelled immediately via `asyncio.wait()` instead of being
+   waited out.
+2. The current item is re-queued for the next attempt; the progress store
+   is set to `status="paused_chat"`. The Debug panel shows
+   `⏸ Paused — chat active (deep: N / M, current_item)`.
+3. After the chat response is sent, the analyzer waits using the same
+   **exponential backoff** as the narrator (10 → 20 → 40 → 80 → 160 →
+   300 s, reset after each successful item).
+
 ## 6. Response cleanup
 
 Models still sometimes leak narration or role-played tool calls. The
