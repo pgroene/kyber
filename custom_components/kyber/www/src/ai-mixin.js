@@ -1383,4 +1383,28 @@ export const AIMixin = (Base) => class extends Base {
     history.appendChild(chip);
     history.scrollTop = history.scrollHeight;
   }
+
+  /**
+   * Show a brief floating toast notification at the top of the panel.
+   * Used to surface learned facts from the correction micro-agent.
+   *
+   * @param {string} message - text to display
+   * @param {number} [duration=4000] - milliseconds before auto-dismiss
+   */
+  _showToast(message, duration = 4000) {
+    const shadow = this.shadowRoot;
+    if (!shadow) return;
+    const toast = document.createElement("div");
+    toast.className = "kyber-toast";
+    toast.textContent = message;
+    shadow.appendChild(toast);
+    // Animate in
+    requestAnimationFrame(() => toast.classList.add("kyber-toast--visible"));
+    setTimeout(() => {
+      toast.classList.remove("kyber-toast--visible");
+      toast.addEventListener("transitionend", () => toast.remove(), { once: true });
+      // Fallback removal if transitionend never fires
+      setTimeout(() => toast.remove(), 500);
+    }, duration);
+  }
 };
