@@ -500,7 +500,7 @@ async def _update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
 async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bool:
     """Set up Kyber from a config entry."""
     config = {**entry.data, **(entry.options or {})}
-    _LOGGER.warning("Kyber: loading integration v0.4.1, panel v175")
+    _LOGGER.warning("Kyber: loading integration v0.4.2, panel v176")
 
     debug_enabled = _resolve_debug_enabled(entry)
     hass.data[_DEBUG_MODE_KEY] = debug_enabled
@@ -580,7 +580,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
             sidebar_icon="mdi:robot",
-            module_url="/local/kyber/kyber-panel.js?v=175",
+            module_url="/local/kyber/kyber-panel.js?v=176",
         )
     except Exception:  # noqa: BLE001
         _LOGGER.debug("Panel registration skipped (test environment)")
@@ -595,7 +595,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
                 webcomponent_name="kyber-panel",
                 sidebar_title="Kyber Debug",
                 sidebar_icon="mdi:bug",
-                module_url="/local/kyber/kyber-panel.js?v=175",
+                module_url="/local/kyber/kyber-panel.js?v=176",
                 config={"mode": "debug"},
             )
         except Exception:  # noqa: BLE001
@@ -645,6 +645,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bo
     if _handler:
         logging.getLogger("custom_components.kyber").removeHandler(_handler)
     return True
+
 
 
 

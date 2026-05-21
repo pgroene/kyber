@@ -398,12 +398,32 @@ export const AIMixin = (Base) => class extends Base {
       this._maybeCompact();
     } catch (err) {
       this._hideThinking();
-      const msg = err.name === "AbortError"
-        ? (err.message || "Request cancelled.")
-        : `Error: ${err.message}`;
-      // Detect "AI Task entity not found" (503 from HA ai_task) — show persistent banner instead of chat bubble.
-      if (/AI Task entity.*not found/i.test(msg) || (/503/.test(msg) && /ai_task/i.test(msg))) {
-        const entityId = (msg.match(/ai_task\.\S+/) || [])[0] || "the configured AI task entity";
+      let msg;
+      if (err.name === "AbortError") {
+        msg = err.message || "Request cancelled.";
+      } else {
+        // err.message is like "503: {"message":"AI provider error: ..."}"
+        // Try to extract a clean human-readable message from the JSON body
+        const rawMsg = err.message || "";
+        const jsonStart = rawMsg.indexOf("{");
+        let cleanMsg = rawMsg;
+        if (jsonStart !== -1) {
+          try {
+            const parsed = JSON.parse(rawMsg.slice(jsonStart));
+            const inner = (parsed.message || "").replace(/^AI provider error:\s*/i, "").replace(/^Internal error:\s*/i, "");
+            if (inner) cleanMsg = inner.length > 250 ? inner.slice(0, 250) + "…" : inner;
+          } catch { /* keep cleanMsg = rawMsg */ }
+        }
+        // Rate limit: show a friendly waiting message
+        if (/429|rate.?limit|too.?many.?request|⏳/i.test(cleanMsg)) {
+          msg = "⏳ Azure rate limit — too many requests. Please wait a moment and try again.";
+        } else {
+          msg = `Error: ${cleanMsg}`;
+        }
+      }
+      // "AI Task entity not found" → show persistent banner instead of chat bubble
+      if (/AI Task entity.*not found/i.test(msg) || (/503/.test(err.message || "") && /ai_task/i.test(err.message || ""))) {
+        const entityId = ((err.message || "").match(/ai_task\.\S+/) || [])[0] || "the configured AI task entity";
         this._showWarningBanner(`⚠️ AI model unavailable — ${entityId} not found. Check your Ollama / AI Task integration.`);
       } else {
         this._appendMessage(msg, "error");
