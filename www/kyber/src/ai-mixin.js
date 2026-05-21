@@ -133,9 +133,27 @@ export const AIMixin = (Base) => class extends Base {
             dlg.querySelector("#br-copy").addEventListener("click", () => {
               const title = dlg.querySelector("#br-title").value;
               const body = dlg.querySelector("#br-body").value;
-              navigator.clipboard.writeText(`## ${title}\n\n${body}`).then(() => {
-                const btn2 = dlg.querySelector("#br-copy");
+              const bugText = `## ${title}\n\n${body}`;
+              const btn2 = dlg.querySelector("#br-copy");
+              const doCopy3 = navigator.clipboard?.writeText
+                ? navigator.clipboard.writeText(bugText)
+                : new Promise((resolve, reject) => {
+                    try {
+                      const ta = document.createElement("textarea");
+                      ta.value = bugText;
+                      ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+                      document.body.appendChild(ta);
+                      ta.focus(); ta.select();
+                      document.execCommand("copy");
+                      document.body.removeChild(ta);
+                      resolve();
+                    } catch (e) { reject(e); }
+                  });
+              doCopy3.then(() => {
                 btn2.textContent = "✓ Copied!";
+                setTimeout(() => { btn2.textContent = "📋 Copy"; }, 2000);
+              }).catch(() => {
+                btn2.textContent = "⚠ Copy failed";
                 setTimeout(() => { btn2.textContent = "📋 Copy"; }, 2000);
               });
             });
@@ -786,9 +804,28 @@ export const AIMixin = (Base) => class extends Base {
       aiCopyBtn.title = "Copy";
       aiCopyBtn.textContent = "📋";
       aiCopyBtn.addEventListener("click", () => {
-        navigator.clipboard.writeText(textOnly).then(() => {
-          aiCopyBtn.textContent = "✓";
+        const t2 = this._t || ((k) => k);
+        const doCopy2 = navigator.clipboard?.writeText
+          ? navigator.clipboard.writeText(textOnly)
+          : new Promise((resolve, reject) => {
+              try {
+                const ta = document.createElement("textarea");
+                ta.value = textOnly;
+                ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+                document.body.appendChild(ta);
+                ta.focus(); ta.select();
+                document.execCommand("copy");
+                document.body.removeChild(ta);
+                resolve();
+              } catch (e) { reject(e); }
+            });
+        doCopy2.then(() => {
+          aiCopyBtn.textContent = t2("copy_done");
           setTimeout(() => (aiCopyBtn.textContent = "📋"), 1500);
+        }).catch(() => {
+          aiCopyBtn.title = t2("copy_failed_title");
+          aiCopyBtn.textContent = t2("copy_fail");
+          setTimeout(() => { aiCopyBtn.textContent = "📋"; aiCopyBtn.title = t2("copy_title"); }, 2000);
         });
       });
       actionRow.appendChild(aiCopyBtn);
