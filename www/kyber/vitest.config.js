@@ -24,6 +24,10 @@ export default defineConfig({
     setupFiles: ["./tests/setup.js"],
     // Exclude Playwright UI specs — those are run separately via `npm run test:ui`
     exclude: ["tests/ui/**", "**/node_modules/**"],
+    // Use forks pool to isolate test files; each worker gets its own process so
+    // timer-based teardown races between test files are avoided.
+    pool: "forks",
+    teardownTimeout: 10000,
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

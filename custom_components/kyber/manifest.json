@@ -1,6 +1,9 @@
 {
   "domain": "kyber",
   "name": "Kyber",
+  "after_dependencies": [
+    "recorder"
+  ],
   "codeowners": [
     "@pgroene"
   ],
@@ -9,9 +12,6 @@
     "ai_task",
     "http",
     "lovelace"
-  ],
-  "after_dependencies": [
-    "recorder"
   ],
   "documentation": "https://github.com/pgroene/kyber",
   "iot_class": "local_polling",
