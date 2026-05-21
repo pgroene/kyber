@@ -390,6 +390,114 @@ async def test_options_flow_changes_chat_model(hass: HomeAssistant) -> None:
     assert result["data"]["ai_task_entity_id"] == "ai_task.new_chat"
 
 
+async def test_options_flow_saves_anthropic_cloud_provider(hass: HomeAssistant) -> None:
+    """Options flow should save Anthropic cloud provider settings."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"ai_task_entity_id": "ai_task.test_model", "max_tokens": 4096},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "model_config": {
+                "ai_task_entity_id": "ai_task.test_model",
+                "max_tokens": 20_000,
+            },
+            "cloud_config": {
+                "cloud_provider": "anthropic",
+                "cloud_use_for_chat": True,
+                "anthropic_api_key": "sk-ant-mykey",
+                "anthropic_model": "claude-sonnet-4-5",
+            },
+            "agents": {},
+            "area_assignment": {},
+            "developer": {},
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["cloud_provider"] == "anthropic"
+    assert result["data"]["anthropic_api_key"] == "sk-ant-mykey"
+    assert result["data"]["anthropic_model"] == "claude-sonnet-4-5"
+    assert result["data"]["cloud_use_for_chat"] is True
+
+
+async def test_options_flow_saves_openai_cloud_provider_with_custom_base_url(hass: HomeAssistant) -> None:
+    """Options flow should save OpenAI provider with a custom base_url (e.g. Groq)."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"ai_task_entity_id": "ai_task.test_model", "max_tokens": 4096},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "model_config": {
+                "ai_task_entity_id": "ai_task.test_model",
+                "max_tokens": 20_000,
+            },
+            "cloud_config": {
+                "cloud_provider": "openai",
+                "cloud_use_for_chat": True,
+                "openai_api_key": "sk-groq-key",
+                "openai_model": "llama3-70b",
+                "openai_base_url": "https://api.groq.com/openai",
+            },
+            "agents": {},
+            "area_assignment": {},
+            "developer": {},
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["cloud_provider"] == "openai"
+    assert result["data"]["openai_api_key"] == "sk-groq-key"
+    assert result["data"]["openai_model"] == "llama3-70b"
+    assert result["data"]["openai_base_url"] == "https://api.groq.com/openai"
+
+
+async def test_options_flow_cloud_provider_none_clears_use_for_chat(hass: HomeAssistant) -> None:
+    """Selecting cloud_provider=none should still save cloud_use_for_chat correctly."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"ai_task_entity_id": "ai_task.test_model", "max_tokens": 4096},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "model_config": {
+                "ai_task_entity_id": "ai_task.test_model",
+                "max_tokens": 20_000,
+            },
+            "cloud_config": {
+                "cloud_provider": "none",
+                "cloud_use_for_chat": False,
+            },
+            "agents": {},
+            "area_assignment": {},
+            "developer": {},
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["cloud_provider"] == "none"
+    assert result["data"]["cloud_use_for_chat"] is False
+
+
 async def test_options_flow_invalid_chat_model_shows_error(hass: HomeAssistant) -> None:
     """Submitting a non-existent entity in options flow shows entity_not_found error."""
     from pytest_homeassistant_custom_component.common import MockConfigEntry

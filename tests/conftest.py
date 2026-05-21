@@ -4,6 +4,61 @@ import threading
 
 import pytest
 
+
+def pytest_configure(config):  # noqa: ARG001
+    """Fix Windows event loop creation blocked by pytest-socket.
+
+    On Windows:
+    1. All asyncio event loops call socket.socketpair() to create their internal
+       self-pipe. pytest-homeassistant calls pytest_socket.disable_socket() before
+       each test, blocking ALL socket creation — including this internal pipe.
+       Fix: save the real socket.socket class here (before any patch), then replace
+       socket.socketpair with a wrapper that temporarily restores the real class.
+
+    2. HassEventLoopPolicy creates a ProactorEventLoop (Windows default), but
+       aiodns (used by aiohttp) requires SelectorEventLoop on Windows. Patch
+       HassEventLoopPolicy.new_event_loop to return SelectorEventLoop instead.
+       Note: asyncio.set_event_loop_policy is replaced with a lambda no-op by
+       pytest-homeassistant, so we must patch the class method directly.
+    """
+    if sys.platform != "win32":
+        return
+    import asyncio as _asyncio  # noqa: PLC0415
+    import socket as _socket_mod  # noqa: PLC0415
+
+    # ── Fix 1: socketpair bypass ──────────────────────────────────────────────
+    _real_socket_cls = _socket_mod.socket          # real class, before any patch
+    _orig_socketpair = _socket_mod.socketpair      # Windows fallback implementation
+
+    def _safe_socketpair(
+        family: int = _socket_mod.AF_INET,
+        type: int = _socket_mod.SOCK_STREAM,  # noqa: A002
+        proto: int = 0,
+    ):
+        """Call the original socketpair with the real socket.socket class."""
+        patched = _socket_mod.socket
+        _socket_mod.socket = _real_socket_cls
+        try:
+            return _orig_socketpair(family, type, proto)
+        finally:
+            _socket_mod.socket = patched
+
+    _socket_mod.socketpair = _safe_socketpair
+
+    # ── Fix 2: force SelectorEventLoop (required by aiodns on Windows) ────────
+    try:
+        from homeassistant.runner import HassEventLoopPolicy  # noqa: PLC0415
+
+        def _win_new_event_loop(self):  # noqa: ANN001
+            loop = _asyncio.SelectorEventLoop()
+            loop.set_exception_handler(lambda l, ctx: None)  # suppress noise  # noqa: E731
+            return loop
+
+        HassEventLoopPolicy.new_event_loop = _win_new_event_loop
+    except (ImportError, AttributeError):
+        pass
+
+
 try:
     import homeassistant.components.http as _ha_http
     import homeassistant.core as _ha_core
@@ -148,6 +203,14 @@ if _HA_AVAILABLE:
     @pytest.fixture
     async def setup_integration(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
         """Set up HTTP component and register views directly, bypassing external dependencies."""
+        import asyncio as _asyncio  # noqa: PLC0415
+        from unittest.mock import AsyncMock, patch  # noqa: PLC0415
         await async_setup_component(hass, "http", {})
-        await async_setup_entry(hass, mock_config_entry)
+        # Patch _async_explore_integrations to prevent lingering background tasks.
+        # The function awaits an AI task that doesn't exist in tests, so it would
+        # hang indefinitely if not mocked.
+        with patch("custom_components.kyber._async_explore_integrations", new_callable=AsyncMock):
+            await async_setup_entry(hass, mock_config_entry)
+            # Give the event loop one tick so the mock task completes immediately.
+            await _asyncio.sleep(0)
         yield mock_config_entry
