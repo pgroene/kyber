@@ -49,11 +49,11 @@ async def async_ai_call(
 
     - In debug mode: logs the full request before sending and the response on return.
     - Always: logs the full prompt + error on failure (so you can reproduce it).
+    - If the entity fails with "does not support thinking", falls back to Azure
+      automatically (if Azure is configured in hass.data["kyber_config"]).
     """
     import time as _time
     debug: bool = bool(hass.data.get("kyber_debug_mode", False))
-    # Resolve the actual model name (e.g. "qwen3:4b-instruct") from entity
-    # state attributes; falls back to the entity_id when not available.
     _state = hass.states.get(entity_id)
     _attrs = dict(_state.attributes) if _state else {}
     _model_name: str = (
@@ -81,6 +81,7 @@ async def async_ai_call(
         )
     except Exception as err:
         elapsed_ms = int((_time.monotonic() - _t0) * 1000)
+        err_str = str(err)
         _AI_LOG.error(
             "[AI✗] task=%s entity=%s model=%s elapsed=%dms\n--- PROMPT (first 200 chars) ---\n%s\n--- ERROR ---\n%s",
             task_name,
@@ -88,8 +89,28 @@ async def async_ai_call(
             _model_name,
             elapsed_ms,
             str(instructions)[:200],
-            err,
+            err_str,
         )
+        # Fallback: if the local entity doesn't support thinking mode, retry with Azure
+        if "does not support thinking" in err_str.lower() or "thinking" in err_str.lower():
+            cfg: dict = hass.data.get("kyber_config", {})
+            azure_endpoint = cfg.get(CONF_AZURE_ENDPOINT, "")
+            azure_key = cfg.get(CONF_AZURE_API_KEY, "")
+            azure_deployment = cfg.get(CONF_AZURE_DEPLOYMENT, "")
+            if azure_endpoint and azure_key and azure_deployment:
+                _LOGGER.debug(
+                    "async_ai_call: entity '%s' doesn't support thinking — retrying with Azure for task %s",
+                    entity_id,
+                    task_name,
+                )
+                return await async_azure_ai_call(
+                    task_name=task_name,
+                    endpoint=azure_endpoint,
+                    api_key=azure_key,
+                    deployment=azure_deployment,
+                    api_version=cfg.get(CONF_AZURE_API_VERSION, DEFAULT_AZURE_API_VERSION),
+                    instructions=instructions,
+                )
         raise
     elapsed_ms = int((_time.monotonic() - _t0) * 1000)
     if debug:

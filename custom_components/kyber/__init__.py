@@ -510,6 +510,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
 
     debug_enabled = _resolve_debug_enabled(entry)
     hass.data[_DEBUG_MODE_KEY] = debug_enabled
+    # Store full config so background tasks (summarize, session_name, fact_extract)
+    # can fall back to Azure when the local entity doesn't support thinking mode.
+    hass.data["kyber_config"] = config
     # Store AI entity ID so the debug status endpoint can display it.
     hass.data["kyber_ai_task_entity"] = config.get(CONF_AI_TASK_ENTITY_ID, "")
     # Also store the narrator entity (falls back to chat entity if not separately configured).
