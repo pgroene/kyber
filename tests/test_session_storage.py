@@ -74,6 +74,10 @@ _load("custom_components.kyber.knowledge", ROOT / "custom_components" / "kyber" 
 _load("custom_components.kyber.analyzer", ROOT / "custom_components" / "kyber" / "analyzer.py")
 _load("custom_components.kyber.source", ROOT / "custom_components" / "kyber" / "source.py")
 http_api = _load("custom_components.kyber.http_api", ROOT / "custom_components" / "kyber" / "http_api.py")
+session_and_storage = _load(
+    "custom_components.kyber.session_and_storage",
+    ROOT / "custom_components" / "kyber" / "session_and_storage.py",
+)
 
 _new_session_id = http_api._new_session_id
 _migrate_user_to_sessions = http_api._migrate_user_to_sessions
@@ -229,3 +233,124 @@ class TestSanitizeSummary:
         long = "x" * 1_000_000
         result = _sanitize_summary(long)
         assert len(result) < 1_000_000
+
+
+# ── _async_load_chat_store migration error handling (#114) ───────────────────
+
+import asyncio  # noqa: E402
+from unittest.mock import AsyncMock, MagicMock, patch  # noqa: E402
+
+
+def _run(coro):
+    return asyncio.get_event_loop().run_until_complete(coro)
+
+
+class TestAsyncLoadChatStoreMigration:
+    """Migration error handling: save failure must NOT propagate (#114)."""
+
+    def _make_hass(self):
+        return MagicMock()
+
+    def test_migration_save_failure_does_not_raise(self):
+        """When persisting the migrated store fails, no exception should propagate."""
+        hass = self._make_hass()
+        old_data = {
+            "users": {
+                "user1": {
+                    "history": [{"role": "user", "content": "hi"}],
+                    "compacted_summary": "ctx",
+                }
+            }
+        }
+
+        class FakeStore:
+            def __init__(self, *a, **k): pass
+            async def async_load(self): return old_data
+            async def async_save(self, data): raise OSError("disk full")
+
+        with patch.object(session_and_storage, "Store", FakeStore):
+            # Must complete without raising
+            result = _run(session_and_storage._async_load_chat_store(hass))
+
+        # After failed save, data is rolled back to the unmigrated format
+        assert "users" in result
+        assert "history" in result["users"]["user1"]
+
+    def test_migration_save_failure_rolls_back_in_memory(self):
+        """Failed save must roll back in-memory state to original format."""
+        hass = self._make_hass()
+        old_data = {
+            "users": {
+                "u1": {"history": [], "compacted_summary": ""},
+                "u2": {"history": [{"role": "user", "content": "test"}], "compacted_summary": "x"},
+            }
+        }
+
+        class FakeStore:
+            def __init__(self, *a, **k): pass
+            async def async_load(self):
+                import copy
+                return copy.deepcopy(old_data)
+            async def async_save(self, data): raise RuntimeError("no space")
+
+        with patch.object(session_and_storage, "Store", FakeStore):
+            result = _run(session_and_storage._async_load_chat_store(hass))
+
+        # Both users should be rolled back to old format
+        for uid in ("u1", "u2"):
+            assert "history" in result["users"][uid], f"{uid} not rolled back"
+            assert "sessions" not in result["users"][uid], f"{uid} has sessions after rollback"
+
+    def test_migration_save_success(self):
+        """When save succeeds, the migrated sessions format is returned."""
+        hass = self._make_hass()
+        old_data = {
+            "users": {
+                "u1": {
+                    "history": [{"role": "user", "content": "hello"}],
+                    "compacted_summary": "",
+                }
+            }
+        }
+
+        class FakeStore:
+            def __init__(self, *a, **k): pass
+            async def async_load(self):
+                import copy
+                return copy.deepcopy(old_data)
+            async def async_save(self, data): pass
+
+        with patch.object(session_and_storage, "Store", FakeStore):
+            result = _run(session_and_storage._async_load_chat_store(hass))
+
+        # After successful save, sessions format is active
+        u1 = result["users"]["u1"]
+        assert "sessions" in u1
+        assert "active_session" in u1
+        assert "history" not in u1
+
+    def test_no_migration_when_already_sessions_format(self):
+        """Data already in sessions format should not trigger a save."""
+        hass = self._make_hass()
+        sid = "existing-sid"
+        data = {
+            "users": {
+                "u1": {
+                    "sessions": {sid: {"name": "S1", "history": [], "compacted_summary": ""}},
+                    "active_session": sid,
+                }
+            }
+        }
+        save_called = []
+
+        class FakeStore:
+            def __init__(self, *a, **k): pass
+            async def async_load(self):
+                import copy
+                return copy.deepcopy(data)
+            async def async_save(self, d): save_called.append(d)
+
+        with patch.object(session_and_storage, "Store", FakeStore):
+            _run(session_and_storage._async_load_chat_store(hass))
+
+        assert not save_called, "save should not be called when no migration needed"

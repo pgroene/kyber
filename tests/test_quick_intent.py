@@ -191,3 +191,47 @@ class TestClassifyIntent:
 
     def test_status_query_informational(self):
         assert self._classify("is the front door open?") == "informational"
+
+    # ── False-positive regression tests (#113) ────────────────────────────────
+
+    def test_tell_me_if_light_on_informational(self):
+        """'tell me if the light is on' must not be classified as action (keyword 'on')."""
+        assert self._classify("tell me if the light is on") == "informational"
+
+    def test_tell_me_which_on_informational(self):
+        assert self._classify("tell me which lights are on") == "informational"
+
+    def test_what_does_turn_on_informational(self):
+        """'what does turn on do' starts with 'what' → informational."""
+        assert self._classify("what does turn on do?") == "informational"
+
+    def test_show_me_whats_playing_informational(self):
+        assert self._classify("show me what's playing") == "informational"
+
+    def test_is_the_light_on_informational(self):
+        assert self._classify("is the light on?") == "informational"
+
+    def test_are_the_lights_on_informational(self):
+        assert self._classify("are the lights on?") == "informational"
+
+    def test_does_the_tv_turn_on_informational(self):
+        assert self._classify("does the TV turn on automatically?") == "informational"
+
+    def test_what_time_lights_turn_on_informational(self):
+        assert self._classify("what time should the lights turn on?") == "informational"
+
+    def test_how_many_lights_on_informational(self):
+        assert self._classify("how many lights are on?") == "informational"
+
+    def test_which_devices_on_informational(self):
+        assert self._classify("which devices are on right now?") == "informational"
+
+    def test_turn_on_still_action(self):
+        """Core action commands must still be classified as action after the fix."""
+        assert self._classify("turn on the kitchen lights") == "action"
+
+    def test_turn_off_still_action(self):
+        assert self._classify("turn off the living room lights") == "action"
+
+    def test_switch_on_still_action(self):
+        assert self._classify("switch on the fan") == "action"

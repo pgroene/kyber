@@ -160,9 +160,35 @@ _ACTION_RE_PATTERNS: tuple = (
 )
 
 
+# Prompts that start with these question/informational phrases should never be
+# classified as ACTION even if they contain action keywords (e.g. "tell me if
+# the light is on" contains "on" but is clearly informational).
+_INFORMATIONAL_PREFIX_RE = re.compile(
+    r"^\s*("
+    r"what(\s+is|\s+are|\s+does|\s+did|\s+can|\s+will|\s+'s|\s+time|\s+lights?)?"
+    r"|show(\s+me)?"
+    r"|tell\s+me"
+    r"|does\s+(?:the|a|my|it|this)"
+    r"|is\s+(?:the|a|my|it|there|this)"
+    r"|are\s+(?:the|my|there|all|any|these|those)"
+    r"|which"
+    r"|how\s+(?:many|much|do|does|can|is|are)"
+    r"|why"
+    r"|when\s+(?:is|does|did|will|do)"
+    r"|where\s+(?:is|are|can)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
 def _classify_intent(user_prompt: str) -> str:
     """Return 'action' if the prompt requests a change, otherwise 'informational'."""
     lower = user_prompt.lower()
+    # Guard: prompts that start with an informational question word are never
+    # actions, even if they contain action vocabulary (e.g. "tell me if the
+    # light is on", "what does turn on do?", "show me what's playing").
+    if _INFORMATIONAL_PREFIX_RE.match(lower):
+        return "informational"
     for kw in _ACTION_KEYWORDS:
         if " " in kw:
             # Multi-word phrase: plain substring match is fine
