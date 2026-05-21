@@ -260,4 +260,58 @@ export const UtilsMixin = (Base) => class extends Base {
       )
       .join("");
   }
+
+  /** Full-panel overlay shown while HA is restarting. Polls until HA is back, then reloads. */
+  _showRestartOverlay(version = "") {
+    // Remove any existing overlay
+    const existing = this.shadowRoot?.getElementById("restart-overlay");
+    if (existing) existing.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = "restart-overlay";
+    overlay.className = "restart-overlay";
+    overlay.innerHTML = `
+      <div class="restart-logo">🏠</div>
+      <div class="restart-title">Kyber${version ? ` v${version}` : ""}</div>
+      <div class="restart-subtitle">Home Assistant is restarting…<br>This page will reload automatically.</div>
+      <div class="restart-progress"><div class="restart-progress-bar"></div></div>
+      <div class="restart-dots"><span></span><span></span><span></span></div>
+      <div class="restart-status" id="restart-status-text">Waiting for Home Assistant…</div>
+    `;
+
+    // Attach to shadow root container so it covers the whole panel
+    const container = this.shadowRoot?.querySelector(".container") || this.shadowRoot;
+    if (!container) return;
+    container.appendChild(overlay);
+
+    // Poll HA — once it responds, reload
+    let attempts = 0;
+    const maxAttempts = 120; // ~4 minutes
+    const statusEl = overlay.querySelector("#restart-status-text");
+
+    const poll = async () => {
+      if (!this.shadowRoot?.getElementById("restart-overlay")) return; // removed externally
+      attempts++;
+      if (attempts > maxAttempts) {
+        if (statusEl) statusEl.textContent = "Taking longer than expected — reload manually.";
+        return;
+      }
+      try {
+        await this._hass.callApi("GET", "kyber/ping");
+        // HA is back
+        if (statusEl) statusEl.textContent = "✅ Home Assistant is back — reloading…";
+        const bar = overlay.querySelector(".restart-progress-bar");
+        if (bar) { bar.style.animation = "none"; bar.style.width = "100%"; }
+        setTimeout(() => window.location.reload(), 800);
+      } catch {
+        // Still down — wait and retry
+        const elapsed = Math.round(attempts * 2);
+        if (statusEl) statusEl.textContent = `Waiting for Home Assistant… (${elapsed}s)`;
+        setTimeout(poll, 2000);
+      }
+    };
+
+    // Give HA 4 seconds to start shutting down before polling
+    setTimeout(poll, 4000);
+  }
 };

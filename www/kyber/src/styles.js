@@ -1603,5 +1603,106 @@ export const STYLES = `
     color: var(--secondary-text-color, #888);
   }
   .kyber-area-dismiss-btn:hover { background: var(--divider-color, #eee); }
+
+  /* ── Restart overlay ─────────────────────────────────────────── */
+  .restart-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    background: var(--primary-background-color, #1c1c1e);
+    animation: restart-fadein 0.4s ease both;
+  }
+
+  @keyframes restart-fadein {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .restart-logo {
+    font-size: 52px;
+    line-height: 1;
+    animation: restart-spin-bounce 2.5s ease-in-out infinite;
+  }
+
+  @keyframes restart-spin-bounce {
+    0%   { transform: rotate(0deg) scale(1); }
+    40%  { transform: rotate(360deg) scale(1.1); }
+    60%  { transform: rotate(360deg) scale(0.95); }
+    100% { transform: rotate(360deg) scale(1); animation-name: restart-spin-bounce2; }
+  }
+
+  .restart-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--primary-text-color, #f0f0f0);
+    letter-spacing: -0.02em;
+  }
+
+  .restart-subtitle {
+    font-size: 14px;
+    color: var(--secondary-text-color, #888);
+    text-align: center;
+    max-width: 340px;
+    line-height: 1.5;
+  }
+
+  .restart-progress {
+    width: 280px;
+    height: 3px;
+    background: var(--divider-color, #333);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+
+  .restart-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: var(--primary-color, #03a9f4);
+    border-radius: 99px;
+    animation: restart-progress 18s cubic-bezier(0.25, 0, 0.6, 1) forwards;
+  }
+
+  @keyframes restart-progress {
+    0%   { width: 0%; }
+    60%  { width: 75%; }
+    90%  { width: 88%; }
+    100% { width: 92%; }
+  }
+
+  .restart-dots {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .restart-dots span {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--primary-color, #03a9f4);
+    opacity: 0.3;
+    animation: restart-dot-bounce 1.4s ease-in-out infinite;
+  }
+
+  .restart-dots span:nth-child(1) { animation-delay: 0s; }
+  .restart-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .restart-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes restart-dot-bounce {
+    0%, 80%, 100% { opacity: 0.3; transform: scale(1); }
+    40%            { opacity: 1;   transform: scale(1.3); }
+  }
+
+  .restart-status {
+    font-size: 12px;
+    color: var(--secondary-text-color, #666);
+    letter-spacing: 0.02em;
+  }
 `;
 

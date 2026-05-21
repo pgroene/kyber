@@ -2295,6 +2295,17 @@ class KyberAreaSuggestionsView(HomeAssistantView):
         return self.json({"status": "dismissed", "id": report_id})
 
 
+class KyberPingView(HomeAssistantView):
+    """GET /api/kyber/ping — lightweight liveness check used by the restart overlay."""
+
+    url = "/api/kyber/ping"
+    name = "api:kyber:ping"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:  # noqa: ARG002
+        return self.json({"ok": True})
+
+
 class KyberSelfUpdateView(HomeAssistantView):
     """POST /api/kyber/self_update — download and install the latest Kyber release from GitHub."""
 

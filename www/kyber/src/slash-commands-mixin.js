@@ -596,6 +596,7 @@ export const SlashMixin = (Base) => class extends Base {
           this._checkUpdateBadge();
           if (withRestart) {
             await new Promise((r) => setTimeout(r, 1500));
+            this._showRestartOverlay(latestVer);
             await this._hass.callService("homeassistant", "restart", {});
           }
         } catch (err) {
@@ -651,6 +652,10 @@ export const SlashMixin = (Base) => class extends Base {
             "assistant"
           );
           this._checkUpdateBadge();
+          if (result.restarting) {
+            await new Promise((r) => setTimeout(r, 1500));
+            this._showRestartOverlay(latest_version);
+          }
         } catch (err) {
           btn.textContent = "▶ Execute"; btn.disabled = false;
           card.querySelector(".btn-cmd-cancel").disabled = false;

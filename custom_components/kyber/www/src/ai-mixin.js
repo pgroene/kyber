@@ -650,9 +650,27 @@ export const AIMixin = (Base) => class extends Base {
       copyBtn.title = "Copy";
       copyBtn.textContent = "📋";
       copyBtn.addEventListener("click", () => {
-        navigator.clipboard.writeText(text).then(() => {
+        const doCopy = navigator.clipboard?.writeText
+          ? navigator.clipboard.writeText(text)
+          : new Promise((resolve, reject) => {
+              try {
+                const ta = document.createElement("textarea");
+                ta.value = text;
+                ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+                document.body.appendChild(ta);
+                ta.focus(); ta.select();
+                document.execCommand("copy");
+                document.body.removeChild(ta);
+                resolve();
+              } catch (e) { reject(e); }
+            });
+        doCopy.then(() => {
           copyBtn.textContent = "✓";
           setTimeout(() => (copyBtn.textContent = "📋"), 1500);
+        }).catch(() => {
+          copyBtn.title = "Copy failed — clipboard unavailable";
+          copyBtn.textContent = "✗";
+          setTimeout(() => { copyBtn.textContent = "📋"; copyBtn.title = "Copy"; }, 2000);
         });
       });
       wrap.appendChild(copyBtn);
