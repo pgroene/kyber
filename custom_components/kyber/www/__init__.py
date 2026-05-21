@@ -40,7 +40,7 @@ from .const import (
 from .analyzer import analyze_automations as _analyze_automations
 from . import deep_analyzer as _deep
 from .knowledge import get_knowledge_store
-from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView, KyberLabelsView, KyberAreaSuggestionsView, KyberProposalApproveView, KyberSelfUpdateView, KyberNarratorRunView, KyberExplorerRunView
+from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView, KyberLabelsView, KyberAreaSuggestionsView, KyberProposalApproveView, KyberPingView, KyberSelfUpdateView, KyberNarratorRunView, KyberExplorerRunView
 from .debug_and_diagnostics import KyberHomeExportView, KyberMemoryExportView, KyberGlobalLogHandler, KyberDebugLogsView
 
 _LOGGER = logging.getLogger(__name__)
@@ -504,7 +504,9 @@ def _make_update_listener() -> Any:
 async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bool:
     """Set up Kyber from a config entry."""
     config = {**entry.data, **(entry.options or {})}
-    _LOGGER.info("Kyber: loading integration v0.5.0")
+    import json as _json
+    _version = _json.loads(Path(__file__).parent.joinpath("manifest.json").read_text(encoding="utf-8"))["version"]
+    _LOGGER.info("Kyber: loading integration v%s", _version)
 
     debug_enabled = _resolve_debug_enabled(entry)
     hass.data[_DEBUG_MODE_KEY] = debug_enabled
@@ -557,6 +559,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberLabelsView())
     hass.http.register_view(KyberAreaSuggestionsView())
     hass.http.register_view(KyberProposalApproveView())
+    hass.http.register_view(KyberPingView())
     hass.http.register_view(KyberSelfUpdateView())
     hass.http.register_view(KyberNarratorRunView(config))
     hass.http.register_view(KyberExplorerRunView())

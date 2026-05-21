@@ -246,7 +246,7 @@ export const UtilsMixin = (Base) => class extends Base {
     if (!body) return;
     const recalled = this._lastTurnMeta?.knowledge_used || [];
     if (recalled.length === 0) {
-      body.innerHTML = '<span style="color:var(--secondary-text-color,#888);font-size:11px">No facts recalled this turn.</span>';
+      body.innerHTML = `<span style="color:var(--secondary-text-color,#888);font-size:11px">${this._t ? this._t("memory_popover_empty") : "No facts recalled this turn."}</span>`;
       return;
     }
     body.innerHTML = recalled
@@ -267,16 +267,17 @@ export const UtilsMixin = (Base) => class extends Base {
     const existing = this.shadowRoot?.getElementById("restart-overlay");
     if (existing) existing.remove();
 
+    const t = this._t || ((k) => k);
     const overlay = document.createElement("div");
     overlay.id = "restart-overlay";
     overlay.className = "restart-overlay";
     overlay.innerHTML = `
       <div class="restart-logo">🏠</div>
       <div class="restart-title">Kyber${version ? ` v${version}` : ""}</div>
-      <div class="restart-subtitle">Home Assistant is restarting…<br>This page will reload automatically.</div>
+      <div class="restart-subtitle">${t("restart_title")}<br>${t("restart_subtitle")}</div>
       <div class="restart-progress"><div class="restart-progress-bar"></div></div>
       <div class="restart-dots"><span></span><span></span><span></span></div>
-      <div class="restart-status" id="restart-status-text">Waiting for Home Assistant…</div>
+      <div class="restart-status" id="restart-status-text">${t("restart_waiting")}</div>
     `;
 
     // Attach to shadow root container so it covers the whole panel
@@ -293,20 +294,18 @@ export const UtilsMixin = (Base) => class extends Base {
       if (!this.shadowRoot?.getElementById("restart-overlay")) return; // removed externally
       attempts++;
       if (attempts > maxAttempts) {
-        if (statusEl) statusEl.textContent = "Taking longer than expected — reload manually.";
+        if (statusEl) statusEl.textContent = t("restart_slow");
         return;
       }
       try {
         await this._hass.callApi("GET", "kyber/ping");
-        // HA is back
-        if (statusEl) statusEl.textContent = "✅ Home Assistant is back — reloading…";
+        if (statusEl) statusEl.textContent = t("restart_back");
         const bar = overlay.querySelector(".restart-progress-bar");
         if (bar) { bar.style.animation = "none"; bar.style.width = "100%"; }
         setTimeout(() => window.location.reload(), 800);
       } catch {
-        // Still down — wait and retry
         const elapsed = Math.round(attempts * 2);
-        if (statusEl) statusEl.textContent = `Waiting for Home Assistant… (${elapsed}s)`;
+        if (statusEl) statusEl.textContent = `${t("restart_waiting")} (${elapsed}s)`;
         setTimeout(poll, 2000);
       }
     };

@@ -1,0 +1,108 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kyber — Instellen",
+        "description": "Selecteer je AI-taakentiteit en stel de tokenlimiet en het opstartgedrag in.",
+        "data": {
+          "ai_task_entity_id": "Chatmodel",
+          "max_tokens": "Chatmodel: Contextvenster (tokens)",
+          "narrator_ai_task_entity_id": "Operationeel model (optioneel)",
+          "narrator_max_tokens": "Operationeel model: Contextvenster (tokens)",
+          "enable_debug_views": "Debugweergaven inschakelen (Kyber Debug zijbalk + per-beurt debugtools)",
+          "run_initial_analyze": "1 initiële analysepass uitvoeren na installatie",
+          "initial_deep_learning_runs": "Initiële deep learning runs (1-10, aanbevolen: 10)",
+          "narrator_enabled": "Entiteitsverteller inschakelen",
+          "narrator_max_batch": "Batchgrootte verteller",
+          "area_assignment_mode": "Ruimtekoppelingsmodus"
+        },
+        "data_description": {
+          "narrator_ai_task_entity_id": "Gebruikt voor batchverwerking en kleine taken zoals entiteitsvertellingen. Een kleiner, goedkoper model werkt hier goed. Standaard het chatmodel."
+        }
+      },
+      "reconfigure": {
+        "title": "Kyber — Opnieuw instellen",
+        "description": "Werk je AI-taakentiteit en instellingen bij.",
+        "data": {
+          "ai_task_entity_id": "Chatmodel",
+          "max_tokens": "Chatmodel: Contextvenster (tokens)",
+          "narrator_ai_task_entity_id": "Operationeel model (optioneel)",
+          "narrator_max_tokens": "Operationeel model: Contextvenster (tokens)",
+          "enable_debug_views": "Debugweergaven inschakelen (Kyber Debug zijbalk + per-beurt debugtools)",
+          "run_initial_analyze": "1 initiële analysepass uitvoeren na installatie",
+          "initial_deep_learning_runs": "Initiële deep learning runs (1-10, aanbevolen: 10)",
+          "narrator_enabled": "Entiteitsverteller inschakelen",
+          "narrator_max_batch": "Batchgrootte verteller",
+          "area_assignment_mode": "Ruimtekoppelingsmodus"
+        },
+        "data_description": {
+          "narrator_ai_task_entity_id": "Gebruikt voor batchverwerking en kleine taken zoals entiteitsvertellingen. Een kleiner, goedkoper model werkt hier goed. Standaard het chatmodel."
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "De geselecteerde AI-taakentiteit is niet gevonden. Zorg dat je AI-integratie (bijv. Ollama, Home Assistant Cloud, OpenAI) is ingesteld en de entiteit bestaat.",
+      "cannot_connect": "Kan de AI-provider niet bereiken. Controleer de integratieconfiguratie."
+    },
+    "abort": {
+      "already_configured": "Kyber is al geconfigureerd.",
+      "reconfigure_successful": "Kyber is opnieuw geconfigureerd met de nieuwe AI-entiteit."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Kyber-opties",
+        "description": "Modelinstellingen en functiemarkeringen bijwerken.",
+        "sections": {
+          "model_config": {
+            "name": "Modelconfiguratie",
+            "data": {
+              "ai_task_entity_id": "Chatmodel",
+              "max_tokens": "Chatmodel: Contextvenster (tokens)",
+              "narrator_ai_task_entity_id": "Operationeel model (optioneel)",
+              "narrator_max_tokens": "Operationeel model: Contextvenster (tokens)"
+            },
+            "data_description": {
+              "max_tokens": "{chat_stats}",
+              "narrator_ai_task_entity_id": "Gebruikt voor batchverwerking en kleine taken zoals entiteitsvertellingen. Een kleiner, goedkoper model werkt hier goed. Standaard het chatmodel.",
+              "narrator_max_tokens": "{ops_stats}"
+            }
+          },
+          "agents": {
+            "name": "Agenten",
+            "data": {
+              "narrator_enabled": "Entiteitsverteller inschakelen",
+              "narrator_interval_days": "Verteller: elke N dagen uitvoeren",
+              "narrator_max_batch": "Batchgrootte verteller",
+              "run_initial_analyze": "Analysepass uitvoeren bij HA-herstart",
+              "deep_learning_interval_days": "Deep learning: elke N dagen uitvoeren",
+              "deep_learning_max_batch": "Deep learning batchgrootte"
+            },
+            "data_description": {
+              "narrator_interval_days": "{narrator_run_stats}",
+              "deep_learning_interval_days": "{deep_learning_run_stats}"
+            }
+          },
+          "area_assignment": {
+            "name": "Automatische toewijzingen",
+            "data": {
+              "area_assignment_mode": "Ruimtekoppelingsmodus",
+              "label_assignment_mode": "Labelkoppelingsmodus"
+            },
+            "data_description": {
+              "area_assignment_mode": "Ruimtekoppelingen voorstellen of automatisch toepassen op entiteiten die in gesprekken worden genoemd.",
+              "label_assignment_mode": "Kyber: apparaattype-labels voorstellen of automatisch toepassen op entiteiten in het gesprek."
+            }
+          },
+          "developer": {
+            "name": "Ontwikkelaar",
+            "data": {
+              "enable_debug_views": "Debugweergaven inschakelen (Kyber Debug zijbalk + per-beurt debugtools)"
+            }
+          }
+        }
+      }
+    }
+  }
+}

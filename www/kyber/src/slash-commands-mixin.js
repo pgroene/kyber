@@ -572,7 +572,7 @@ export const SlashMixin = (Base) => class extends Base {
             }
             this._checkUpdateBadge();
           } catch (err) {
-            btn.textContent = "▶ Execute"; btn.disabled = false;
+          btn.textContent = "▶ Execute"; btn.disabled = false;
             card.querySelector(".btn-cmd-cancel").disabled = false;
             this._setStatus(`Refresh failed: ${err.message}`, "error");
           }
@@ -587,11 +587,12 @@ export const SlashMixin = (Base) => class extends Base {
       detail: `v${installedVer} → v${latestVer}${withRestart ? "\n⚠️ HA will restart after update." : ""}`,
       warning: withRestart ? "Home Assistant will restart. Active sessions will be interrupted." : null,
       onConfirm: async (card) => {
+        const t = this._t || ((k) => k);
         const btn = card.querySelector(".btn-cmd-execute");
-        btn.textContent = `⏳ Installing v${latestVer}…`;
+        btn.textContent = `${t("update_installing")} v${latestVer}…`;
         try {
           await this._hass.callService("update", "install", { entity_id: entityId });
-          btn.textContent = `✅ Kyber v${latestVer} installed`;
+          btn.textContent = `${t("update_installed")} v${latestVer}`;
           this._appendMessage(`✅ Kyber updated to **v${latestVer}**${releaseUrl ? ` — [release notes](${releaseUrl})` : ""}.${withRestart ? "\n⏳ Restarting…" : ""}`, "assistant");
           this._checkUpdateBadge();
           if (withRestart) {
@@ -600,9 +601,9 @@ export const SlashMixin = (Base) => class extends Base {
             await this._hass.callService("homeassistant", "restart", {});
           }
         } catch (err) {
-          btn.textContent = "▶ Execute"; btn.disabled = false;
+          btn.textContent = t("cmd_confirm_execute"); btn.disabled = false;
           card.querySelector(".btn-cmd-cancel").disabled = false;
-          this._setStatus(`Update failed: ${err.message}`, "error");
+          this._setStatus(`${t("err_update_failed")}: ${err.message}`, "error");
         }
       },
     });
@@ -641,11 +642,12 @@ export const SlashMixin = (Base) => class extends Base {
       detail,
       warning: withRestart ? "Home Assistant will restart. Active sessions will be interrupted." : null,
       onConfirm: async (card) => {
+        const t = this._t || ((k) => k);
         const btn = card.querySelector(".btn-cmd-execute");
-        btn.textContent = `⏳ Downloading v${latest_version}…`;
+        btn.textContent = `${t("update_downloading")} v${latest_version}…`;
         try {
           const result = await this._hass.callApi("POST", "kyber/self_update", { restart: withRestart });
-          btn.textContent = `✅ Updated to v${latest_version}`;
+          btn.textContent = `${t("update_updated")} v${latest_version}`;
           this._appendMessage(
             `✅ Kyber force-updated to **v${latest_version}**${release_url ? ` — [release notes](${release_url})` : ""}.` +
             (result.restarting ? "\n⏳ Restarting Home Assistant…" : "\n🔄 Restart HA to apply the new version."),
@@ -657,9 +659,9 @@ export const SlashMixin = (Base) => class extends Base {
             this._showRestartOverlay(latest_version);
           }
         } catch (err) {
-          btn.textContent = "▶ Execute"; btn.disabled = false;
+          btn.textContent = t("cmd_confirm_execute"); btn.disabled = false;
           card.querySelector(".btn-cmd-cancel").disabled = false;
-          this._setStatus(`Force-update failed: ${err.message}`, "error");
+          this._setStatus(`${t("err_force_update_failed")}: ${err.message}`, "error");
         }
       },
     });

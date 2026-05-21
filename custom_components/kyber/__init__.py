@@ -504,7 +504,9 @@ def _make_update_listener() -> Any:
 async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bool:
     """Set up Kyber from a config entry."""
     config = {**entry.data, **(entry.options or {})}
-    _LOGGER.info("Kyber: loading integration v0.5.0")
+    import json as _json
+    _version = _json.loads(Path(__file__).parent.joinpath("manifest.json").read_text(encoding="utf-8"))["version"]
+    _LOGGER.info("Kyber: loading integration v%s", _version)
 
     debug_enabled = _resolve_debug_enabled(entry)
     hass.data[_DEBUG_MODE_KEY] = debug_enabled

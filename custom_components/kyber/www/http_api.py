@@ -1709,6 +1709,10 @@ def _extract_response_components(
     # JSON stays in the text, which is better than a blank response).
     if plan_block:
         response_text = _strip_plan_block(response_text)
+        # If the AI wrote ONLY a plan block (no surrounding text), fall back to
+        # the plan's summary so the chat bubble is never blank.
+        if not response_text and plan_block.get("summary"):
+            response_text = plan_block["summary"]
 
     # Rescue: if the model used open_editor with a non-automation/script entity
     # (e.g. light.*, switch.*), convert to a call_service actions plan.
@@ -2295,6 +2299,17 @@ class KyberAreaSuggestionsView(HomeAssistantView):
         return self.json({"status": "dismissed", "id": report_id})
 
 
+class KyberPingView(HomeAssistantView):
+    """GET /api/kyber/ping — lightweight liveness check used by the restart overlay."""
+
+    url = "/api/kyber/ping"
+    name = "api:kyber:ping"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:  # noqa: ARG002
+        return self.json({"ok": True})
+
+
 class KyberSelfUpdateView(HomeAssistantView):
     """POST /api/kyber/self_update — download and install the latest Kyber release from GitHub."""
 
@@ -2418,10 +2433,15 @@ class KyberSelfUpdateView(HomeAssistantView):
                         if not file_rel or file_rel.endswith("/"):
                             continue  # directory entry
 
-                        dest = (dst_root / file_rel).resolve()
-                        # Guard against path traversal: dest must stay inside dst_root
-                        if not str(dest).startswith(str(dst_root.resolve())):
+                        # Guard against path traversal BEFORE resolving
+                        if ".." in file_rel.split("/") or file_rel.startswith("/"):
                             _LOGGER.warning("kyber self_update: skipping unsafe path %s", member)
+                            continue
+
+                        dest = (dst_root / file_rel).resolve()
+                        # Defense-in-depth: resolved dest must still stay inside dst_root
+                        if not str(dest).startswith(str(dst_root.resolve())):
+                            _LOGGER.warning("kyber self_update: skipping unsafe resolved path %s", member)
                             continue
 
                         dest.parent.mkdir(parents=True, exist_ok=True)

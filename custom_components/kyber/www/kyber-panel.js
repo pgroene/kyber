@@ -32,15 +32,16 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=107";
-import { UtilsMixin } from "./src/utils-mixin.js?v=98";
+import { STYLES } from "./src/styles.js?v=108";
+import { getT } from "./src/i18n.js?v=1";
+import { UtilsMixin } from "./src/utils-mixin.js?v=99";
 import { SessionMixin } from "./src/session-mixin.js?v=87";
-import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=87";
-import { DebugMixin } from "./src/debug-mixin.js?v=100";
-import { SlashMixin } from "./src/slash-commands-mixin.js?v=94";
+import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=88";
+import { DebugMixin } from "./src/debug-mixin.js?v=101";
+import { SlashMixin } from "./src/slash-commands-mixin.js?v=95";
 import { EditorMixin } from "./src/editor-mixin.js?v=94";
-import { AIMixin } from "./src/ai-mixin.js?v=103";
-import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=90";
+import { AIMixin } from "./src/ai-mixin.js?v=107";
+import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=92";
 
 // ---------------------------------------------------------------------------
 // Custom Element
@@ -74,14 +75,18 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     // Cached list of custom Lovelace resource URLs — fetched lazily
     this._lovelaceResources = undefined;
     this._historyRestored = false;
-    this._DEFAULT_GREETING = "Hi! Ask me anything about your smart home — I can manage entities, areas, labels, or open automations for editing.";
+    this._t = getT("en"); // overwritten in set hass() once language is known
+    this._DEFAULT_GREETING = this._t("greeting");
   }
 
   // HA sets this property when hass state changes
   set hass(hass) {
     const wasAuthed = !!this._hass?.auth?.data?.access_token;
     this._hass = hass;
+    // Update locale whenever hass is set (language may change at runtime)
+    this._t = getT(hass?.language);
     if (!this._rendered) {
+      this._DEFAULT_GREETING = this._t("greeting");
       this._render();
       // Run once after first render — auth is already present in normal HA flow
       if (hass?.auth?.data?.access_token) {
@@ -149,59 +154,59 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
           <span class="editor-context-label editor-controls" id="editor-context-label"></span>
           <span class="editor-title editor-controls" id="editor-title">
             <select id="dashboard-select" class="dashboard-select" style="display:none"></select>
-            <button class="btn-new-dashboard editor-controls" id="btn-new-dashboard" style="display:none" title="Create a new dashboard">＋ New dashboard</button>
+            <button class="btn-new-dashboard editor-controls" id="btn-new-dashboard" style="display:none" title="${this._t("btn_new_dashboard")}">${this._t("btn_new_dashboard")}</button>
           </span>
-          <button class="btn-save editor-controls" id="btn-save" disabled>Save</button>
-          <button class="btn-close-editor editor-controls" id="btn-close-editor">✕ Close editor</button>
+          <button class="btn-save editor-controls" id="btn-save" disabled>${this._t("btn_save")}</button>
+          <button class="btn-close-editor editor-controls" id="btn-close-editor">${this._t("btn_close_editor")}</button>
         </div>
         <div class="chat-pane">
           <div class="sidebar-brand">
             <img id="kyber-sidebar-icon" class="brand-icon" src="/local/kyber/icon.png" alt="Kyber icon">
-            <span>Kyber Assistant</span>
+            <span>${this._t("brand")}</span>
             <span class="session-label" id="session-indicator"></span>
             <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
             <span class="narrator-progress" id="narrator-progress" hidden title="AI narrator is building entity descriptions in the background"></span>
-            <button class="memory-badge" id="memory-badge" title="Memory facts — click to preview recalled facts">🧠 <span id="memory-count">…</span></button>
-            <button class="update-badge" id="update-badge" hidden title="Update available — click to install">⬆️ <span id="update-badge-label">Update</span></button>
-            <button class="autopilot-badge" id="autopilot-badge" title="Toggle autopilot — auto-executes safe proposals">⚡ Autopilot</button>
-            <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
-            <button class="btn-debug" id="btn-debug" title="Open debug / memory inspector">🐞</button>
+            <button class="memory-badge" id="memory-badge" title="${this._t("memory_badge_title")}">🧠 <span id="memory-count">…</span></button>
+            <button class="update-badge" id="update-badge" hidden title="Update available — click to install">⬆️ <span id="update-badge-label">${this._t("update_badge")}</span></button>
+            <button class="autopilot-badge" id="autopilot-badge" title="Toggle autopilot — auto-executes safe proposals">${this._t("autopilot_badge")}</button>
+            <button class="btn-clear-history" id="btn-clear-history" title="${this._t("btn_clear_history")}">${this._t("btn_clear_history")}</button>
+            <button class="btn-debug" id="btn-debug" title="${this._t("btn_debug_title")}">🐞</button>
           </div>
           <div id="warning-banner" class="warning-banner" style="display:none"><span id="warning-banner-text"></span><button id="warning-banner-close" title="Dismiss">✕</button></div>
-          <div id="explorer-banner" class="explorer-banner" style="display:none">🔍 <span id="explorer-banner-text">Exploring your home…</span></div>
+          <div id="explorer-banner" class="explorer-banner" style="display:none">🔍 <span id="explorer-banner-text">${this._t("exploring")}</span></div>
           <div id="chat-review-queue" class="chat-review-queue"></div>
           <div class="chat-history" id="chat-history">
             <div class="chat-message assistant">${this._DEFAULT_GREETING}</div>
           </div>
           <div class="chat-input-area" style="position:relative;">
             <div class="autocomplete-list" id="ac-list"></div>
-            <textarea id="prompt-input" placeholder="Ask me anything about your smart home… (type / for commands)" rows="3"></textarea>
-            <button class="btn-ask" id="btn-ask">Ask</button>
+            <textarea id="prompt-input" placeholder="${this._t("placeholder")}" rows="3"></textarea>
+            <button class="btn-ask" id="btn-ask">${this._t("btn_ask")}</button>
           </div>
         </div>
         <div class="debug-pane" id="debug-pane" hidden>
           <div class="debug-header">
-            <strong>🐞 Kyber Debug</strong>
+            <strong>${this._t("debug_title")}</strong>
             <nav class="debug-tabs">
-              <button class="debug-tab active" data-debug-tab="memory">🧠 Memory</button>
-              <button class="debug-tab" data-debug-tab="last_turn">📥 Last turn</button>
-              <button class="debug-tab" data-debug-tab="status">⚙️ Status</button>
-              <button class="debug-tab" data-debug-tab="logs">📋 Logs</button>
-              <button class="debug-tab" data-debug-tab="tests">🧪 Tests</button>
+              <button class="debug-tab active" data-debug-tab="memory">${this._t("debug_tab_memory")}</button>
+              <button class="debug-tab" data-debug-tab="last_turn">${this._t("debug_tab_last")}</button>
+              <button class="debug-tab" data-debug-tab="status">${this._t("debug_tab_status")}</button>
+              <button class="debug-tab" data-debug-tab="logs">${this._t("debug_tab_logs")}</button>
+              <button class="debug-tab" data-debug-tab="tests">${this._t("debug_tab_tests")}</button>
             </nav>
             <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">↻</button>
             <button class="btn-debug-close" id="btn-debug-close" title="Back to chat">✕</button>
           </div>
-          <div class="debug-body" id="debug-body"><em>Loading…</em></div>
+          <div class="debug-body" id="debug-body"><em>${this._t("debug_loading")}</em></div>
         </div>
         <div class="editor-pane" id="editor-container"></div>
         <div class="status-bar" id="status-bar">
           <span id="status-text"></span>
         </div>
         <div class="memory-popover" id="memory-popover" hidden>
-          <div class="memory-popover-header">🧠 Recalled this turn</div>
-          <div class="memory-popover-body" id="memory-popover-body"><em>No facts recalled.</em></div>
-          <div class="memory-popover-footer"><button id="btn-memory-view-all">View all in Memory tab →</button></div>
+          <div class="memory-popover-header">${this._t("memory_popover_header")}</div>
+          <div class="memory-popover-body" id="memory-popover-body"><em>${this._t("memory_popover_empty")}</em></div>
+          <div class="memory-popover-footer"><button id="btn-memory-view-all">${this._t("memory_popover_view_all")}</button></div>
         </div>
       </div>
     `;
@@ -488,56 +493,74 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
   }
 
   _startStatusPolling() {
-    if (this._statusPollTimer) return;
-    const _poll = async () => {
-      if (!this._hass?.auth?.data?.access_token) return;
-      try {
-        const token = this._hass.auth.data.access_token;
-        const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        const ep = data.explorer_progress || {};
-        const status = ep.status || "idle";
+    clearInterval(this._statusPollInterval);
+    this._checkKyberStatus();
+    this._statusPollInterval = setInterval(() => this._checkKyberStatus(), 5000);
+  }
 
-        const narratorSpan = this.shadowRoot?.getElementById("narrator-progress");
-        const banner = this.shadowRoot?.getElementById("explorer-banner");
-        const bannerText = this.shadowRoot?.getElementById("explorer-banner-text");
+  async _checkKyberStatus() {
+    if (!this._hass?.auth?.data?.access_token) return;
+    try {
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const ep = data.explorer_progress || {};
+      const status = ep.status || "idle";
 
-        // Narrator badge
+      const narratorSpan = this.shadowRoot?.getElementById("narrator-progress");
+      const banner = this.shadowRoot?.getElementById("explorer-banner");
+      const bannerText = this.shadowRoot?.getElementById("explorer-banner-text");
+
+      if (status === "narrator") {
+        const done = ep.narrator_done ?? 0;
+        const total = ep.narrator_total || 0;
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
         if (narratorSpan) {
-          if (status === "narrator") {
-            const done = ep.narrator_done ?? 0;
-            const total = ep.narrator_total ?? 0;
-            narratorSpan.textContent = `✍️ ${done}/${total}`;
-            narratorSpan.removeAttribute("hidden");
-          } else {
-            narratorSpan.setAttribute("hidden", "");
-          }
+          narratorSpan.textContent = `${pct}%`;
+          narratorSpan.removeAttribute("hidden");
         }
-
-        // Explorer / deep-learning banner
         if (banner && bannerText) {
-          if (status === "deep_learning") {
-            const done = ep.deep_done ?? 0;
-            const total = ep.deep_total ?? 0;
-            const cur = ep.deep_current ? ` — ${ep.deep_current}` : "";
-            bannerText.textContent = `Analyzing automations… ${done}/${total}${cur}`;
-            banner.style.display = "";
-            banner.firstChild.textContent = "🧠 ";
-          } else if (status === "phase1_summaries" || status === "phase2_entities" || status === "starting") {
-            bannerText.textContent = "Exploring your home…";
-            banner.style.display = "";
-            banner.firstChild.textContent = "🔍 ";
-          } else {
-            banner.style.display = "none";
-          }
+          bannerText.textContent = `Narry is exploring your home… ${pct}%`;
+          banner.style.display = "";
+          if (banner.firstChild) banner.firstChild.textContent = "✍️ ";
         }
-      } catch (_e) {
-        // Silently ignore polling errors
+      } else if (status === "deep_learning") {
+        const done = ep.deep_done ?? 0;
+        const total = ep.deep_total ?? 0;
+        const cur = ep.deep_current ? ` — ${ep.deep_current}` : "";
+        if (narratorSpan) {
+          narratorSpan.textContent = `🧠 ${done}/${total}`;
+          narratorSpan.removeAttribute("hidden");
+        }
+        if (banner && bannerText) {
+          bannerText.textContent = `Analyzing automations… ${done}/${total}${cur}`;
+          banner.style.display = "";
+          if (banner.firstChild) banner.firstChild.textContent = "🧠 ";
+        }
+      } else if (status === "phase1_summaries" || status === "phase2_entities" || status === "starting") {
+        const done = ep.done ?? 0;
+        const total = ep.total ?? 0;
+        if (narratorSpan) {
+          narratorSpan.textContent = `🔍 ${done}/${total}`;
+          narratorSpan.removeAttribute("hidden");
+        }
+        if (banner && bannerText) {
+          bannerText.textContent = `Exploring your home… ${done}/${total}`;
+          banner.style.display = "";
+          if (banner.firstChild) banner.firstChild.textContent = "🔍 ";
+        }
+      } else {
+        // idle / done / unknown — hide everything
+        if (narratorSpan) narratorSpan.setAttribute("hidden", "");
+        if (banner) banner.style.display = "none";
+        // Self-stop when no active exploration
+        clearInterval(this._statusPollInterval);
+        this._statusPollInterval = null;
       }
-    };
-    _poll();
-    this._statusPollTimer = setInterval(_poll, 5000);
+    } catch (_e) {
+      // Silently ignore polling errors
+    }
   }
 
 }

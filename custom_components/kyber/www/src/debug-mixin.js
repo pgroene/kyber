@@ -19,7 +19,7 @@ export const DebugMixin = (Base) => class extends Base {
     this._debugTab = tab;
     const body = this.shadowRoot.getElementById("debug-body");
     if (!body) return;
-    body.innerHTML = "<em>Loading…</em>";
+    body.innerHTML = `<em>${this._t ? this._t("debug_loading") : "Loading…"}</em>`;
     try {
       if (tab === "memory") {
         await this._renderDebugMemory(body);

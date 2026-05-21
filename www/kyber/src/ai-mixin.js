@@ -133,9 +133,27 @@ export const AIMixin = (Base) => class extends Base {
             dlg.querySelector("#br-copy").addEventListener("click", () => {
               const title = dlg.querySelector("#br-title").value;
               const body = dlg.querySelector("#br-body").value;
-              navigator.clipboard.writeText(`## ${title}\n\n${body}`).then(() => {
-                const btn2 = dlg.querySelector("#br-copy");
+              const bugText = `## ${title}\n\n${body}`;
+              const btn2 = dlg.querySelector("#br-copy");
+              const doCopy3 = navigator.clipboard?.writeText
+                ? navigator.clipboard.writeText(bugText)
+                : new Promise((resolve, reject) => {
+                    try {
+                      const ta = document.createElement("textarea");
+                      ta.value = bugText;
+                      ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+                      document.body.appendChild(ta);
+                      ta.focus(); ta.select();
+                      document.execCommand("copy");
+                      document.body.removeChild(ta);
+                      resolve();
+                    } catch (e) { reject(e); }
+                  });
+              doCopy3.then(() => {
                 btn2.textContent = "✓ Copied!";
+                setTimeout(() => { btn2.textContent = "📋 Copy"; }, 2000);
+              }).catch(() => {
+                btn2.textContent = "⚠ Copy failed";
                 setTimeout(() => { btn2.textContent = "📋 Copy"; }, 2000);
               });
             });
@@ -574,7 +592,7 @@ export const AIMixin = (Base) => class extends Base {
           if (!chips.includes(label)) chips.push(label);
         }
       });
-      if (chips.length >= 2) return chips.slice(0, 12);
+      if (chips.length >= 2) return chips.slice(0, 6);
 
       // No bold — use the full bullet text (works for entity IDs and names)
       chips.length = 0;
@@ -610,7 +628,7 @@ export const AIMixin = (Base) => class extends Base {
         // Skip junk items: only "...", single chars, or empty
         if (chipValue.length > 2 && chipValue !== "..." && chipValue.length < 80 && !chips.includes(chipValue)) chips.push(chipValue);
       });
-      if (chips.length >= 2) return chips.slice(0, 12);
+      if (chips.length >= 2) return chips.slice(0, 6);
       chips.length = 0;
     }
 
@@ -647,9 +665,10 @@ export const AIMixin = (Base) => class extends Base {
     if (type === "user" || type === "assistant") {
       const copyBtn = document.createElement("button");
       copyBtn.className = "chat-copy-btn";
-      copyBtn.title = "Copy";
+      copyBtn.title = this._t ? this._t("copy_title") : "Copy";
       copyBtn.textContent = "📋";
       copyBtn.addEventListener("click", () => {
+        const t = this._t || ((k) => k);
         const doCopy = navigator.clipboard?.writeText
           ? navigator.clipboard.writeText(text)
           : new Promise((resolve, reject) => {
@@ -665,12 +684,12 @@ export const AIMixin = (Base) => class extends Base {
               } catch (e) { reject(e); }
             });
         doCopy.then(() => {
-          copyBtn.textContent = "✓";
+          copyBtn.textContent = t("copy_done");
           setTimeout(() => (copyBtn.textContent = "📋"), 1500);
         }).catch(() => {
-          copyBtn.title = "Copy failed — clipboard unavailable";
-          copyBtn.textContent = "✗";
-          setTimeout(() => { copyBtn.textContent = "📋"; copyBtn.title = "Copy"; }, 2000);
+          copyBtn.title = t("copy_failed_title");
+          copyBtn.textContent = t("copy_fail");
+          setTimeout(() => { copyBtn.textContent = "📋"; copyBtn.title = t("copy_title"); }, 2000);
         });
       });
       wrap.appendChild(copyBtn);
@@ -785,9 +804,28 @@ export const AIMixin = (Base) => class extends Base {
       aiCopyBtn.title = "Copy";
       aiCopyBtn.textContent = "📋";
       aiCopyBtn.addEventListener("click", () => {
-        navigator.clipboard.writeText(textOnly).then(() => {
-          aiCopyBtn.textContent = "✓";
+        const t2 = this._t || ((k) => k);
+        const doCopy2 = navigator.clipboard?.writeText
+          ? navigator.clipboard.writeText(textOnly)
+          : new Promise((resolve, reject) => {
+              try {
+                const ta = document.createElement("textarea");
+                ta.value = textOnly;
+                ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+                document.body.appendChild(ta);
+                ta.focus(); ta.select();
+                document.execCommand("copy");
+                document.body.removeChild(ta);
+                resolve();
+              } catch (e) { reject(e); }
+            });
+        doCopy2.then(() => {
+          aiCopyBtn.textContent = t2("copy_done");
           setTimeout(() => (aiCopyBtn.textContent = "📋"), 1500);
+        }).catch(() => {
+          aiCopyBtn.title = t2("copy_failed_title");
+          aiCopyBtn.textContent = t2("copy_fail");
+          setTimeout(() => { aiCopyBtn.textContent = "📋"; aiCopyBtn.title = t2("copy_title"); }, 2000);
         });
       });
       actionRow.appendChild(aiCopyBtn);
@@ -1018,7 +1056,7 @@ export const AIMixin = (Base) => class extends Base {
           <div class="thinking-dots">
             <span></span><span></span><span></span>
           </div>
-          <span class="thinking-label">Thinking…</span>
+          <span class="thinking-label">${this._t ? this._t("thinking") : "Thinking…"}</span>
           <button class="thinking-cancel" id="kyber-thinking-cancel" title="Cancel request">✕ Cancel</button>
         </div>
         <div class="thinking-events" id="kyber-thinking-events"></div>
@@ -1042,12 +1080,37 @@ export const AIMixin = (Base) => class extends Base {
     if (el) el.textContent = label;
   }
 
-  _appendThinkingEvent(html) {
+  /**
+   * Append a thinking event item to the thinking bubble.
+   * @param {string} cssClass  - span CSS class (e.g. "thinking-info")
+   * @param {string} text      - PLAIN TEXT — will be set via textContent (safe)
+   * @param {string} [prefix]  - optional emoji/prefix prepended as text
+   */
+  _appendThinkingEvent(cssClass, text, prefix = "") {
     const events = this.shadowRoot?.getElementById("kyber-thinking-events");
     if (!events) return;
     const item = document.createElement("div");
     item.className = "thinking-event";
-    item.innerHTML = html;
+    const span = document.createElement("span");
+    span.className = cssClass;
+    span.textContent = (prefix ? prefix + " " : "") + text;
+    item.appendChild(span);
+    events.appendChild(item);
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (history) history.scrollTop = history.scrollHeight;
+  }
+
+  /**
+   * Append a multi-element thinking event (tool calls).
+   * All content MUST be pre-escaped with _escapeHTML before calling this.
+   * @param {string} trustedHtml - HTML where all user data is already escaped
+   */
+  _appendThinkingEventHTML(trustedHtml) {
+    const events = this.shadowRoot?.getElementById("kyber-thinking-events");
+    if (!events) return;
+    const item = document.createElement("div");
+    item.className = "thinking-event";
+    item.innerHTML = trustedHtml;
     events.appendChild(item);
     const history = this.shadowRoot?.getElementById("chat-history");
     if (history) history.scrollTop = history.scrollHeight;
@@ -1056,13 +1119,11 @@ export const AIMixin = (Base) => class extends Base {
   _renderProgressEvent(ev) {
     if (!ev || !ev.type) return;
     if (ev.type === "info") {
-      this._appendThinkingEvent(
-        `<span class="thinking-info">ℹ️ ${this._escapeHTML(ev.message || "")}</span>`
-      );
+      this._appendThinkingEvent("thinking-info", ev.message || "", "ℹ️");
     } else if (ev.type === "tool_call") {
       const args = ev.args ? Object.entries(ev.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ") : "";
       this._setThinkingLabel("Calling tool…");
-      this._appendThinkingEvent(
+      this._appendThinkingEventHTML(
         `<span class="thinking-tool-name">🔧 ${this._escapeHTML(ev.name || "?")}</span>` +
         (args ? `<span class="thinking-tool-args"> (${this._escapeHTML(args)})</span>` : "") +
         `<span class="thinking-tool-status thinking-tool-running"> …</span>`
@@ -1110,9 +1171,9 @@ export const AIMixin = (Base) => class extends Base {
     } else if (ev.type === "thinking") {
       this._setThinkingLabel(ev.stage === "follow_up" ? "Reasoning over results…" : "Thinking…");
     } else if (ev.type === "warning") {
-      this._appendThinkingEvent(`<span class="thinking-warning">⚠️ ${this._escapeHTML(ev.message || "")}</span>`);
+      this._appendThinkingEvent("thinking-warning", ev.message || "", "⚠️");
     } else if (ev.type === "error") {
-      this._appendThinkingEvent(`<span class="thinking-error">⚠️ ${this._escapeHTML(ev.message || "error")}</span>`);
+      this._appendThinkingEvent("thinking-error", ev.message || "error", "⚠️");
     }
   }
 
@@ -1321,5 +1382,29 @@ export const AIMixin = (Base) => class extends Base {
 
     history.appendChild(chip);
     history.scrollTop = history.scrollHeight;
+  }
+
+  /**
+   * Show a brief floating toast notification at the top of the panel.
+   * Used to surface learned facts from the correction micro-agent.
+   *
+   * @param {string} message - text to display
+   * @param {number} [duration=4000] - milliseconds before auto-dismiss
+   */
+  _showToast(message, duration = 4000) {
+    const shadow = this.shadowRoot;
+    if (!shadow) return;
+    const toast = document.createElement("div");
+    toast.className = "kyber-toast";
+    toast.textContent = message;
+    shadow.appendChild(toast);
+    // Animate in
+    requestAnimationFrame(() => toast.classList.add("kyber-toast--visible"));
+    setTimeout(() => {
+      toast.classList.remove("kyber-toast--visible");
+      toast.addEventListener("transitionend", () => toast.remove(), { once: true });
+      // Fallback removal if transitionend never fires
+      setTimeout(() => toast.remove(), 500);
+    }, duration);
   }
 };

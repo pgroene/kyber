@@ -1704,5 +1704,43 @@ export const STYLES = `
     color: var(--secondary-text-color, #666);
     letter-spacing: 0.02em;
   }
+
+  /* ── Toast notification (correction micro-agent learned facts) ──────────── */
+  .kyber-toast {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-80px);
+    background: var(--primary-color, #03a9f4);
+    color: #fff;
+    padding: 10px 20px;
+    border-radius: 24px;
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    max-width: 80%;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .kyber-toast--visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  /* ── Approval-required pulse animation on the Execute button ────────────── */
+  @keyframes kyber-approval-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,152,0,0.7); }
+    50%       { box-shadow: 0 0 0 8px rgba(255,152,0,0); }
+  }
+  .kyber-approval-pulse {
+    animation: kyber-approval-pulse 0.8s ease-in-out 3;
+    border-color: var(--warning-color, #ff9800) !important;
+  }
 `;
 

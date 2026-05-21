@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from http import HTTPStatus
 from typing import Any
 
@@ -382,7 +383,25 @@ class KyberExecuteView(HomeAssistantView):
                 if svc_entity_id:
                     service_data = {"entity_id": svc_entity_id, **service_data}
                 try:
-                    await hass.services.async_call(domain, service, service_data, blocking=True)
+                    # Inner try: first attempt; retry if HA schema rejects extra keys
+                    # (e.g. light.turn_on rejects color_temp when the entity's
+                    # supported_color_modes doesn't include it — HA 2025.x).
+                    try:
+                        await hass.services.async_call(domain, service, service_data, blocking=True)
+                    except Exception as _svc_err:  # noqa: BLE001
+                        err_str = str(_svc_err)
+                        extra_keys = re.findall(
+                            r"extra keys not allowed @ data\['([^']+)'\]", err_str
+                        )
+                        if extra_keys:
+                            _LOGGER.warning(
+                                "Kyber: call_service %s.%s — retrying without unsupported keys %s",
+                                domain, service, extra_keys,
+                            )
+                            cleaned_data = {k: v for k, v in service_data.items() if k not in extra_keys}
+                            await hass.services.async_call(domain, service, cleaned_data, blocking=True)
+                        else:
+                            raise
                     undo_action = _build_service_undo(domain, service, svc_entity_id, pre_state)
                     result: dict = {"status": "ok", "type": action_type, "entity_id": svc_entity_id or domain}
                     if undo_action:
@@ -541,4 +560,40 @@ class KyberExecuteView(HomeAssistantView):
                 _LOGGER.error("Execute action %s on %s failed: %s", action_type, entity_id, err)
                 results.append({"entity_id": entity_id, "status": "error", "message": str(err)})
 
-        return self.json({"results": results})
+        # ── Correction micro-agent — triggered when call_service actions fail ─
+        # Only call_service failures are correctable; config/registry errors are
+        # not (renaming an entity that doesn't exist won't be fixed by an AI).
+        correction: dict | None = None
+        _has_service_failures = any(
+            r.get("status") == "error"
+            for r in results
+            if any(
+                a.get("type") == "call_service" and
+                a.get("entity_id", "") == r.get("entity_id", "")
+                for a in actions
+            )
+        )
+        if _has_service_failures and _plan_summary:
+            try:
+                from .correction_agent import async_try_correct_failures
+                _LOGGER.info(
+                    "Kyber: execution had failures — invoking correction micro-agent"
+                )
+                correction = await async_try_correct_failures(
+                    hass, results, actions, _plan_summary
+                )
+                if correction:
+                    _LOGGER.info(
+                        "Kyber: correction agent returned %d corrected action(s)",
+                        len(correction.get("corrected_actions", [])),
+                    )
+            except Exception as _corr_err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Kyber: correction micro-agent raised an error: %s", _corr_err
+                )
+
+        response_payload: dict = {"results": results}
+        if correction:
+            response_payload["correction"] = correction
+
+        return self.json(response_payload)
