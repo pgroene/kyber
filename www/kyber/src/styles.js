@@ -267,6 +267,10 @@ export const STYLES = `
   .suggestion-chip:hover {
     background: color-mix(in srgb, var(--accent) 15%, transparent);
   }
+  .suggestion-chip.chip-more {
+    border-style: dashed; opacity: 0.7;
+  }
+  .suggestion-chip.chip-more:hover { opacity: 1; }
 
   /* Entity chips — inline entity references with icon + name + state */
   .entity-chip {

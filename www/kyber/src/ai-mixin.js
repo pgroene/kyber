@@ -554,9 +554,9 @@ export const AIMixin = (Base) => class extends Base {
           if (!chips.includes(label)) chips.push(label);
         }
       });
-      if (chips.length >= 2) return chips.slice(0, 6);
+      if (chips.length >= 2) return chips.slice(0, 12);
 
-      // No bold — extract short verb phrase from each bullet
+      // No bold — use the full bullet text (works for entity IDs and names)
       chips.length = 0;
       bulletLines.forEach((line) => {
         const cleaned = line
@@ -564,11 +564,9 @@ export const AIMixin = (Base) => class extends Base {
           .replace(/^(or |and |also )?(do you want to |would you prefer to |would you like to |please |i can )/i, "")
           .replace(/\?.*$/, "")
           .trim();
-        const words = cleaned.split(/\s+/).slice(0, 3);
-        const label = words[0].charAt(0).toUpperCase() + words[0].slice(1) + (words[1] ? " " + words[1] : "");
-        if (label.length > 1 && label.length < 35 && !chips.includes(label)) chips.push(label);
+        if (cleaned.length > 1 && cleaned.length < 80 && !chips.includes(cleaned)) chips.push(cleaned);
       });
-      if (chips.length >= 2) return chips.slice(0, 6);
+      if (chips.length >= 2) return chips.slice(0, 12);
       chips.length = 0;
     }
 
@@ -585,7 +583,7 @@ export const AIMixin = (Base) => class extends Base {
     const allQuoted = [...strippedText.matchAll(/"([^"]{1,40})"/g)].map((m) => m[1]);
     if (allQuoted.length >= 2) {
       allQuoted.forEach((v) => { if (!chips.includes(v)) chips.push(v); });
-      return chips.slice(0, 6);
+      return chips.slice(0, 12);
     }
 
     return chips;
@@ -691,8 +689,9 @@ export const AIMixin = (Base) => class extends Base {
 
       const hasBold = /\*\*[^*\n]+\*\*/.test(textOnly);
       const isQuestion = /\?/.test(textOnly);
-      // Only show suggestion chips when the AI is explicitly presenting a choice
-      const isChoiceContext = /\b(choose|pick|select|which (?:one|option)|what would you (?:like|prefer)|do you want|I can:?|options?:|confirm|proceed|sure)\b/i.test(textOnly);
+      // Show chips when AI is presenting a choice — English and Dutch patterns
+      const isChoiceContext = /\b(choose|pick|select|which (?:one|option)|what would you (?:like|prefer)|do you want|I can:?|options?:|confirm|proceed|sure)\b/i.test(textOnly)
+        || /\b(welk|welke|welke van|which of|meerdere|multiple|disambig)\b/i.test(textOnly);
 
       if (hasBold) {
         // Render **bold** words as inline adornment buttons
@@ -749,14 +748,16 @@ export const AIMixin = (Base) => class extends Base {
 
       history.appendChild(actionRow);
 
-      // Fallback chips for non-bold question responses (e.g. Yes/No or quoted options).
+      // Fallback chips for non-bold question responses (e.g. Yes/No or entity disambiguation).
       // Only shown when the AI is explicitly asking the user to pick an option.
       if (isQuestion && isChoiceContext && !hasBold && !plan) {
         const chips = this._extractSuggestions(textOnly);
         if (chips.length >= 2) {
+          const VISIBLE = 6;
           const chipRow = document.createElement("div");
           chipRow.className = "suggestion-chips";
-          chips.forEach((label) => {
+
+          const makeChip = (label) => {
             const btn = document.createElement("button");
             btn.className = "suggestion-chip";
             btn.textContent = label;
@@ -766,8 +767,22 @@ export const AIMixin = (Base) => class extends Base {
               chipRow.remove();
               this._askAI();
             });
-            chipRow.appendChild(btn);
-          });
+            return btn;
+          };
+
+          chips.slice(0, VISIBLE).forEach((label) => chipRow.appendChild(makeChip(label)));
+
+          if (chips.length > VISIBLE) {
+            const moreBtn = document.createElement("button");
+            moreBtn.className = "suggestion-chip chip-more";
+            moreBtn.textContent = `+${chips.length - VISIBLE} meer`;
+            moreBtn.addEventListener("click", () => {
+              moreBtn.remove();
+              chips.slice(VISIBLE).forEach((label) => chipRow.appendChild(makeChip(label)));
+            });
+            chipRow.appendChild(moreBtn);
+          }
+
           history.appendChild(chipRow);
         }
       }
