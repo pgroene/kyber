@@ -329,6 +329,7 @@ export const AIMixin = (Base) => class extends Base {
 
       const data = await resp.json();
       this._hideThinking();
+      this._clearWarningBanner(); // dismiss any prior "AI unavailable" banner on success
       // Store the assistant's text reply in history
       const textOnly = data.response
         .replace(/```yaml[\s\S]*?```/gi, "")
@@ -389,7 +390,13 @@ export const AIMixin = (Base) => class extends Base {
       const msg = err.name === "AbortError"
         ? (err.message || "Request cancelled.")
         : `Error: ${err.message}`;
-      this._appendMessage(msg, "error");
+      // Detect "AI Task entity not found" (503 from HA ai_task) — show persistent banner instead of chat bubble.
+      if (/AI Task entity.*not found/i.test(msg) || (/503/.test(msg) && /ai_task/i.test(msg))) {
+        const entityId = (msg.match(/ai_task\.\S+/) || [])[0] || "the configured AI task entity";
+        this._showWarningBanner(`⚠️ AI model unavailable — ${entityId} not found. Check your Ollama / AI Task integration.`);
+      } else {
+        this._appendMessage(msg, "error");
+      }
       this._setStatus(msg, "error");
     } finally {
       chatDone = true; // always stop the progress poll, even on error/abort
@@ -397,6 +404,19 @@ export const AIMixin = (Base) => class extends Base {
       this._chatAbort = null;
       askBtn.disabled = false;
     }
+  }
+
+  _showWarningBanner(message) {
+    const banner = this.shadowRoot?.getElementById("warning-banner");
+    const text = this.shadowRoot?.getElementById("warning-banner-text");
+    if (!banner || !text) return;
+    text.textContent = message;
+    banner.style.display = "flex";
+  }
+
+  _clearWarningBanner() {
+    const banner = this.shadowRoot?.getElementById("warning-banner");
+    if (banner) banner.style.display = "none";
   }
 
   // Render text with **bold** words as inline clickable adornment buttons.

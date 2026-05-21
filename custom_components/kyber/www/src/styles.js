@@ -150,6 +150,28 @@ export const STYLES = `
     border-left: 3px solid var(--primary-color, #03a9f4);
   }
 
+  .warning-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: #fff;
+    background: #c0392b;
+    border-left: 4px solid #922b21;
+  }
+  .warning-banner span { flex: 1; }
+  .warning-banner button {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 0 4px;
+    opacity: 0.8;
+  }
+  .warning-banner button:hover { opacity: 1; }
+
   .chat-history {
     flex: 1;
     overflow-y: auto;

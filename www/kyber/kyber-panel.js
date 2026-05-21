@@ -32,7 +32,7 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=101";
+import { STYLES } from "./src/styles.js?v=102";
 
 import { UtilsMixin } from "./src/utils-mixin.js?v=97";
 import { SessionMixin } from "./src/session-mixin.js?v=87";
@@ -40,7 +40,7 @@ import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=87";
 import { DebugMixin } from "./src/debug-mixin.js?v=100";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=93";
 import { EditorMixin } from "./src/editor-mixin.js?v=94";
-import { AIMixin } from "./src/ai-mixin.js?v=95";
+import { AIMixin } from "./src/ai-mixin.js?v=96";
 import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=90";
 
 // ---------------------------------------------------------------------------
@@ -168,6 +168,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <button class="btn-clear-history" id="btn-clear-history" title="Clear persisted chat history">Clear history</button>
             <button class="btn-debug" id="btn-debug" title="Open debug / memory inspector">🐞</button>
           </div>
+          <div id="warning-banner" class="warning-banner" style="display:none"><span id="warning-banner-text"></span><button id="warning-banner-close" title="Dismiss">✕</button></div>
           <div id="explorer-banner" class="explorer-banner" style="display:none">🔍 <span id="explorer-banner-text">Exploring your home…</span></div>
           <div id="chat-review-queue" class="chat-review-queue"></div>
           <div class="chat-history" id="chat-history">
@@ -257,6 +258,8 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
   }
 
   _bindEvents(shadow) {
+    shadow.getElementById("warning-banner-close").addEventListener("click", () => this._clearWarningBanner());
+
     shadow.getElementById("btn-save").addEventListener("click", () => {
       if (this._editorMode === "dashboard") {
         this._saveDashboard();
