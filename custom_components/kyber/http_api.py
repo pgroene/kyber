@@ -32,12 +32,23 @@ from .const import (
     AUTOMATION_EDITOR_GUIDANCE,
     CONF_AI_TASK_ENTITY_ID,
     CONF_AREA_ASSIGNMENT_MODE,
+    CONF_CLOUD_PROVIDER,
+    CONF_CLOUD_USE_FOR_CHAT,
+    CLOUD_PROVIDER_AZURE,
+    CLOUD_PROVIDER_OPENAI,
+    DEFAULT_CLOUD_PROVIDER,
+    DEFAULT_CLOUD_USE_FOR_CHAT,
     CONF_AZURE_ENDPOINT,
     CONF_AZURE_API_KEY,
     CONF_AZURE_DEPLOYMENT,
     CONF_AZURE_API_VERSION,
     DEFAULT_AZURE_API_VERSION,
     AZURE_MAX_TOKENS,
+    CONF_OPENAI_API_KEY,
+    CONF_OPENAI_MODEL,
+    CONF_OPENAI_BASE_URL,
+    DEFAULT_OPENAI_MODEL,
+    OPENAI_MAX_TOKENS,
     CONF_LABEL_ASSIGNMENT_MODE,
     DOMAIN,
     KNOWLEDGE_BUDGET_CHARS,
@@ -106,7 +117,7 @@ from .api_utilities import (
     _PROGRESS_KEY,
     _progress_emit, _progress_complete,
     KyberProgressView, KyberSaveView, _SUMMARIZE_SYSTEM_PROMPT, KyberSummarizeView,
-    async_ai_call, async_azure_ai_call,
+    async_ai_call, async_azure_ai_call, async_openai_ai_call,
 )
 from .prompt_regression_api import (
     KyberPromptTestsView, KyberPromptTestsRunView,
@@ -855,11 +866,28 @@ async def _run_ai_loop(
     May raise HomeAssistantError if the AI provider fails.
     """
     _cfg = config or {}
+
+    # ── Cloud provider detection ──────────────────────────────────────────────
+    # Explicit cloud_provider key takes precedence; fall back to legacy Azure detection
+    _cloud_provider = str(_cfg.get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER)).strip()
+    _cloud_use_for_chat = bool(_cfg.get(CONF_CLOUD_USE_FOR_CHAT, DEFAULT_CLOUD_USE_FOR_CHAT))
+
     _azure_endpoint = str(_cfg.get(CONF_AZURE_ENDPOINT, "")).strip()
     _azure_api_key = str(_cfg.get(CONF_AZURE_API_KEY, "")).strip()
     _azure_deployment = str(_cfg.get(CONF_AZURE_DEPLOYMENT, "")).strip()
     _azure_api_version = str(_cfg.get(CONF_AZURE_API_VERSION, DEFAULT_AZURE_API_VERSION)).strip() or DEFAULT_AZURE_API_VERSION
-    _use_azure = bool(_azure_endpoint and _azure_api_key and _azure_deployment)
+
+    _openai_api_key = str(_cfg.get(CONF_OPENAI_API_KEY, "")).strip()
+    _openai_model = str(_cfg.get(CONF_OPENAI_MODEL, DEFAULT_OPENAI_MODEL)).strip() or DEFAULT_OPENAI_MODEL
+    _openai_base_url = str(_cfg.get(CONF_OPENAI_BASE_URL, "")).strip()
+
+    # Backward compat: if cloud_provider not yet set but azure credentials present, treat as azure
+    if _cloud_provider == DEFAULT_CLOUD_PROVIDER and _azure_endpoint and _azure_api_key and _azure_deployment:
+        _cloud_provider = CLOUD_PROVIDER_AZURE
+        _cloud_use_for_chat = True
+
+    _use_azure = _cloud_use_for_chat and _cloud_provider == CLOUD_PROVIDER_AZURE and bool(_azure_endpoint and _azure_api_key and _azure_deployment)
+    _use_openai = _cloud_use_for_chat and _cloud_provider == CLOUD_PROVIDER_OPENAI and bool(_openai_api_key)
 
     # Qwen3 thinking mode emits <think>…</think> blocks that break plan/tool parsing.
     if "qwen3" in entity_id.lower():
@@ -875,6 +903,16 @@ async def _run_ai_loop(
         _progress_emit(hass, request_id, {
             "type": "debug",
             "message": f"[AI→] provider=Azure endpoint={_azure_endpoint} deployment={_azure_deployment}",
+        })
+    elif _use_openai:
+        _model_name = f"openai/{_openai_model}"
+        _LOGGER.info(
+            "Kyber: AI pre-flight — provider=OpenAI model=%s base_url=%s",
+            _openai_model, _openai_base_url or "https://api.openai.com",
+        )
+        _progress_emit(hass, request_id, {
+            "type": "debug",
+            "message": f"[AI→] provider=OpenAI model={_openai_model}",
         })
     else:
         _entity_state = hass.states.get(entity_id)
@@ -963,7 +1001,11 @@ async def _run_ai_loop(
     # Determine the actual context window for this AI entity (reads num_ctx / context_length
     # from entity state attributes, falls back to model-name lookup, then DEFAULT_MAX_TOKENS).
     # Azure OpenAI deployments support up to 128K tokens.
-    _ctx_window: int = AZURE_MAX_TOKENS if _use_azure else _infer_max_tokens(hass, entity_id)
+    _ctx_window: int = (
+        AZURE_MAX_TOKENS if _use_azure else
+        OPENAI_MAX_TOKENS if _use_openai else
+        _infer_max_tokens(hass, entity_id)
+    )
     _ctx_warn_tokens: int = int(_ctx_window * 0.85)   # 85 % fill → warn
     _ctx_hint_tokens: int = int(_ctx_window * 0.75)   # 75 % fill → inject brief-reply hint
 
@@ -1036,6 +1078,18 @@ async def _run_ai_loop(
                         api_key=_azure_api_key,
                         deployment=_azure_deployment,
                         api_version=_azure_api_version,
+                        instructions=loop_instructions,
+                        history=history,
+                    ),
+                    timeout=_AI_CALL_TIMEOUT,
+                )
+            elif _use_openai:
+                result = await asyncio.wait_for(
+                    async_openai_ai_call(
+                        task_name=f"{DOMAIN}_complete",
+                        api_key=_openai_api_key,
+                        model=_openai_model,
+                        base_url=_openai_base_url or None,
                         instructions=loop_instructions,
                         history=history,
                     ),

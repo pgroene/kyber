@@ -5,14 +5,31 @@ DOMAIN = "kyber"
 CONF_AI_TASK_ENTITY_ID = "ai_task_entity_id"
 CONF_NARRATOR_AI_TASK_ENTITY_ID = "narrator_ai_task_entity_id"
 
+# Cloud provider selection
+CONF_CLOUD_PROVIDER = "cloud_provider"        # which provider to use
+CONF_CLOUD_USE_FOR_CHAT = "cloud_use_for_chat"  # use cloud provider for chat
+
+CLOUD_PROVIDER_NONE = "none"
+CLOUD_PROVIDER_AZURE = "azure"
+CLOUD_PROVIDER_OPENAI = "openai"
+
+DEFAULT_CLOUD_PROVIDER = CLOUD_PROVIDER_NONE
+DEFAULT_CLOUD_USE_FOR_CHAT = True
+
 # Azure AI Foundry (Azure OpenAI) provider settings
 CONF_AZURE_ENDPOINT = "azure_endpoint"        # e.g. https://my-resource.openai.azure.com
 CONF_AZURE_API_KEY = "azure_api_key"          # resource API key
 CONF_AZURE_DEPLOYMENT = "azure_deployment"    # deployment name, e.g. gpt-4o
 CONF_AZURE_API_VERSION = "azure_api_version"  # e.g. 2024-05-01-preview
 DEFAULT_AZURE_API_VERSION = "2024-05-01-preview"
-# Max context tokens for Azure OpenAI deployments (GPT-4o = 128K)
 AZURE_MAX_TOKENS = 128_000
+
+# OpenAI direct provider settings
+CONF_OPENAI_API_KEY = "openai_api_key"        # sk-... key
+CONF_OPENAI_MODEL = "openai_model"            # model name, e.g. gpt-4o
+CONF_OPENAI_BASE_URL = "openai_base_url"      # optional custom endpoint
+DEFAULT_OPENAI_MODEL = "gpt-4o"
+OPENAI_MAX_TOKENS = 128_000
 CONF_MAX_TOKENS = "max_tokens"
 CONF_ENABLE_DEBUG_VIEWS = "enable_debug_views"
 CONF_USER_NAME = "user_name"

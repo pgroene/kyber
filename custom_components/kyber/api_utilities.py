@@ -207,7 +207,96 @@ async def async_azure_ai_call(
     return _AzureAIResult(text)
 
 
-def _progress_emit(hass: HomeAssistant, request_id: str, event: dict) -> None:
+async def async_openai_ai_call(
+    *,
+    task_name: str,
+    api_key: str,
+    model: str,
+    instructions: str,
+    history: list | None = None,
+    base_url: str | None = None,
+) -> _AzureAIResult:
+    """Call OpenAI chat completions directly via aiohttp.
+
+    Returns an _AzureAIResult with .data = response text string.
+    Raises HomeAssistantError on HTTP / connection errors.
+    Retries up to 3 times on HTTP 429 (rate limit), honouring the Retry-After header.
+    Compatible with any OpenAI-compatible endpoint via base_url.
+    """
+    import asyncio as _asyncio
+    import aiohttp as _aiohttp
+
+    _base = (base_url or "https://api.openai.com").rstrip("/")
+    url = f"{_base}/v1/chat/completions"
+
+    messages: list[dict] = []
+    if history:
+        for entry in history:
+            role = entry.get("role", "user")
+            content = entry.get("content", "")
+            if role in ("user", "assistant", "system") and content:
+                messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": instructions})
+
+    payload = {"model": model, "messages": messages}
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    _AI_LOG.debug(
+        "[OpenAI→] task=%s model=%s url=%s messages=%d prompt_chars=%d",
+        task_name, model, url, len(messages), len(instructions),
+    )
+
+    _MAX_RETRIES = 3
+    data: dict | None = None
+    for _attempt in range(_MAX_RETRIES):
+        try:
+            async with _aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
+                    if resp.status == 429:
+                        _retry_after = min(int(resp.headers.get("Retry-After", "20")), 60)
+                        if _attempt < _MAX_RETRIES - 1:
+                            _AI_LOG.warning(
+                                "[OpenAI] Rate limited (429) — waiting %ds before retry (attempt %d/%d)",
+                                _retry_after, _attempt + 1, _MAX_RETRIES,
+                            )
+                            await _asyncio.sleep(_retry_after)
+                            continue
+                        raise HomeAssistantError(
+                            f"⏳ OpenAI rate limit — too many requests. Try again in {_retry_after}s."
+                        )
+                    if resp.status != 200:
+                        body = await resp.text()
+                        _AI_LOG.error(
+                            "[OpenAI✗] task=%s model=%s status=%d body=%s",
+                            task_name, model, resp.status, body[:500],
+                        )
+                        raise HomeAssistantError(
+                            f"OpenAI returned HTTP {resp.status}: {body[:200]}"
+                        )
+                    data = await resp.json()
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            _AI_LOG.error("[OpenAI✗] task=%s model=%s error=%s", task_name, model, err)
+            raise HomeAssistantError(f"OpenAI connection error: {err}") from err
+        break  # success — exit retry loop
+
+    if data is None:
+        raise HomeAssistantError("OpenAI: no response received after retries")
+
+    try:
+        text: str = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as err:
+        raise HomeAssistantError(f"OpenAI unexpected response format: {err}") from err
+
+    _AI_LOG.debug(
+        "[OpenAI←] task=%s model=%s response_chars=%d",
+        task_name, model, len(text),
+    )
+    return _AzureAIResult(text)
     """Append a progress event for a request_id (in-memory)."""
     if not request_id:
         return

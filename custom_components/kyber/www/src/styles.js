@@ -267,6 +267,10 @@ export const STYLES = `
   .suggestion-chip:hover {
     background: color-mix(in srgb, var(--accent) 15%, transparent);
   }
+  .suggestion-chip.chip-more {
+    border-style: dashed; opacity: 0.7;
+  }
+  .suggestion-chip.chip-more:hover { opacity: 1; }
 
   /* Entity chips — inline entity references with icon + name + state */
   .entity-chip {
@@ -550,6 +554,52 @@ export const STYLES = `
   .dbg-turn-feedback .tf-status { color: var(--secondary-text-color, #aaa); font-size: 11px; }
   .dbg-turn-feedback .tf-status.ok { color: var(--success-color, #4caf50); }
   .dbg-turn-feedback .tf-status.flag { color: var(--warning-color, #ff9800); }
+
+  /* Inline chat feedback row (thumbs up/down under AI responses) */
+  .chat-feedback-row {
+    display: flex; align-items: center; gap: 4px;
+    margin: 2px 0 6px 4px; opacity: 0.55;
+    transition: opacity 0.15s;
+  }
+  .chat-feedback-row:hover { opacity: 1; }
+  .chat-feedback-row .tf-btn-rate {
+    background: none; border: none; cursor: pointer;
+    font-size: 14px; padding: 1px 4px; border-radius: 4px;
+    line-height: 1;
+  }
+  .chat-feedback-row .tf-btn-rate:hover:not(:disabled) { background: rgba(255,255,255,0.08); }
+  .chat-feedback-row .tf-btn-rate:disabled { opacity: 0.35; cursor: default; }
+  .chat-feedback-row .tf-status {
+    font-size: 11px; color: var(--secondary-text-color, #aaa); margin-left: 2px;
+  }
+  .chat-feedback-row .tf-status.ok { color: var(--success-color, #4caf50); }
+  .chat-feedback-row .tf-status.flag { color: var(--warning-color, #ff9800); }
+
+  /* Copy button on user messages */
+  .chat-message-wrap { position: relative; display: flex; align-items: flex-start; gap: 4px; }
+  .chat-message-wrap .chat-copy-btn {
+    flex-shrink: 0; align-self: flex-start; margin-top: 2px;
+    background: none; border: none; cursor: pointer; font-size: 13px;
+    opacity: 0; transition: opacity 0.15s; padding: 1px 3px; border-radius: 3px;
+  }
+  .chat-message-wrap:hover .chat-copy-btn { opacity: 0.6; }
+  .chat-message-wrap .chat-copy-btn:hover { opacity: 1 !important; background: rgba(255,255,255,0.08); }
+
+  /* Retry button on error messages */
+  .chat-retry-btn {
+    display: inline-block; margin-top: 4px;
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25);
+    color: inherit; border-radius: 4px; padding: 2px 10px;
+    cursor: pointer; font-size: 12px;
+  }
+  .chat-retry-btn:hover { background: rgba(255,255,255,0.18); }
+
+  /* Alias-learned chip shown after AI response */
+  .chat-alias-learned {
+    font-size: 11px; color: var(--success-color, #4caf50);
+    background: rgba(76,175,80,0.1); border-radius: 4px;
+    padding: 2px 8px; margin: 2px 0 6px 4px; display: inline-block;
+  }
 
   /* Knowledge panel */
   .kyber-knowledge-panel { font-size: 12px; }
