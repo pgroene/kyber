@@ -1859,10 +1859,14 @@ class KyberView(HomeAssistantView):
 
         try:
             components = _extract_response_components(response_text, intent, user_prompt, hass, tool_log)
-        response_text = components["response_text"]
-        yaml_blocks = components["yaml_blocks"]
-        plan_block = components["plan_block"]
-        clarify_block = components["clarify_block"]
+            response_text = components["response_text"]
+            yaml_blocks = components["yaml_blocks"]
+            plan_block = components["plan_block"]
+            clarify_block = components["clarify_block"]
+        except Exception as _ce:  # noqa: BLE001
+            _LOGGER.exception("Kyber: _extract_response_components failed (type=%s): %s", type(_ce).__name__, _ce)
+            _progress_complete(hass, request_id)
+            return self.json_message(f"Internal error: {type(_ce).__name__}: {_ce}", HTTPStatus.INTERNAL_SERVER_ERROR)
 
         _progress_complete(hass, request_id)
         plan_block = _annotate_plan_approval(plan_block)
@@ -2075,30 +2079,21 @@ class KyberView(HomeAssistantView):
                 except Exception as _prop2_err:  # noqa: BLE001
                     _LOGGER.debug("Kyber: plan proposal save failed (non-critical): %s", _prop2_err)
 
-            return self.json({
-                "response": response_text,
-                "yaml_blocks": yaml_blocks,
-                "plan": plan_block,
-                "clarify": clarify_block,
-                "context_stats": context_stats,
-                "tool_log": tool_log,
-                "knowledge_used": knowledge_used_ids,
-                "auto_rating": auto_rating,
-                "request_id": request_id,
-                "learned_fact": learned_fact,
-                "elapsed_ms": _total_ms,
-                "area_suggestions": area_suggestions or None,
-                "aliases_saved": _aliases_saved or None,
-            })
-        except Exception as _post_err:
-            _LOGGER.exception(
-                "Kyber: unhandled error in post-loop response building (type=%s): %s",
-                type(_post_err).__name__, _post_err,
-            )
-            return self.json_message(
-                f"Internal error: {type(_post_err).__name__}: {_post_err}",
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-            )
+        return self.json({
+            "response": response_text,
+            "yaml_blocks": yaml_blocks,
+            "plan": plan_block,
+            "clarify": clarify_block,
+            "context_stats": context_stats,
+            "tool_log": tool_log,
+            "knowledge_used": knowledge_used_ids,
+            "auto_rating": auto_rating,
+            "request_id": request_id,
+            "learned_fact": learned_fact,
+            "elapsed_ms": _total_ms,
+            "area_suggestions": area_suggestions or None,
+            "aliases_saved": _aliases_saved or None,
+        })
 
 
 class KyberAreaSuggestionsView(HomeAssistantView):
@@ -2397,6 +2392,7 @@ class KyberLabelsView(HomeAssistantView):
                 "color": label.color or cfg.get("color", ""),
                 "entities": entities,
             }
+        try:
             return self.json(result)
         except Exception as _err:
             _LOGGER.exception("Kyber: unhandled error in KyberLabelsView.get (type=%s): %s", type(_err).__name__, _err)
