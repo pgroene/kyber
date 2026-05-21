@@ -294,3 +294,34 @@ async def test_anthropic_provider_missing_api_key_falls_back_to_ha(
 
     assert resp.status == 200
     anthropic_mock.assert_not_called()
+
+
+async def test_synthesis_pass_does_not_call_local_ha_when_openai_configured(
+    hass: HomeAssistant, hass_client,
+) -> None:
+    """Synthesis pass must use the configured cloud provider, not local HA ai_task.
+
+    This is a regression test for the bug where _run_ai_loop's synthesis fallback
+    always called async_ai_call() (local HA ai_task) regardless of cloud config.
+    We verify indirectly: when OpenAI is configured and all AI responses succeed,
+    the local HA async_generate_data is never called.
+    """
+    await _setup_with_cloud(hass, {
+        CONF_CLOUD_PROVIDER: CLOUD_PROVIDER_OPENAI,
+        CONF_CLOUD_USE_FOR_CHAT: True,
+        CONF_OPENAI_API_KEY: "sk-test",
+        CONF_OPENAI_MODEL: "gpt-4o",
+    })
+
+    client = await hass_client()
+    with (
+        patch(_PATCH_OPENAI, new_callable=AsyncMock,
+              return_value=_make_ai_result("OpenAI direct answer")) as openai_mock,
+        patch(_PATCH_GENERATE, new_callable=AsyncMock) as ha_mock,
+    ):
+        resp = await client.post("/api/kyber/complete", json={"prompt": "What is the status?"})
+
+    assert resp.status == 200
+    # OpenAI was called, local HA was NOT called
+    openai_mock.assert_called()
+    ha_mock.assert_not_called()

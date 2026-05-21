@@ -1485,12 +1485,50 @@ async def _run_ai_loop(
                 try:
                     _progress_emit(hass, request_id, {"type": "thinking", "stage": "synthesize"})
                     _t_synth = time.monotonic()
-                    synth_result = await async_ai_call(
-                        hass,
-                        task_name=f"{DOMAIN}_complete",
-                        entity_id=entity_id,
-                        instructions=synth_prompt,
-                    )
+                    # Route synthesis through the same provider as the main loop
+                    if _use_azure:
+                        synth_result = await asyncio.wait_for(
+                            async_azure_ai_call(
+                                task_name=f"{DOMAIN}_complete",
+                                endpoint=_azure_endpoint,
+                                api_key=_azure_api_key,
+                                deployment=_azure_deployment,
+                                api_version=_azure_api_version,
+                                instructions=synth_prompt,
+                                history=[],
+                            ),
+                            timeout=_AI_CALL_TIMEOUT,
+                        )
+                    elif _use_openai:
+                        synth_result = await asyncio.wait_for(
+                            async_openai_ai_call(
+                                task_name=f"{DOMAIN}_complete",
+                                api_key=_openai_api_key,
+                                model=_openai_model,
+                                base_url=_openai_base_url or None,
+                                instructions=synth_prompt,
+                                history=[],
+                            ),
+                            timeout=_AI_CALL_TIMEOUT,
+                        )
+                    elif _use_anthropic:
+                        synth_result = await asyncio.wait_for(
+                            async_anthropic_ai_call(
+                                task_name=f"{DOMAIN}_complete",
+                                api_key=_anthropic_api_key,
+                                model=_anthropic_model,
+                                instructions=synth_prompt,
+                                history=[],
+                            ),
+                            timeout=_AI_CALL_TIMEOUT,
+                        )
+                    else:
+                        synth_result = await async_ai_call(
+                            hass,
+                            task_name=f"{DOMAIN}_complete",
+                            entity_id=entity_id,
+                            instructions=synth_prompt,
+                        )
                     _synth_ms = int((time.monotonic() - _t_synth) * 1000)
                     synth_text = (
                         synth_result.data
