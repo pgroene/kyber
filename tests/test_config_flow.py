@@ -525,3 +525,56 @@ async def test_options_flow_invalid_chat_model_shows_error(hass: HomeAssistant) 
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"].get("ai_task_entity_id") == "entity_not_found"
+
+
+async def test_options_flow_preserves_cloud_credentials_when_cloud_section_missing(
+    hass: HomeAssistant,
+) -> None:
+    """Saving options without submitting the cloud section must NOT wipe credentials.
+
+    This is a regression test for the bug where saving any options step would
+    reset all cloud credentials to defaults because missing sections fell back
+    to empty dicts instead of the existing stored config.
+    """
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from custom_components.kyber.const import (
+        CONF_CLOUD_PROVIDER, CONF_CLOUD_USE_FOR_CHAT,
+        CONF_OPENAI_API_KEY, CONF_OPENAI_MODEL, CLOUD_PROVIDER_OPENAI,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "ai_task_entity_id": "ai_task.test_model",
+            "max_tokens": 4096,
+            CONF_CLOUD_PROVIDER: CLOUD_PROVIDER_OPENAI,
+            CONF_CLOUD_USE_FOR_CHAT: True,
+            CONF_OPENAI_API_KEY: "sk-keep-this-key",
+            CONF_OPENAI_MODEL: "gpt-4o",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    # Submit options WITHOUT including the cloud section at all
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "model_config": {
+                "ai_task_entity_id": "ai_task.test_model",
+                "max_tokens": 4096,
+            },
+            # cloud_config section deliberately omitted
+            "agents": {},
+            "area_assignment": {},
+            "developer": {},
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    saved = result["data"]
+    # Cloud credentials must be preserved
+    assert saved.get(CONF_CLOUD_PROVIDER) == CLOUD_PROVIDER_OPENAI
+    assert saved.get(CONF_CLOUD_USE_FOR_CHAT) is True
+    assert saved.get(CONF_OPENAI_API_KEY) == "sk-keep-this-key"
+    assert saved.get(CONF_OPENAI_MODEL) == "gpt-4o"
