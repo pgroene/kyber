@@ -178,6 +178,22 @@ def test_read_blueprint_rejects_path_escape(tmp_path):
     assert "error" in result
 
 
+def test_read_blueprint_rejects_prefix_collision(tmp_path):
+    """A path like '<config>_evil/../secret' starts with the config dir string
+    but is NOT inside it — must be rejected by the safe containment check."""
+    mod = _load_source_module()
+    hass = _FakeHass(str(tmp_path))
+    # Create a sibling directory whose name starts with the config dir name
+    evil_dir = tmp_path.parent / (tmp_path.name + "_evil")
+    evil_dir.mkdir(exist_ok=True)
+    secret = evil_dir / "secret.yaml"
+    secret.write_text("secret: data")
+    # Build a relative path that lands in the sibling dir via normalization
+    rel = f"../{tmp_path.name}_evil/secret.yaml"
+    result = mod.read_blueprint(hass, rel)
+    assert "error" in result
+
+
 # ── memo ─────────────────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_memo_records_and_detects_unchanged(tmp_path):
