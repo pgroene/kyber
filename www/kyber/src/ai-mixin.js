@@ -338,7 +338,19 @@ export const AIMixin = (Base) => class extends Base {
       if (textOnly) {
         this._addChatHistory("assistant", textOnly);
       }
-      this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null, data.learned_fact || null, data.clarify || null);
+      this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null, data.learned_fact || null, data.clarify || null, data.knowledge_used || []);
+
+      // Show "Onthouden" chips for newly saved search aliases
+      if (data.aliases_saved && data.aliases_saved.length > 0) {
+        const historyEl = this.shadowRoot.getElementById("chat-history");
+        data.aliases_saved.forEach((alias) => {
+          const chip = document.createElement("div");
+          chip.className = "chat-alias-learned";
+          chip.textContent = `💡 Onthouden: ${alias}`;
+          historyEl.appendChild(chip);
+        });
+        historyEl.scrollTop = historyEl.scrollHeight;
+      }
 
       // Render area assignment suggestions / reports
       if (data.area_suggestions && data.area_suggestions.length > 0) {
@@ -589,7 +601,7 @@ export const AIMixin = (Base) => class extends Base {
     history.scrollTop = history.scrollHeight;
   }
 
-  _appendAIResponse(fullText, yamlBlocks, plan, learnedFact = null, clarify = null) {
+  _appendAIResponse(fullText, yamlBlocks, plan, learnedFact = null, clarify = null, knowledgeIds = []) {
     const history = this.shadowRoot.getElementById("chat-history");
 
     // Render clarify block: question + option buttons.
@@ -664,6 +676,20 @@ export const AIMixin = (Base) => class extends Base {
       this._injectEntityChips(msg);
 
       history.appendChild(msg);
+
+      // Thumbs up/down feedback row
+      if (knowledgeIds !== undefined) {
+        const feedbackRow = document.createElement("div");
+        feedbackRow.className = "chat-feedback-row";
+        feedbackRow.innerHTML = `<button class="tf-btn-rate tf-chat-up" title="Helpful">👍</button><button class="tf-btn-rate tf-chat-down" title="Not helpful">👎</button><span class="tf-status"></span>`;
+        feedbackRow.querySelector(".tf-chat-up").addEventListener("click", () =>
+          this._submitTurnFeedback(5, knowledgeIds, feedbackRow)
+        );
+        feedbackRow.querySelector(".tf-chat-down").addEventListener("click", () =>
+          this._submitTurnFeedback(1, knowledgeIds, feedbackRow)
+        );
+        history.appendChild(feedbackRow);
+      }
 
       // Fallback chips for non-bold question responses (e.g. Yes/No or quoted options).
       // Only shown when the AI is explicitly asking the user to pick an option.

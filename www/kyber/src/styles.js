@@ -551,6 +551,33 @@ export const STYLES = `
   .dbg-turn-feedback .tf-status.ok { color: var(--success-color, #4caf50); }
   .dbg-turn-feedback .tf-status.flag { color: var(--warning-color, #ff9800); }
 
+  /* Inline chat feedback row (thumbs up/down under AI responses) */
+  .chat-feedback-row {
+    display: flex; align-items: center; gap: 4px;
+    margin: 2px 0 6px 4px; opacity: 0.55;
+    transition: opacity 0.15s;
+  }
+  .chat-feedback-row:hover { opacity: 1; }
+  .chat-feedback-row .tf-btn-rate {
+    background: none; border: none; cursor: pointer;
+    font-size: 14px; padding: 1px 4px; border-radius: 4px;
+    line-height: 1;
+  }
+  .chat-feedback-row .tf-btn-rate:hover:not(:disabled) { background: rgba(255,255,255,0.08); }
+  .chat-feedback-row .tf-btn-rate:disabled { opacity: 0.35; cursor: default; }
+  .chat-feedback-row .tf-status {
+    font-size: 11px; color: var(--secondary-text-color, #aaa); margin-left: 2px;
+  }
+  .chat-feedback-row .tf-status.ok { color: var(--success-color, #4caf50); }
+  .chat-feedback-row .tf-status.flag { color: var(--warning-color, #ff9800); }
+
+  /* Alias-learned chip shown after AI response */
+  .chat-alias-learned {
+    font-size: 11px; color: var(--success-color, #4caf50);
+    background: rgba(76,175,80,0.1); border-radius: 4px;
+    padding: 2px 8px; margin: 2px 0 6px 4px; display: inline-block;
+  }
+
   /* Knowledge panel */
   .kyber-knowledge-panel { font-size: 12px; }
   .kn-header { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }

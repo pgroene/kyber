@@ -329,12 +329,13 @@ _BASE_INSTRUCTIONS_CHARS = _MAX_INSTRUCTIONS_CHARS - _KNOWLEDGE_BUDGET  # 30 000
 _MAX_TOOL_RESULT_CHARS = MAX_TOOL_RESULT_CHARS
 
 
-async def _auto_record_search_alias(kstore: Any, query: str, entity_ids: list[str]) -> None:
+async def _auto_record_search_alias(kstore: Any, query: str, entity_ids: list[str]) -> str | None:
     """Silently save a search query → entity mapping as a knowledge alias.
 
     Called fire-and-forget after search_entities returns 1–3 results so future
     turns can recall the mapping without searching again.  Skips if an identical
-    fact (same subject) already exists.
+    fact (same subject) already exists.  Returns the alias string if newly saved,
+    None if skipped.
     """
     try:
         await kstore.async_load()
@@ -343,7 +344,7 @@ async def _auto_record_search_alias(kstore: Any, query: str, entity_ids: list[st
         existing = await kstore.async_semantic_search(query_lower, min_score=0.95)
         for e in existing:
             if e.get("category") == "entity_alias" and e.get("subject", "").lower() == query_lower:
-                return
+                return None
         entity_str = ", ".join(entity_ids)
         await kstore.async_add(
             "entity_alias",
@@ -354,8 +355,10 @@ async def _auto_record_search_alias(kstore: Any, query: str, entity_ids: list[st
             confidence=0.7,
         )
         _LOGGER.debug("Kyber: auto-saved search alias '%s' → %s", query, entity_str)
+        return f"'{query}' → {entity_str}"
     except Exception as err:  # noqa: BLE001
         _LOGGER.debug("Kyber: auto-record search alias failed (non-critical): %s", err)
+        return None
 
 
 
@@ -942,6 +945,7 @@ async def _run_ai_loop(
     # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
     tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
     tool_log: list = []  # summary of tool calls for UI feedback
+    _aliases_saved: list[str] = []  # search aliases newly stored this turn
     executed_calls_cache: dict = {}  # signature → result str (dedup across rounds)
     _seen_entity_scores: dict[str, float] = {}  # entity_id → best score shown so far
     response_text = ""
@@ -1199,9 +1203,9 @@ async def _run_ai_loop(
                 if 1 <= len(_primary_eids) <= 3:
                     _q = (call.get("query") or ", ".join(call.get("queries") or [])).strip()
                     if _q:
-                        asyncio.ensure_future(
-                            _auto_record_search_alias(kstore, _q, _primary_eids)
-                        )
+                        _saved = await _auto_record_search_alias(kstore, _q, _primary_eids)
+                        if _saved:
+                            _aliases_saved.append(_saved)
 
                 # State-filter: when the user wants to turn_off, drop entities that are
                 # already off (and vice versa). This reduces noise and helps the model
@@ -1282,9 +1286,9 @@ async def _run_ai_loop(
                         # Build a natural alias from the overlapping context words
                         _alias_words = sorted(_overlap, key=lambda w: -len(w))
                         _alias_q = " ".join(_alias_words[:3])
-                        asyncio.ensure_future(
-                            _auto_record_search_alias(kstore, _alias_q, [_eid])
-                        )
+                        _saved2 = await _auto_record_search_alias(kstore, _alias_q, [_eid])
+                        if _saved2:
+                            _aliases_saved.append(_saved2)
 
             # Build a short human-readable summary for the UI
             summary = _tool_result_summary(call, tool_result_data)
@@ -2083,6 +2087,7 @@ class KyberView(HomeAssistantView):
             "learned_fact": learned_fact,
             "elapsed_ms": _total_ms,
             "area_suggestions": area_suggestions or None,
+            "aliases_saved": _aliases_saved or None,
         })
 
 
