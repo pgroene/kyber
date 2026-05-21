@@ -594,6 +594,52 @@ async def test_ai_task_failure_returns_503(
     assert resp.status == 503
 
 
+async def test_ai_error_clears_busy_flag(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """After an AI error, kyber_chat_busy must be cleared so next request works."""
+    from custom_components.kyber.http_api import _CHAT_BUSY_KEY
+
+    async def failing(*a, **kw):
+        raise HomeAssistantError("Ollama is not available")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=failing):
+        resp = await client.post("/api/kyber/complete", json={"prompt": "help"})
+    assert resp.status == 503
+
+    # Busy flag must be cleared — next request must not get a 503 "busy" response
+    assert hass.data.get(_CHAT_BUSY_KEY) is False
+
+    # Send a second request; it must succeed (not be blocked by leftover busy flag)
+    with patch(_PATCH_GENERATE, side_effect=lambda *a, **kw: _make_ai_result("ok")):
+        resp2 = await client.post("/api/kyber/complete", json={"prompt": "are you there?"})
+    assert resp2.status == 200
+
+
+async def test_unexpected_error_clears_busy_flag(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """After any AI error, busy flag must be cleared regardless of error type."""
+    from custom_components.kyber.http_api import _CHAT_BUSY_KEY
+
+    async def boom(*a, **kw):
+        raise RuntimeError("unexpected crash")
+
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=boom):
+        resp = await client.post("/api/kyber/complete", json={"prompt": "help"})
+    # RuntimeError gets wrapped → 503 or 500, both are error responses
+    assert resp.status in (500, 503)
+
+    assert hass.data.get(_CHAT_BUSY_KEY) is False
+
+    # Next request must succeed (not blocked by leftover busy flag)
+    with patch(_PATCH_GENERATE, side_effect=lambda *a, **kw: _make_ai_result("ok")):
+        resp2 = await client.post("/api/kyber/complete", json={"prompt": "are you there?"})
+    assert resp2.status == 200
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # /execute — validation
 # ──────────────────────────────────────────────────────────────────────────────

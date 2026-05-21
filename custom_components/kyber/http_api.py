@@ -1972,12 +1972,18 @@ class KyberView(HomeAssistantView):
                 await _run_ai_loop(hass, entity_id, instructions, kstore, user_prompt, request_id, history, intent, config=self._config)
         except HomeAssistantError as err:
             _progress_complete(hass, request_id)
+            _debug_detach_log_capture(_debug_log_handler)
+            hass.data[_CHAT_BUSY_KEY] = False
+            hass.data.get("kyber_preempt_event", None) and hass.data["kyber_preempt_event"].clear()
             return self.json_message(
                 f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
             )
         except Exception as err:  # noqa: BLE001
             _LOGGER.exception("Kyber: unexpected error during AI loop (type=%s)", type(err).__name__)
             _progress_complete(hass, request_id)
+            _debug_detach_log_capture(_debug_log_handler)
+            hass.data[_CHAT_BUSY_KEY] = False
+            hass.data.get("kyber_preempt_event", None) and hass.data["kyber_preempt_event"].clear()
             return self.json_message(
                 f"Internal error: {type(err).__name__}: {err}", HTTPStatus.INTERNAL_SERVER_ERROR
             )
@@ -1991,6 +1997,9 @@ class KyberView(HomeAssistantView):
         except Exception as _ce:  # noqa: BLE001
             _LOGGER.exception("Kyber: _extract_response_components failed (type=%s): %s", type(_ce).__name__, _ce)
             _progress_complete(hass, request_id)
+            _debug_detach_log_capture(_debug_log_handler)
+            hass.data[_CHAT_BUSY_KEY] = False
+            hass.data.get("kyber_preempt_event", None) and hass.data["kyber_preempt_event"].clear()
             return self.json_message(f"Internal error: {type(_ce).__name__}: {_ce}", HTTPStatus.INTERNAL_SERVER_ERROR)
 
         _progress_complete(hass, request_id)

@@ -43,9 +43,6 @@ from custom_components.kyber.const import (
     DEFAULT_OPENAI_MODEL,
     DOMAIN,
 )
-from custom_components.kyber import async_setup_entry
-
-
 # ── Shared helpers ────────────────────────────────────────────────────────────
 
 def _make_ai_result(text: str) -> MagicMock:
@@ -76,6 +73,8 @@ async def _setup_with_cloud(
     cloud_options: dict,
 ) -> MockConfigEntry:
     """Create and set up an integration with cloud provider options."""
+    from custom_components.kyber import async_setup_entry as _setup  # late import: real module restored by pytest_runtest_setup
+
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -87,7 +86,7 @@ async def _setup_with_cloud(
     )
     await async_setup_component(hass, "http", {})
     with patch("custom_components.kyber._async_explore_integrations", new_callable=AsyncMock):
-        await async_setup_entry(hass, entry)
+        await _setup(hass, entry)
         await asyncio.sleep(0)
     return entry
 
