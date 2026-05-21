@@ -20,6 +20,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
 from homeassistant.helpers.storage import Store
+from .model_stats import record_call as _record_model_call
 
 try:
     from homeassistant.components.ai_task import async_generate_data
@@ -30,12 +31,17 @@ except ImportError:  # HA < 2025.2 (test environments)
 from .const import (
     AUTOMATION_EDITOR_GUIDANCE,
     CONF_AI_TASK_ENTITY_ID,
+    CONF_AREA_ASSIGNMENT_MODE,
+    CONF_LABEL_ASSIGNMENT_MODE,
     DOMAIN,
     KNOWLEDGE_BUDGET_CHARS,
+    LABEL_ASSIGNMENT_OFF,
+    LABEL_ASSIGNMENT_AUTO,
     LOVELACE_CARDS_REFERENCE,
     MAX_INSTRUCTIONS_CHARS,
     MAX_TOOL_RESULT_CHARS,
     SYSTEM_PROMPT_TEMPLATE,
+    DEFAULT_LABEL_ASSIGNMENT_MODE,
 )
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
 from .language_hints import detect_language, get_appliance_translations, translate_query_to_english
@@ -88,11 +94,13 @@ from .knowledge_integration import (
     _FACT_EXTRACTION_PROMPT, _try_extract_learned_fact,
     KyberKnowledgeView, KyberKnowledgeAnalyzeView,
     KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView,
+    KyberNarratorRunView, KyberExplorerRunView, get_deep_job_status,
 )
 from .api_utilities import (
     _PROGRESS_KEY,
     _progress_emit, _progress_complete,
     KyberProgressView, KyberSaveView, _SUMMARIZE_SYSTEM_PROMPT, KyberSummarizeView,
+    async_ai_call,
 )
 from .prompt_regression_api import (
     KyberPromptTestsView, KyberPromptTestsRunView,
@@ -526,7 +534,7 @@ async def _expand_search_query(hass: Any, entity_id: str, user_prompt: str) -> l
             '- "licht woonkamer" → ["licht","light","woonkamer","living room","lamp","verlichting"]\n'
             '- "tv" → ["tv","television","televisie","media_player","samsung","shield"]\n'
         )
-        result = await async_generate_data(
+        result = await async_ai_call(
             hass,
             task_name=f"{DOMAIN}_expand",
             entity_id=entity_id,
@@ -915,7 +923,7 @@ async def _run_ai_loop(
         _AI_CALL_TIMEOUT = 180  # seconds — Ollama can be slow on loaded hardware
         try:
             result = await asyncio.wait_for(
-                async_generate_data(
+                async_ai_call(
                     hass,
                     task_name=f"{DOMAIN}_complete",
                     entity_id=entity_id,
@@ -925,6 +933,7 @@ async def _run_ai_loop(
             )
         except asyncio.TimeoutError:
             _elapsed_ms = int((time.monotonic() - _t_start) * 1000)
+            _record_model_call(hass, entity_id, _elapsed_ms, 0, success=False)
             _LOGGER.error(
                 "Kyber: AI call TIMED OUT after %dms (%ds limit) — entity=%s round=%d prompt_tokens~%d",
                 _elapsed_ms, _AI_CALL_TIMEOUT, entity_id, _round + 1, _prompt_tokens_est,
@@ -939,6 +948,7 @@ async def _run_ai_loop(
             ) from None
         except HomeAssistantError as err:
             _elapsed_ms = int((time.monotonic() - _t_start) * 1000)
+            _record_model_call(hass, entity_id, _elapsed_ms, 0, success=False)
             _LOGGER.error(
                 "Kyber: AI call FAILED after %dms — entity=%s round=%d prompt_tokens~%d error=%s",
                 _elapsed_ms, entity_id, _round + 1, _prompt_tokens_est, err,
@@ -948,6 +958,7 @@ async def _run_ai_loop(
             raise
         except Exception as err:  # noqa: BLE001
             _elapsed_ms = int((time.monotonic() - _t_start) * 1000)
+            _record_model_call(hass, entity_id, _elapsed_ms, 0, success=False)
             _LOGGER.error(
                 "Kyber: AI call FAILED after %dms — entity=%s round=%d prompt_tokens~%d type=%s error=%s",
                 _elapsed_ms, entity_id, _round + 1, _prompt_tokens_est, type(err).__name__, err,
@@ -961,6 +972,7 @@ async def _run_ai_loop(
             str(result.data) if result.data is not None else ""
         )
         _resp_tokens_est = len(response_text) // 4
+        _record_model_call(hass, entity_id, _elapsed_ms, _prompt_tokens_est + _resp_tokens_est, success=True)
         _LOGGER.info(
             "Kyber: AI call OK — entity=%s model=%s round=%d elapsed=%dms "
             "prompt_tokens~%d resp_tokens~%d total_tokens~%d",
@@ -1268,7 +1280,7 @@ async def _run_ai_loop(
                 try:
                     _progress_emit(hass, request_id, {"type": "thinking", "stage": "synthesize"})
                     _t_synth = time.monotonic()
-                    synth_result = await async_generate_data(
+                    synth_result = await async_ai_call(
                         hass,
                         task_name=f"{DOMAIN}_complete",
                         entity_id=entity_id,
@@ -1656,6 +1668,13 @@ class KyberView(HomeAssistantView):
 
         # Signal background tasks (narrator) to pause between batches.
         hass.data[_CHAT_BUSY_KEY] = True
+        # Wait up to 8s for any in-flight narrator or deep-learning AI call to
+        # finish/cancel so Ollama is free before we send the chat request.
+        if hass.data.get("kyber_narrator_ai_busy") or hass.data.get("kyber_deep_learning_ai_busy"):
+            _busy_wait_deadline = _turn_started_at + 8.0
+            import time as _busy_time
+            while (hass.data.get("kyber_narrator_ai_busy") or hass.data.get("kyber_deep_learning_ai_busy")) and _busy_time.time() < _busy_wait_deadline:
+                await asyncio.sleep(0.2)
 
         try:
             body = await request.json()
@@ -1942,9 +1961,18 @@ class KyberView(HomeAssistantView):
                                 area_name=_aname2,
                             )
                         elif _atype == "assign_label":
+                            _label_mode = self._config.get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE)
+                            if _label_mode == LABEL_ASSIGNMENT_OFF:
+                                continue
                             _label_id2 = _action.get("label_id", "")
                             _label_entry2 = _lr2.async_get_label(_label_id2) if _label_id2 else None
                             _lname2 = (_label_entry2.name if _label_entry2 else None) or _label_id2
+                            if _label_mode == LABEL_ASSIGNMENT_AUTO:
+                                try:
+                                    _er2.async_update_entity(_eid2, labels=(_er2.async_get(_eid2).labels or set()) | {_label_id2})
+                                    _LOGGER.info("Kyber label-assignment: auto-applied '%s' → %s", _lname2, _eid2)
+                                except Exception as _le:  # noqa: BLE001
+                                    _LOGGER.warning("Kyber label-assignment: could not apply '%s': %s", _lname2, _le)
                             await _kstore2.async_add_proposal(
                                 proposal_type="label_assignment",
                                 subject=_eid2,

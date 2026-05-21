@@ -101,6 +101,7 @@ Based on the [May 2026 narrator bench](docs/narrator-bench-report-2026-05.md) (1
 | Doc | Contents |
 |---|---|
 | [docs/installation.md](docs/installation.md) | Prerequisites, manual install, Docker dev setup, version bumping, tests |
+| [docs/settings.md](docs/settings.md) | **All settings** — config flow, options sections, Debug Status tab; ASCII screen sketches |
 | [docs/chat-and-ai.md](docs/chat-and-ai.md) | Chat basics, proposal cards, autopilot, conversation history, entity autocomplete |
 | [docs/slash-commands.md](docs/slash-commands.md) | All slash commands: `/dashboard`, `/automation`, `/script`, `/blueprint`, `/area` |
 | [docs/editor.md](docs/editor.md) | Automation/script editor, dashboard editor, Lovelace card type reference |

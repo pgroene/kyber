@@ -13,7 +13,7 @@ def get_knowledge_store(hass):
     import sys
     return sys.modules["custom_components.kyber.knowledge"].get_store(hass)
 
-_PATCH_GENERATE = "custom_components.kyber.http_api.async_generate_data"
+_PATCH_GENERATE = "custom_components.kyber.api_utilities.async_generate_data"
 _PATCH_AREA_SUGGESTIONS = "custom_components.kyber.area_assignment.async_detect_conversation_suggestions"
 
 

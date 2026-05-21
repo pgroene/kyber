@@ -11,8 +11,15 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
+
+# Section keys — used as dict keys in user_input when form is submitted
+_SECTION_MODEL = "model_config"
+_SECTION_AGENTS = "agents"
+_SECTION_AREA = "area_assignment"
+_SECTION_DEVELOPER = "developer"
 
 from .const import (
     CONF_AI_TASK_ENTITY_ID,
@@ -22,18 +29,31 @@ from .const import (
     CONF_MAX_TOKENS,
     CONF_NARRATOR_ENABLED,
     CONF_NARRATOR_MAX_BATCH,
+    CONF_NARRATOR_MAX_TOKENS,
+    CONF_NARRATOR_INTERVAL_DAYS,
+    CONF_DEEP_LEARNING_INTERVAL_DAYS,
+    CONF_DEEP_LEARNING_MAX_BATCH,
     CONF_RUN_INITIAL_ANALYZE,
     CONF_AREA_ASSIGNMENT_MODE,
+    CONF_LABEL_ASSIGNMENT_MODE,
     DEFAULT_ENABLE_DEBUG_VIEWS,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
     DEFAULT_MAX_TOKENS,
     DEFAULT_NARRATOR_ENABLED,
     DEFAULT_NARRATOR_MAX_BATCH,
+    DEFAULT_NARRATOR_MAX_TOKENS,
+    DEFAULT_NARRATOR_INTERVAL_DAYS,
+    DEFAULT_DEEP_LEARNING_INTERVAL_DAYS,
+    DEFAULT_DEEP_LEARNING_MAX_BATCH,
     DEFAULT_RUN_INITIAL_ANALYZE,
     DEFAULT_AREA_ASSIGNMENT_MODE,
+    DEFAULT_LABEL_ASSIGNMENT_MODE,
     AREA_ASSIGNMENT_OFF,
     AREA_ASSIGNMENT_SUGGEST,
     AREA_ASSIGNMENT_AUTO,
+    LABEL_ASSIGNMENT_OFF,
+    LABEL_ASSIGNMENT_SUGGEST,
+    LABEL_ASSIGNMENT_AUTO,
     DOMAIN,
     MODEL_CONTEXT_SIZES,
 )
@@ -94,11 +114,14 @@ def _build_setup_schema(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     enable_debug: bool = DEFAULT_ENABLE_DEBUG_VIEWS,
     run_initial_analyze: bool = DEFAULT_RUN_INITIAL_ANALYZE,
-    deep_learning_runs: int = DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
+    deep_learning_interval_days: int = DEFAULT_DEEP_LEARNING_INTERVAL_DAYS,
+    deep_learning_max_batch: int = DEFAULT_DEEP_LEARNING_MAX_BATCH,
     narrator_enabled: bool = DEFAULT_NARRATOR_ENABLED,
     narrator_max_batch: int = DEFAULT_NARRATOR_MAX_BATCH,
+    narrator_interval_days: int = DEFAULT_NARRATOR_INTERVAL_DAYS,
     narrator_ai_entity: str = "",
     area_assignment_mode: str = DEFAULT_AREA_ASSIGNMENT_MODE,
+    label_assignment_mode: str = DEFAULT_LABEL_ASSIGNMENT_MODE,
 ) -> vol.Schema:
     """Single-step setup schema: entity selector + all settings."""
     if not default_entity:
@@ -119,11 +142,14 @@ def _build_setup_schema(
                 max_tokens=max_tokens,
                 enable_debug=enable_debug,
                 run_initial_analyze=run_initial_analyze,
-                deep_learning_runs=deep_learning_runs,
+                deep_learning_interval_days=deep_learning_interval_days,
+                deep_learning_max_batch=deep_learning_max_batch,
                 narrator_enabled=narrator_enabled,
                 narrator_max_batch=narrator_max_batch,
+                narrator_interval_days=narrator_interval_days,
                 narrator_ai_entity=narrator_ai_entity,
                 area_assignment_mode=area_assignment_mode,
+                label_assignment_mode=label_assignment_mode,
             ).schema,
         }
     )
@@ -131,59 +157,131 @@ def _build_setup_schema(
 
 def _build_options_schema(
     *,
+    ai_entity: str = "",
+    include_entity: bool = False,
+    collapsed: bool = False,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    chat_max_limit: int = 2_000_000,
     enable_debug: bool = DEFAULT_ENABLE_DEBUG_VIEWS,
     run_initial_analyze: bool = DEFAULT_RUN_INITIAL_ANALYZE,
-    deep_learning_runs: int = DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
+    deep_learning_interval_days: int = DEFAULT_DEEP_LEARNING_INTERVAL_DAYS,
+    deep_learning_max_batch: int = DEFAULT_DEEP_LEARNING_MAX_BATCH,
     narrator_enabled: bool = DEFAULT_NARRATOR_ENABLED,
     narrator_max_batch: int = DEFAULT_NARRATOR_MAX_BATCH,
+    narrator_interval_days: int = DEFAULT_NARRATOR_INTERVAL_DAYS,
     narrator_ai_entity: str = "",
+    narrator_max_tokens: int = DEFAULT_NARRATOR_MAX_TOKENS,
+    narrator_max_limit: int = 2_000_000,
     area_assignment_mode: str = DEFAULT_AREA_ASSIGNMENT_MODE,
+    label_assignment_mode: str = DEFAULT_LABEL_ASSIGNMENT_MODE,
 ) -> vol.Schema:
-    """Options schema: all settings except entity."""
+    """Options schema grouped into sections."""
+    model_fields: dict = {}
+    if include_entity:
+        model_fields[vol.Optional(CONF_AI_TASK_ENTITY_ID, default=ai_entity)] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="ai_task")
+        )
+    model_fields[vol.Optional(CONF_MAX_TOKENS, default=max_tokens)] = selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=2_000, max=chat_max_limit, step=1, mode=selector.NumberSelectorMode.BOX
+        )
+    )
+    model_fields[vol.Optional(CONF_NARRATOR_AI_TASK_ENTITY_ID)] = selector.EntitySelector(
+        selector.EntitySelectorConfig(domain="ai_task")
+    )
+    model_fields[vol.Optional(CONF_NARRATOR_MAX_TOKENS, default=narrator_max_tokens)] = selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=2_000, max=narrator_max_limit, step=1, mode=selector.NumberSelectorMode.BOX
+        )
+    )
+
     return vol.Schema(
         {
-            vol.Optional(CONF_MAX_TOKENS, default=max_tokens): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=256, max=2_000_000, step=1, mode=selector.NumberSelectorMode.BOX
-                )
+            vol.Optional(_SECTION_MODEL): section(
+                vol.Schema(model_fields),
+                {"collapsed": collapsed},
             ),
-            vol.Optional(CONF_ENABLE_DEBUG_VIEWS, default=enable_debug): selector.BooleanSelector(),
-            vol.Optional(CONF_RUN_INITIAL_ANALYZE, default=run_initial_analyze): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_INITIAL_DEEP_LEARNING_RUNS,
-                default=deep_learning_runs,
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=10, step=1, mode=selector.NumberSelectorMode.SLIDER
-                )
+            vol.Optional(_SECTION_AGENTS): section(
+                vol.Schema(
+                    {
+                        vol.Optional(CONF_NARRATOR_ENABLED, default=narrator_enabled): selector.BooleanSelector(),
+                        vol.Optional(
+                            CONF_NARRATOR_INTERVAL_DAYS,
+                            default=narrator_interval_days,
+                        ): selector.NumberSelector(
+                            selector.NumberSelectorConfig(
+                                min=1, max=30, step=1, mode=selector.NumberSelectorMode.SLIDER
+                            )
+                        ),
+                        vol.Optional(
+                            CONF_NARRATOR_MAX_BATCH,
+                            default=narrator_max_batch,
+                        ): selector.NumberSelector(
+                            selector.NumberSelectorConfig(
+                                min=1, max=50, step=1, mode=selector.NumberSelectorMode.SLIDER
+                            )
+                        ),
+                        vol.Optional(CONF_RUN_INITIAL_ANALYZE, default=run_initial_analyze): selector.BooleanSelector(),
+                        vol.Optional(
+                            CONF_DEEP_LEARNING_INTERVAL_DAYS,
+                            default=deep_learning_interval_days,
+                        ): selector.NumberSelector(
+                            selector.NumberSelectorConfig(
+                                min=1, max=90, step=1, mode=selector.NumberSelectorMode.SLIDER
+                            )
+                        ),
+                        vol.Optional(
+                            CONF_DEEP_LEARNING_MAX_BATCH,
+                            default=deep_learning_max_batch,
+                        ): selector.NumberSelector(
+                            selector.NumberSelectorConfig(
+                                min=1, max=50, step=1, mode=selector.NumberSelectorMode.SLIDER
+                            )
+                        ),
+                    }
+                ),
+                {"collapsed": collapsed},
             ),
-            vol.Optional(CONF_NARRATOR_ENABLED, default=narrator_enabled): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_NARRATOR_MAX_BATCH,
-                default=narrator_max_batch,
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=50, step=1, mode=selector.NumberSelectorMode.SLIDER
-                )
+            vol.Optional(_SECTION_AREA): section(
+                vol.Schema(
+                    {
+                        vol.Optional(
+                            CONF_AREA_ASSIGNMENT_MODE,
+                            default=area_assignment_mode,
+                        ): selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                options=[
+                                    selector.SelectOptionDict(value=AREA_ASSIGNMENT_OFF, label="Off"),
+                                    selector.SelectOptionDict(value=AREA_ASSIGNMENT_SUGGEST, label="Suggest (recommended)"),
+                                    selector.SelectOptionDict(value=AREA_ASSIGNMENT_AUTO, label="Automatic"),
+                                ],
+                                mode=selector.SelectSelectorMode.LIST,
+                            )
+                        ),
+                        vol.Optional(
+                            CONF_LABEL_ASSIGNMENT_MODE,
+                            default=label_assignment_mode,
+                        ): selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                options=[
+                                    selector.SelectOptionDict(value=LABEL_ASSIGNMENT_OFF, label="Off"),
+                                    selector.SelectOptionDict(value=LABEL_ASSIGNMENT_SUGGEST, label="Suggest (recommended)"),
+                                    selector.SelectOptionDict(value=LABEL_ASSIGNMENT_AUTO, label="Automatic"),
+                                ],
+                                mode=selector.SelectSelectorMode.LIST,
+                            )
+                        ),
+                    }
+                ),
+                {"collapsed": collapsed},
             ),
-            vol.Optional(
-                CONF_NARRATOR_AI_TASK_ENTITY_ID,
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="ai_task")
-            ),
-            vol.Optional(
-                CONF_AREA_ASSIGNMENT_MODE,
-                default=area_assignment_mode,
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[
-                        selector.SelectOptionDict(value=AREA_ASSIGNMENT_OFF, label="Off"),
-                        selector.SelectOptionDict(value=AREA_ASSIGNMENT_SUGGEST, label="Suggest (recommended)"),
-                        selector.SelectOptionDict(value=AREA_ASSIGNMENT_AUTO, label="Automatic"),
-                    ],
-                    mode=selector.SelectSelectorMode.LIST,
-                )
+            vol.Optional(_SECTION_DEVELOPER): section(
+                vol.Schema(
+                    {
+                        vol.Optional(CONF_ENABLE_DEBUG_VIEWS, default=enable_debug): selector.BooleanSelector(),
+                    }
+                ),
+                {"collapsed": True},
             ),
         },
         extra=vol.ALLOW_EXTRA,
@@ -209,35 +307,26 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
             if not _entity_exists(self.hass, entity_id):
                 errors[CONF_AI_TASK_ENTITY_ID] = "entity_not_found"
             else:
+                model = user_input.get(_SECTION_MODEL, {})
+                agents = user_input.get(_SECTION_AGENTS, {})
+                area = user_input.get(_SECTION_AREA, {})
+                developer = user_input.get(_SECTION_DEVELOPER, {})
                 return self.async_create_entry(
                     title="Kyber",
                     data={
                         CONF_AI_TASK_ENTITY_ID: entity_id,
-                        CONF_MAX_TOKENS: int(user_input.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)),
-                        CONF_ENABLE_DEBUG_VIEWS: bool(
-                            user_input.get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)
-                        ),
-                        CONF_RUN_INITIAL_ANALYZE: bool(
-                            user_input.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)
-                        ),
-                        CONF_INITIAL_DEEP_LEARNING_RUNS: int(
-                            user_input.get(
-                                CONF_INITIAL_DEEP_LEARNING_RUNS,
-                                DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
-                            )
-                        ),
-                        CONF_NARRATOR_MAX_BATCH: int(
-                            user_input.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)
-                        ),
-                        CONF_NARRATOR_ENABLED: bool(
-                            user_input.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED)
-                        ),
-                        CONF_NARRATOR_AI_TASK_ENTITY_ID: str(
-                            user_input.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")
-                        ).strip(),
-                        CONF_AREA_ASSIGNMENT_MODE: str(
-                            user_input.get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE)
-                        ),
+                        CONF_MAX_TOKENS: int(model.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)),
+                        CONF_NARRATOR_AI_TASK_ENTITY_ID: str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip(),
+                        CONF_NARRATOR_MAX_TOKENS: int(model.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS)),
+                        CONF_RUN_INITIAL_ANALYZE: bool(agents.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),
+                        CONF_DEEP_LEARNING_INTERVAL_DAYS: int(agents.get(CONF_DEEP_LEARNING_INTERVAL_DAYS, DEFAULT_DEEP_LEARNING_INTERVAL_DAYS)),
+                        CONF_DEEP_LEARNING_MAX_BATCH: int(agents.get(CONF_DEEP_LEARNING_MAX_BATCH, DEFAULT_DEEP_LEARNING_MAX_BATCH)),
+                        CONF_NARRATOR_ENABLED: bool(agents.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED)),
+                        CONF_NARRATOR_MAX_BATCH: int(agents.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)),
+                        CONF_NARRATOR_INTERVAL_DAYS: int(agents.get(CONF_NARRATOR_INTERVAL_DAYS, DEFAULT_NARRATOR_INTERVAL_DAYS)),
+                        CONF_AREA_ASSIGNMENT_MODE: str(area.get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE)),
+                        CONF_LABEL_ASSIGNMENT_MODE: str(area.get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE)),
+                        CONF_ENABLE_DEBUG_VIEWS: bool(developer.get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)),
                     },
                 )
 
@@ -291,28 +380,44 @@ class KyberOptionsFlow(OptionsFlow):
             return opts.get(key, cfg.get(key, default))
 
         if user_input is not None:
-            return self.async_create_entry(title="", data={
-                CONF_MAX_TOKENS: int(user_input.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)),
-                CONF_ENABLE_DEBUG_VIEWS: bool(user_input.get(CONF_ENABLE_DEBUG_VIEWS, False)),
-                CONF_RUN_INITIAL_ANALYZE: bool(
-                    user_input.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)
-                ),
-                CONF_INITIAL_DEEP_LEARNING_RUNS: int(
-                    user_input.get(CONF_INITIAL_DEEP_LEARNING_RUNS, DEFAULT_INITIAL_DEEP_LEARNING_RUNS)
-                ),
-                CONF_NARRATOR_MAX_BATCH: int(
-                    user_input.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)
-                ),
-                CONF_NARRATOR_ENABLED: bool(
-                    user_input.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED)
-                ),
-                CONF_NARRATOR_AI_TASK_ENTITY_ID: str(
-                    user_input.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")
-                ).strip(),
-                CONF_AREA_ASSIGNMENT_MODE: str(
-                    user_input.get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE)
-                ),
-            })
+            model = user_input.get(_SECTION_MODEL, {})
+            agents = user_input.get(_SECTION_AGENTS, {})
+            area = user_input.get(_SECTION_AREA, {})
+            developer = user_input.get(_SECTION_DEVELOPER, {})
+
+            new_entity_id = str(model.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
+            current_entity_id = str(self.config_entry.data.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
+            # Only validate the entity when it has changed — it was already validated at setup
+            if new_entity_id and new_entity_id != current_entity_id and not _entity_exists(self.hass, new_entity_id):
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=_build_options_schema(
+                        ai_entity=new_entity_id,
+                        include_entity=True,
+                        max_tokens=int(model.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)),
+                        narrator_ai_entity=str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")),
+                        narrator_max_tokens=int(model.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS)),
+                    ),
+                    errors={CONF_AI_TASK_ENTITY_ID: "entity_not_found"},
+                )
+
+            data: dict[str, Any] = {
+                CONF_MAX_TOKENS: int(model.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)),
+                CONF_NARRATOR_AI_TASK_ENTITY_ID: str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip(),
+                CONF_NARRATOR_MAX_TOKENS: int(model.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS)),
+                CONF_RUN_INITIAL_ANALYZE: bool(agents.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),
+                CONF_DEEP_LEARNING_INTERVAL_DAYS: int(agents.get(CONF_DEEP_LEARNING_INTERVAL_DAYS, DEFAULT_DEEP_LEARNING_INTERVAL_DAYS)),
+                CONF_DEEP_LEARNING_MAX_BATCH: int(agents.get(CONF_DEEP_LEARNING_MAX_BATCH, DEFAULT_DEEP_LEARNING_MAX_BATCH)),
+                CONF_NARRATOR_ENABLED: bool(agents.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED)),
+                CONF_NARRATOR_MAX_BATCH: int(agents.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)),
+                CONF_NARRATOR_INTERVAL_DAYS: int(agents.get(CONF_NARRATOR_INTERVAL_DAYS, DEFAULT_NARRATOR_INTERVAL_DAYS)),
+                CONF_AREA_ASSIGNMENT_MODE: str(area.get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE)),
+                CONF_LABEL_ASSIGNMENT_MODE: str(area.get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE)),
+                CONF_ENABLE_DEBUG_VIEWS: bool(developer.get(CONF_ENABLE_DEBUG_VIEWS, False)),
+            }
+            if new_entity_id:
+                data[CONF_AI_TASK_ENTITY_ID] = new_entity_id
+            return self.async_create_entry(title="", data=data)
 
         entity_id = _get(CONF_AI_TASK_ENTITY_ID, "")
         current_tokens = _get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)
@@ -323,14 +428,39 @@ class KyberOptionsFlow(OptionsFlow):
             if inferred != DEFAULT_MAX_TOKENS:
                 current_tokens = inferred
 
+        narrator_entity = str(_get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip() or entity_id
+
+        chat_max_limit = _infer_max_tokens(self.hass, entity_id) if entity_id else 2_000_000
+        narrator_max_limit = _infer_max_tokens(self.hass, narrator_entity) if narrator_entity else 2_000_000
+
         schema = _build_options_schema(
+            ai_entity=entity_id,
+            include_entity=True,
+            collapsed=True,
             max_tokens=current_tokens,
+            chat_max_limit=chat_max_limit,
             enable_debug=bool(_get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)),
             run_initial_analyze=bool(_get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),
-            deep_learning_runs=int(_get(CONF_INITIAL_DEEP_LEARNING_RUNS, DEFAULT_INITIAL_DEEP_LEARNING_RUNS)),
+            deep_learning_interval_days=int(_get(CONF_DEEP_LEARNING_INTERVAL_DAYS, DEFAULT_DEEP_LEARNING_INTERVAL_DAYS)),
+            deep_learning_max_batch=int(_get(CONF_DEEP_LEARNING_MAX_BATCH, DEFAULT_DEEP_LEARNING_MAX_BATCH)),
             narrator_enabled=bool(_get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED)),
             narrator_max_batch=int(_get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH)),
+            narrator_interval_days=int(_get(CONF_NARRATOR_INTERVAL_DAYS, DEFAULT_NARRATOR_INTERVAL_DAYS)),
             narrator_ai_entity=str(_get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")),
+            narrator_max_tokens=int(_get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS)),
+            narrator_max_limit=narrator_max_limit,
+            area_assignment_mode=str(_get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE)),
+            label_assignment_mode=str(_get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE)),
         )
 
-        return self.async_show_form(step_id="init", data_schema=schema)
+        from .model_stats import format_stats as _fmt_stats, format_run_stats as _fmt_run_stats
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
+            description_placeholders={
+                "chat_stats": _fmt_stats(self.hass, entity_id) if entity_id else "No model configured",
+                "ops_stats": _fmt_stats(self.hass, narrator_entity) if narrator_entity else "No model configured",
+                "narrator_run_stats": _fmt_run_stats(self.hass, "narrator"),
+                "deep_learning_run_stats": _fmt_run_stats(self.hass, "deep_learning"),
+            },
+        )

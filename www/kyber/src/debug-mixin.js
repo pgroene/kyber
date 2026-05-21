@@ -794,22 +794,29 @@ export const DebugMixin = (Base) => class extends Base {
       `<tr><td><code>${this._escapeHtml(cat)}</code></td><td>${n}</td></tr>`,
     ).join("");
     const epStatus = ep.status || "idle";
-    const epRunning = epStatus === "phase1_summaries" || epStatus === "phase2_entities" || epStatus === "starting" || epStatus === "narrator";
+    const epRunning = epStatus === "phase1_summaries" || epStatus === "phase2_entities" || epStatus === "starting" || epStatus === "narrator" || epStatus === "deep_learning";
     const epDone = ep.done ?? 0;
     const epTotal = ep.total ?? 0;
     const epPct = epTotal > 0 ? Math.round((epDone / epTotal) * 100) : 0;
     const narratorDone = ep.narrator_done ?? 0;
     const narratorTotal = ep.narrator_total ?? 0;
+    const deepDone = ep.deep_done ?? 0;
+    const deepTotal = ep.deep_total ?? 0;
+    const deepCurrent = ep.deep_current || "";
     const epLabel = epStatus === "narrator"
       ? `AI narrator ${narratorDone} / ${narratorTotal}…`
-      : epRunning
-        ? (ep.phase === "summaries" ? `Indexing integrations… (${epStatus})` : `Indexing entities ${epDone} / ${epTotal} (${epPct}%)`)
-        : epStatus === "done" ? `Complete — ${epDone} entities indexed`
-        : "Not yet started";
+      : epStatus === "deep_learning"
+        ? `Deep analysis ${deepDone} / ${deepTotal}${deepCurrent ? ` — ${deepCurrent}` : ""}…`
+        : epRunning
+          ? (ep.phase === "summaries" ? `Indexing integrations… (${epStatus})` : `Indexing entities ${epDone} / ${epTotal} (${epPct}%)`)
+          : epStatus === "done" ? `Complete — ${epDone} entities indexed`
+          : "Not yet started";
     const epProgressBar = epTotal > 0
       ? `<progress value="${epDone}" max="${epTotal}" style="width:100%;margin-top:4px"></progress>` : "";
     const narratorProgressBar = narratorTotal > 0
       ? `<progress value="${narratorDone}" max="${narratorTotal}" style="width:100%;margin-top:4px"></progress>` : "";
+    const deepProgressBar = deepTotal > 0
+      ? `<progress value="${deepDone}" max="${deepTotal}" style="width:100%;margin-top:4px"></progress>` : "";
 
     // Narrator stats summary
     const nsTotal = ns.total ?? 0;
@@ -874,6 +881,12 @@ export const DebugMixin = (Base) => class extends Base {
       </table>
       ${epProgressBar}
       ${epStatus === "narrator" ? narratorProgressBar : ""}
+      ${epStatus === "deep_learning" ? deepProgressBar : ""}
+      <div style="margin:6px 0 12px">
+        <button id="dbg-run-explorer" style="font-size:0.9em;padding:5px 14px" ${epRunning && epStatus !== "narrator" && epStatus !== "deep_learning" ? "disabled" : ""}>
+          🔍 Run Explorer now
+        </button>
+      </div>
       <h3>AI Narrator</h3>
       <table class="dbg-kv">
         ${data.narrator_ai_task_entity ? `<tr><th>AI Task entity</th><td><code>${this._escapeHtml(data.narrator_ai_task_entity)}</code></td></tr>` : ""}
@@ -889,6 +902,38 @@ export const DebugMixin = (Base) => class extends Base {
           <tr><th>Errors</th><td>${ns.errors ?? 0}</td></tr>
         ` : ""}
       </table>
+      <div style="margin:6px 0 12px">
+        <button id="dbg-run-narrator" style="font-size:0.9em;padding:5px 14px" ${epStatus === "narrator" ? "disabled" : ""}>
+          ✍️ Run Narrator now
+        </button>
+      </div>
+      <h3>Deep Analysis</h3>
+      ${(() => {
+        const dj = data.deep_job || {};
+        const djRunning = dj.running === true;
+        const djLabel = djRunning
+          ? `Running — pass ${dj.run ?? "?"} / ${dj.runs ?? "?"}, item: ${dj.current_item || "…"}`
+          : dj.last_result
+            ? `Last run: ${dj.last_result.analyzed ?? 0} analyzed, ${dj.last_result.facts ?? 0} facts in ${dj.last_result.duration_s ?? "?"}s`
+            : "Not yet run";
+        return `
+          <table class="dbg-kv">
+            <tr><th>Status</th><td>${this._escapeHtml(djLabel)}</td></tr>
+            ${dj.running ? `<tr><th>Progress</th><td>${dj.analyzed ?? 0} analyzed · ${dj.facts ?? 0} facts · ${dj.errors ?? 0} errors</td></tr>` : ""}
+          </table>
+          <div style="margin:6px 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button id="dbg-run-deep" style="font-size:0.9em;padding:5px 14px" ${djRunning || epStatus === "deep_learning" ? "disabled" : ""}>
+              🧠 Run Deep Analysis now
+            </button>
+            <label style="font-size:0.85em;display:flex;align-items:center;gap:4px">
+              <input type="number" id="dbg-deep-runs" value="3" min="1" max="20" style="width:44px;font-size:0.9em;padding:2px 4px"> passes
+            </label>
+            <label style="font-size:0.85em;display:flex;align-items:center;gap:4px">
+              <input type="number" id="dbg-deep-limit" value="10" min="1" max="50" style="width:44px;font-size:0.9em;padding:2px 4px"> items/pass
+            </label>
+          </div>
+        `;
+      })()}
       <h3>Last turn</h3>
       ${lt ? `
         <table class="dbg-kv">
@@ -939,6 +984,50 @@ export const DebugMixin = (Base) => class extends Base {
       if (dlBtn) dlBtn.addEventListener("click", () => this._downloadDebugBundle(ltReqId, dlBtn));
       const brBtn = body.querySelector("#dbg-open-bug-report");
       if (brBtn) brBtn.addEventListener("click", () => this._openBugReportFlow(ltReqId, brBtn));
+    }
+
+    // Wire Run Now buttons
+    const _runNow = async (btn, url, body_payload) => {
+      if (!btn || btn.disabled) return;
+      const origText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Starting…";
+      try {
+        const token = this._hass.auth.data.access_token;
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body_payload || {}),
+        });
+        const result = await resp.json();
+        btn.textContent = result.status === "started" ? "✓ Started" : result.status === "already_running" ? "Already running" : result.status || "Done";
+        setTimeout(() => {
+          btn.textContent = origText;
+          btn.disabled = false;
+          const liveBody = this.shadowRoot?.getElementById("debug-body");
+          if (liveBody) this._renderDebugStatus(liveBody);
+        }, 2000);
+      } catch (err) {
+        btn.textContent = "Error";
+        setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 2000);
+      }
+    };
+
+    const runExplorerBtn = body.querySelector("#dbg-run-explorer");
+    if (runExplorerBtn) {
+      runExplorerBtn.addEventListener("click", () => _runNow(runExplorerBtn, "/api/kyber/explorer/run"));
+    }
+    const runNarratorBtn = body.querySelector("#dbg-run-narrator");
+    if (runNarratorBtn) {
+      runNarratorBtn.addEventListener("click", () => _runNow(runNarratorBtn, "/api/kyber/narrator/run"));
+    }
+    const runDeepBtn = body.querySelector("#dbg-run-deep");
+    if (runDeepBtn) {
+      runDeepBtn.addEventListener("click", () => {
+        const runs = parseInt(body.querySelector("#dbg-deep-runs")?.value || "3", 10);
+        const limit = parseInt(body.querySelector("#dbg-deep-limit")?.value || "10", 10);
+        _runNow(runDeepBtn, "/api/kyber/knowledge/analyze_deep", { background: true, runs, limit });
+      });
     }
 
     // Auto-refresh while explorer or narrator is running

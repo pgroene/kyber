@@ -17,15 +17,18 @@ tab; we do NOT run this on startup.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
+import time
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import CONF_AI_TASK_ENTITY_ID
+from .integration_explorer import EXPLORER_PROGRESS_KEY
 from .source import (
     AnalysisMemo,
     get_memo,
@@ -38,6 +41,13 @@ _LOGGER = logging.getLogger(__name__)
 
 _MIN_CONFIDENCE = 0.65
 _MAX_FACTS_PER_ITEM = 6
+
+# Shared flag: http_api.py sets this True while a user chat request is active.
+_CHAT_BUSY_KEY = "kyber_chat_busy"
+# Flag: set True while deep analyzer is calling the AI so chat can wait.
+_DEEP_AI_BUSY_KEY = "kyber_deep_learning_ai_busy"
+# Per-item AI call timeout — prevents a single item from blocking Ollama forever.
+_AI_CALL_TIMEOUT = 60  # seconds
 
 # Hard cap on raw config sent to AI (chars). Beyond this we truncate.
 _MAX_CONFIG_CHARS = 6000
@@ -313,16 +323,23 @@ def _parse_facts(raw: str, config_entity_ids: list[str] | None = None) -> list[d
 
 async def _run_ai(hass: HomeAssistant, ai_entity_id: str, prompt: str) -> str:
     try:
-        from homeassistant.components.ai_task import async_generate_data  # type: ignore
+        from .api_utilities import async_ai_call  # type: ignore
     except Exception as err:  # noqa: BLE001
         raise HomeAssistantError(f"ai_task not available: {err}")
 
-    result = await async_generate_data(
-        hass,
-        task_name="kyber_deep_analyze",
-        entity_id=ai_entity_id,
-        instructions=prompt,
-    )
+    hass.data[_DEEP_AI_BUSY_KEY] = True
+    try:
+        result = await asyncio.wait_for(
+            async_ai_call(
+                hass,
+                task_name="kyber_deep_analyze",
+                entity_id=ai_entity_id,
+                instructions=prompt,
+            ),
+            timeout=_AI_CALL_TIMEOUT,
+        )
+    finally:
+        hass.data[_DEEP_AI_BUSY_KEY] = False
     return result.data if isinstance(result.data, str) else str(result.data)
 
 
@@ -434,6 +451,29 @@ async def analyze_pending(
     skipped = 0
     processed = 0
 
+    # Count how many items are pending (will actually be analyzed).
+    pending_count = sum(
+        1 for kind, item in candidates
+        if _identity(kind, item)
+        and (force or get_memo(hass).is_pending_lens(kind, _identity(kind, item), item.get("hash") or "", prompt_variant))
+    )
+    pending_count = min(pending_count, limit)
+
+    def _set_deep_progress(done: int, current: str = "") -> None:
+        existing = hass.data.get(EXPLORER_PROGRESS_KEY) or {}
+        hass.data[EXPLORER_PROGRESS_KEY] = {
+            **existing,
+            "status": "deep_learning" if done < pending_count else existing.get("status", "done"),
+            "phase": "deep_learning",
+            "deep_done": done,
+            "deep_total": pending_count,
+            "deep_current": current,
+            "updated_at": int(time.time()),
+        }
+
+    if pending_count > 0:
+        _set_deep_progress(0)
+
     for kind, item in candidates:
         ident = _identity(kind, item)
         if not ident:
@@ -448,8 +488,24 @@ async def analyze_pending(
         processed += 1
 
         try:
+            # Yield to active user chat requests before each AI call.
+            if hass.data.get(_CHAT_BUSY_KEY):
+                _LOGGER.info("Kyber deep-analyzer: pausing — user chat request in progress…")
+                while hass.data.get(_CHAT_BUSY_KEY):
+                    await asyncio.sleep(0.5)
+                _LOGGER.info("Kyber deep-analyzer: resuming after chat completed")
+
+            _set_deep_progress(processed - 1, ident)
+
             prompt = _build_prompt(kind, item, prompt_variant, entity_names=entity_names, entity_areas=entity_areas, entity_devices=entity_devices)
             raw = await _run_ai(hass, ai_entity_id, prompt)
+        except asyncio.TimeoutError:
+            _LOGGER.warning(
+                "Kyber deep_analyzer: AI call timed out (%ds) for %s:%s — skipping",
+                _AI_CALL_TIMEOUT, kind, ident,
+            )
+            errors.append({"kind": kind, "ident": ident, "error": f"AI timeout after {_AI_CALL_TIMEOUT}s"})
+            continue
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber deep_analyzer: AI call failed for %s:%s: %s", kind, ident, err)
             errors.append({"kind": kind, "ident": ident, "error": str(err)})
@@ -510,6 +566,20 @@ async def analyze_pending(
             "fact_ids": [str(fid) for fid in fact_ids],
             "raw_response_chars": int(len(raw or "")),
         })
+        _set_deep_progress(processed, ident)
+
+    # Clear deep_learning status when done.
+    if pending_count > 0:
+        existing = hass.data.get(EXPLORER_PROGRESS_KEY) or {}
+        hass.data[EXPLORER_PROGRESS_KEY] = {
+            **existing,
+            "status": existing.get("status") if existing.get("status") != "deep_learning" else "done",
+            "phase": "deep_learning",
+            "deep_done": processed,
+            "deep_total": pending_count,
+            "deep_current": "",
+            "updated_at": int(time.time()),
+        }
 
     return {
         "analyzed": analyzed,

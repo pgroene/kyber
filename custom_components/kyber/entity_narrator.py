@@ -397,32 +397,42 @@ def parse_batch_response_v3(raw: str, entity_ids: list[str]) -> dict[str, dict]:
     return result
 
 
-def _calc_batch_size(contexts: list[str], max_batch: int) -> int:
+def _calc_batch_size(contexts: list[str], max_batch: int, prompt_budget_chars: int) -> int:
     """Calculate batch size from actual entity context sizes.
 
-    Stays within _PROMPT_BUDGET_CHARS and never exceeds min(max_batch, _MAX_RELIABLE_BATCH).
+    Stays within prompt_budget_chars and never exceeds min(max_batch, _MAX_RELIABLE_BATCH).
     """
     if not contexts:
         return min(max_batch, 10)
     avg_chars = sum(len(c) for c in contexts) / len(contexts)
     chars_per_entity = avg_chars + _RESPONSE_CHARS_PER_ENTITY
-    available = _PROMPT_BUDGET_CHARS - _INSTRUCTIONS_CHARS
+    available = prompt_budget_chars - _INSTRUCTIONS_CHARS
     calculated = max(1, int(available / chars_per_entity))
     return min(calculated, max_batch, _MAX_RELIABLE_BATCH)
 
 
 async def _run_ai(hass: "HomeAssistant", ai_entity_id: str, prompt: str) -> str:
-    from homeassistant.components.ai_task import async_generate_data  # type: ignore[import]
+    import time as _time
+    from .api_utilities import async_ai_call  # type: ignore[import]
+    from .model_stats import record_call as _record_model_call
     # Qwen3 thinking mode emits <think>…</think> blocks that break JSON parsing.
     if "qwen3" in ai_entity_id.lower():
         prompt = "/no_think\n" + prompt
-    result = await async_generate_data(
-        hass,
-        task_name="kyber_narrator",
-        entity_id=ai_entity_id,
-        instructions=prompt,
-    )
-    raw = result.data if isinstance(result.data, str) else str(result.data)
+    _t0 = _time.monotonic()
+    try:
+        result = await async_ai_call(
+            hass,
+            task_name="kyber_narrator",
+            entity_id=ai_entity_id,
+            instructions=prompt,
+        )
+        _elapsed_ms = int((_time.monotonic() - _t0) * 1000)
+        raw = result.data if isinstance(result.data, str) else str(result.data)
+        _record_model_call(hass, ai_entity_id, _elapsed_ms, len(raw) // 4, success=True)
+    except Exception:
+        _elapsed_ms = int((_time.monotonic() - _t0) * 1000)
+        _record_model_call(hass, ai_entity_id, _elapsed_ms, 0, success=False)
+        raise
     # Strip <think>…</think> blocks in case they appear despite /no_think.
     if "<think>" in raw:
         raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
@@ -489,6 +499,7 @@ async def async_narrate_entities(
     ai_entity_id: str,
     *,
     max_batch: int = 20,
+    narrator_max_tokens: int = 8192,
     dashboard_names: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Phase 3: AI-generated descriptions for interesting entities.
@@ -627,7 +638,8 @@ async def async_narrate_entities(
             siblings=siblings,
             dashboard_label=_dash_names.get(eid),
         ))
-    batch_size = _calc_batch_size(sample_ctxs, max_batch)
+    prompt_budget_chars = int(narrator_max_tokens * 4 * 0.75)
+    batch_size = _calc_batch_size(sample_ctxs, max_batch, prompt_budget_chars)
     stats["batch_size_used"] = batch_size
     _LOGGER.info(
         "Kyber narrator: batch_size=%d (max_batch=%d, avg_ctx=%.0f chars)",
@@ -699,17 +711,18 @@ async def async_narrate_entities(
         descriptions_v2: dict[str, str] = {}
         use_v3 = False
         ai_failed = False
+        hass.data["kyber_narrator_ai_busy"] = True
         try:
             prompt = build_batch_prompt([(r[0], r[6]) for r in batch_rows], home_lang=home_lang, devices_hint=devices_hint)
             _ai_task = asyncio.ensure_future(_run_ai(hass, ai_entity_id, prompt))
             raw = None
             elapsed = 0.0
-            while elapsed < 120.0:
+            # Cap per-batch timeout at 45s so slow Ollama instances don't block
+            # the chat queue for longer than the frontend's 90s timeout.
+            while elapsed < 45.0:
                 if hass.data.get(_CHAT_BUSY_KEY):
                     _ai_task.cancel()
                     _LOGGER.info("Kyber narrator: AI call cancelled mid-flight — chat active")
-                    while hass.data.get(_CHAT_BUSY_KEY):
-                        await asyncio.sleep(0.5)
                     ai_failed = True
                     break
                 done, _ = await asyncio.wait({_ai_task}, timeout=3.0)
@@ -744,6 +757,16 @@ async def async_narrate_entities(
             ai_failed = True
             stats["errors"] += len(batch)
             _LOGGER.warning("Kyber narrator: batch AI error: %s", err)
+        finally:
+            hass.data["kyber_narrator_ai_busy"] = False
+
+        # After a chat-interrupted batch, wait until the chat finishes before
+        # resuming so we don't hammer Ollama while it is answering the user.
+        if ai_failed and hass.data.get(_CHAT_BUSY_KEY):
+            _LOGGER.info("Kyber narrator: pausing — waiting for chat to finish…")
+            while hass.data.get(_CHAT_BUSY_KEY):
+                await asyncio.sleep(0.5)
+            _LOGGER.info("Kyber narrator: resuming after chat completed")
 
         # Store results — accepted or low-quality marker.
         # Skip entirely on AI error (temporary failure — entity will be retried next run).

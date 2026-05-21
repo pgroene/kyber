@@ -18,11 +18,21 @@ from .const import (
     CONF_INITIAL_LEARNING_VERSION,
     CONF_NARRATOR_ENABLED,
     CONF_NARRATOR_MAX_BATCH,
+    CONF_NARRATOR_MAX_TOKENS,
+    CONF_NARRATOR_INTERVAL_DAYS,
+    CONF_NARRATOR_LAST_RUN_TS,
+    CONF_DEEP_LEARNING_INTERVAL_DAYS,
+    CONF_DEEP_LEARNING_LAST_RUN_TS,
+    CONF_DEEP_LEARNING_MAX_BATCH,
     CONF_RUN_INITIAL_ANALYZE,
     CURRENT_INITIAL_LEARNING_VERSION,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
     DEFAULT_NARRATOR_ENABLED,
     DEFAULT_NARRATOR_MAX_BATCH,
+    DEFAULT_NARRATOR_MAX_TOKENS,
+    DEFAULT_NARRATOR_INTERVAL_DAYS,
+    DEFAULT_DEEP_LEARNING_INTERVAL_DAYS,
+    DEFAULT_DEEP_LEARNING_MAX_BATCH,
     DEFAULT_RUN_INITIAL_ANALYZE,
     DOMAIN,
     KNOWLEDGE_SCHEMA_VERSION,
@@ -30,7 +40,7 @@ from .const import (
 from .analyzer import analyze_automations as _analyze_automations
 from . import deep_analyzer as _deep
 from .knowledge import get_knowledge_store
-from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView, KyberLabelsView, KyberAreaSuggestionsView, KyberProposalApproveView, KyberSelfUpdateView
+from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView, KyberLabelsView, KyberAreaSuggestionsView, KyberProposalApproveView, KyberSelfUpdateView, KyberNarratorRunView, KyberExplorerRunView
 from .debug_and_diagnostics import KyberHomeExportView, KyberMemoryExportView, KyberGlobalLogHandler, KyberDebugLogsView
 
 _LOGGER = logging.getLogger(__name__)
@@ -255,50 +265,118 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
         config = {**entry.data, **(entry.options or {})}
         ai_entity_id = str(config.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
     if ai_entity_id:
+        import time as _time
         config = {**entry.data, **(entry.options or {})}
         narrator_enabled = bool(config.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED))
         if not narrator_enabled:
             _LOGGER.info("Kyber: narrator disabled via settings — skipping")
         else:
             max_batch = int(config.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH))
+            narrator_max_tokens = int(config.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS))
             narrator_ai_entity_id = str(config.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip() or ai_entity_id
-            _NARRATOR_RETRY_DELAY = 600   # 10 minutes between retries
-            _NARRATOR_MAX_RETRIES = 3
-            for attempt in range(1 + _NARRATOR_MAX_RETRIES):
-                try:
-                    from .entity_narrator import async_narrate_entities
-                    from .knowledge import get_knowledge_store as _gks
-                    from homeassistant.helpers import entity_registry as _er
-                    kstore = _gks(hass)
-                    entity_reg = _er.async_get(hass)
-                    narrator_stats = await async_narrate_entities(
-                        hass, kstore, entity_reg, narrator_ai_entity_id,
-                        max_batch=max_batch,
-                        dashboard_names=dashboard_names,
-                    )
-                    errors = narrator_stats.get("errors", 0)
-                    _LOGGER.info(
-                        "Kyber: narrator complete (attempt %d) — %d accepted, %d low-quality, "
-                        "%d parse failures, %d errors (batch_size=%d)",
-                        attempt + 1,
-                        narrator_stats.get("accepted", 0),
-                        narrator_stats.get("low_quality", 0),
-                        narrator_stats.get("parse_failures", 0),
-                        errors,
-                        narrator_stats.get("batch_size_used", 0),
-                    )
-                    if errors == 0 or attempt >= _NARRATOR_MAX_RETRIES:
-                        break
-                    _LOGGER.warning(
-                        "Kyber: narrator had %d errors — retrying in %ds (attempt %d/%d)…",
-                        errors, _NARRATOR_RETRY_DELAY, attempt + 1, _NARRATOR_MAX_RETRIES,
-                    )
-                    await asyncio.sleep(_NARRATOR_RETRY_DELAY)
-                except Exception as err:  # noqa: BLE001
-                    _LOGGER.warning("Kyber: entity narrator failed (attempt %d): %s", attempt + 1, err)
-                    if attempt < _NARRATOR_MAX_RETRIES:
-                        await asyncio.sleep(_NARRATOR_RETRY_DELAY)
-                    break
+            narrator_interval_days = int(config.get(CONF_NARRATOR_INTERVAL_DAYS, DEFAULT_NARRATOR_INTERVAL_DAYS))
+
+            # Read last-run timestamp from entry.data so it persists across restarts
+            narrator_last_run = float(entry.data.get(CONF_NARRATOR_LAST_RUN_TS, 0))
+            narrator_interval_secs = narrator_interval_days * 86400
+            time_since_narrator = _time.time() - narrator_last_run
+            if narrator_last_run > 0 and time_since_narrator < narrator_interval_secs:
+                _LOGGER.info(
+                    "Kyber: narrator skipped — last run %.1fh ago, interval is %dd (%.1fh remaining)",
+                    time_since_narrator / 3600,
+                    narrator_interval_days,
+                    (narrator_interval_secs - time_since_narrator) / 3600,
+                )
+            else:
+                narrator_lock = hass.data.get("kyber_narrator_lock")
+                if narrator_lock and narrator_lock.locked():
+                    _LOGGER.info("Kyber: narrator skipped — another run is already in progress")
+                else:
+                    _NARRATOR_RETRY_DELAY = 600   # 10 minutes between retries
+                    _NARRATOR_MAX_RETRIES = 3
+                    async with narrator_lock:
+                        for attempt in range(1 + _NARRATOR_MAX_RETRIES):
+                            try:
+                                from .entity_narrator import async_narrate_entities
+                                from .knowledge import get_knowledge_store as _gks
+                                from homeassistant.helpers import entity_registry as _er
+                                from .model_stats import record_run as _record_run
+                                kstore = _gks(hass)
+                                entity_reg = _er.async_get(hass)
+                                narrator_stats = await async_narrate_entities(
+                                    hass, kstore, entity_reg, narrator_ai_entity_id,
+                                    max_batch=max_batch,
+                                    narrator_max_tokens=narrator_max_tokens,
+                                    dashboard_names=dashboard_names,
+                                )
+                                errors = narrator_stats.get("errors", 0)
+                                _LOGGER.info(
+                                    "Kyber: narrator complete (attempt %d) — %d accepted, %d low-quality, "
+                                    "%d parse failures, %d errors (batch_size=%d)",
+                                    attempt + 1,
+                                    narrator_stats.get("accepted", 0),
+                                    narrator_stats.get("low_quality", 0),
+                                    narrator_stats.get("parse_failures", 0),
+                                    errors,
+                                    narrator_stats.get("batch_size_used", 0),
+                                )
+                                if errors == 0 or attempt >= _NARRATOR_MAX_RETRIES:
+                                    hass.config_entries.async_update_entry(
+                                        entry, data={**entry.data, CONF_NARRATOR_LAST_RUN_TS: _time.time()}
+                                    )
+                                    _record_run(hass, "narrator", interval_secs=narrator_interval_secs)
+                                    break
+                                _LOGGER.warning(
+                                    "Kyber: narrator had %d errors — retrying in %ds (attempt %d/%d)…",
+                                    errors, _NARRATOR_RETRY_DELAY, attempt + 1, _NARRATOR_MAX_RETRIES,
+                                )
+                                await asyncio.sleep(_NARRATOR_RETRY_DELAY)
+                            except Exception as err:  # noqa: BLE001
+                                _LOGGER.warning("Kyber: entity narrator failed (attempt %d): %s", attempt + 1, err)
+                                if attempt < _NARRATOR_MAX_RETRIES:
+                                    await asyncio.sleep(_NARRATOR_RETRY_DELAY)
+                                break
+
+        # Deep learning interval-based scheduling
+        deep_learning_interval_days = int(config.get(CONF_DEEP_LEARNING_INTERVAL_DAYS, DEFAULT_DEEP_LEARNING_INTERVAL_DAYS))
+        deep_last_run = float(entry.data.get(CONF_DEEP_LEARNING_LAST_RUN_TS, 0))
+        deep_interval_secs = deep_learning_interval_days * 86400
+        time_since_deep = _time.time() - deep_last_run
+        if deep_last_run > 0 and time_since_deep < deep_interval_secs:
+            _LOGGER.info(
+                "Kyber: deep learning skipped — last run %.1fh ago, interval is %dd (%.1fh remaining)",
+                time_since_deep / 3600,
+                deep_learning_interval_days,
+                (deep_interval_secs - time_since_deep) / 3600,
+            )
+        else:
+            deep_learning_lock = hass.data.get("kyber_deep_learning_lock")
+            if deep_learning_lock and deep_learning_lock.locked():
+                _LOGGER.info("Kyber: deep learning skipped — another run is already in progress")
+            else:
+                run_initial_analyze = bool(config.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE))
+                _LOGGER.info(
+                    "Kyber: scheduled deep learning run (interval=%dd, analyze=%s)",
+                    deep_learning_interval_days, run_initial_analyze,
+                )
+                async with deep_learning_lock:
+                    try:
+                        from .model_stats import record_run as _record_run2
+                        if run_initial_analyze:
+                            await hass.async_add_executor_job(_analyze_automations, hass)
+                            _LOGGER.info("Kyber: scheduled deep learning: fast analysis complete")
+                        result = await _deep.analyze_pending(hass, ai_entity_id=ai_entity_id, limit=int(config.get(CONF_DEEP_LEARNING_MAX_BATCH, DEFAULT_DEEP_LEARNING_MAX_BATCH)), force=False)
+                        n_analyzed = len(result.get("analyzed", []))
+                        _LOGGER.info(
+                            "Kyber: scheduled deep learning complete — %d items analyzed, %d errors",
+                            n_analyzed, len(result.get("errors", [])),
+                        )
+                        hass.config_entries.async_update_entry(
+                            entry, data={**entry.data, CONF_DEEP_LEARNING_LAST_RUN_TS: _time.time()}
+                        )
+                        _record_run2(hass, "deep_learning", interval_secs=deep_interval_secs)
+                    except Exception as err:  # noqa: BLE001
+                        _LOGGER.warning("Kyber: scheduled deep learning failed: %s", err)
 
 
 async def _async_seed_language_hints(hass: HomeAssistant) -> None:
@@ -437,6 +515,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
         hass.data[_DOMAIN] = {}
     hass.data[_DOMAIN].setdefault(AREA_REPORTS_KEY, [])
 
+    # Initialize per-agent asyncio locks to prevent concurrent runs
+    import asyncio as _asyncio_locks
+    hass.data.setdefault("kyber_narrator_lock", _asyncio_locks.Lock())
+    hass.data.setdefault("kyber_deep_learning_lock", _asyncio_locks.Lock())
+    # Initialize AI-busy flags (False = no background AI call in progress)
+    hass.data["kyber_narrator_ai_busy"] = False
+    hass.data["kyber_deep_learning_ai_busy"] = False
+
     hass.http.register_view(KyberView(config))
     hass.http.register_view(KyberProgressView())
     hass.http.register_view(KyberHistoryView())
@@ -467,6 +553,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberAreaSuggestionsView())
     hass.http.register_view(KyberProposalApproveView())
     hass.http.register_view(KyberSelfUpdateView())
+    hass.http.register_view(KyberNarratorRunView(config))
+    hass.http.register_view(KyberExplorerRunView())
 
     # Install global log handler + set logger level
     _kyber_root = logging.getLogger("custom_components.kyber")
@@ -491,7 +579,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
             sidebar_icon="mdi:robot",
-            module_url="/local/kyber/kyber-panel.js?v=163",
+            module_url="/local/kyber/kyber-panel.js?v=165",
         )
     except Exception:  # noqa: BLE001
         _LOGGER.debug("Panel registration skipped (test environment)")
@@ -506,7 +594,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
                 webcomponent_name="kyber-panel",
                 sidebar_title="Kyber Debug",
                 sidebar_icon="mdi:bug",
-                module_url="/local/kyber/kyber-panel.js?v=163",
+                module_url="/local/kyber/kyber-panel.js?v=165",
                 config={"mode": "debug"},
             )
         except Exception:  # noqa: BLE001

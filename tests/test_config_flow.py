@@ -22,6 +22,21 @@ def mock_dependencies(hass: HomeAssistant) -> None:
     mock_component(hass, "ai_task")
 
 
+@pytest.fixture(autouse=True)
+def mock_initial_learning():
+    """Prevent background tasks from running during config flow tests.
+
+    _async_run_initial_learning, _async_explore_integrations, and
+    _async_seed_language_hints all call async_update_entry or external
+    services, which schedule HA storage delayed-write timers that outlive
+    the test's event loop and cause teardown errors.
+    """
+    with patch("custom_components.kyber._async_run_initial_learning"), \
+         patch("custom_components.kyber._async_explore_integrations"), \
+         patch("custom_components.kyber._async_seed_language_hints"):
+        yield
+
+
 async def test_form_shown(hass: HomeAssistant) -> None:
     """Config flow step 1 should show the AI task entity selector."""
     result = await hass.config_entries.flow.async_init(
@@ -46,12 +61,15 @@ async def test_creates_entry_with_entity_id(hass: HomeAssistant) -> None:
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        user_input={"ai_task_entity_id": "ai_task.ollama_ai_task", "max_tokens": 2048},
+        user_input={
+            "ai_task_entity_id": "ai_task.ollama_ai_task",
+            "model_config": {"max_tokens": 32_000},
+        },
     )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["ai_task_entity_id"] == "ai_task.ollama_ai_task"
-    assert result["data"]["max_tokens"] == 2048
+    assert result["data"]["max_tokens"] == 32_000
 
 
 async def test_no_ai_task_entity_shows_error(hass: HomeAssistant) -> None:
@@ -69,7 +87,7 @@ async def test_no_ai_task_entity_shows_error(hass: HomeAssistant) -> None:
 
 
 async def test_max_tokens_below_minimum_returns_form_error(hass: HomeAssistant) -> None:
-    """Submitting max_tokens=255 (below schema minimum of 256) should raise InvalidData."""
+    """Submitting max_tokens=1999 (below schema minimum of 2000) should raise InvalidData."""
     from homeassistant.data_entry_flow import InvalidData
 
     entity_reg = er.async_get(hass)
@@ -82,7 +100,10 @@ async def test_max_tokens_below_minimum_returns_form_error(hass: HomeAssistant) 
     with pytest.raises(InvalidData):
         await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            user_input={"ai_task_entity_id": "ai_task.ollama_ai_task", "max_tokens": 255},
+            user_input={
+                "ai_task_entity_id": "ai_task.ollama_ai_task",
+                "model_config": {"max_tokens": 1_999},
+            },
         )
 
 
@@ -100,7 +121,10 @@ async def test_max_tokens_above_maximum_returns_form_error(hass: HomeAssistant) 
     with pytest.raises(InvalidData):
         await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            user_input={"ai_task_entity_id": "ai_task.ollama_ai_task", "max_tokens": 2_000_001},
+            user_input={
+                "ai_task_entity_id": "ai_task.ollama_ai_task",
+                "model_config": {"max_tokens": 2_000_001},
+            },
         )
 
 
@@ -116,15 +140,18 @@ async def test_creates_entry_with_large_max_tokens(hass: HomeAssistant) -> None:
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        user_input={"ai_task_entity_id": "ai_task.ollama_ai_task", "max_tokens": 100_000},
+        user_input={
+            "ai_task_entity_id": "ai_task.ollama_ai_task",
+            "model_config": {"max_tokens": 100_000},
+        },
     )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["max_tokens"] == 100_000
 
 
-async def test_initial_deep_learning_runs_above_maximum_returns_form_error(hass: HomeAssistant) -> None:
-    """Submitting initial_deep_learning_runs=11 should raise InvalidData."""
+async def test_deep_learning_interval_above_maximum_returns_form_error(hass: HomeAssistant) -> None:
+    """Submitting deep_learning_interval_days=91 (above schema maximum of 90) should raise InvalidData."""
     from homeassistant.data_entry_flow import InvalidData
 
     entity_reg = er.async_get(hass)
@@ -139,8 +166,7 @@ async def test_initial_deep_learning_runs_above_maximum_returns_form_error(hass:
             result["flow_id"],
             user_input={
                 "ai_task_entity_id": "ai_task.ollama_ai_task",
-                "max_tokens": 2048,
-                "initial_deep_learning_runs": 11,
+                "agents": {"deep_learning_interval_days": 91},
             },
         )
 
@@ -179,13 +205,13 @@ async def test_creates_entry_with_cloud_entity(hass: HomeAssistant) -> None:
         result["flow_id"],
         user_input={
             "ai_task_entity_id": "ai_task.home_assistant_cloud_data_generation",
-            "max_tokens": 4096,
+            "model_config": {"max_tokens": 32_000},
         },
     )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["ai_task_entity_id"] == "ai_task.home_assistant_cloud_data_generation"
-    assert result["data"]["max_tokens"] == 4096
+    assert result["data"]["max_tokens"] == 32_000
 
 
 async def test_reconfigure_shows_entity_selector(hass: HomeAssistant) -> None:
@@ -224,7 +250,7 @@ async def test_reconfigure_invalid_entity_shows_error(hass: HomeAssistant) -> No
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        user_input={"ai_task_entity_id": "ai_task.does_not_exist", "max_tokens": 4096},
+        user_input={"ai_task_entity_id": "ai_task.does_not_exist"},
     )
     assert result["type"] == FlowResultType.FORM
     assert result["errors"].get("ai_task_entity_id") == "entity_not_found"
@@ -251,10 +277,143 @@ async def test_reconfigure_updates_entity_and_aborts(hass: HomeAssistant) -> Non
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        user_input={"ai_task_entity_id": "ai_task.new_model", "max_tokens": 4096},
+        user_input={"ai_task_entity_id": "ai_task.new_model"},
     )
     assert result["type"] == FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     assert entry.data["ai_task_entity_id"] == "ai_task.new_model"
-    # Other settings preserved
+    # Other settings preserved from original entry
     assert entry.data["max_tokens"] == 4096
+
+
+async def test_creates_entry_with_narrator_max_tokens(hass: HomeAssistant) -> None:
+    """narrator_max_tokens submitted in model_config section should be stored."""
+    entity_reg = er.async_get(hass)
+    entity_reg.async_get_or_create(
+        "ai_task", "ollama", "ollama_ai_task", suggested_object_id="ollama_ai_task"
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            "ai_task_entity_id": "ai_task.ollama_ai_task",
+            "model_config": {"max_tokens": 32_000, "narrator_max_tokens": 8192},
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["narrator_max_tokens"] == 8192
+
+
+async def test_options_flow_shows_stats_placeholders(hass: HomeAssistant) -> None:
+    """Options flow init step should include description_placeholders with stats keys."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"ai_task_entity_id": "ai_task.test_model", "max_tokens": 4096},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "init"
+    placeholders = result.get("description_placeholders", {})
+    assert "chat_stats" in placeholders
+    assert "ops_stats" in placeholders
+
+
+async def test_options_flow_saves_narrator_max_tokens(hass: HomeAssistant) -> None:
+    """Submitting narrator_max_tokens via options flow stores it correctly."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"ai_task_entity_id": "ai_task.test_model", "max_tokens": 4096},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "model_config": {
+                "ai_task_entity_id": "ai_task.test_model",
+                "max_tokens": 20_000,
+                "narrator_max_tokens": 4_096,
+            },
+            "agents": {},
+            "area_assignment": {},
+            "developer": {},
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["narrator_max_tokens"] == 4_096
+
+
+async def test_options_flow_changes_chat_model(hass: HomeAssistant) -> None:
+    """Changing ai_task_entity_id via options flow updates the stored entity."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entity_reg = er.async_get(hass)
+    entity_reg.async_get_or_create(
+        "ai_task", "ollama", "new_chat", suggested_object_id="new_chat"
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"ai_task_entity_id": "ai_task.old_model", "max_tokens": 4096},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "model_config": {
+                "ai_task_entity_id": "ai_task.new_chat",
+                "max_tokens": 20_000,
+                "narrator_max_tokens": 8192,
+            },
+            "agents": {},
+            "area_assignment": {},
+            "developer": {},
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["ai_task_entity_id"] == "ai_task.new_chat"
+
+
+async def test_options_flow_invalid_chat_model_shows_error(hass: HomeAssistant) -> None:
+    """Submitting a non-existent entity in options flow shows entity_not_found error."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"ai_task_entity_id": "ai_task.test_model", "max_tokens": 4096},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "model_config": {
+                "ai_task_entity_id": "ai_task.does_not_exist",
+                "max_tokens": 20_000,
+                "narrator_max_tokens": 8192,
+            },
+            "agents": {},
+            "area_assignment": {},
+            "developer": {},
+        },
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"].get("ai_task_entity_id") == "entity_not_found"

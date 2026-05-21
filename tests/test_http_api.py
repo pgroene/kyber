@@ -27,8 +27,8 @@ from custom_components.kyber.http_api import KyberView, KyberSaveView, KyberExec
 from custom_components.kyber.knowledge import get_store as get_knowledge_store
 
 # Correct patch target — all tests must use this path
-_PATCH_GENERATE = "custom_components.kyber.http_api.async_generate_data"
-_PATCH_GENERATE_DEBUG = "custom_components.kyber.debug_and_diagnostics.async_generate_data"
+_PATCH_GENERATE = "custom_components.kyber.api_utilities.async_generate_data"
+_PATCH_GENERATE_DEBUG = "custom_components.kyber.api_utilities.async_generate_data"
 
 
 def _make_ai_result(text: str) -> MagicMock:

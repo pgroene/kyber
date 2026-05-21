@@ -407,21 +407,21 @@ class TestCalcBatchSize:
     def test_typical_contexts(self):
         # ~200-char contexts should give a batch_size well above 1
         contexts = ["x" * 200] * 10
-        size = _NARRATOR._calc_batch_size(contexts, max_batch=20)
+        size = _NARRATOR._calc_batch_size(contexts, max_batch=20, prompt_budget_chars=int(8192 * 4 * 0.75))
         assert 1 <= size <= 20
 
     def test_respects_max_batch(self):
         contexts = ["x" * 50] * 10  # small contexts → formula says big number
-        size = _NARRATOR._calc_batch_size(contexts, max_batch=5)
+        size = _NARRATOR._calc_batch_size(contexts, max_batch=5, prompt_budget_chars=int(8192 * 4 * 0.75))
         assert size <= 5
 
     def test_empty_contexts_fallback(self):
-        size = _NARRATOR._calc_batch_size([], max_batch=20)
+        size = _NARRATOR._calc_batch_size([], max_batch=20, prompt_budget_chars=int(8192 * 4 * 0.75))
         assert 1 <= size <= 20
 
     def test_huge_contexts_gives_small_batch(self):
         contexts = ["x" * 5000] * 5  # very large contexts
-        size = _NARRATOR._calc_batch_size(contexts, max_batch=50)
+        size = _NARRATOR._calc_batch_size(contexts, max_batch=50, prompt_budget_chars=int(8192 * 4 * 0.75))
         assert size >= 1
 
 

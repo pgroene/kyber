@@ -37,7 +37,7 @@ import { STYLES } from "./src/styles.js?v=101";
 import { UtilsMixin } from "./src/utils-mixin.js?v=97";
 import { SessionMixin } from "./src/session-mixin.js?v=87";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=87";
-import { DebugMixin } from "./src/debug-mixin.js?v=99";
+import { DebugMixin } from "./src/debug-mixin.js?v=100";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=93";
 import { EditorMixin } from "./src/editor-mixin.js?v=94";
 import { AIMixin } from "./src/ai-mixin.js?v=95";
@@ -466,6 +466,59 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
         this._closeAc();
       }
     });
+  }
+
+  _startStatusPolling() {
+    if (this._statusPollTimer) return;
+    const _poll = async () => {
+      if (!this._hass?.auth?.data?.access_token) return;
+      try {
+        const token = this._hass.auth.data.access_token;
+        const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const ep = data.explorer_progress || {};
+        const status = ep.status || "idle";
+
+        const narratorSpan = this.shadowRoot?.getElementById("narrator-progress");
+        const banner = this.shadowRoot?.getElementById("explorer-banner");
+        const bannerText = this.shadowRoot?.getElementById("explorer-banner-text");
+
+        // Narrator badge
+        if (narratorSpan) {
+          if (status === "narrator") {
+            const done = ep.narrator_done ?? 0;
+            const total = ep.narrator_total ?? 0;
+            narratorSpan.textContent = `✍️ ${done}/${total}`;
+            narratorSpan.removeAttribute("hidden");
+          } else {
+            narratorSpan.setAttribute("hidden", "");
+          }
+        }
+
+        // Explorer / deep-learning banner
+        if (banner && bannerText) {
+          if (status === "deep_learning") {
+            const done = ep.deep_done ?? 0;
+            const total = ep.deep_total ?? 0;
+            const cur = ep.deep_current ? ` — ${ep.deep_current}` : "";
+            bannerText.textContent = `Analyzing automations… ${done}/${total}${cur}`;
+            banner.style.display = "";
+            banner.firstChild.textContent = "🧠 ";
+          } else if (status === "phase1_summaries" || status === "phase2_entities" || status === "starting") {
+            bannerText.textContent = "Exploring your home…";
+            banner.style.display = "";
+            banner.firstChild.textContent = "🔍 ";
+          } else {
+            banner.style.display = "none";
+          }
+        }
+      } catch (_e) {
+        // Silently ignore polling errors
+      }
+    };
+    _poll();
+    this._statusPollTimer = setInterval(_poll, 5000);
   }
 
 }

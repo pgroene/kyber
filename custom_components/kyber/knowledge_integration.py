@@ -14,11 +14,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-try:
-    from homeassistant.components.ai_task import async_generate_data
-except ImportError:  # HA < 2025.2 (test environments)
-    async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
-        raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
+from .api_utilities import async_ai_call
 
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
@@ -140,7 +136,7 @@ async def _try_extract_learned_fact(
             user_prompt=user_prompt[:200],
             context_snippet=context_snippet[-400:],
         )
-        result = await async_generate_data(
+        result = await async_ai_call(
             hass,
             task_name=f"{DOMAIN}_fact_extract",
             entity_id=entity_id,
@@ -461,3 +457,124 @@ class KyberKnowledgeFeedbackView(HomeAssistantView):
             "updated": [e["id"] for e in updated],
             "count": len(updated),
         })
+
+
+# ── Status accessor for _DEEP_JOB (used by debug status view) ────────────────
+def get_deep_job_status() -> dict:
+    """Return a copy of the current deep analysis job state."""
+    return dict(_DEEP_JOB)
+
+
+class KyberNarratorRunView(HomeAssistantView):
+    """Manually trigger a background narrator run.
+
+    POST /api/kyber/narrator/run
+      body: {} (no required fields)
+      response: {status: "started"|"already_running"|"disabled"}
+    """
+
+    url = "/api/kyber/narrator/run"
+    name = "api:kyber:narrator:run"
+    requires_auth = True
+
+    def __init__(self, config: dict) -> None:
+        self._config = config
+
+    async def post(self, request: web.Request) -> web.Response:
+        import asyncio as _asyncio
+        from homeassistant.helpers import entity_registry as er
+        from .entity_narrator import async_narrate_entities
+        from .const import (
+            CONF_NARRATOR_ENABLED, CONF_NARRATOR_AI_TASK_ENTITY_ID,
+            CONF_NARRATOR_MAX_BATCH, CONF_NARRATOR_MAX_TOKENS,
+            DEFAULT_NARRATOR_ENABLED, DEFAULT_NARRATOR_MAX_BATCH,
+            DEFAULT_NARRATOR_MAX_TOKENS,
+        )
+        hass: HomeAssistant = request.app["hass"]
+
+        narrator_enabled = bool(self._config.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED))
+        if not narrator_enabled:
+            return self.json({"status": "disabled", "reason": "Narrator is disabled in settings"})
+
+        narrator_lock = hass.data.get("kyber_narrator_lock")
+        if narrator_lock and narrator_lock.locked():
+            return self.json({"status": "already_running"})
+
+        ai_entity_id = (
+            str(self._config.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip()
+            or str(self._config.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
+        )
+        if not ai_entity_id:
+            return self.json_message("AI task entity not configured", HTTPStatus.SERVICE_UNAVAILABLE)
+
+        max_batch = int(self._config.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH))
+        narrator_max_tokens = int(self._config.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS))
+        kstore = get_knowledge_store(hass)
+        entity_reg = er.async_get(hass)
+
+        async def _run_narrator() -> None:
+            if narrator_lock:
+                async with narrator_lock:
+                    await async_narrate_entities(
+                        hass, kstore, entity_reg, ai_entity_id,
+                        max_batch=max_batch,
+                        narrator_max_tokens=narrator_max_tokens,
+                    )
+            else:
+                await async_narrate_entities(
+                    hass, kstore, entity_reg, ai_entity_id,
+                    max_batch=max_batch,
+                    narrator_max_tokens=narrator_max_tokens,
+                )
+
+        hass.async_create_task(_run_narrator())
+        await _asyncio.sleep(0.05)
+        return self.json({"status": "started"})
+
+
+class KyberExplorerRunView(HomeAssistantView):
+    """Manually trigger a background integration explorer run.
+
+    POST /api/kyber/explorer/run
+      body: {} (no required fields)
+      response: {status: "started"|"already_running"}
+    """
+
+    url = "/api/kyber/explorer/run"
+    name = "api:kyber:explorer:run"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        import asyncio as _asyncio
+        from homeassistant.helpers import entity_registry as er
+        from .integration_explorer import async_startup_explore_all
+        from .dashboard_indexer import async_index_dashboard_entities, get_dashboard_entity_names, async_store_dashboard_labels
+        hass: HomeAssistant = request.app["hass"]
+
+        explorer_lock = hass.data.setdefault("kyber_explorer_lock", _asyncio.Lock())
+        if explorer_lock.locked():
+            return self.json({"status": "already_running"})
+
+        kstore = get_knowledge_store(hass)
+        entity_reg = er.async_get(hass)
+
+        async def _run_explorer() -> None:
+            async with explorer_lock:
+                try:
+                    await kstore.async_load()
+                    count = await async_startup_explore_all(hass, kstore, entity_reg)
+                    _LOGGER.info("Kyber manual explorer: stored facts for %d integrations", count)
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning("Kyber manual explorer failed: %s", err)
+                try:
+                    await async_index_dashboard_entities(hass)
+                    dashboard_names = get_dashboard_entity_names(hass)
+                    label_count = await async_store_dashboard_labels(hass, kstore)
+                    _LOGGER.info("Kyber manual explorer: dashboard indexer found %d entities, stored %d labels", len(dashboard_names), label_count)
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning("Kyber manual explorer dashboard indexer failed: %s", err)
+
+        hass.async_create_task(_run_explorer())
+        await _asyncio.sleep(0.05)
+        return self.json({"status": "started"})
+

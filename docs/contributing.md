@@ -153,6 +153,19 @@ If your PR changes any visible UI behaviour:
 
 ---
 
+## Settings Documentation
+
+If your PR **adds, renames, or removes any configurable setting** — in `config_flow.py`, `const.py`, `strings.json`, or the debug panel (`debug-mixin.js`) — you **must** update **[docs/settings.md](settings.md)** in the same PR.
+
+Checklist:
+- [ ] Config field added/changed in `const.py` → update the relevant table in `settings.md`
+- [ ] Section or field changed in `config_flow.py` → update the ASCII sketch **and** the table in `settings.md`
+- [ ] Label changed in `strings.json` → update the table in `settings.md`
+- [ ] New button or input added to `debug-mixin.js` Status tab → update section 3.x in `settings.md`
+- [ ] Default value changed → update the Default column in `settings.md`
+
+See `settings.md` section 4 for the full checklist.
+
 ## Branch Protection (main)
 
 The `main` branch is protected via GitHub branch protection rules. **Direct pushes to `main` are blocked** — all changes must go through a Pull Request.

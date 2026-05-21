@@ -13,13 +13,25 @@ CONF_INITIAL_LEARNING_DONE = "initial_learning_done"
 CONF_INITIAL_LEARNING_VERSION = "initial_learning_version"
 CONF_NARRATOR_MAX_BATCH = "narrator_max_batch"
 CONF_NARRATOR_ENABLED = "narrator_enabled"
+CONF_NARRATOR_MAX_TOKENS = "narrator_max_tokens"
+CONF_NARRATOR_INTERVAL_DAYS = "narrator_interval_days"
+CONF_NARRATOR_LAST_RUN_TS = "narrator_last_run_ts"
+CONF_DEEP_LEARNING_INTERVAL_DAYS = "deep_learning_interval_days"
+CONF_DEEP_LEARNING_LAST_RUN_TS = "deep_learning_last_run_ts"
+CONF_DEEP_LEARNING_MAX_BATCH = "deep_learning_max_batch"
 CONF_AREA_ASSIGNMENT_MODE = "area_assignment_mode"
+CONF_LABEL_ASSIGNMENT_MODE = "label_assignment_mode"
 
 AREA_ASSIGNMENT_OFF = "off"
 AREA_ASSIGNMENT_SUGGEST = "suggest"
 AREA_ASSIGNMENT_AUTO = "auto"
 
+LABEL_ASSIGNMENT_OFF = "off"
+LABEL_ASSIGNMENT_SUGGEST = "suggest"
+LABEL_ASSIGNMENT_AUTO = "auto"
+
 DEFAULT_AREA_ASSIGNMENT_MODE = AREA_ASSIGNMENT_SUGGEST
+DEFAULT_LABEL_ASSIGNMENT_MODE = LABEL_ASSIGNMENT_SUGGEST
 # Bump this to trigger a re-run of initial learning on existing installs.
 CURRENT_INITIAL_LEARNING_VERSION = 3
 
@@ -27,12 +39,16 @@ CURRENT_INITIAL_LEARNING_VERSION = 3
 # the next startup. Users get a clean slate and fresh narration with improved filters.
 KNOWLEDGE_SCHEMA_VERSION = 3
 
-DEFAULT_MAX_TOKENS = 2048
+DEFAULT_MAX_TOKENS = 20_000
 DEFAULT_ENABLE_DEBUG_VIEWS = False
 DEFAULT_RUN_INITIAL_ANALYZE = True
 DEFAULT_INITIAL_DEEP_LEARNING_RUNS = 10
 DEFAULT_NARRATOR_MAX_BATCH = 20
 DEFAULT_NARRATOR_ENABLED = True
+DEFAULT_NARRATOR_MAX_TOKENS = 4_000
+DEFAULT_NARRATOR_INTERVAL_DAYS = 1
+DEFAULT_DEEP_LEARNING_INTERVAL_DAYS = 7
+DEFAULT_DEEP_LEARNING_MAX_BATCH = 5
 
 # ── Tuning constants ──────────────────────────────────────────────────────────
 # Shared limits used across backend modules:

@@ -17,6 +17,7 @@ tab; we do NOT run this on startup.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -38,6 +39,13 @@ _LOGGER = logging.getLogger(__name__)
 
 _MIN_CONFIDENCE = 0.65
 _MAX_FACTS_PER_ITEM = 6
+
+# Shared flag: http_api.py sets this True while a user chat request is active.
+_CHAT_BUSY_KEY = "kyber_chat_busy"
+# Flag: set True while deep analyzer is calling the AI so chat can wait.
+_DEEP_AI_BUSY_KEY = "kyber_deep_learning_ai_busy"
+# Per-item AI call timeout — prevents a single item from blocking Ollama forever.
+_AI_CALL_TIMEOUT = 60  # seconds
 
 # Hard cap on raw config sent to AI (chars). Beyond this we truncate.
 _MAX_CONFIG_CHARS = 6000
@@ -317,12 +325,19 @@ async def _run_ai(hass: HomeAssistant, ai_entity_id: str, prompt: str) -> str:
     except Exception as err:  # noqa: BLE001
         raise HomeAssistantError(f"ai_task not available: {err}")
 
-    result = await async_generate_data(
-        hass,
-        task_name="kyber_deep_analyze",
-        entity_id=ai_entity_id,
-        instructions=prompt,
-    )
+    hass.data[_DEEP_AI_BUSY_KEY] = True
+    try:
+        result = await asyncio.wait_for(
+            async_generate_data(
+                hass,
+                task_name="kyber_deep_analyze",
+                entity_id=ai_entity_id,
+                instructions=prompt,
+            ),
+            timeout=_AI_CALL_TIMEOUT,
+        )
+    finally:
+        hass.data[_DEEP_AI_BUSY_KEY] = False
     return result.data if isinstance(result.data, str) else str(result.data)
 
 
@@ -448,8 +463,22 @@ async def analyze_pending(
         processed += 1
 
         try:
+            # Yield to active user chat requests before each AI call.
+            if hass.data.get(_CHAT_BUSY_KEY):
+                _LOGGER.info("Kyber deep-analyzer: pausing — user chat request in progress…")
+                while hass.data.get(_CHAT_BUSY_KEY):
+                    await asyncio.sleep(0.5)
+                _LOGGER.info("Kyber deep-analyzer: resuming after chat completed")
+
             prompt = _build_prompt(kind, item, prompt_variant, entity_names=entity_names, entity_areas=entity_areas, entity_devices=entity_devices)
             raw = await _run_ai(hass, ai_entity_id, prompt)
+        except asyncio.TimeoutError:
+            _LOGGER.warning(
+                "Kyber deep_analyzer: AI call timed out (%ds) for %s:%s — skipping",
+                _AI_CALL_TIMEOUT, kind, ident,
+            )
+            errors.append({"kind": kind, "ident": ident, "error": f"AI timeout after {_AI_CALL_TIMEOUT}s"})
+            continue
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Kyber deep_analyzer: AI call failed for %s:%s: %s", kind, ident, err)
             errors.append({"kind": kind, "ident": ident, "error": str(err)})
