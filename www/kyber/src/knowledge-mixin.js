@@ -134,7 +134,8 @@ export const KnowledgeMixin = (Base) => class extends Base {
       </div>
     `;
     if (entries.length === 0) {
-      card.innerHTML = header + `<div class="kn-empty">No saved knowledge yet. Click "Analyze my home" or "Add fact".</div>`;
+      const emptyMsg = this._t ? this._t("knowledge_empty") : "No saved knowledge yet.";
+      card.innerHTML = header + `<div class="kn-empty">${emptyMsg} Click "Analyze my home" or "Add fact".</div>`;
     } else {
       const rows = entries.map((e) => this._renderKnowledgeRow(e, categories)).join("");
       card.innerHTML = header + `<div class="kn-list">${rows}</div>`;

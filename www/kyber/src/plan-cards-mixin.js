@@ -1,6 +1,8 @@
 export const PlanCardsMixin = (Base) => class extends Base {
   /** Build a confirm card for slash commands. onConfirm(card) is called when Execute is clicked. */
-  _buildCommandCard({ icon = "▶", title, detail, warning, danger = false, executeLabel = "▶ Execute", onConfirm }) {
+  _buildCommandCard({ icon = "▶", title, detail, warning, danger = false, executeLabel, onConfirm }) {
+    const t = this._t || ((k) => k);
+    const btnLabel = executeLabel ?? t("cmd_confirm_execute");
     const history = this.shadowRoot.getElementById("chat-history");
     const card = document.createElement("div");
     card.className = `command-card${danger ? " danger" : ""}`;
@@ -9,8 +11,8 @@ export const PlanCardsMixin = (Base) => class extends Base {
       ${detail ? `<div class="command-card-detail">${this._escapeHtml(detail)}</div>` : ""}
       ${warning ? `<div class="command-card-warning">⚠ ${this._escapeHtml(warning)}</div>` : ""}
       <div class="command-card-actions">
-        <button class="btn-cmd-execute${danger ? " danger" : ""}">${executeLabel}</button>
-        <button class="btn-cmd-cancel">✕ Cancel</button>
+        <button class="btn-cmd-execute${danger ? " danger" : ""}">${btnLabel}</button>
+        <button class="btn-cmd-cancel">✕ ${t("cmd_cancel")}</button>
       </div>
     `;
     card.querySelector(".btn-cmd-execute").addEventListener("click", () => {

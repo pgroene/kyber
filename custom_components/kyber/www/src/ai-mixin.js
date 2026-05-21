@@ -647,9 +647,10 @@ export const AIMixin = (Base) => class extends Base {
     if (type === "user" || type === "assistant") {
       const copyBtn = document.createElement("button");
       copyBtn.className = "chat-copy-btn";
-      copyBtn.title = "Copy";
+      copyBtn.title = this._t ? this._t("copy_title") : "Copy";
       copyBtn.textContent = "📋";
       copyBtn.addEventListener("click", () => {
+        const t = this._t || ((k) => k);
         const doCopy = navigator.clipboard?.writeText
           ? navigator.clipboard.writeText(text)
           : new Promise((resolve, reject) => {
@@ -665,12 +666,12 @@ export const AIMixin = (Base) => class extends Base {
               } catch (e) { reject(e); }
             });
         doCopy.then(() => {
-          copyBtn.textContent = "✓";
+          copyBtn.textContent = t("copy_done");
           setTimeout(() => (copyBtn.textContent = "📋"), 1500);
         }).catch(() => {
-          copyBtn.title = "Copy failed — clipboard unavailable";
-          copyBtn.textContent = "✗";
-          setTimeout(() => { copyBtn.textContent = "📋"; copyBtn.title = "Copy"; }, 2000);
+          copyBtn.title = t("copy_failed_title");
+          copyBtn.textContent = t("copy_fail");
+          setTimeout(() => { copyBtn.textContent = "📋"; copyBtn.title = t("copy_title"); }, 2000);
         });
       });
       wrap.appendChild(copyBtn);
@@ -1018,7 +1019,7 @@ export const AIMixin = (Base) => class extends Base {
           <div class="thinking-dots">
             <span></span><span></span><span></span>
           </div>
-          <span class="thinking-label">Thinking…</span>
+          <span class="thinking-label">${this._t ? this._t("thinking") : "Thinking…"}</span>
           <button class="thinking-cancel" id="kyber-thinking-cancel" title="Cancel request">✕ Cancel</button>
         </div>
         <div class="thinking-events" id="kyber-thinking-events"></div>
