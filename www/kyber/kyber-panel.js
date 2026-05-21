@@ -32,7 +32,7 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=102";
+import { STYLES } from "./src/styles.js?v=103";
 
 import { UtilsMixin } from "./src/utils-mixin.js?v=97";
 import { SessionMixin } from "./src/session-mixin.js?v=87";
@@ -214,19 +214,26 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
 
   async _applyModeAndDebugFlag() {
     const shadow = this.shadowRoot;
+    const chat = shadow.querySelector(".chat-pane");
+    const pane = shadow.getElementById("debug-pane");
+    const closeBtn = shadow.getElementById("btn-debug-close");
 
     // Apply debug layout SYNCHRONOUSLY before any async work to avoid flash
     if (this._mode === "debug") {
-      const chat = shadow.querySelector(".chat-pane");
-      const pane = shadow.getElementById("debug-pane");
       if (chat) chat.style.display = "none";
       if (pane) {
         pane.removeAttribute("hidden");
         pane.classList.add("debug-pane--standalone");
-        const closeBtn = shadow.getElementById("btn-debug-close");
-        if (closeBtn) closeBtn.style.display = "none";
       }
+      if (closeBtn) closeBtn.style.display = "none";
       this._debugTab = this._debugTab || "memory";
+    } else {
+      if (chat) chat.style.display = "";
+      if (pane) {
+        pane.setAttribute("hidden", "");
+        pane.classList.remove("debug-pane--standalone");
+      }
+      if (closeBtn) closeBtn.style.display = "";
     }
 
     // Fetch debug-mode flag from backend (async — layout already applied above)
