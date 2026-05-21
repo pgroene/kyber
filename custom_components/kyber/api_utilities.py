@@ -52,11 +52,20 @@ async def async_ai_call(
     """
     import time as _time
     debug: bool = bool(hass.data.get("kyber_debug_mode", False))
+    # Resolve the actual model name (e.g. "qwen3:4b-instruct") from entity
+    # state attributes; falls back to the entity_id when not available.
+    _state = hass.states.get(entity_id)
+    _attrs = dict(_state.attributes) if _state else {}
+    _model_name: str = (
+        _attrs.get("model_id") or _attrs.get("model")
+        or _attrs.get("model_name") or entity_id
+    )
     if debug:
         _AI_LOG.debug(
-            "[AI→] task=%s entity=%s prompt_chars=%d\n%s%s",
+            "[AI→] task=%s entity=%s model=%s prompt_chars=%d\n%s%s",
             task_name,
             entity_id,
+            _model_name,
             len(instructions),
             instructions[:_AI_LOG_PROMPT_CHARS],
             "…" if len(instructions) > _AI_LOG_PROMPT_CHARS else "",
@@ -73,9 +82,10 @@ async def async_ai_call(
     except Exception as err:
         elapsed_ms = int((_time.monotonic() - _t0) * 1000)
         _AI_LOG.error(
-            "[AI✗] task=%s entity=%s elapsed=%dms\n--- PROMPT ---\n%s\n--- ERROR ---\n%s",
+            "[AI✗] task=%s entity=%s model=%s elapsed=%dms\n--- PROMPT ---\n%s\n--- ERROR ---\n%s",
             task_name,
             entity_id,
+            _model_name,
             elapsed_ms,
             instructions,
             err,
@@ -85,8 +95,9 @@ async def async_ai_call(
     if debug:
         raw = result.data if isinstance(result.data, str) else str(result.data)
         _AI_LOG.debug(
-            "[AI←] task=%s elapsed=%dms response_chars=%d\n%s%s",
+            "[AI←] task=%s model=%s elapsed=%dms response_chars=%d\n%s%s",
             task_name,
+            _model_name,
             elapsed_ms,
             len(raw),
             raw[:_AI_LOG_RESPONSE_CHARS],
