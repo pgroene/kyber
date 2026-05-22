@@ -18,6 +18,15 @@ ROOT = Path(__file__).parent.parent
 SRC = ROOT / "custom_components" / "kyber"
 DEST = SRC / "www"
 
+# ??  JS FRONTEND FILES ARE NOT SYNCED BY THIS SCRIPT
+# The following files must be MANUALLY copied after changes:
+#   www/kyber/src/plan-cards-mixin.js  ? custom_components/kyber/www/src/plan-cards-mixin.js
+#   www/kyber/src/styles.js            ? custom_components/kyber/www/src/styles.js
+#   www/kyber/src/utils-mixin.js       ? custom_components/kyber/www/src/utils-mixin.js
+#   www/kyber/src/*.js                 ? custom_components/kyber/www/src/*.js
+#   www/kyber/kyber-panel.js           ? custom_components/kyber/www/kyber-panel.js
+# Run: Copy-Item www/kyber/src/*.js custom_components/kyber/www/src/ -Force
+#      Copy-Item www/kyber/kyber-panel.js custom_components/kyber/www/ -Force
 # Files to sync: Python modules + manifest (exclude www/ subdirectory itself)
 SYNC_PATTERNS = ["*.py", "manifest.json"]
 

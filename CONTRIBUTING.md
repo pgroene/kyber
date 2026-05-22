@@ -77,16 +77,23 @@ The full workflow is documented in `.github/copilot-instructions.md`.
 
 ## 🚀 Releases
 
-After a PR is merged that bumps `manifest.json`:
+**Do NOT set the version in PRs** — the release pipeline handles it automatically.
 
-```bash
-git checkout main && git pull
-git tag vX.Y.Z
-git push origin vX.Y.Z
-gh release create vX.Y.Z --title "vX.Y.Z — Short description" --notes "..."
-```
+### Continuous deployment
 
-HACS requires a GitHub Release (not just a tag) to detect the new version.
+Every merge to `main` automatically triggers the **Do Release** pipeline which:
+
+1. Runs all tests (Python · JS unit · Playwright) in parallel
+2. Only if **all tests pass**: bumps the version (patch by default), updates `manifest.json`, `__init__.py` (JS cache-bust), `www/` mirror, and `CHANGELOG.md`
+3. Commits, creates a git tag, pushes
+4. Creates a GitHub Release with notes from `CHANGELOG.md`
+5. Updates the roadmap issue (#204)
+
+### Manual release (minor / major / explicit version)
+
+Go to **Actions → Do Release → Run workflow** and choose the bump type or enter an explicit version.
+
+HACS picks up the new version via the GitHub Release automatically.
 
 ---
 

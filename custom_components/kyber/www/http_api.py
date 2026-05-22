@@ -229,6 +229,10 @@ _CORRECTION_SIGNALS_RE = re.compile(
     r"|noem\s+(het|ik)"     # Dutch: "call it"
     r"|is\s+genaamd"        # Dutch: "is named"
     r"|heet\s+eigenlijk"    # Dutch: "is actually called"
+    r"|zijn\s+(voor\s+\S+\s+)?(hier\s+)?(in\s+huis\s+)?hetzelfde"
+    r"|is\s+hetzelfde\s+als"
+    r"|are\s+the\s+same(\s+here)?"
+    r"|same\s+(thing|device)"
     r")\b",
     re.IGNORECASE,
 )
@@ -2049,7 +2053,7 @@ class KyberView(HomeAssistantView):
 
         # Post-turn fact extraction: if the user made a correction (e.g. "it's
         # called keuken") and the AI didn't already propose an add_knowledge
-        # action, run a mini LLM call to extract the name alias automatically.
+        # action, run a mini LLM call to extract durable alias/routine facts.
         learned_fact: dict[str, Any] | None = None
         if (
             _CORRECTION_SIGNALS_RE.search(user_prompt)
@@ -2059,19 +2063,20 @@ class KyberView(HomeAssistantView):
             )
         ):
             _LOGGER.info("Kyber: correction signal detected — running fact extraction")
-            fact = await _try_extract_learned_fact(
+            facts = await _try_extract_learned_fact(
                 hass,
                 entity_id,
                 user_prompt,
                 conversation_block,
             )
-            if fact:
-                _LOGGER.info(
-                    "Kyber: extracted learned fact: %s → %s",
-                    fact.get("user_term"), fact.get("subject"),
-                )
+            if facts:
+                for fact in facts:
+                    _LOGGER.info(
+                        "Kyber: extracted learned fact (%s): %s → %s",
+                        fact.get("type"), fact.get("user_term"), fact.get("subject"),
+                    )
                 learned_fact = {
-                    "summary": f"Remember: '{fact['user_term']}' → '{fact['subject']}'",
+                    "summary": "Remember learned preferences for next time",
                     "actions": [{
                         "type": "add_knowledge",
                         "category": fact["category"],
@@ -2080,8 +2085,12 @@ class KyberView(HomeAssistantView):
                         "tags": fact["tags"],
                         "current_state": "(not learned)",
                         "new_state": "Remembered for next time",
-                        "description": f"Save alias: {fact['user_term']} → {fact['subject']}",
-                    }],
+                        "description": (
+                            f"Save alias: {fact['user_term']} → {fact['subject']}"
+                            if fact.get("type") == "alias"
+                            else f"Save routine: {fact['user_term']}"
+                        ),
+                    } for fact in facts],
                 }
         # Auto-rate: detect negative cues in the response and auto-flag any
         # knowledge entries that were injected this turn. The user can
@@ -2133,6 +2142,7 @@ class KyberView(HomeAssistantView):
                 tool_log=tool_log,
                 intent=intent,
                 response_text=response_text,
+                plan_block=plan_block,
                 auto_rating=auto_rating,
                 elapsed_ms=int((_time.time() - _turn_started_at) * 1000),
                 logs=_debug_log_sink or [],

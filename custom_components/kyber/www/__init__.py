@@ -41,6 +41,7 @@ from .analyzer import analyze_automations as _analyze_automations
 from . import deep_analyzer as _deep
 from .knowledge import get_knowledge_store
 from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView, KyberLabelsView, KyberAreaSuggestionsView, KyberProposalApproveView, KyberPingView, KyberSelfUpdateView, KyberNarratorRunView, KyberExplorerRunView
+from .action_history import KyberActionHistoryView, KyberActionHistoryUndoView
 from .debug_and_diagnostics import KyberHomeExportView, KyberMemoryExportView, KyberGlobalLogHandler, KyberDebugLogsView
 
 _LOGGER = logging.getLogger(__name__)
@@ -540,6 +541,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberSessionNameView(config))
     hass.http.register_view(KyberSaveView())
     hass.http.register_view(KyberExecuteView())
+    hass.http.register_view(KyberActionHistoryView())
+    hass.http.register_view(KyberActionHistoryUndoView())
     hass.http.register_view(KyberSummarizeView(config))
     hass.http.register_view(KyberKnowledgeView())
     hass.http.register_view(KyberKnowledgeAnalyzeView())
@@ -590,7 +593,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
             sidebar_icon="mdi:robot",
-            module_url="/local/kyber/kyber-panel.js?v=176",
+            module_url="/local/kyber/kyber-panel.js?v=178",
         )
     except Exception:  # noqa: BLE001
         _LOGGER.debug("Panel registration skipped (test environment)")
@@ -605,7 +608,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
                 webcomponent_name="kyber-panel",
                 sidebar_title="Kyber Debug",
                 sidebar_icon="mdi:bug",
-                module_url="/local/kyber/kyber-panel.js?v=176",
+                module_url="/local/kyber/kyber-panel.js?v=178",
                 config={"mode": "debug"},
             )
         except Exception:  # noqa: BLE001

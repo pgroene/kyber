@@ -285,36 +285,46 @@ export const PlanCardsMixin = (Base) => class extends Base {
           this._addChatHistory("user", `I clicked Execute on the proposal: "${plan.summary || ""}".`);
           this._addChatHistory("assistant", `[CHANGE] The following changes were successfully applied:\n${changeLines.join("\n")}`);
 
-          // Collect undo actions from results and show Undo button
+          const historyEntry = data.history_entry || null;
           const undoActions = ok
             .map((r) => r.undo_action)
             .filter(Boolean);
-          if (undoActions.length > 0) {
+          if (typeof this._loadActionHistory === "function") {
+            this._loadActionHistory();
+          }
+          if ((historyEntry && Array.isArray(historyEntry.undo_plan) && historyEntry.undo_plan.length > 0) || undoActions.length > 0) {
+            const undoCount = historyEntry?.undo_plan?.length || undoActions.length;
             const undoBtn = document.createElement("button");
             undoBtn.className = "btn-undo";
-            undoBtn.textContent = `↩ Undo (${undoActions.length} action${undoActions.length > 1 ? "s" : ""})`;
+            undoBtn.textContent = `↩ Undo (${undoCount} action${undoCount > 1 ? "s" : ""})`;
             resultEl.after(undoBtn);
             undoBtn.addEventListener("click", async () => {
               undoBtn.disabled = true;
               undoBtn.textContent = "Undoing…";
               try {
                 const token2 = this._hass.auth.data.access_token;
-                const r2 = await fetch("/api/kyber/execute", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token2}` },
-                  body: JSON.stringify({ actions: undoActions }),
-                });
+                const request = historyEntry
+                  ? fetch(`/api/kyber/history/actions/${encodeURIComponent(historyEntry.id)}/undo`, {
+                      method: "POST",
+                      headers: { Authorization: `Bearer ${token2}` },
+                    })
+                  : fetch("/api/kyber/execute", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token2}` },
+                      body: JSON.stringify({ actions: undoActions, approved: true }),
+                    });
+                const r2 = await request;
                 const d2 = await r2.json();
-                const f2 = (d2.results || []).filter((r) => r.status !== "ok");
-                if (f2.length === 0) {
-                  undoBtn.textContent = "↩ Undone ✓";
-                  undoBtn.disabled = true;
-                  resultEl.textContent = "↩ Changes undone successfully.";
-                  resultEl.className = "plan-result success";
-                  this._addChatHistory("assistant", `[CHANGE] Undid: ${plan.summary || "previous changes"}`);
-                } else {
-                  undoBtn.textContent = `↩ Undo failed (${f2.length} error${f2.length > 1 ? "s" : ""})`;
-                  undoBtn.disabled = false;
+                if (!r2.ok || d2.status === "failed") {
+                  throw new Error(d2.message || `HTTP ${r2.status}`);
+                }
+                undoBtn.textContent = "↩ Undone ✓";
+                undoBtn.disabled = true;
+                resultEl.textContent = "↩ Changes undone successfully.";
+                resultEl.className = "plan-result success";
+                this._addChatHistory("assistant", `[CHANGE] Undid: ${plan.summary || "previous changes"}`);
+                if (typeof this._loadActionHistory === "function") {
+                  this._loadActionHistory();
                 }
               } catch (e) {
                 undoBtn.textContent = `↩ Undo error: ${e.message}`;

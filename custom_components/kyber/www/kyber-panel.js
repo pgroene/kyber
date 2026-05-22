@@ -32,16 +32,16 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=109";
+import { STYLES } from "./src/styles.js?v=110";
 import { getT } from "./src/i18n.js?v=1";
-import { UtilsMixin } from "./src/utils-mixin.js?v=99";
+import { UtilsMixin } from "./src/utils-mixin.js?v=100";
 import { SessionMixin } from "./src/session-mixin.js?v=87";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=88";
 import { DebugMixin } from "./src/debug-mixin.js?v=101";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=95";
 import { EditorMixin } from "./src/editor-mixin.js?v=94";
 import { AIMixin } from "./src/ai-mixin.js?v=107";
-import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=93";
+import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=94";
 
 // ---------------------------------------------------------------------------
 // Custom Element
@@ -75,6 +75,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     // Cached list of custom Lovelace resource URLs — fetched lazily
     this._lovelaceResources = undefined;
     this._historyRestored = false;
+    this._actionHistory = [];
     this._t = getT("en"); // overwritten in set hass() once language is known
     this._DEFAULT_GREETING = this._t("greeting");
   }
@@ -91,6 +92,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       // Run once after first render — auth is already present in normal HA flow
       if (hass?.auth?.data?.access_token) {
         this._loadMemoryCount();
+        this._loadActionHistory();
         this._checkChatReviewQueue();
       }
     } else {
@@ -98,6 +100,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       // Fallback: also trigger if auth somehow arrives after render
       if (!wasAuthed && hass?.auth?.data?.access_token) {
         this._loadMemoryCount();
+        this._loadActionHistory();
         this._checkChatReviewQueue();
       }
       this._checkUpdateBadge();
@@ -167,6 +170,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
             <span class="narrator-progress" id="narrator-progress" hidden title="AI narrator is building entity descriptions in the background"></span>
             <button class="memory-badge" id="memory-badge" title="${this._t("memory_badge_title")}">🧠 <span id="memory-count">…</span></button>
+            <button class="history-badge" id="btn-history-toggle" title="Show applied action history">🕘 History</button>
             <button class="update-badge" id="update-badge" hidden title="Update available — click to install">⬆️ <span id="update-badge-label">${this._t("update_badge")}</span></button>
             <button class="autopilot-badge" id="autopilot-badge" title="Toggle autopilot — auto-executes safe proposals">${this._t("autopilot_badge")}</button>
             <button class="btn-clear-history" id="btn-clear-history" title="${this._t("btn_clear_history")}">${this._t("btn_clear_history")}</button>
@@ -175,6 +179,15 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
           <div id="warning-banner" class="warning-banner" style="display:none"><span id="warning-banner-text"></span><button id="warning-banner-close" title="Dismiss">✕</button></div>
           <div id="explorer-banner" class="explorer-banner" style="display:none">🔍 <span id="explorer-banner-text">${this._t("exploring")}</span></div>
           <div id="chat-review-queue" class="chat-review-queue"></div>
+          <div class="action-history-panel" id="action-history-panel" hidden>
+            <div class="action-history-panel-header">
+              <strong>History</strong>
+              <button class="action-history-refresh" id="btn-history-refresh" title="Refresh history">↻</button>
+            </div>
+            <div class="action-history-list" id="action-history-list">
+              <div class="action-history-empty">No applied actions yet.</div>
+            </div>
+          </div>
           <div class="chat-history" id="chat-history">
             <div class="chat-message assistant">${this._DEFAULT_GREETING}</div>
           </div>
@@ -323,6 +336,8 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     shadow.getElementById("btn-debug-close").addEventListener("click", () => this._toggleDebugPane(false));
     shadow.getElementById("btn-debug-refresh").addEventListener("click", () => this._renderDebugTab(this._debugTab || "memory"));
     shadow.getElementById("memory-badge").addEventListener("click", () => this._toggleMemoryPopover());
+    shadow.getElementById("btn-history-toggle").addEventListener("click", () => this._toggleActionHistory());
+    shadow.getElementById("btn-history-refresh").addEventListener("click", () => this._loadActionHistory());
     shadow.getElementById("autopilot-badge").addEventListener("click", () => {
       this._autopilot = !this._autopilot;
       this._updateAutopilotBadge();

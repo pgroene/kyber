@@ -35,6 +35,7 @@ CATEGORIES = {
     "entity_note",     # facts about a specific entity
     "entity_alias",    # user term → entity_id mapping
     "procedure",       # how to do something (e.g. start espresso machine)
+    "routine",         # contextual behavior: when I wake up → espresso machine on
     "device_chain",    # X depends on Y (TV behind switch.tv_power)
     "language_hint",   # locale-specific vocabulary (seeded from language_hints.py)
     "routine",         # contextual behaviour: "every morning → espresso machine on"
