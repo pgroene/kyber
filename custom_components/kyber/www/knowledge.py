@@ -28,6 +28,11 @@ from .const import _contains_credential_pattern
 
 _LOGGER = logging.getLogger(__name__)
 
+
+class CredentialPatternError(ValueError):
+    """Raised when knowledge content contains credential-like material."""
+
+
 _STORAGE_VERSION = 1
 _STORAGE_KEY = "kyber.knowledge"
 
@@ -174,6 +179,14 @@ def _detect_domain_intents(query_words: set[str]) -> set[str]:
         if query_words & set(keywords):
             domains.add(domain)
     return domains
+
+
+def validate_knowledge_content(content: str) -> str:
+    """Validate knowledge content and reject credential-like patterns."""
+    content_stripped = content.strip()
+    if _contains_credential_pattern(content_stripped):
+        raise CredentialPatternError("Credential pattern detected in content")
+    return content_stripped
 
 
 class KnowledgeStore:
@@ -356,9 +369,7 @@ class KnowledgeStore:
         async with self._lock:
             if category not in CATEGORIES:
                 category = "general"
-            content_stripped = content.strip()
-            if _contains_credential_pattern(content_stripped):
-                raise ValueError("Credential pattern detected in content")
+            content_stripped = validate_knowledge_content(content)
             subject_stripped = (subject or "").strip()
             # Dedup: skip if identical content+subject+category already exists.
             for existing in self._entries.values():

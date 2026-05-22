@@ -17,7 +17,12 @@ from homeassistant.exceptions import HomeAssistantError
 from .api_utilities import async_ai_call
 
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
-from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
+from .knowledge import (
+    CATEGORIES as KNOWLEDGE_CATEGORIES,
+    CredentialPatternError,
+    get_store as get_knowledge_store,
+    validate_knowledge_content,
+)
 from . import deep_analyzer as _deep
 from .analyzer import analyze_automations as _analyze_automations
 
@@ -261,10 +266,8 @@ class KyberKnowledgeView(HomeAssistantView):
                 provenance=str(body.get("provenance", "Added manually by user")),
                 user_rating=int(body.get("user_rating", 0)),
             )
-        except ValueError as err:
-            if str(err) == "Credential pattern detected in content":
-                return self.json({"error": "Content contains credential pattern"}, status_code=HTTPStatus.BAD_REQUEST)
-            raise
+        except CredentialPatternError:
+            return self.json({"error": "Content contains credential pattern"}, status_code=HTTPStatus.BAD_REQUEST)
         return self.json({"status": "ok", "entry": entry})
 
     async def delete(self, request: web.Request) -> web.Response:
@@ -306,24 +309,27 @@ class KyberKnowledgeAnalyzeView(HomeAssistantView):
         proposals = body.get("proposals") or []
         if not isinstance(proposals, list):
             return self.json_message("Field 'proposals' must be a list", HTTPStatus.BAD_REQUEST)
+        valid_proposals = [
+            proposal for proposal in proposals
+            if isinstance(proposal, dict) and proposal.get("content")
+        ]
+        try:
+            for proposal in valid_proposals:
+                validate_knowledge_content(str(proposal.get("content", "")))
+        except CredentialPatternError:
+            return self.json({"error": "Content contains credential pattern"}, status_code=HTTPStatus.BAD_REQUEST)
+
         saved = []
-        for p in proposals:
-            if not isinstance(p, dict) or not p.get("content"):
-                continue
-            try:
-                entry = await kstore.async_add(
-                    category=str(p.get("category", "general")),
-                    content=str(p.get("content", "")),
-                    subject=str(p.get("subject", "")),
-                    tags=list(p.get("tags", []) or []),
-                    source=str(p.get("source", "inferred")),
-                    confidence=float(p.get("confidence", 0.5)),
-                    provenance=str(p.get("provenance", "Inferred from automation/scene/script analysis")),
-                )
-            except ValueError as err:
-                if str(err) == "Credential pattern detected in content":
-                    return self.json({"error": "Content contains credential pattern"}, status_code=HTTPStatus.BAD_REQUEST)
-                raise
+        for proposal in valid_proposals:
+            entry = await kstore.async_add(
+                category=str(proposal.get("category", "general")),
+                content=str(proposal.get("content", "")),
+                subject=str(proposal.get("subject", "")),
+                tags=list(proposal.get("tags", []) or []),
+                source=str(proposal.get("source", "inferred")),
+                confidence=float(proposal.get("confidence", 0.5)),
+                provenance=str(proposal.get("provenance", "Inferred from automation/scene/script analysis")),
+            )
             saved.append(entry["id"])
         return self.json({"status": "ok", "saved": saved, "count": len(saved)})
 

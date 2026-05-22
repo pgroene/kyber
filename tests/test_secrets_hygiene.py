@@ -87,3 +87,28 @@ async def test_knowledge_endpoint_rejects_credential_content(
 
     assert resp.status == 400
     assert await resp.json() == {"error": "Content contains credential pattern"}
+
+
+async def test_knowledge_analyze_bulk_save_prevalidates_all_proposals(
+    hass,
+    setup_integration,
+    hass_client,
+) -> None:
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/knowledge/analyze",
+        json={
+            "proposals": [
+                {"content": "safe content", "subject": "safe entry"},
+                {"content": "api_key=supersecret123", "subject": "bad entry"},
+            ]
+        },
+    )
+
+    assert resp.status == 400
+    assert await resp.json() == {"error": "Content contains credential pattern"}
+
+    list_resp = await client.get("/api/kyber/knowledge")
+    assert list_resp.status == 200
+    payload = await list_resp.json()
+    assert all(entry.get("subject") != "safe entry" for entry in payload["entries"])
