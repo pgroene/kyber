@@ -48,6 +48,7 @@ from .const import (
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_MAX_TOKENS,
+    CONF_MAX_REQUESTS_PER_MINUTE,
     CONF_NARRATOR_ENABLED,
     CONF_NARRATOR_MAX_BATCH,
     CONF_NARRATOR_MAX_TOKENS,
@@ -60,6 +61,7 @@ from .const import (
     DEFAULT_ENABLE_DEBUG_VIEWS,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_MAX_REQUESTS_PER_MINUTE,
     DEFAULT_NARRATOR_ENABLED,
     DEFAULT_NARRATOR_MAX_BATCH,
     DEFAULT_NARRATOR_MAX_TOKENS,
@@ -133,6 +135,7 @@ def _build_setup_schema(
     hass: HomeAssistant,
     default_entity: str = "",
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_requests_per_minute: int = DEFAULT_MAX_REQUESTS_PER_MINUTE,
     enable_debug: bool = DEFAULT_ENABLE_DEBUG_VIEWS,
     run_initial_analyze: bool = DEFAULT_RUN_INITIAL_ANALYZE,
     deep_learning_interval_days: int = DEFAULT_DEEP_LEARNING_INTERVAL_DAYS,
@@ -161,6 +164,7 @@ def _build_setup_schema(
             ),
             **_build_options_schema(
                 max_tokens=max_tokens,
+                max_requests_per_minute=max_requests_per_minute,
                 enable_debug=enable_debug,
                 run_initial_analyze=run_initial_analyze,
                 deep_learning_interval_days=deep_learning_interval_days,
@@ -182,6 +186,7 @@ def _build_options_schema(
     include_entity: bool = False,
     collapsed: bool = False,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_requests_per_minute: int = DEFAULT_MAX_REQUESTS_PER_MINUTE,
     chat_max_limit: int = 2_000_000,
     enable_debug: bool = DEFAULT_ENABLE_DEBUG_VIEWS,
     run_initial_analyze: bool = DEFAULT_RUN_INITIAL_ANALYZE,
@@ -355,6 +360,11 @@ def _build_options_schema(
                 vol.Schema(
                     {
                         vol.Optional(CONF_ENABLE_DEBUG_VIEWS, default=enable_debug): selector.BooleanSelector(),
+                        vol.Optional(CONF_MAX_REQUESTS_PER_MINUTE, default=max_requests_per_minute): selector.NumberSelector(
+                            selector.NumberSelectorConfig(
+                                min=0, max=600, step=1, mode=selector.NumberSelectorMode.BOX
+                            )
+                        ),
                     }
                 ),
                 {"collapsed": True},
@@ -403,6 +413,7 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_AREA_ASSIGNMENT_MODE: str(area.get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE)),
                         CONF_LABEL_ASSIGNMENT_MODE: str(area.get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE)),
                         CONF_ENABLE_DEBUG_VIEWS: bool(developer.get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)),
+                        CONF_MAX_REQUESTS_PER_MINUTE: int(developer.get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE)),
                     },
                 )
 
@@ -472,6 +483,7 @@ class KyberOptionsFlow(OptionsFlow):
                         ai_entity=new_entity_id,
                         include_entity=True,
                         max_tokens=int(model.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)),
+                        max_requests_per_minute=int(developer.get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE)),
                         narrator_ai_entity=str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")),
                         narrator_max_tokens=int(model.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS)),
                     ),
@@ -491,6 +503,7 @@ class KyberOptionsFlow(OptionsFlow):
                 CONF_AREA_ASSIGNMENT_MODE: str(area.get(CONF_AREA_ASSIGNMENT_MODE, _get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE))),
                 CONF_LABEL_ASSIGNMENT_MODE: str(area.get(CONF_LABEL_ASSIGNMENT_MODE, _get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE))),
                 CONF_ENABLE_DEBUG_VIEWS: bool(developer.get(CONF_ENABLE_DEBUG_VIEWS, _get(CONF_ENABLE_DEBUG_VIEWS, False))),
+                CONF_MAX_REQUESTS_PER_MINUTE: int(developer.get(CONF_MAX_REQUESTS_PER_MINUTE, _get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE))),
                 CONF_CLOUD_PROVIDER: str(cloud.get(CONF_CLOUD_PROVIDER, _get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER))).strip(),
                 CONF_CLOUD_USE_FOR_CHAT: bool(cloud.get(CONF_CLOUD_USE_FOR_CHAT, _get(CONF_CLOUD_USE_FOR_CHAT, DEFAULT_CLOUD_USE_FOR_CHAT))),
                 CONF_AZURE_ENDPOINT: str(cloud.get(CONF_AZURE_ENDPOINT, _get(CONF_AZURE_ENDPOINT, ""))).strip(),
@@ -526,6 +539,7 @@ class KyberOptionsFlow(OptionsFlow):
             include_entity=True,
             collapsed=True,
             max_tokens=current_tokens,
+            max_requests_per_minute=int(_get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE)),
             chat_max_limit=chat_max_limit,
             enable_debug=bool(_get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)),
             run_initial_analyze=bool(_get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),

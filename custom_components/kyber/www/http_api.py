@@ -54,6 +54,8 @@ from .const import (
     CONF_ANTHROPIC_MODEL,
     DEFAULT_ANTHROPIC_MODEL,
     ANTHROPIC_MAX_TOKENS,
+    CONF_MAX_REQUESTS_PER_MINUTE,
+    DEFAULT_MAX_REQUESTS_PER_MINUTE,
     CONF_LABEL_ASSIGNMENT_MODE,
     DOMAIN,
     KNOWLEDGE_BUDGET_CHARS,
@@ -129,6 +131,7 @@ from .prompt_regression_api import (
     KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView,
 )
 from .config_flow import _infer_max_tokens
+from .rate_limiter import _rate_limiter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1959,6 +1962,20 @@ class KyberView(HomeAssistantView):
             _preempt_event.clear()
             _debug_detach_log_capture(_debug_log_handler)
             return self.json_message("Missing 'prompt' field", HTTPStatus.BAD_REQUEST)
+
+        ha_user = request.get("hass_user")
+        user_id = str(getattr(ha_user, "id", "") or "unknown")
+        max_rpm = int(self._config.get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE))
+        allowed, retry_after = _rate_limiter.check(user_id, max_rpm)
+        if not allowed:
+            hass.data[_CHAT_BUSY_KEY] = False
+            _preempt_event.clear()
+            _debug_detach_log_capture(_debug_log_handler)
+            return self.json(
+                {"error": "Too many requests", "retry_after": retry_after},
+                status_code=HTTPStatus.TOO_MANY_REQUESTS,
+            )
+        _rate_limiter.record(user_id)
 
         # If the narrator is currently running, tell the user early so the
         # thinking bubble shows a helpful message instead of a blank spinner.
