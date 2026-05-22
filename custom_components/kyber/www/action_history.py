@@ -168,6 +168,22 @@ async def _async_execute_undo_plan(
     return results
 
 
+class KyberActionHistoryEntryView(HomeAssistantView):
+    """Return a single action history entry by ID."""
+
+    url = "/api/kyber/history/actions/{entry_id}"
+    name = "api:kyber:history:actions:entry"
+    requires_auth = True
+
+    async def get(self, request: web.Request, entry_id: str) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        store = get_store(hass)
+        entry = await store.async_get(entry_id)
+        if not entry:
+            return self.json_message(f"Action history entry '{entry_id}' not found", HTTPStatus.NOT_FOUND)
+        return self.json(entry)
+
+
 class KyberActionHistoryView(HomeAssistantView):
     """Return recent applied action history."""
 
