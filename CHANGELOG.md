@@ -2,11 +2,11 @@
 
 All notable changes to Kyber are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-New entries are prepended automatically when a release tag is pushed (see `.github/workflows/release.yml`).
+The `[Unreleased]` section is automatically promoted to a versioned entry by the **Do Release** pipeline on every merge to `main`.
 
 ---
 
-## [Unreleased] — v0.5.7
+## [Unreleased]
 
 ### Added
 - **10 new language translations**: DE, FR, ES, IT, PT, PL, HU, SV, RU, ZH-Hans

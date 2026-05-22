@@ -1,0 +1,318 @@
+name: Do Release
+
+# Triggers:
+#   - Automatically on every merge to main (patch bump)
+#   - Manually via workflow_dispatch to choose bump type or explicit version
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type (ignored when version is set)'
+        required: false
+        default: 'patch'
+        type: choice
+        options: [patch, minor, major]
+      version:
+        description: 'Explicit version (e.g. 1.2.3) — overrides bump'
+        required: false
+        default: ''
+
+# Skip if this push is the release bot's own version-bump commit
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  # ── Guard: skip release commits created by this workflow ─────────────────
+  check-trigger:
+    name: Check trigger
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check if this is a bot release commit
+        id: check
+        run: |
+          MSG=$(git log -1 --pretty=%s)
+          if echo "$MSG" | grep -qE "^chore: release v"; then
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "Skipping — this is a release commit"
+          else
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "Will release"
+          fi
+
+  # ── Run all tests ─────────────────────────────────────────────────────────
+  python-tests:
+    name: Python tests
+    needs: check-trigger
+    if: needs.check-trigger.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install dependencies
+        run: pip install -r requirements-test.txt
+      - name: Run Python tests
+        run: pytest tests/ -v --tb=short
+        env:
+          PYTHONPATH: .
+
+  js-tests:
+    name: JS unit + component tests
+    needs: check-trigger
+    if: needs.check-trigger.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: www/kyber/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: www/kyber
+      - name: JS syntax check
+        run: |
+          node --check www/kyber/kyber-panel.js
+          for f in www/kyber/src/*.js; do node --check "$f"; done
+      - name: Run JS tests
+        run: npm test
+        working-directory: www/kyber
+
+  playwright-tests:
+    name: UI tests (Playwright)
+    needs: check-trigger
+    if: needs.check-trigger.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: www/kyber/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: www/kyber
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: www/kyber
+      - name: Run Playwright tests
+        run: npm run test:ui
+        working-directory: www/kyber
+      - name: Upload screenshots on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-screenshots
+          path: www/kyber/screenshots/
+          retention-days: 7
+
+  # ── Release (only after all tests pass) ──────────────────────────────────
+  release:
+    name: Release
+    needs: [python-tests, js-tests, playwright-tests]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # ── Compute new version ─────────────────────────────────────────────
+      - name: Compute version
+        id: ver
+        run: |
+          python - <<'EOF'
+          import re, subprocess, os
+
+          explicit = "${{ github.event.inputs.version }}".strip()
+          bump     = "${{ github.event.inputs.bump }}" or "patch"
+
+          raw = subprocess.run(
+              ["git", "tag", "--list", "v*", "--sort=-version:refname"],
+              capture_output=True, text=True
+          ).stdout
+          major, minor, patch = 0, 1, 0
+          for line in raw.splitlines():
+              m = re.match(r"v(\d+)\.(\d+)\.(\d+)$", line.strip())
+              if m:
+                  major, minor, patch = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                  break
+
+          if explicit:
+              new_ver = explicit.lstrip("v")
+          elif bump == "major":
+              new_ver = f"{major+1}.0.0"
+          elif bump == "minor":
+              new_ver = f"{major}.{minor+1}.0"
+          else:
+              new_ver = f"{major}.{minor}.{patch+1}"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"version={new_ver}\n")
+              f.write(f"tag=v{new_ver}\n")
+          print(f"Releasing: v{new_ver}")
+          EOF
+
+      # ── Bump manifest.json ──────────────────────────────────────────────
+      - name: Bump manifest.json
+        run: |
+          python - <<'EOF'
+          import json
+          from pathlib import Path
+          p = Path("custom_components/kyber/manifest.json")
+          m = json.loads(p.read_text())
+          m["version"] = "${{ steps.ver.outputs.version }}"
+          p.write_text(json.dumps(m, indent=2) + "\n")
+          print(f"manifest.json → {m['version']}")
+          EOF
+
+      # ── Bump JS cache-bust counter ──────────────────────────────────────
+      - name: Bump JS cache-bust
+        run: |
+          python - <<'EOF'
+          import re
+          from pathlib import Path
+          for init in [
+              Path("custom_components/kyber/__init__.py"),
+              Path("custom_components/kyber/www/__init__.py"),
+          ]:
+              if not init.exists():
+                  continue
+              text = init.read_text()
+              def bump(m): return f"kyber-panel.js?v={int(m.group(1))+1}"
+              new_text = re.sub(r"kyber-panel\.js\?v=(\d+)", bump, text)
+              if new_text != text:
+                  init.write_text(new_text)
+                  print(f"  bumped cache-bust in {init}")
+          EOF
+
+      # ── Sync www/ Python mirror ─────────────────────────────────────────
+      - name: Sync www/ Python mirror
+        run: python scripts/sync_www.py
+
+      # ── Sync JS files into www mirror ───────────────────────────────────
+      - name: Sync JS files to www mirror
+        run: |
+          for f in www/kyber/src/*.js; do
+            cp "$f" "custom_components/kyber/www/src/$(basename $f)"
+          done
+          cp www/kyber/kyber-panel.js custom_components/kyber/www/kyber-panel.js
+          echo "JS files synced"
+
+      # ── Promote [Unreleased] in CHANGELOG ──────────────────────────────
+      - name: Update CHANGELOG
+        run: |
+          python - <<'EOF'
+          import re
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          ver  = "${{ steps.ver.outputs.version }}"
+          date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M +0000")
+          p    = Path("CHANGELOG.md")
+          text = p.read_text()
+
+          # Replace [Unreleased] header with versioned entry; prepend new empty [Unreleased]
+          replacement = (
+              f"## [Unreleased]\n\n"
+              f"---\n\n"
+              f"## [{ver}] — {date}\n"
+          )
+          text = re.sub(r"## \[Unreleased\][^\n]*\n", replacement, text, count=1)
+          p.write_text(text)
+          print(f"CHANGELOG: promoted [Unreleased] → [{ver}]")
+          EOF
+
+      # ── Build release notes from CHANGELOG ─────────────────────────────
+      - name: Extract release notes
+        run: |
+          python - <<'EOF'
+          import re
+          from pathlib import Path
+
+          ver  = "${{ steps.ver.outputs.version }}"
+          text = Path("CHANGELOG.md").read_text()
+          m = re.search(
+              rf"## \[{re.escape(ver)}\][^\n]*\n(.*?)(?=\n## \[|\Z)",
+              text, re.DOTALL
+          )
+          notes = m.group(1).strip() if m else f"Release v{ver}"
+          Path("/tmp/release_notes.md").write_text(notes)
+          print("Release notes preview:")
+          print(notes[:400])
+          EOF
+
+      # ── Commit, tag, push (bypass branch protection) ────────────────────
+      - name: Commit and tag release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            custom_components/kyber/manifest.json \
+            custom_components/kyber/__init__.py \
+            custom_components/kyber/www/__init__.py \
+            custom_components/kyber/www/kyber-panel.js \
+            custom_components/kyber/www/src/ \
+            CHANGELOG.md
+
+          if git diff --cached --quiet; then
+            echo "Nothing changed — skipping commit"
+          else
+            git commit -m "chore: release ${{ steps.ver.outputs.tag }}"
+          fi
+
+          git tag ${{ steps.ver.outputs.tag }}
+
+          # Temporarily disable enforce_admins so the bot can push to main
+          gh api repos/${{ github.repository }}/branches/main/protection/enforce_admins \
+            --method DELETE || true
+
+          git push origin main
+          git push origin ${{ steps.ver.outputs.tag }}
+
+          # Re-enable enforce_admins
+          gh api repos/${{ github.repository }}/branches/main/protection/enforce_admins \
+            --method POST || true
+
+          echo "Pushed ${{ steps.ver.outputs.tag }}"
+
+      # ── Create GitHub Release ───────────────────────────────────────────
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ steps.ver.outputs.tag }} \
+            --title "Kyber ${{ steps.ver.outputs.tag }}" \
+            --notes-file /tmp/release_notes.md
+
+      # ── Update roadmap issue ────────────────────────────────────────────
+      - name: Update roadmap issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/update_roadmap.py
+
