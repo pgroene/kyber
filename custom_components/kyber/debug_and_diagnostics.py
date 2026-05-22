@@ -11,7 +11,7 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
+from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, _redact_secrets
 from .knowledge import get_store as get_knowledge_store
 from .entity_narrator import NARRATOR_STATS_KEY
 from .knowledge_integration import get_deep_job_status as _get_deep_job_status
@@ -416,31 +416,32 @@ class KyberDebugBundleView(HomeAssistantView):
         if not snap:
             return self.json_message("No turn snapshot available", HTTPStatus.NOT_FOUND)
 
-        manifest_obj: dict = {
+        redacted_snap = _redact_secrets(snap)
+        manifest_obj: dict = _redact_secrets({
             "kyber_version": self._read_manifest_version(),
-            "request_id": snap.get("request_id"),
-            "ts": snap.get("ts"),
-            "intent": snap.get("intent"),
-            "elapsed_ms": snap.get("elapsed_ms"),
-            "char_count": snap.get("char_count"),
-            "approx_tokens": snap.get("approx_tokens"),
-            "auto_rating": snap.get("auto_rating"),
-            "session_meta": snap.get("session_meta") or {},
-        }
+            "request_id": redacted_snap.get("request_id"),
+            "ts": redacted_snap.get("ts"),
+            "intent": redacted_snap.get("intent"),
+            "elapsed_ms": redacted_snap.get("elapsed_ms"),
+            "char_count": redacted_snap.get("char_count"),
+            "approx_tokens": redacted_snap.get("approx_tokens"),
+            "auto_rating": redacted_snap.get("auto_rating"),
+            "session_meta": redacted_snap.get("session_meta") or {},
+        })
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("manifest.json", _json.dumps(manifest_obj, indent=2, default=str))
-            zf.writestr("snapshot.json", _json.dumps(snap, indent=2, default=str))
-            zf.writestr("user_prompt.txt", snap.get("user_prompt") or "")
-            zf.writestr("expanded_prompt.txt", snap.get("expanded_prompt") or "")
-            zf.writestr("instructions_used.txt", snap.get("instructions_used") or "")
-            zf.writestr("response.txt", snap.get("response_text") or "")
-            zf.writestr("tool_log.json", _json.dumps(snap.get("tool_log") or [], indent=2, default=str))
-            zf.writestr("knowledge_used.json", _json.dumps(snap.get("picked_knowledge") or [], indent=2, default=str))
-            zf.writestr("progress_events.json", _json.dumps(snap.get("progress_events") or [], indent=2, default=str))
+            zf.writestr("snapshot.json", _json.dumps(redacted_snap, indent=2, default=str))
+            zf.writestr("user_prompt.txt", redacted_snap.get("user_prompt") or "")
+            zf.writestr("expanded_prompt.txt", redacted_snap.get("expanded_prompt") or "")
+            zf.writestr("instructions_used.txt", redacted_snap.get("instructions_used") or "")
+            zf.writestr("response.txt", redacted_snap.get("response_text") or "")
+            zf.writestr("tool_log.json", _json.dumps(redacted_snap.get("tool_log") or [], indent=2, default=str))
+            zf.writestr("knowledge_used.json", _json.dumps(redacted_snap.get("picked_knowledge") or [], indent=2, default=str))
+            zf.writestr("progress_events.json", _json.dumps(redacted_snap.get("progress_events") or [], indent=2, default=str))
             # Logs as text (one line per record) + json.
-            logs = snap.get("logs") or []
+            logs = redacted_snap.get("logs") or []
             log_lines: list[str] = []
             for r in logs:
                 ts_iso = ""
@@ -455,10 +456,10 @@ class KyberDebugBundleView(HomeAssistantView):
             readme = (
                 "Kyber debug bundle\n"
                 "==================\n\n"
-                f"request_id: {snap.get('request_id')}\n"
-                f"ts: {snap.get('ts')}\n"
-                f"intent: {snap.get('intent')}\n"
-                f"elapsed_ms: {snap.get('elapsed_ms')}\n\n"
+                f"request_id: {redacted_snap.get('request_id')}\n"
+                f"ts: {redacted_snap.get('ts')}\n"
+                f"intent: {redacted_snap.get('intent')}\n"
+                f"elapsed_ms: {redacted_snap.get('elapsed_ms')}\n\n"
                 "Contents:\n"
                 "  manifest.json         - bundle meta (kyber version, ts, intent, ...)\n"
                 "  snapshot.json         - full per-turn snapshot (single source of truth)\n"

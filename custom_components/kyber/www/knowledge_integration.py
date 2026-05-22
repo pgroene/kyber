@@ -250,16 +250,21 @@ class KyberKnowledgeView(HomeAssistantView):
         content = str(body.get("content", "")).strip()
         if not content:
             return self.json_message("Missing 'content' field", HTTPStatus.BAD_REQUEST)
-        entry = await kstore.async_add(
-            category=str(body.get("category", "general")),
-            content=content,
-            subject=str(body.get("subject", "")),
-            tags=list(body.get("tags", []) or []),
-            source=str(body.get("source", "user")),
-            confidence=float(body.get("confidence", 1.0)),
-            provenance=str(body.get("provenance", "Added manually by user")),
-            user_rating=int(body.get("user_rating", 0)),
-        )
+        try:
+            entry = await kstore.async_add(
+                category=str(body.get("category", "general")),
+                content=content,
+                subject=str(body.get("subject", "")),
+                tags=list(body.get("tags", []) or []),
+                source=str(body.get("source", "user")),
+                confidence=float(body.get("confidence", 1.0)),
+                provenance=str(body.get("provenance", "Added manually by user")),
+                user_rating=int(body.get("user_rating", 0)),
+            )
+        except ValueError as err:
+            if str(err) == "Credential pattern detected in content":
+                return self.json({"error": "Content contains credential pattern"}, status_code=HTTPStatus.BAD_REQUEST)
+            raise
         return self.json({"status": "ok", "entry": entry})
 
     async def delete(self, request: web.Request) -> web.Response:
@@ -305,15 +310,20 @@ class KyberKnowledgeAnalyzeView(HomeAssistantView):
         for p in proposals:
             if not isinstance(p, dict) or not p.get("content"):
                 continue
-            entry = await kstore.async_add(
-                category=str(p.get("category", "general")),
-                content=str(p.get("content", "")),
-                subject=str(p.get("subject", "")),
-                tags=list(p.get("tags", []) or []),
-                source=str(p.get("source", "inferred")),
-                confidence=float(p.get("confidence", 0.5)),
-                provenance=str(p.get("provenance", "Inferred from automation/scene/script analysis")),
-            )
+            try:
+                entry = await kstore.async_add(
+                    category=str(p.get("category", "general")),
+                    content=str(p.get("content", "")),
+                    subject=str(p.get("subject", "")),
+                    tags=list(p.get("tags", []) or []),
+                    source=str(p.get("source", "inferred")),
+                    confidence=float(p.get("confidence", 0.5)),
+                    provenance=str(p.get("provenance", "Inferred from automation/scene/script analysis")),
+                )
+            except ValueError as err:
+                if str(err) == "Credential pattern detected in content":
+                    return self.json({"error": "Content contains credential pattern"}, status_code=HTTPStatus.BAD_REQUEST)
+                raise
             saved.append(entry["id"])
         return self.json({"status": "ok", "saved": saved, "count": len(saved)})
 
