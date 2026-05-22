@@ -1169,16 +1169,16 @@ async def _run_ai_loop(
             _progress_emit(hass, request_id, {"type": "error", "message": str(err)})
             _progress_complete(hass, request_id)
             raise
-        except Exception as err:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             _elapsed_ms = int((time.monotonic() - _t_start) * 1000)
             _record_model_call(hass, entity_id, _elapsed_ms, 0, success=False)
-            _LOGGER.error(
-                "Kyber: AI call FAILED after %dms — entity=%s round=%d prompt_tokens~%d type=%s error=%s",
-                _elapsed_ms, entity_id, _round + 1, _prompt_tokens_est, type(err).__name__, err,
+            _LOGGER.exception(
+                "Kyber: AI call FAILED after %dms — entity=%s round=%d prompt_tokens~%d",
+                _elapsed_ms, entity_id, _round + 1, _prompt_tokens_est,
             )
-            _progress_emit(hass, request_id, {"type": "error", "message": str(err)})
+            _progress_emit(hass, request_id, {"type": "error", "message": "Internal error"})
             _progress_complete(hass, request_id)
-            raise HomeAssistantError(f"AI task error: {err}") from err
+            raise HomeAssistantError("Internal error") from None
 
         _elapsed_ms = int((time.monotonic() - _t_start) * 1000)
         response_text = result.data if isinstance(result.data, str) else (
@@ -2034,9 +2034,7 @@ class KyberView(HomeAssistantView):
             _debug_detach_log_capture(_debug_log_handler)
             hass.data[_CHAT_BUSY_KEY] = False
             hass.data.get("kyber_preempt_event", None) and hass.data["kyber_preempt_event"].clear()
-            return self.json_message(
-                f"Internal error: {type(err).__name__}: {err}", HTTPStatus.INTERNAL_SERVER_ERROR
-            )
+            return self.json_message("Internal error", HTTPStatus.INTERNAL_SERVER_ERROR)
 
         try:
             components = _extract_response_components(response_text, intent, user_prompt, hass, tool_log)
@@ -2050,7 +2048,7 @@ class KyberView(HomeAssistantView):
             _debug_detach_log_capture(_debug_log_handler)
             hass.data[_CHAT_BUSY_KEY] = False
             hass.data.get("kyber_preempt_event", None) and hass.data["kyber_preempt_event"].clear()
-            return self.json_message(f"Internal error: {type(_ce).__name__}: {_ce}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return self.json_message("Internal error", HTTPStatus.INTERNAL_SERVER_ERROR)
 
         _progress_complete(hass, request_id)
         plan_block = _annotate_plan_approval(plan_block)
@@ -2348,8 +2346,9 @@ class KyberSelfUpdateView(HomeAssistantView):
                 if resp.status != 200:
                     return self.json({"error": f"GitHub API returned {resp.status}"}, status_code=502)
                 release = await resp.json()
-        except Exception as exc:
-            return self.json({"error": str(exc)}, status_code=502)
+        except Exception:
+            _LOGGER.exception("Kyber self_update: failed to fetch release metadata")
+            return self.json({"error": "Internal error"}, status_code=502)
 
         latest = (release.get("tag_name") or "").lstrip("v")
         return self.json({
@@ -2383,8 +2382,9 @@ class KyberSelfUpdateView(HomeAssistantView):
                 if resp.status != 200:
                     return self.json({"error": f"GitHub API returned {resp.status}"}, status_code=502)
                 release = await resp.json()
-        except Exception as exc:
-            return self.json({"error": f"Failed to fetch release info: {exc}"}, status_code=502)
+        except Exception:
+            _LOGGER.exception("Kyber self_update: failed to fetch release info")
+            return self.json({"error": "Internal error"}, status_code=502)
 
         latest = (release.get("tag_name") or "").lstrip("v")
         zipball_url = release.get("zipball_url")
@@ -2415,8 +2415,9 @@ class KyberSelfUpdateView(HomeAssistantView):
                 if resp.status != 200:
                     return self.json({"error": f"Download failed: HTTP {resp.status}"}, status_code=502)
                 zip_bytes = await resp.read()
-        except Exception as exc:
-            return self.json({"error": f"Download error: {exc}"}, status_code=502)
+        except Exception:
+            _LOGGER.exception("Kyber self_update: download failed")
+            return self.json({"error": "Internal error"}, status_code=502)
 
         # 3. Extract in a thread (zipfile is synchronous)
         config_dir = _Path(hass.config.config_dir)
@@ -2463,8 +2464,9 @@ class KyberSelfUpdateView(HomeAssistantView):
 
         try:
             extracted = await hass.async_add_executor_job(_extract)
-        except Exception as exc:
-            return self.json({"error": f"Extraction failed: {exc}"}, status_code=500)
+        except Exception:
+            _LOGGER.exception("Kyber self_update: extraction failed")
+            return self.json({"error": "Internal error"}, status_code=500)
 
         result = {
             "current_version": current,
@@ -2600,7 +2602,7 @@ class KyberLabelsView(HomeAssistantView):
             return self.json(result)
         except Exception as _err:
             _LOGGER.exception("Kyber: unhandled error in KyberLabelsView.get (type=%s): %s", type(_err).__name__, _err)
-            return self.json_message(f"Internal error: {_err}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return self.json_message("Internal error", HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
 class KyberProposalApproveView(HomeAssistantView):

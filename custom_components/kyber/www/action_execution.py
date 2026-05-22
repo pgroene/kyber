@@ -176,6 +176,8 @@ class KyberExecuteView(HomeAssistantView):
     async def post(self, request: web.Request) -> web.Response:
         """Execute a list of entity registry actions from a plan."""
         hass: HomeAssistant = request.app["hass"]
+        ha_user = request.get("hass_user")
+        user_id = str(getattr(ha_user, "id", "") or "") or None
 
         try:
             body = await request.json()
@@ -284,7 +286,7 @@ class KyberExecuteView(HomeAssistantView):
                         })
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.error("Knowledge action %s failed: %s", action_type, err)
-                    results.append({"status": "error", "message": str(err)})
+                    results.append({"status": "error", "message": "Internal error"})
                 continue
 
             # ── Area management actions (no entity_id needed) ──────────────
@@ -304,7 +306,7 @@ class KyberExecuteView(HomeAssistantView):
                     })
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.error("create_area '%s' failed: %s", area_name, err)
-                    results.append({"status": "error", "message": str(err)})
+                    results.append({"status": "error", "message": "Internal error"})
                 continue
 
             if action_type == "rename_area":
@@ -328,7 +330,7 @@ class KyberExecuteView(HomeAssistantView):
                     })
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.error("rename_area '%s' failed: %s", area_id, err)
-                    results.append({"status": "error", "message": str(err)})
+                    results.append({"status": "error", "message": "Internal error"})
                 continue
 
             if action_type == "delete_area":
@@ -352,7 +354,7 @@ class KyberExecuteView(HomeAssistantView):
                     })
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.error("delete_area '%s' failed: %s", area_id, err)
-                    results.append({"status": "error", "message": str(err)})
+                    results.append({"status": "error", "message": "Internal error"})
                 continue
 
             # ── Service call actions ───────────────────────────────────────
@@ -436,7 +438,7 @@ class KyberExecuteView(HomeAssistantView):
                     results.append(result)
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.error("call_service %s.%s failed: %s", domain, service, err)
-                    results.append({"status": "error", "entity_id": svc_entity_id or domain, "message": str(err)})
+                    results.append({"status": "error", "entity_id": svc_entity_id or domain, "message": "Internal error"})
                 continue
 
             entity_id: str = action.get("entity_id", "")
@@ -570,7 +572,7 @@ class KyberExecuteView(HomeAssistantView):
 
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error("Execute action %s on %s failed: %s", action_type, entity_id, err)
-                results.append({"entity_id": entity_id, "status": "error", "message": str(err)})
+                results.append({"entity_id": entity_id, "status": "error", "message": "Internal error"})
 
         applied_actions = [
             action
@@ -614,7 +616,12 @@ class KyberExecuteView(HomeAssistantView):
         if applied_actions and not has_failures:
             try:
                 astore = get_action_history_store(hass)
-                history_entry = await astore.async_record(_plan_summary or "Applied Kyber actions", applied_actions, entity_changes)
+                history_entry = await astore.async_record(
+                    _plan_summary or "Applied Kyber actions",
+                    applied_actions,
+                    entity_changes,
+                    user_id=user_id,
+                )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Kyber: action history record failed: %s", err)
 

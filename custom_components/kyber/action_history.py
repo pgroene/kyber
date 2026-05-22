@@ -21,6 +21,13 @@ _ALLOWED_STATUS = {"applied", "undone", "failed"}
 _STORE: ActionHistoryStore | None = None
 
 
+def _user_id_from_request(request: web.Request) -> str | None:
+    """Extract the authenticated Home Assistant user id from request."""
+    ha_user = request.get("hass_user")
+    user_id = getattr(ha_user, "id", None)
+    return str(user_id) if user_id else None
+
+
 class ActionHistoryStore:
     """Persistent store for applied Kyber action plans."""
 
@@ -80,6 +87,8 @@ class ActionHistoryStore:
         summary: str,
         actions: list[dict[str, Any]],
         entity_changes: list[dict[str, Any]],
+        *,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         await self.async_load()
         entry = {
@@ -90,6 +99,7 @@ class ActionHistoryStore:
             "entity_changes": copy.deepcopy(entity_changes),
             "status": "applied",
             "undo_plan": self._build_undo_plan(actions),
+            "user_id": str(user_id) if user_id else None,
         }
         async with self._lock:
             self._entries.insert(0, entry)
@@ -97,33 +107,47 @@ class ActionHistoryStore:
             await self._persist_unlocked()
         return copy.deepcopy(entry)
 
-    async def async_get(self, entry_id: str) -> dict[str, Any] | None:
+    async def async_get(self, entry_id: str, *, user_id: str | None = None) -> dict[str, Any] | None:
         await self.async_load()
         for entry in self._entries:
-            if entry.get("id") == entry_id:
-                return copy.deepcopy(entry)
+            if entry.get("id") != entry_id:
+                continue
+            if user_id and entry.get("user_id") not in (None, user_id):
+                return None
+            return copy.deepcopy(entry)
         return None
 
-    async def async_mark_status(self, entry_id: str, status: str) -> dict[str, Any] | None:
+    async def async_mark_status(
+        self, entry_id: str, status: str, *, user_id: str | None = None
+    ) -> dict[str, Any] | None:
         await self.async_load()
         if status not in _ALLOWED_STATUS:
             raise ValueError(f"Unsupported action history status: {status}")
         async with self._lock:
             for entry in self._entries:
-                if entry.get("id") == entry_id:
-                    entry["status"] = status
-                    await self._persist_unlocked()
-                    return copy.deepcopy(entry)
+                if entry.get("id") != entry_id:
+                    continue
+                if user_id and entry.get("user_id") not in (None, user_id):
+                    return None
+                entry["status"] = status
+                await self._persist_unlocked()
+                return copy.deepcopy(entry)
         return None
 
-    async def async_undo(self, entry_id: str) -> list[dict[str, Any]]:
-        entry = await self.async_mark_status(entry_id, "undone")
+    async def async_undo(self, entry_id: str, *, user_id: str | None = None) -> list[dict[str, Any]]:
+        entry = await self.async_mark_status(entry_id, "undone", user_id=user_id)
         return copy.deepcopy((entry or {}).get("undo_plan") or [])
 
-    async def async_list(self, limit: int = 50) -> list[dict[str, Any]]:
+    async def async_list(self, limit: int = 50, *, user_id: str | None = None) -> list[dict[str, Any]]:
         await self.async_load()
         limit = max(1, min(200, int(limit)))
-        return copy.deepcopy(self._entries[:limit])
+        entries = self._entries
+        if user_id:
+            entries = [
+                entry for entry in entries
+                if entry.get("user_id") in (None, user_id)
+            ]
+        return copy.deepcopy(entries[:limit])
 
 
 def get_store(hass: HomeAssistant) -> ActionHistoryStore:
@@ -155,15 +179,15 @@ async def _async_execute_undo_plan(
                 "service": service,
                 "entity_id": entity_id,
             })
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Kyber action-history undo failed for %s.%s: %s", domain, service, err)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Kyber action-history undo failed for %s.%s", domain, service)
             results.append({
                 "status": "error",
                 "type": action.get("type", "call_service"),
                 "domain": domain,
                 "service": service,
                 "entity_id": entity_id,
-                "message": str(err),
+                "message": "Internal error",
             })
     return results
 
@@ -177,8 +201,11 @@ class KyberActionHistoryEntryView(HomeAssistantView):
 
     async def get(self, request: web.Request, entry_id: str) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
+        user_id = _user_id_from_request(request)
+        if not user_id:
+            return self.json_message("Unable to resolve authenticated user", HTTPStatus.UNAUTHORIZED)
         store = get_store(hass)
-        entry = await store.async_get(entry_id)
+        entry = await store.async_get(entry_id, user_id=user_id)
         if not entry:
             return self.json_message(f"Action history entry '{entry_id}' not found", HTTPStatus.NOT_FOUND)
         return self.json(entry)
@@ -193,12 +220,15 @@ class KyberActionHistoryView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
+        user_id = _user_id_from_request(request)
+        if not user_id:
+            return self.json_message("Unable to resolve authenticated user", HTTPStatus.UNAUTHORIZED)
         try:
             limit = max(1, min(200, int(request.query.get("limit", "50"))))
         except ValueError:
             limit = 50
         store = get_store(hass)
-        entries = await store.async_list(limit=limit)
+        entries = await store.async_list(limit=limit, user_id=user_id)
         return self.json({"entries": entries, "count": len(entries)})
 
 
@@ -211,8 +241,11 @@ class KyberActionHistoryUndoView(HomeAssistantView):
 
     async def post(self, request: web.Request, entry_id: str) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
+        user_id = _user_id_from_request(request)
+        if not user_id:
+            return self.json_message("Unable to resolve authenticated user", HTTPStatus.UNAUTHORIZED)
         store = get_store(hass)
-        entry = await store.async_get(entry_id)
+        entry = await store.async_get(entry_id, user_id=user_id)
         if not entry:
             return self.json_message(f"Action history entry '{entry_id}' not found", HTTPStatus.NOT_FOUND)
         if entry.get("status") != "applied":
@@ -232,14 +265,14 @@ class KyberActionHistoryUndoView(HomeAssistantView):
         results = await _async_execute_undo_plan(hass, undo_plan)
         failures = [result for result in results if result.get("status") != "ok"]
         if failures:
-            updated = await store.async_mark_status(entry_id, "failed")
+            updated = await store.async_mark_status(entry_id, "failed", user_id=user_id)
             return self.json({
                 "status": "failed",
                 "results": results,
                 "entry": updated or entry,
             }, status_code=HTTPStatus.BAD_REQUEST)
 
-        updated = await store.async_mark_status(entry_id, "undone")
+        updated = await store.async_mark_status(entry_id, "undone", user_id=user_id)
         return self.json({
             "status": "ok",
             "results": results,
