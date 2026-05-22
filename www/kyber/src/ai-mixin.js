@@ -339,6 +339,18 @@ export const AIMixin = (Base) => class extends Base {
       const resp = await resp_promise;
       chatDone = true;
 
+      if (resp.status === 429) {
+        let retryAfter = 0;
+        try {
+          const limited = await resp.json();
+          retryAfter = Number(limited?.retry_after || 0);
+        } catch (_) { /* keep default */ }
+        this._hideThinking();
+        this._appendMessage(`⏳ Too many requests — please wait ${retryAfter || 0}s`, "assistant");
+        this._setStatus("Too many requests", "error");
+        return;
+      }
+
       if (!resp.ok) {
         const err = await resp.text();
         throw new Error(`${resp.status}: ${err}`);

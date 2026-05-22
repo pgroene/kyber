@@ -174,6 +174,20 @@ describe("_askAI — response handling", () => {
     expect(msgs[msgs.length - 1].textContent).toContain("503");
   });
 
+  it("shows a wait message on rate-limited responses", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: async () => ({ retry_after: 17 }),
+      text: async () => "",
+    }));
+    const { element } = makePanel();
+    await askWithInput(element, "Test");
+    const msgs = element.shadowRoot.querySelectorAll(".chat-message.assistant");
+    expect(msgs[msgs.length - 1].textContent).toContain("Too many requests");
+    expect(msgs[msgs.length - 1].textContent).toContain("17s");
+  });
+
   it("shows error message on network failure", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network error")));
     const { element } = makePanel();
