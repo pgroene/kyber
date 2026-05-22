@@ -1,10 +1,8 @@
 # Kyber — AI-Powered Smart Home Assistant for Home Assistant
 
-> ⚠️ **Your AI now has a key to the house. Literally.**
->
-> Kyber lets an AI control your lights, thermostats, automations, scripts, and dashboards — in natural language, no confirmation required (in Autopilot Mode).
-> It won't judge you for having 47 automations that do the same thing, but it might just clean them up if you ask.
-> **Always review proposals before executing them. Back up your Home Assistant before installing. We are not responsible for your living room turning into a disco at 3am.**
+> **⚠️ Beta software** — Kyber is production-ready for home use but still evolving rapidly.
+> **The AI can modify your Home Assistant configuration** — automations, scripts, entities and dashboards.
+> Always review proposals before executing them, and keep backups.
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 
