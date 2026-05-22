@@ -7,7 +7,7 @@
 
 /** Navigate to the harness and wait for the panel to be ready. */
 export async function gotoHarness(page) {
-  await page.goto("/tests/ui/harness.html");
+  await page.goto("/www/kyber/tests/ui/harness.html");
   // Wait until the custom element is defined and rendered
   await page.waitForFunction(() => window.__panel && window.__panel.shadowRoot);
 }
