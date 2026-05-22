@@ -89,6 +89,7 @@ class ActionHistoryStore:
         entity_changes: list[dict[str, Any]],
         *,
         user_id: str | None = None,
+        high_risk: bool = False,
     ) -> dict[str, Any]:
         await self.async_load()
         entry = {
@@ -100,6 +101,7 @@ class ActionHistoryStore:
             "status": "applied",
             "undo_plan": self._build_undo_plan(actions),
             "user_id": str(user_id) if user_id else None,
+            "high_risk": bool(high_risk),
         }
         async with self._lock:
             self._entries.insert(0, entry)

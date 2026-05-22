@@ -50,6 +50,13 @@ _CONFIG_CHANGING_ACTION_TYPES: set[str] = {
     "delete_knowledge",
 }
 
+# Domains that should never silently auto-execute under autopilot.
+_HIGH_RISK_DOMAINS: set[str] = {
+    "lock",
+    "alarm_control_panel",
+    "cover",
+}
+
 # Domain.service combinations that are considered DESTRUCTIVE runtime actions
 # (locks, alarms, garage doors, etc.) and always require explicit approval.
 _DESTRUCTIVE_SERVICES: set[tuple[str, str]] = {
@@ -66,47 +73,60 @@ _DESTRUCTIVE_SERVICES: set[tuple[str, str]] = {
 }
 
 
-def _action_requires_approval(action: dict) -> bool:
-    """Return True if this action must require explicit user approval.
+def _classify_risk(action: dict, denylist: set[str] | None = None) -> dict[str, str] | None:
+    """Return metadata for high-risk actions that need explicit approval."""
+    if not isinstance(action, dict):
+        return None
+    deny = {str(item).strip().lower() for item in (denylist or _HIGH_RISK_DOMAINS) if str(item).strip()}
+    if str(action.get("type", "")).lower() != "call_service":
+        return None
+    domain = str(action.get("domain", "")).lower()
+    service = str(action.get("service", "")).lower()
+    if not domain:
+        return None
+    if (domain, service) in _DESTRUCTIVE_SERVICES or domain in deny:
+        reason = f"{domain}.{service}" if service else domain
+        return {"risk_domain": domain, "risk_reason": reason}
+    return None
 
-    Config-changing actions (assign_area, rename_entity, area/label CRUD,
-    automations, dashboards) always require approval. Destructive runtime
-    services (unlock, disarm alarm, cover open/close) also require approval.
-    Plain runtime state changes (light/switch turn_on/off, climate temp,
-    media volume) can auto-execute under autopilot.
-    """
+
+def _action_requires_approval(action: dict, denylist: set[str] | None = None) -> bool:
+    """Return True if this action must require explicit user approval."""
     if not isinstance(action, dict):
         return False
     atype = str(action.get("type", "")).lower()
     if atype in _CONFIG_CHANGING_ACTION_TYPES:
         return True
-    if atype == "call_service":
-        domain = str(action.get("domain", "")).lower()
-        service = str(action.get("service", "")).lower()
-        if (domain, service) in _DESTRUCTIVE_SERVICES:
-            return True
-    return False
+    return _classify_risk(action, denylist) is not None
 
 
-def _annotate_plan_approval(plan: dict | None) -> dict | None:
-    """Mark each action with `requires_approval` and set `requires_approval`
-    at the plan level if ANY action requires approval. The frontend must
-    block autopilot auto-execute when `plan.requires_approval` is true.
-    """
+def _annotate_plan_approval(plan: dict | None, denylist: set[str] | None = None) -> dict | None:
+    """Annotate plan actions with approval and high-risk metadata."""
     if not isinstance(plan, dict):
         return plan
     actions = plan.get("actions")
     if not isinstance(actions, list):
         return plan
     any_requires = False
+    high_risk_domains: set[str] = set()
     for action in actions:
         if not isinstance(action, dict):
             continue
-        needs = _action_requires_approval(action)
+        risk = _classify_risk(action, denylist)
+        needs = _action_requires_approval(action, denylist)
         action["requires_approval"] = needs
+        action["high_risk"] = risk is not None
+        if risk is not None:
+            action.update(risk)
+            high_risk_domains.add(risk["risk_domain"])
+        else:
+            action.pop("risk_domain", None)
+            action.pop("risk_reason", None)
         if needs:
             any_requires = True
     plan["requires_approval"] = any_requires
+    plan["high_risk"] = bool(high_risk_domains)
+    plan["high_risk_domains"] = sorted(high_risk_domains)
     return plan
 
 
@@ -194,15 +214,20 @@ class KyberExecuteView(HomeAssistantView):
         # auto-execute MUST set this to false (or omit it), in which case
         # we refuse and instruct the UI to require a user click.
         approved: bool = bool(body.get("approved", False))
+        guardrail_domains = _HIGH_RISK_DOMAINS
         if not approved:
             blocked: list[dict] = []
             for action in actions:
-                if _action_requires_approval(action):
+                risk = _classify_risk(action, guardrail_domains)
+                if _action_requires_approval(action, guardrail_domains):
                     blocked.append({
                         "type": action.get("type"),
                         "entity_id": action.get("entity_id"),
                         "domain": action.get("domain"),
                         "service": action.get("service"),
+                        "high_risk": risk is not None,
+                        "risk_domain": (risk or {}).get("risk_domain"),
+                        "risk_reason": (risk or {}).get("risk_reason"),
                         "reason": "Configuration / destructive action requires explicit user approval.",
                     })
             if blocked:
@@ -626,6 +651,7 @@ class KyberExecuteView(HomeAssistantView):
                     applied_actions,
                     entity_changes,
                     user_id=user_id,
+                    high_risk=any(_classify_risk(action, guardrail_domains) for action in applied_actions),
                 )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Kyber: action history record failed: %s", err)
