@@ -257,6 +257,7 @@ class KyberExecuteView(HomeAssistantView):
                             tags=list(action.get("tags", []) or []),
                             source=str(action.get("source", "user")),
                             confidence=float(action.get("confidence", 1.0)),
+                            owner_id=user_id,
                         )
                         results.append({
                             "status": "ok", "type": action_type, "entry_id": entry["id"],
@@ -278,7 +279,11 @@ class KyberExecuteView(HomeAssistantView):
                             results.append({"status": "error", "message": f"Knowledge entry '{entry_id}' not found"})
                     elif action_type == "delete_knowledge":
                         entry_id = str(action.get("entry_id", ""))
-                        ok = await kstore.async_delete(entry_id)
+                        ok = await kstore.async_delete(
+                            entry_id,
+                            requesting_user_id=user_id,
+                            is_admin=bool(getattr(ha_user, "is_admin", False)),
+                        )
                         results.append({
                             "status": "ok" if ok else "error", "type": action_type,
                             "entry_id": entry_id,
