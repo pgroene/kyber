@@ -2357,7 +2357,7 @@ class KyberSelfUpdateView(HomeAssistantView):
             "latest_version": latest,
             "update_available": _version_newer(latest, current),
             "release_url": release.get("html_url"),
-            "release_notes": (release.get("body") or "")[:500],
+            "release_notes": (release.get("body") or "")[:2000],
         })
 
     async def post(self, request: web.Request) -> web.Response:
@@ -2474,6 +2474,7 @@ class KyberSelfUpdateView(HomeAssistantView):
             "files_updated": len(extracted),
             "message": f"Updated from {current} to {latest}. Restart Home Assistant to apply.",
             "release_url": release.get("html_url"),
+            "release_notes": (release.get("body") or "")[:2000],
         }
 
         if with_restart:
