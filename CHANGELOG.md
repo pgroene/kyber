@@ -6,24 +6,17 @@ New entries are prepended automatically when a release tag is pushed (see `.gith
 
 ---
 
-## [0.5.6] — 2026-05-22 01:00 +0200
-
-### Fixed
-- **Background AI tasks silently falling back** — when the configured AI entity (e.g. Ollama with thinking enabled) returns "does not support thinking", `kyber_summarize`, `kyber_session_name`, and `kyber_fact_extract` now automatically retry via Azure if Azure credentials are configured. Eliminates the repeated ERROR log spam.
-- **Label creation broken on newer HA** — `LabelRegistry.async_create()` removed the `label_id` keyword argument in a recent HA release. Now tries with `label_id` first and falls back without it, eliminating the `unexpected keyword argument 'label_id'` WARNING spam.
-
----
-
-
+## [Unreleased] — v0.5.7
 
 ### Added
+- **10 new language translations**: DE, FR, ES, IT, PT, PL, HU, SV, RU, ZH-Hans
 - **Self-healing execution** — when a plan action fails, a correction micro-agent automatically re-tries with domain-specific knowledge; result shown in chat with `[🔧 CORRECTION]` marker (closes #187)
 - Toast notification when a fact is learned from a correction (`_showToast`)
 - Approval queue auto-highlights (orange pulse + scroll-into-view) when execution requires approval
 - Failed actions now recorded in chat history with `[FAILED]` marker
 - i18n: English and Dutch translations for the panel UI via `i18n.js`; all mixin files wired to `this._t`
 - `translations/nl.json` — Dutch translations for the Home Assistant config flow UI
-- `CONTRIBUTING.md` — PR-only workflow guide
+- `CONTRIBUTING.md` — PR-only workflow guide with release checklist
 - Playwright tests for copy button behaviour (7 tests) and self-healing correction flow (8 tests)
 - `docs/correction-agent.md` — architecture guide for the correction micro-agent
 
@@ -33,11 +26,15 @@ New entries are prepended automatically when a release tag is pushed (see `.gith
 - **[Medium]** Knowledge `_persist()` deadlock — split into `_persist()` (acquires lock) and `_persist_unlocked()` (for callers already holding the lock); entry snapshot prevents concurrent mutation
 - **[Medium]** XSS in `_appendThinkingEvent` — simple events now use `textContent` instead of `innerHTML`; the HTML variant renamed to `_appendThinkingEventHTML` to make its requirements explicit
 - Copy button broken on AI messages and in the bug report dialog — all 3 clipboard call sites now include an `execCommand('copy')` fallback for HTTP environments
-- Pre-existing JS test failures: `_extractSuggestions` cap (6 chips), `_startStatusPolling` refactored to `_checkKyberStatus()` with self-stop, explorer banner now shows real progress numbers
+- Pre-existing JS test failures: `_extractSuggestions` cap (6 chips), `_startStatusPolling` timer tests, debug-pane visibility, memory-badge text
 
 ---
 
-## [0.5.4] — 2026-05-21 22:13 +0200
+## [0.5.6] — 2026-05-22 01:00 +0200
+
+### Fixed
+- **Background AI tasks silently falling back** — when the configured AI entity returns "does not support thinking", background tasks now automatically retry via Azure if configured
+- **Label creation broken on newer HA** — `LabelRegistry.async_create()` removed the `label_id` keyword argument; now tries with fallback
 
 ### Added
 - Restart overlay with spinner animation shown while Home Assistant restarts (fixes #183)

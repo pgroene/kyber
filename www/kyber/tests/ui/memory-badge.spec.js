@@ -68,12 +68,12 @@ test.describe("Memory badge", () => {
     await expect(popover).toBeHidden();
   });
 
-  test("popover shows 'No facts recalled this turn' when no knowledge was used", async ({ page }) => {
+  test("popover shows 'No facts recalled' when no knowledge was used", async ({ page }) => {
     const badge = page.locator("#memory-badge");
     await badge.click();
 
     const body = page.locator("#memory-popover-body");
-    await expect(body).toContainText("No facts recalled this turn");
+    await expect(body).toContainText("No facts recalled");
     await page.screenshot({ path: "screenshots/memory-badge-popover-no-recall.png" });
   });
 

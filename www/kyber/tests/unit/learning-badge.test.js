@@ -209,36 +209,43 @@ describe("_checkKyberStatus — transitions", () => {
 describe("_startStatusPolling timer", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    // Mock fetch before makePanel so the immediate _checkKyberStatus call in
-    // _startStatusPolling doesn't use JSDOM native fetch and doesn't self-stop.
     global.fetch = mockStatusFetch({ status: "phase1_summaries", done: 0, total: 10 });
   });
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("statusPollInterval is set after _startStatusPolling", () => {
+  it("_statusPollTimer is set after _startStatusPolling", () => {
     const { element } = makePanel();
-    // Spy so the immediate call doesn't fire real fetch and self-stop on idle
-    vi.spyOn(element, "_checkKyberStatus").mockResolvedValue();
+    // Reset any timer started during render so we can test a fresh call
+    element._statusPollTimer = null;
     element._startStatusPolling();
-    expect(element._statusPollInterval).toBeTruthy();
+    expect(element._statusPollTimer).toBeTruthy();
   });
 
-  it("timer clears itself after idle check (self-stop behaviour)", async () => {
+  it("_startStatusPolling does not restart if timer is already set", () => {
     const { element } = makePanel();
-    global.fetch = mockStatusFetch({ status: "done" });
-    await element._checkKyberStatus();
-    expect(element._statusPollInterval).toBeFalsy();
+    element._statusPollTimer = null;
+    element._startStatusPolling();
+    const firstTimer = element._statusPollTimer;
+    element._startStatusPolling(); // second call should be a no-op
+    expect(element._statusPollTimer).toBe(firstTimer);
   });
 
-  it("timer fires _checkKyberStatus immediately + every 5 seconds", async () => {
+  it("fetch is called at startup and every 5 seconds", async () => {
     const { element } = makePanel();
-    const spy = vi.spyOn(element, "_checkKyberStatus").mockResolvedValue();
+    clearInterval(element._statusPollTimer); // clear the interval started by connectedCallback
+    element._statusPollTimer = null;
+    global.fetch = mockStatusFetch({ status: "phase1_summaries", done: 0, total: 10 });
+    global.fetch.mockClear();
     element._startStatusPolling();
-    // 1 immediate call + 3 interval calls at 5s/10s/15s = 4 total
-    vi.advanceTimersByTime(15000);
-    expect(spy).toHaveBeenCalledTimes(4);
+    await Promise.resolve(); // flush microtasks so initial _poll() can start
+    await Promise.resolve(); // second flush for the async fetch chain
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(global.fetch).toHaveBeenCalledTimes(3);
   });
 });
 

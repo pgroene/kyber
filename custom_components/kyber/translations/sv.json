@@ -1,0 +1,108 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kyber ? Konfiguration",
+        "description": "V?lj din AI-uppgiftsentitet och konfigurera token-gr?ns och startbeteende.",
+        "data": {
+          "ai_task_entity_id": "Chattmodell",
+          "max_tokens": "Chattmodell: kontextf?nster (token)",
+          "narrator_ai_task_entity_id": "Operationsmodell (valfri)",
+          "narrator_max_tokens": "Operationsmodell: kontextf?nster (token)",
+          "enable_debug_views": "Aktivera fels?kningsvyer (Kyber Debug-sidof?lt + fels?kningsverktyg per omg?ng)",
+          "run_initial_analyze": "K?r 1 inledande analyspass efter installation",
+          "initial_deep_learning_runs": "Inledande deep learning-k?rningar (1-10, rekommenderat: 10)",
+          "narrator_enabled": "Aktivera entitetsber?ttare",
+          "narrator_max_batch": "Ber?ttarens batchstorlek",
+          "area_assignment_mode": "L?gestilldelning f?r omr?den"
+        },
+        "data_description": {
+          "narrator_ai_task_entity_id": "Anv?nds f?r batchning och sm? uppgifter s?som entitetsbeskrivningar. En mindre, billigare modell fungerar bra h?r. Standard ?r chattmodellen."
+        }
+      },
+      "reconfigure": {
+        "title": "Kyber ? Konfigurera om",
+        "description": "Uppdatera din AI-uppgiftsentitet och inst?llningar.",
+        "data": {
+          "ai_task_entity_id": "Chattmodell",
+          "max_tokens": "Chattmodell: kontextf?nster (token)",
+          "narrator_ai_task_entity_id": "Operationsmodell (valfri)",
+          "narrator_max_tokens": "Operationsmodell: kontextf?nster (token)",
+          "enable_debug_views": "Aktivera fels?kningsvyer (Kyber Debug-sidof?lt + fels?kningsverktyg per omg?ng)",
+          "run_initial_analyze": "K?r 1 inledande analyspass efter installation",
+          "initial_deep_learning_runs": "Inledande deep learning-k?rningar (1-10, rekommenderat: 10)",
+          "narrator_enabled": "Aktivera entitetsber?ttare",
+          "narrator_max_batch": "Ber?ttarens batchstorlek",
+          "area_assignment_mode": "L?gestilldelning f?r omr?den"
+        },
+        "data_description": {
+          "narrator_ai_task_entity_id": "Anv?nds f?r batchning och sm? uppgifter s?som entitetsbeskrivningar. En mindre, billigare modell fungerar bra h?r. Standard ?r chattmodellen."
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Den valda AI-uppgiftsentiteten hittades inte. Kontrollera att din AI-integration (t.ex. Ollama, Home Assistant Cloud, OpenAI) ?r konfigurerad och att entiteten finns.",
+      "cannot_connect": "Det gick inte att n? AI-leverant?ren. Kontrollera integrationskonfigurationen."
+    },
+    "abort": {
+      "already_configured": "Kyber ?r redan konfigurerat.",
+      "reconfigure_successful": "Kyber har konfigurerats om med den nya AI-entiteten."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Kyber-alternativ",
+        "description": "Uppdatera modellinst?llningar och funktionsflaggor.",
+        "sections": {
+          "model_config": {
+            "name": "Modellkonfiguration",
+            "data": {
+              "ai_task_entity_id": "Chattmodell",
+              "max_tokens": "Chattmodell: kontextf?nster (token)",
+              "narrator_ai_task_entity_id": "Operationsmodell (valfri)",
+              "narrator_max_tokens": "Operationsmodell: kontextf?nster (token)"
+            },
+            "data_description": {
+              "max_tokens": "{chat_stats}",
+              "narrator_ai_task_entity_id": "Anv?nds f?r batchning och sm? uppgifter s?som entitetsbeskrivningar. En mindre, billigare modell fungerar bra h?r. Standard ?r chattmodellen.",
+              "narrator_max_tokens": "{ops_stats}"
+            }
+          },
+          "agents": {
+            "name": "Agenter",
+            "data": {
+              "narrator_enabled": "Aktivera entitetsber?ttare",
+              "narrator_interval_days": "Ber?ttare: k?r var N:e dag",
+              "narrator_max_batch": "Ber?ttarens batchstorlek",
+              "run_initial_analyze": "K?r analyspass vid HA-omstart",
+              "deep_learning_interval_days": "Deep learning: k?r var N:e dag",
+              "deep_learning_max_batch": "Batchstorlek f?r deep learning"
+            },
+            "data_description": {
+              "narrator_interval_days": "{narrator_run_stats}",
+              "deep_learning_interval_days": "{deep_learning_run_stats}"
+            }
+          },
+          "area_assignment": {
+            "name": "Automatiska tilldelningar",
+            "data": {
+              "area_assignment_mode": "L?gestilldelning f?r omr?den",
+              "label_assignment_mode": "L?gestilldelning f?r etiketter"
+            },
+            "data_description": {
+              "area_assignment_mode": "F?resl? eller till?mpa automatiskt omr?destilldelningar p? entiteter som n?mns i konversationen.",
+              "label_assignment_mode": "F?resl? eller till?mpa automatiskt kyber: enhetstyp-etiketter p? entiteter i konversationen."
+            }
+          },
+          "developer": {
+            "name": "Utvecklare",
+            "data": {
+              "enable_debug_views": "Aktivera fels?kningsvyer (Kyber Debug-sidof?lt + fels?kningsverktyg per omg?ng)"
+            }
+          }
+        }
+      }
+    }
+  }
+}

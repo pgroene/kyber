@@ -1,0 +1,108 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kyber ? Configuration",
+        "description": "S?lectionnez votre entit? de t?che IA et configurez la limite de jetons ainsi que le comportement au d?marrage.",
+        "data": {
+          "ai_task_entity_id": "Mod?le de chat",
+          "max_tokens": "Mod?le de chat : fen?tre de contexte (jetons)",
+          "narrator_ai_task_entity_id": "Mod?le d?op?rations (optionnel)",
+          "narrator_max_tokens": "Mod?le d?op?rations : fen?tre de contexte (jetons)",
+          "enable_debug_views": "Activer les vues de d?bogage (barre lat?rale Kyber Debug + outils de d?bogage par tour)",
+          "run_initial_analyze": "Ex?cuter 1 passe d?analyse initiale apr?s l?installation",
+          "initial_deep_learning_runs": "Passes initiales d?apprentissage profond (1-10, recommand? : 10)",
+          "narrator_enabled": "Activer le narrateur d?entit?s",
+          "narrator_max_batch": "Taille de lot du narrateur",
+          "area_assignment_mode": "Mode d?affectation des zones"
+        },
+        "data_description": {
+          "narrator_ai_task_entity_id": "Utilis? pour le traitement par lots et les petites t?ches comme la narration d?entit?s. Un mod?le plus petit et moins co?teux fonctionne bien ici. Par d?faut, le mod?le de chat."
+        }
+      },
+      "reconfigure": {
+        "title": "Kyber ? Reconfigurer",
+        "description": "Mettez ? jour votre entit? de t?che IA et vos param?tres.",
+        "data": {
+          "ai_task_entity_id": "Mod?le de chat",
+          "max_tokens": "Mod?le de chat : fen?tre de contexte (jetons)",
+          "narrator_ai_task_entity_id": "Mod?le d?op?rations (optionnel)",
+          "narrator_max_tokens": "Mod?le d?op?rations : fen?tre de contexte (jetons)",
+          "enable_debug_views": "Activer les vues de d?bogage (barre lat?rale Kyber Debug + outils de d?bogage par tour)",
+          "run_initial_analyze": "Ex?cuter 1 passe d?analyse initiale apr?s l?installation",
+          "initial_deep_learning_runs": "Passes initiales d?apprentissage profond (1-10, recommand? : 10)",
+          "narrator_enabled": "Activer le narrateur d?entit?s",
+          "narrator_max_batch": "Taille de lot du narrateur",
+          "area_assignment_mode": "Mode d?affectation des zones"
+        },
+        "data_description": {
+          "narrator_ai_task_entity_id": "Utilis? pour le traitement par lots et les petites t?ches comme la narration d?entit?s. Un mod?le plus petit et moins co?teux fonctionne bien ici. Par d?faut, le mod?le de chat."
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "L?entit? de t?che IA s?lectionn?e est introuvable. Assurez-vous que votre int?gration IA (par ex. Ollama, Home Assistant Cloud, OpenAI) est configur?e et que l?entit? existe.",
+      "cannot_connect": "Impossible d?atteindre le fournisseur IA. V?rifiez la configuration de votre int?gration."
+    },
+    "abort": {
+      "already_configured": "Kyber est d?j? configur?.",
+      "reconfigure_successful": "Kyber a ?t? reconfigur? avec la nouvelle entit? IA."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options Kyber",
+        "description": "Mettre ? jour les param?tres du mod?le et les indicateurs de fonctionnalit?s.",
+        "sections": {
+          "model_config": {
+            "name": "Configuration du mod?le",
+            "data": {
+              "ai_task_entity_id": "Mod?le de chat",
+              "max_tokens": "Mod?le de chat : fen?tre de contexte (jetons)",
+              "narrator_ai_task_entity_id": "Mod?le d?op?rations (optionnel)",
+              "narrator_max_tokens": "Mod?le d?op?rations : fen?tre de contexte (jetons)"
+            },
+            "data_description": {
+              "max_tokens": "{chat_stats}",
+              "narrator_ai_task_entity_id": "Utilis? pour le traitement par lots et les petites t?ches comme la narration d?entit?s. Un mod?le plus petit et moins co?teux fonctionne bien ici. Par d?faut, le mod?le de chat.",
+              "narrator_max_tokens": "{ops_stats}"
+            }
+          },
+          "agents": {
+            "name": "Agents",
+            "data": {
+              "narrator_enabled": "Activer le narrateur d?entit?s",
+              "narrator_interval_days": "Narrateur : ex?cuter tous les N jours",
+              "narrator_max_batch": "Taille de lot du narrateur",
+              "run_initial_analyze": "Ex?cuter une passe d?analyse au red?marrage de HA",
+              "deep_learning_interval_days": "Apprentissage profond : ex?cuter tous les N jours",
+              "deep_learning_max_batch": "Taille de lot de l?apprentissage profond"
+            },
+            "data_description": {
+              "narrator_interval_days": "{narrator_run_stats}",
+              "deep_learning_interval_days": "{deep_learning_run_stats}"
+            }
+          },
+          "area_assignment": {
+            "name": "Affectations automatiques",
+            "data": {
+              "area_assignment_mode": "Mode d?affectation des zones",
+              "label_assignment_mode": "Mode d?affectation des ?tiquettes"
+            },
+            "data_description": {
+              "area_assignment_mode": "Sugg?rer ou appliquer automatiquement des affectations de zone aux entit?s mentionn?es dans la conversation.",
+              "label_assignment_mode": "Sugg?rer ou appliquer automatiquement des ?tiquettes kyber: type d?appareil aux entit?s de la conversation."
+            }
+          },
+          "developer": {
+            "name": "D?veloppeur",
+            "data": {
+              "enable_debug_views": "Activer les vues de d?bogage (barre lat?rale Kyber Debug + outils de d?bogage par tour)"
+            }
+          }
+        }
+      }
+    }
+  }
+}
