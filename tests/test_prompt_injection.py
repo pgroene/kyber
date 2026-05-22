@@ -34,7 +34,16 @@ async def test_complete_sanitizes_prompt_before_context_build(
 ) -> None:
     captured: dict[str, str] = {}
 
-    async def _capture_injection(hass, kstore, user_prompt, instructions, request_id, entity_id=""):
+    async def _capture_injection(
+        hass,
+        kstore,
+        user_prompt,
+        instructions,
+        request_id,
+        entity_id="",
+        user_id=None,
+        is_admin=False,
+    ):
         captured["user_prompt"] = user_prompt
         return instructions, []
 

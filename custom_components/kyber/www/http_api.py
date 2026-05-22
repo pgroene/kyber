@@ -409,8 +409,15 @@ _BASE_INSTRUCTIONS_CHARS = _MAX_INSTRUCTIONS_CHARS - _KNOWLEDGE_BUDGET  # 30 000
 _MAX_TOOL_RESULT_CHARS = MAX_TOOL_RESULT_CHARS
 
 
-async def _auto_record_search_alias(kstore: Any, query: str, entity_ids: list[str]) -> str | None:
-    """Silently save a search query â†’ entity mapping as a knowledge alias.
+async def _auto_record_search_alias(
+    kstore: Any,
+    query: str,
+    entity_ids: list[str],
+    *,
+    owner_id: str | None = None,
+    is_admin: bool = False,
+) -> str | None:
+    """Silently save a search query → entity mapping as a knowledge alias.
 
     Called fire-and-forget after search_entities returns 1â€“3 results so future
     turns can recall the mapping without searching again.  Skips if an identical
@@ -421,7 +428,12 @@ async def _auto_record_search_alias(kstore: Any, query: str, entity_ids: list[st
         await kstore.async_load()
         query_lower = query.lower()
         # Skip if already recorded: any fact with matching subject
-        existing = await kstore.async_semantic_search(query_lower, min_score=0.95)
+        existing = await kstore.async_semantic_search(
+            query_lower,
+            min_score=0.95,
+            user_id=owner_id,
+            is_admin=is_admin,
+        )
         for e in existing:
             if e.get("category") == "entity_alias" and e.get("subject", "").lower() == query_lower:
                 return None
@@ -433,6 +445,7 @@ async def _auto_record_search_alias(kstore: Any, query: str, entity_ids: list[st
             tags=query_lower.split() + entity_ids,
             source="search_alias_auto",
             confidence=0.7,
+            owner_id=owner_id,
         )
         _LOGGER.debug("Kyber: auto-saved search alias '%s' â†’ %s", query, entity_str)
         return f"'{query}' â†’ {entity_str}"
@@ -502,6 +515,8 @@ def _build_prompt_sections(body_fields: dict, context: str, request: "web.Reques
 
     # Current user info (always available â€” view requires auth)
     ha_user = request.get("hass_user")
+    current_user_id = str(getattr(ha_user, "id", "") or "") or None
+    current_user_is_admin = bool(getattr(ha_user, "is_admin", False))
     if ha_user:
         user_display = _sanitize_prompt_value(ha_user.name or ha_user.id)
         user_role = "administrator" if ha_user.is_admin else "standard user"
@@ -638,8 +653,14 @@ async def _expand_search_query(hass: Any, entity_id: str, user_prompt: str) -> l
 
 
 async def _inject_knowledge_into_instructions(
-    hass: Any, kstore: Any, user_prompt: str, instructions: str, request_id: str,
+    hass: Any,
+    kstore: Any,
+    user_prompt: str,
+    instructions: str,
+    request_id: str,
     entity_id: str = "",
+    user_id: str | None = None,
+    is_admin: bool = False,
 ) -> "tuple[str, list]":
     """Load relevant knowledge and language hints; inject them into the instructions.
 
@@ -675,7 +696,11 @@ async def _inject_knowledge_into_instructions(
 
     try:
         relevant_knowledge = await kstore.async_pick_relevant(
-            search_query, max_entries=10, extra_queries=extra_queries
+            search_query,
+            max_entries=10,
+            extra_queries=extra_queries,
+            user_id=user_id,
+            is_admin=is_admin,
         )
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Kyber: knowledge lookup failed: %s", err)
@@ -1352,6 +1377,11 @@ async def _run_ai_loop(
             if sig in executed_calls_cache:
                 return sig, call, executed_calls_cache[sig]
             # Resolve aliases before deciding sync vs async path
+            call = {
+                **call,
+                "user_id": str(getattr(request.get("hass_user"), "id", "") or "") or None,
+                "is_admin": bool(getattr(request.get("hass_user"), "is_admin", False)),
+            }
             call = resolve_tool_call(call)
             if call.get("name") in _ASYNC_TOOLS:
                 result = await _async_execute_tool(hass, call)
@@ -1403,7 +1433,13 @@ async def _run_ai_loop(
                 if 1 <= len(_primary_eids) <= 3:
                     _q = (call.get("query") or ", ".join(call.get("queries") or [])).strip()
                     if _q:
-                        _saved = await _auto_record_search_alias(kstore, _q, _primary_eids)
+                        _saved = await _auto_record_search_alias(
+                            kstore,
+                            _q,
+                            _primary_eids,
+                            owner_id=str(getattr(request.get("hass_user"), "id", "") or "") or None,
+                            is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)),
+                        )
                         if _saved:
                             _aliases_saved.append(_saved)
 
@@ -1486,7 +1522,13 @@ async def _run_ai_loop(
                         # Build a natural alias from the overlapping context words
                         _alias_words = sorted(_overlap, key=lambda w: -len(w))
                         _alias_q = " ".join(_alias_words[:3])
-                        _saved2 = await _auto_record_search_alias(kstore, _alias_q, [_eid])
+                        _saved2 = await _auto_record_search_alias(
+                            kstore,
+                            _alias_q,
+                            [_eid],
+                            owner_id=str(getattr(request.get("hass_user"), "id", "") or "") or None,
+                            is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)),
+                        )
                         if _saved2:
                             _aliases_saved.append(_saved2)
 
@@ -2107,7 +2149,14 @@ class KyberView(HomeAssistantView):
 
         # Inject relevant knowledge entries into the instructions.
         instructions, relevant_knowledge = await _inject_knowledge_into_instructions(
-            hass, kstore, user_prompt, instructions, request_id, entity_id=entity_id
+            hass,
+            kstore,
+            user_prompt,
+            instructions,
+            request_id,
+            entity_id=entity_id,
+            user_id=str(getattr(request.get("hass_user"), "id", "") or "") or None,
+            is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)),
         )
 
         budget_provider = get_budget_provider(self._config)

@@ -724,6 +724,8 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         query = str(call.get("query", "")).strip()
         category = call.get("category")
         subject = str(call.get("subject", "")).strip()
+        user_id = str(call.get("user_id", "") or "") or None
+        is_admin = bool(call.get("is_admin", False))
         limit_arg = call.get("limit", 10)
         try:
             limit = max(1, min(50, int(limit_arg)))
@@ -732,17 +734,26 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         # Caller must ensure store was loaded before; if not, return empty.
         if not kstore.is_loaded:
             return json.dumps({"entries": [], "_note": "knowledge store not yet loaded"})
-        entries = kstore.search_sync(query=query, category=category, subject=subject, limit=limit)
+        entries = kstore.search_sync(
+            query=query,
+            category=category,
+            subject=subject,
+            limit=limit,
+            user_id=user_id,
+            is_admin=is_admin,
+        )
         return json.dumps({"entries": entries, "count": len(entries)})
 
     if name == "get_entity_notes":
         kstore = get_knowledge_store(hass)
         eid = str(call.get("entity_id", "")).strip()
+        user_id = str(call.get("user_id", "") or "") or None
+        is_admin = bool(call.get("is_admin", False))
         if not eid:
             return json.dumps({"error": "Missing 'entity_id' argument"})
         if not kstore.is_loaded:
             return json.dumps({"entries": [], "_note": "knowledge store not yet loaded"})
-        entries = kstore.get_for_entity_sync(eid)
+        entries = kstore.get_for_entity_sync(eid, user_id=user_id, is_admin=is_admin)
         return json.dumps({"entity_id": eid, "entries": entries, "count": len(entries)})
 
     if name == "analyze_automations":

@@ -176,6 +176,30 @@ def _detect_domain_intents(query_words: set[str]) -> set[str]:
     return domains
 
 
+def _normalize_owner_id(owner_id: str | None) -> str | None:
+    """Normalize owner IDs so blank values are treated as global entries."""
+    value = str(owner_id or "").strip()
+    return value or None
+
+
+def _entry_visible_to_user(entry: dict[str, Any], user_id: str | None, is_admin: bool) -> bool:
+    """Return True when the entry is visible to the requesting user."""
+    owner_id = _normalize_owner_id(entry.get("owner_id"))
+    if owner_id is None:
+        return True
+    if is_admin:
+        return True
+    return owner_id == _normalize_owner_id(user_id)
+
+
+def _entry_deletable_by_user(entry: dict[str, Any], user_id: str | None, is_admin: bool) -> bool:
+    """Return True when the requesting user may delete the entry."""
+    if is_admin:
+        return True
+    owner_id = _normalize_owner_id(entry.get("owner_id"))
+    return owner_id is not None and owner_id == _normalize_owner_id(user_id)
+
+
 class KnowledgeStore:
     """In-memory cache backed by HA Store for persistence."""
 
@@ -251,7 +275,13 @@ class KnowledgeStore:
         return {t: f * self._idf.get(t, 1.0) for t, f in tf.items()}
 
     async def async_semantic_search(
-        self, query: str, *, limit: int = 8, min_score: float = 0.05
+        self,
+        query: str,
+        *,
+        limit: int = 8,
+        min_score: float = 0.05,
+        user_id: str | None = None,
+        is_admin: bool = False,
     ) -> list[dict[str, Any]]:
         """Return top-N entries ranked by cosine similarity over TF-IDF.
 
@@ -285,6 +315,8 @@ class KnowledgeStore:
         scored: list[tuple[float, dict[str, Any]]] = []
         for eid, vec in self._vectors.items():
             entry = self._entries[eid]
+            if not _entry_visible_to_user(entry, user_id, is_admin):
+                continue
             # Skip low-quality entries — same filter as keyword search.
             if "low_quality" in (entry.get("tags") or []):
                 continue
@@ -322,8 +354,15 @@ class KnowledgeStore:
                 return
             data = await self._store.async_load() or {}
             self._entries = data.get("entries", {})
+            migrated = False
+            for entry in self._entries.values():
+                if "owner_id" not in entry:
+                    entry["owner_id"] = None
+                    migrated = True
             self._loaded = True
             self._index_dirty = True
+            if migrated:
+                await self._persist_unlocked(invalidate_index=False)
             _LOGGER.info("Kyber knowledge: loaded %d entries", len(self._entries))
 
     async def _persist(self, *, invalidate_index: bool = False) -> None:
@@ -350,6 +389,7 @@ class KnowledgeStore:
         confidence: float = 1.0,
         provenance: str = "",
         user_rating: int = 0,
+        owner_id: str | None = None,
         _save: bool = True,
     ) -> dict[str, Any]:
         await self.async_load()
@@ -360,12 +400,14 @@ class KnowledgeStore:
             if _contains_credential_pattern(content_stripped):
                 raise ValueError("Credential pattern detected in content")
             subject_stripped = (subject or "").strip()
-            # Dedup: skip if identical content+subject+category already exists.
+            owner_id = _normalize_owner_id(owner_id)
+            # Dedup: skip if identical content+subject+category+owner already exists.
             for existing in self._entries.values():
                 if (
                     existing.get("content", "").strip() == content_stripped
                     and existing.get("subject", "").strip() == subject_stripped
                     and existing.get("category") == category
+                    and _normalize_owner_id(existing.get("owner_id")) == owner_id
                 ):
                     return existing
             entry_id = uuid.uuid4().hex[:12]
@@ -380,6 +422,7 @@ class KnowledgeStore:
                 "provenance": (provenance or "").strip(),
                 "confidence": max(0.0, min(1.0, float(confidence))),
                 "user_rating": max(0, min(5, int(user_rating))),
+                "owner_id": owner_id,
                 "created": now,
                 "updated": now,
                 "hits": 0,
@@ -468,18 +511,42 @@ class KnowledgeStore:
             await self._persist_unlocked(invalidate_index=invalidate_index)
             return entry
 
-    async def async_delete(self, entry_id: str) -> bool:
+    async def async_get(self, entry_id: str) -> dict[str, Any] | None:
+        """Return a knowledge entry by ID."""
+        await self.async_load()
+        entry = self._entries.get(entry_id)
+        return dict(entry) if entry else None
+
+    async def async_delete(
+        self,
+        entry_id: str,
+        *,
+        requesting_user_id: str | None = None,
+        is_admin: bool = False,
+    ) -> bool:
         await self.async_load()
         async with self._lock:
-            if entry_id in self._entries:
-                del self._entries[entry_id]
-                await self._persist_unlocked(invalidate_index=True)
-                return True
-            return False
+            entry = self._entries.get(entry_id)
+            if entry is None:
+                return False
+            if requesting_user_id is not None or is_admin:
+                if not _entry_deletable_by_user(entry, requesting_user_id, is_admin):
+                    return False
+            del self._entries[entry_id]
+            await self._persist_unlocked(invalidate_index=True)
+            return True
 
-    async def async_all(self) -> list[dict[str, Any]]:
+    async def async_all(
+        self,
+        user_id: str | None = None,
+        *,
+        is_admin: bool = False,
+    ) -> list[dict[str, Any]]:
         await self.async_load()
-        return list(self._entries.values())
+        return [
+            entry for entry in self._entries.values()
+            if _entry_visible_to_user(entry, user_id, is_admin)
+        ]
 
     async def async_search(
         self,
@@ -488,6 +555,8 @@ class KnowledgeStore:
         subject: str = "",
         limit: int = 20,
         exclude_low_quality: bool = True,
+        user_id: str | None = None,
+        is_admin: bool = False,
     ) -> list[dict[str, Any]]:
         await self.async_load()
         q = (query or "").lower().strip()
@@ -495,6 +564,8 @@ class KnowledgeStore:
         cat = (category or "").lower().strip() or None
         scored: list[tuple[float, dict[str, Any]]] = []
         for entry in self._entries.values():
+            if not _entry_visible_to_user(entry, user_id, is_admin):
+                continue
             if cat and entry.get("category") != cat:
                 continue
             if subj and subj not in (entry.get("subject", "") or "").lower():
@@ -546,7 +617,13 @@ class KnowledgeStore:
                 out.append(entry)
         return out
 
-    async def async_get_for_entity(self, entity_id: str) -> list[dict[str, Any]]:
+    async def async_get_for_entity(
+        self,
+        entity_id: str,
+        *,
+        user_id: str | None = None,
+        is_admin: bool = False,
+    ) -> list[dict[str, Any]]:
         """Return entries whose subject matches the entity_id exactly or
         whose tags include it.
         """
@@ -554,6 +631,8 @@ class KnowledgeStore:
         out = []
         eid = entity_id.lower()
         for entry in self._entries.values():
+            if not _entry_visible_to_user(entry, user_id, is_admin):
+                continue
             if entry.get("subject", "").lower() == eid:
                 out.append(entry)
             elif eid in (entry.get("tags") or []):
@@ -638,13 +717,24 @@ class KnowledgeStore:
         return n
 
     # ── Sync read helpers (caller must ensure async_load() was awaited) ──
-    def search_sync(self, query: str = "", category: str | None = None, subject: str = "", limit: int = 20, exclude_low_quality: bool = True) -> list[dict[str, Any]]:
+    def search_sync(
+        self,
+        query: str = "",
+        category: str | None = None,
+        subject: str = "",
+        limit: int = 20,
+        exclude_low_quality: bool = True,
+        user_id: str | None = None,
+        is_admin: bool = False,
+    ) -> list[dict[str, Any]]:
         """Synchronous variant of async_search — for use after load()."""
         q = (query or "").lower().strip()
         subj = (subject or "").lower().strip()
         cat = (category or "").lower().strip() or None
         scored: list[tuple[float, dict[str, Any]]] = []
         for entry in self._entries.values():
+            if not _entry_visible_to_user(entry, user_id, is_admin):
+                continue
             if cat and entry.get("category") != cat:
                 continue
             if subj and subj not in (entry.get("subject", "") or "").lower():
@@ -673,17 +763,33 @@ class KnowledgeStore:
         scored.sort(key=lambda p: (p[0], p[1].get("updated", 0)), reverse=True)
         return [e for _, e in scored[:limit]]
 
-    def get_for_entity_sync(self, entity_id: str) -> list[dict[str, Any]]:
+    def get_for_entity_sync(
+        self,
+        entity_id: str,
+        *,
+        user_id: str | None = None,
+        is_admin: bool = False,
+    ) -> list[dict[str, Any]]:
         eid = entity_id.lower()
         out = []
         for entry in self._entries.values():
+            if not _entry_visible_to_user(entry, user_id, is_admin):
+                continue
             if entry.get("subject", "").lower() == eid:
                 out.append(entry)
             elif eid in (entry.get("tags") or []):
                 out.append(entry)
         return out
 
-    async def async_pick_relevant(self, prompt: str, *, max_entries: int = 8, extra_queries: list[str] | None = None) -> list[dict[str, Any]]:
+    async def async_pick_relevant(
+        self,
+        prompt: str,
+        *,
+        max_entries: int = 8,
+        extra_queries: list[str] | None = None,
+        user_id: str | None = None,
+        is_admin: bool = False,
+    ) -> list[dict[str, Any]]:
         """Pick entries relevant to a free-form prompt for context injection.
 
         Hybrid scoring: TF-IDF cosine similarity (semantic) + keyword overlap
@@ -700,8 +806,18 @@ class KnowledgeStore:
         merged: dict[str, dict[str, Any]] = {}
 
         for q in all_queries:
-            semantic = await self.async_semantic_search(q, limit=max_entries * 2)
-            keyword = await self.async_search(q, limit=max_entries * 2)
+            semantic = await self.async_semantic_search(
+                q,
+                limit=max_entries * 2,
+                user_id=user_id,
+                is_admin=is_admin,
+            )
+            keyword = await self.async_search(
+                q,
+                limit=max_entries * 2,
+                user_id=user_id,
+                is_admin=is_admin,
+            )
             for e in semantic:
                 score = float(e.get("_score", 0.0))
                 existing = merged.get(e["id"])
@@ -769,7 +885,13 @@ class KnowledgeStore:
         if filtered[:max_entries]:
             return filtered[:max_entries]
         # Fallback: always include high-confidence area aliases as background.
-        aliases = await self.async_search("", category="area_alias", limit=max_entries)
+        aliases = await self.async_search(
+            "",
+            category="area_alias",
+            limit=max_entries,
+            user_id=user_id,
+            is_admin=is_admin,
+        )
         return [{**e, "_score": 0.0, "_source": "fallback_alias"} for e in aliases]
 
 
@@ -826,6 +948,7 @@ class KnowledgeStore:
                 (entry.get("subject") or "").strip().lower(),
                 (entry.get("content") or "").strip().lower(),
                 entry.get("category", "general"),
+                _normalize_owner_id(entry.get("owner_id")),
             )
             if key in seen:
                 # Keep higher confidence; on tie keep older (lower created timestamp)

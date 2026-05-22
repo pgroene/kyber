@@ -50,7 +50,13 @@ def _sanitize_knowledge_payload(
     return updates, sanitized
 
 
-# â”€â”€ Background deep-analysis job state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+def _request_user_context(request: web.Request) -> tuple[str | None, bool]:
+    """Return the authenticated Home Assistant user id + admin flag."""
+    ha_user = request.get("hass_user")
+    return str(getattr(ha_user, "id", "") or "") or None, bool(getattr(ha_user, "is_admin", False))
+
+
+# ── Background deep-analysis job state ───────────────────────────────────────
 # Single-job tracker: only one deep analysis can run at a time.
 _DEEP_JOB: dict[str, Any] = {
     "running": False,
@@ -234,6 +240,7 @@ class KyberKnowledgeView(HomeAssistantView):
     async def get(self, request: web.Request) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
         kstore = get_knowledge_store(hass)
+        user_id, is_admin = _request_user_context(request)
         q = request.query.get("q", "").strip()
         category = request.query.get("category", "").strip() or None
         subject = request.query.get("subject", "").strip()
@@ -242,22 +249,31 @@ class KyberKnowledgeView(HomeAssistantView):
         except ValueError:
             limit = 200
         if q or category or subject:
-            entries = await kstore.async_search(query=q, category=category, subject=subject, limit=limit)
+            entries = await kstore.async_search(
+                query=q,
+                category=category,
+                subject=subject,
+                limit=limit,
+                user_id=user_id,
+                is_admin=is_admin,
+            )
         else:
-            entries = await kstore.async_all()
+            entries = await kstore.async_all(user_id=user_id, is_admin=is_admin)
         needs_review = request.query.get("needs_review", "").strip().lower()
         if needs_review in ("1", "true", "yes"):
             entries = [e for e in entries if e.get("needs_review")]
+        visible_entries = await kstore.async_all(user_id=user_id, is_admin=is_admin)
         return self.json({
             "entries": entries,
             "count": len(entries),
             "categories": sorted(KNOWLEDGE_CATEGORIES),
-            "needs_review_count": sum(1 for e in await kstore.async_all() if e.get("needs_review")),
+            "needs_review_count": sum(1 for e in visible_entries if e.get("needs_review")),
         })
 
     async def post(self, request: web.Request) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
         kstore = get_knowledge_store(hass)
+        user_id, _is_admin = _request_user_context(request)
         try:
             body = await request.json()
         except (json.JSONDecodeError, ValueError):
@@ -306,6 +322,7 @@ class KyberKnowledgeView(HomeAssistantView):
                 confidence=float(body.get("confidence", 1.0)),
                 provenance=str(body.get("provenance", "Added manually by user")),
                 user_rating=int(body.get("user_rating", 0)),
+                owner_id=user_id if body.get("personal") else None,
             )
         except ValueError as err:
             if str(err) == "Credential pattern detected in content":
@@ -316,12 +333,20 @@ class KyberKnowledgeView(HomeAssistantView):
     async def delete(self, request: web.Request) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
         kstore = get_knowledge_store(hass)
+        user_id, is_admin = _request_user_context(request)
         entry_id = request.query.get("id", "").strip()
         if not entry_id:
             return self.json_message("Missing 'id' query parameter", HTTPStatus.BAD_REQUEST)
-        ok = await kstore.async_delete(entry_id)
-        if not ok:
+        entry = await kstore.async_get(entry_id)
+        if entry is None:
             return self.json_message(f"Entry '{entry_id}' not found", HTTPStatus.NOT_FOUND)
+        ok = await kstore.async_delete(
+            entry_id,
+            requesting_user_id=user_id,
+            is_admin=is_admin,
+        )
+        if not ok:
+            return self.json_message("Not allowed to delete this knowledge entry", HTTPStatus.FORBIDDEN)
         return self.json({"status": "ok"})
 
 
@@ -476,6 +501,9 @@ class KyberKnowledgePurgeView(HomeAssistantView):
     async def post(self, request: web.Request) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
         kstore = get_knowledge_store(hass)
+        _user_id, is_admin = _request_user_context(request)
+        if not is_admin:
+            return self.json_message("Administrator access required", HTTPStatus.FORBIDDEN)
         try:
             body = await request.json()
         except (json.JSONDecodeError, ValueError):
@@ -486,7 +514,7 @@ class KyberKnowledgePurgeView(HomeAssistantView):
         deleted = 0
         not_found = 0
         for entry_id in ids:
-            ok = await kstore.async_delete(str(entry_id))
+            ok = await kstore.async_delete(str(entry_id), is_admin=True)
             if ok:
                 deleted += 1
             else:
