@@ -1,0 +1,108 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kyber ? Configura??o",
+        "description": "Selecione a sua entidade de tarefa de IA e configure o limite de tokens e o comportamento no arranque.",
+        "data": {
+          "ai_task_entity_id": "Modelo de chat",
+          "max_tokens": "Modelo de chat: janela de contexto (tokens)",
+          "narrator_ai_task_entity_id": "Modelo de opera??es (opcional)",
+          "narrator_max_tokens": "Modelo de opera??es: janela de contexto (tokens)",
+          "enable_debug_views": "Ativar vistas de depura??o (barra lateral Kyber Debug + ferramentas de depura??o por turno)",
+          "run_initial_analyze": "Executar 1 an?lise inicial ap?s a instala??o",
+          "initial_deep_learning_runs": "Execu??es iniciais de aprendizagem profunda (1-10, recomendado: 10)",
+          "narrator_enabled": "Ativar narrador de entidades",
+          "narrator_max_batch": "Tamanho do lote do narrador",
+          "area_assignment_mode": "Modo de atribui??o de ?reas"
+        },
+        "data_description": {
+          "narrator_ai_task_entity_id": "Utilizado para processamento em lote e pequenas tarefas como a narra??o de entidades. Um modelo mais pequeno e econ?mico funciona bem aqui. Por predefini??o, o modelo de chat."
+        }
+      },
+      "reconfigure": {
+        "title": "Kyber ? Reconfigurar",
+        "description": "Atualize a sua entidade de tarefa de IA e as defini??es.",
+        "data": {
+          "ai_task_entity_id": "Modelo de chat",
+          "max_tokens": "Modelo de chat: janela de contexto (tokens)",
+          "narrator_ai_task_entity_id": "Modelo de opera??es (opcional)",
+          "narrator_max_tokens": "Modelo de opera??es: janela de contexto (tokens)",
+          "enable_debug_views": "Ativar vistas de depura??o (barra lateral Kyber Debug + ferramentas de depura??o por turno)",
+          "run_initial_analyze": "Executar 1 an?lise inicial ap?s a instala??o",
+          "initial_deep_learning_runs": "Execu??es iniciais de aprendizagem profunda (1-10, recomendado: 10)",
+          "narrator_enabled": "Ativar narrador de entidades",
+          "narrator_max_batch": "Tamanho do lote do narrador",
+          "area_assignment_mode": "Modo de atribui??o de ?reas"
+        },
+        "data_description": {
+          "narrator_ai_task_entity_id": "Utilizado para processamento em lote e pequenas tarefas como a narra??o de entidades. Um modelo mais pequeno e econ?mico funciona bem aqui. Por predefini??o, o modelo de chat."
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "A entidade de tarefa de IA selecionada n?o foi encontrada. Certifique-se de que a sua integra??o de IA (por exemplo, Ollama, Home Assistant Cloud, OpenAI) est? configurada e que a entidade existe.",
+      "cannot_connect": "N?o foi poss?vel contactar o fornecedor de IA. Verifique a configura??o da sua integra??o."
+    },
+    "abort": {
+      "already_configured": "O Kyber j? est? configurado.",
+      "reconfigure_successful": "O Kyber foi reconfigurado com a nova entidade de IA."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Op??es do Kyber",
+        "description": "Atualize as defini??es do modelo e os sinalizadores de funcionalidades.",
+        "sections": {
+          "model_config": {
+            "name": "Configura??o do modelo",
+            "data": {
+              "ai_task_entity_id": "Modelo de chat",
+              "max_tokens": "Modelo de chat: janela de contexto (tokens)",
+              "narrator_ai_task_entity_id": "Modelo de opera??es (opcional)",
+              "narrator_max_tokens": "Modelo de opera??es: janela de contexto (tokens)"
+            },
+            "data_description": {
+              "max_tokens": "{chat_stats}",
+              "narrator_ai_task_entity_id": "Utilizado para processamento em lote e pequenas tarefas como a narra??o de entidades. Um modelo mais pequeno e econ?mico funciona bem aqui. Por predefini??o, o modelo de chat.",
+              "narrator_max_tokens": "{ops_stats}"
+            }
+          },
+          "agents": {
+            "name": "Agentes",
+            "data": {
+              "narrator_enabled": "Ativar narrador de entidades",
+              "narrator_interval_days": "Narrador: executar a cada N dias",
+              "narrator_max_batch": "Tamanho do lote do narrador",
+              "run_initial_analyze": "Executar an?lise ao reiniciar o HA",
+              "deep_learning_interval_days": "Aprendizagem profunda: executar a cada N dias",
+              "deep_learning_max_batch": "Tamanho do lote de aprendizagem profunda"
+            },
+            "data_description": {
+              "narrator_interval_days": "{narrator_run_stats}",
+              "deep_learning_interval_days": "{deep_learning_run_stats}"
+            }
+          },
+          "area_assignment": {
+            "name": "Atribui??es autom?ticas",
+            "data": {
+              "area_assignment_mode": "Modo de atribui??o de ?reas",
+              "label_assignment_mode": "Modo de atribui??o de etiquetas"
+            },
+            "data_description": {
+              "area_assignment_mode": "Sugerir ou aplicar automaticamente atribui??es de ?rea ?s entidades mencionadas na conversa.",
+              "label_assignment_mode": "Sugerir ou aplicar automaticamente etiquetas kyber: tipo-de-dispositivo ?s entidades na conversa."
+            }
+          },
+          "developer": {
+            "name": "Programador",
+            "data": {
+              "enable_debug_views": "Ativar vistas de depura??o (barra lateral Kyber Debug + ferramentas de depura??o por turno)"
+            }
+          }
+        }
+      }
+    }
+  }
+}

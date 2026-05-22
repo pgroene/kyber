@@ -1,0 +1,108 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kyber ? Einrichtung",
+        "description": "W?hlen Sie Ihre KI-Aufgaben-Entit?t und konfigurieren Sie Token-Limit sowie Startverhalten.",
+        "data": {
+          "ai_task_entity_id": "Chat-Modell",
+          "max_tokens": "Chat-Modell: Kontextfenster (Token)",
+          "narrator_ai_task_entity_id": "Operationsmodell (optional)",
+          "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)",
+          "enable_debug_views": "Debug-Ansichten aktivieren (Kyber-Debug-Seitenleiste + Debug-Tools pro Runde)",
+          "run_initial_analyze": "1 initialen Analyse-Durchlauf nach der Installation ausf?hren",
+          "initial_deep_learning_runs": "Initiale Deep-Learning-Durchl?ufe (1-10, empfohlen: 10)",
+          "narrator_enabled": "Entit?ts-Erz?hler aktivieren",
+          "narrator_max_batch": "Batch-Gr??e des Erz?hlers",
+          "area_assignment_mode": "Bereichszuteilungsmodus"
+        },
+        "data_description": {
+          "narrator_ai_task_entity_id": "Wird f?r Batch-Verarbeitung und kleine Aufgaben wie Entit?tsbeschreibungen verwendet. Ein kleineres, g?nstigeres Modell funktioniert hier gut. Standardm??ig das Chat-Modell."
+        }
+      },
+      "reconfigure": {
+        "title": "Kyber ? Neu konfigurieren",
+        "description": "Aktualisieren Sie Ihre KI-Aufgaben-Entit?t und Einstellungen.",
+        "data": {
+          "ai_task_entity_id": "Chat-Modell",
+          "max_tokens": "Chat-Modell: Kontextfenster (Token)",
+          "narrator_ai_task_entity_id": "Operationsmodell (optional)",
+          "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)",
+          "enable_debug_views": "Debug-Ansichten aktivieren (Kyber-Debug-Seitenleiste + Debug-Tools pro Runde)",
+          "run_initial_analyze": "1 initialen Analyse-Durchlauf nach der Installation ausf?hren",
+          "initial_deep_learning_runs": "Initiale Deep-Learning-Durchl?ufe (1-10, empfohlen: 10)",
+          "narrator_enabled": "Entit?ts-Erz?hler aktivieren",
+          "narrator_max_batch": "Batch-Gr??e des Erz?hlers",
+          "area_assignment_mode": "Bereichszuteilungsmodus"
+        },
+        "data_description": {
+          "narrator_ai_task_entity_id": "Wird f?r Batch-Verarbeitung und kleine Aufgaben wie Entit?tsbeschreibungen verwendet. Ein kleineres, g?nstigeres Modell funktioniert hier gut. Standardm??ig das Chat-Modell."
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Die ausgew?hlte KI-Aufgaben-Entit?t wurde nicht gefunden. Stellen Sie sicher, dass Ihre KI-Integration (z. B. Ollama, Home Assistant Cloud, OpenAI) eingerichtet ist und die Entit?t existiert.",
+      "cannot_connect": "Der KI-Anbieter konnte nicht erreicht werden. Pr?fen Sie Ihre Integrationskonfiguration."
+    },
+    "abort": {
+      "already_configured": "Kyber ist bereits konfiguriert.",
+      "reconfigure_successful": "Kyber wurde mit der neuen KI-Entit?t neu konfiguriert."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Kyber-Optionen",
+        "description": "Modelleinstellungen und Funktionsschalter aktualisieren.",
+        "sections": {
+          "model_config": {
+            "name": "Modellkonfiguration",
+            "data": {
+              "ai_task_entity_id": "Chat-Modell",
+              "max_tokens": "Chat-Modell: Kontextfenster (Token)",
+              "narrator_ai_task_entity_id": "Operationsmodell (optional)",
+              "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)"
+            },
+            "data_description": {
+              "max_tokens": "{chat_stats}",
+              "narrator_ai_task_entity_id": "Wird f?r Batch-Verarbeitung und kleine Aufgaben wie Entit?tsbeschreibungen verwendet. Ein kleineres, g?nstigeres Modell funktioniert hier gut. Standardm??ig das Chat-Modell.",
+              "narrator_max_tokens": "{ops_stats}"
+            }
+          },
+          "agents": {
+            "name": "Agenten",
+            "data": {
+              "narrator_enabled": "Entit?ts-Erz?hler aktivieren",
+              "narrator_interval_days": "Erz?hler: alle N Tage ausf?hren",
+              "narrator_max_batch": "Batch-Gr??e des Erz?hlers",
+              "run_initial_analyze": "Analyse-Durchlauf beim HA-Neustart ausf?hren",
+              "deep_learning_interval_days": "Deep Learning: alle N Tage ausf?hren",
+              "deep_learning_max_batch": "Deep-Learning-Batch-Gr??e"
+            },
+            "data_description": {
+              "narrator_interval_days": "{narrator_run_stats}",
+              "deep_learning_interval_days": "{deep_learning_run_stats}"
+            }
+          },
+          "area_assignment": {
+            "name": "Automatische Zuweisungen",
+            "data": {
+              "area_assignment_mode": "Bereichszuteilungsmodus",
+              "label_assignment_mode": "Label-Zuweisungsmodus"
+            },
+            "data_description": {
+              "area_assignment_mode": "Bereichszuweisungen f?r in Gespr?chen erw?hnte Entit?ten vorschlagen oder automatisch anwenden.",
+              "label_assignment_mode": "Kyber:-Ger?tetyp-Labels f?r Entit?ten im Gespr?ch vorschlagen oder automatisch anwenden."
+            }
+          },
+          "developer": {
+            "name": "Entwickler",
+            "data": {
+              "enable_debug_views": "Debug-Ansichten aktivieren (Kyber-Debug-Seitenleiste + Debug-Tools pro Runde)"
+            }
+          }
+        }
+      }
+    }
+  }
+}

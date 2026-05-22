@@ -1,0 +1,108 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kyber ? Konfiguracja",
+        "description": "Wybierz encj? zadania AI oraz skonfiguruj limit token?w i zachowanie przy uruchamianiu.",
+        "data": {
+          "ai_task_entity_id": "Model czatu",
+          "max_tokens": "Model czatu: okno kontekstu (tokeny)",
+          "narrator_ai_task_entity_id": "Model operacyjny (opcjonalnie)",
+          "narrator_max_tokens": "Model operacyjny: okno kontekstu (tokeny)",
+          "enable_debug_views": "W??cz widoki debugowania (panel boczny Kyber Debug + narz?dzia debugowania dla ka?dej tury)",
+          "run_initial_analyze": "Uruchom 1 wst?pny przebieg analizy po instalacji",
+          "initial_deep_learning_runs": "Pocz?tkowe przebiegi g??bokiego uczenia (1-10, zalecane: 10)",
+          "narrator_enabled": "W??cz narratora encji",
+          "narrator_max_batch": "Rozmiar partii narratora",
+          "area_assignment_mode": "Tryb przypisywania obszar?w"
+        },
+        "data_description": {
+          "narrator_ai_task_entity_id": "U?ywane do przetwarzania wsadowego i ma?ych zada?, takich jak opisy encji. Mniejszy i ta?szy model sprawdza si? tu dobrze. Domy?lnie u?ywany jest model czatu."
+        }
+      },
+      "reconfigure": {
+        "title": "Kyber ? Rekonfiguracja",
+        "description": "Zaktualizuj encj? zadania AI i ustawienia.",
+        "data": {
+          "ai_task_entity_id": "Model czatu",
+          "max_tokens": "Model czatu: okno kontekstu (tokeny)",
+          "narrator_ai_task_entity_id": "Model operacyjny (opcjonalnie)",
+          "narrator_max_tokens": "Model operacyjny: okno kontekstu (tokeny)",
+          "enable_debug_views": "W??cz widoki debugowania (panel boczny Kyber Debug + narz?dzia debugowania dla ka?dej tury)",
+          "run_initial_analyze": "Uruchom 1 wst?pny przebieg analizy po instalacji",
+          "initial_deep_learning_runs": "Pocz?tkowe przebiegi g??bokiego uczenia (1-10, zalecane: 10)",
+          "narrator_enabled": "W??cz narratora encji",
+          "narrator_max_batch": "Rozmiar partii narratora",
+          "area_assignment_mode": "Tryb przypisywania obszar?w"
+        },
+        "data_description": {
+          "narrator_ai_task_entity_id": "U?ywane do przetwarzania wsadowego i ma?ych zada?, takich jak opisy encji. Mniejszy i ta?szy model sprawdza si? tu dobrze. Domy?lnie u?ywany jest model czatu."
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Nie znaleziono wybranej encji zadania AI. Upewnij si?, ?e integracja AI (np. Ollama, Home Assistant Cloud, OpenAI) jest skonfigurowana i encja istnieje.",
+      "cannot_connect": "Nie uda?o si? po??czy? z dostawc? AI. Sprawd? konfiguracj? integracji."
+    },
+    "abort": {
+      "already_configured": "Kyber jest ju? skonfigurowany.",
+      "reconfigure_successful": "Kyber zosta? ponownie skonfigurowany z now? encj? AI."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opcje Kyber",
+        "description": "Zaktualizuj ustawienia modelu i flagi funkcji.",
+        "sections": {
+          "model_config": {
+            "name": "Konfiguracja modelu",
+            "data": {
+              "ai_task_entity_id": "Model czatu",
+              "max_tokens": "Model czatu: okno kontekstu (tokeny)",
+              "narrator_ai_task_entity_id": "Model operacyjny (opcjonalnie)",
+              "narrator_max_tokens": "Model operacyjny: okno kontekstu (tokeny)"
+            },
+            "data_description": {
+              "max_tokens": "{chat_stats}",
+              "narrator_ai_task_entity_id": "U?ywane do przetwarzania wsadowego i ma?ych zada?, takich jak opisy encji. Mniejszy i ta?szy model sprawdza si? tu dobrze. Domy?lnie u?ywany jest model czatu.",
+              "narrator_max_tokens": "{ops_stats}"
+            }
+          },
+          "agents": {
+            "name": "Agenci",
+            "data": {
+              "narrator_enabled": "W??cz narratora encji",
+              "narrator_interval_days": "Narrator: uruchamiaj co N dni",
+              "narrator_max_batch": "Rozmiar partii narratora",
+              "run_initial_analyze": "Uruchom analiz? po ponownym uruchomieniu HA",
+              "deep_learning_interval_days": "G??bokie uczenie: uruchamiaj co N dni",
+              "deep_learning_max_batch": "Rozmiar partii g??bokiego uczenia"
+            },
+            "data_description": {
+              "narrator_interval_days": "{narrator_run_stats}",
+              "deep_learning_interval_days": "{deep_learning_run_stats}"
+            }
+          },
+          "area_assignment": {
+            "name": "Automatyczne przypisania",
+            "data": {
+              "area_assignment_mode": "Tryb przypisywania obszar?w",
+              "label_assignment_mode": "Tryb przypisywania etykiet"
+            },
+            "data_description": {
+              "area_assignment_mode": "Sugeruj lub automatycznie stosuj przypisania obszar?w do encji wspomnianych w rozmowie.",
+              "label_assignment_mode": "Sugeruj lub automatycznie stosuj etykiety kyber: typ-urz?dzenia do encji wyst?puj?cych w rozmowie."
+            }
+          },
+          "developer": {
+            "name": "Deweloper",
+            "data": {
+              "enable_debug_views": "W??cz widoki debugowania (panel boczny Kyber Debug + narz?dzia debugowania dla ka?dej tury)"
+            }
+          }
+        }
+      }
+    }
+  }
+}
