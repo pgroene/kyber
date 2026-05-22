@@ -37,6 +37,13 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 
 ## [Unreleased]
 
+## [0.5.9] -- 2026-05-22
+
+### Changed
+- Entity chips in AI responses now show **live state** — when a light turns on/off the chip updates without a page reload
+- Entity chip formatting improved: no more duplicate entity ID text or parentheses around chips
+- Bullet lists with 4+ entity chips are automatically converted to a compact card grid
+- System prompt updated: AI now writes entity IDs as chips only, no surrounding plain text
 ## [0.5.8] -- 2026-05-22
 
 ### Added

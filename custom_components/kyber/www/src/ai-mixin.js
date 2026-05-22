@@ -483,28 +483,59 @@ export const AIMixin = (Base) => class extends Base {
     return icons[domain] || "🔧";
   }
 
+  _stateClass(stateVal) {
+    if (!stateVal) return "";
+    if (["on","home","open","playing","unlocked","heating","cooling"].includes(stateVal)) return "state-on";
+    if (["off","away","closed","idle","locked","unavailable"].includes(stateVal)) return "state-off";
+    if (stateVal === "unavailable") return "state-unavailable";
+    return "";
+  }
+
   _entityChip(entityId) {
     const state = this._hass?.states?.[entityId];
     const domain = entityId.split(".")[0];
     const icon = this._domainIcon(domain);
-    if (!state) {
-      const span = document.createElement("span");
-      span.className = "entity-chip";
-      span.title = entityId;
-      span.innerHTML = `<span class="entity-chip-icon">${icon}</span><span class="entity-chip-name">${this._escapeHTML(entityId)}</span>`;
-      return span;
-    }
-    const name = state.attributes?.friendly_name || entityId;
-    const stateVal = state.state;
+    const name = state?.attributes?.friendly_name || entityId;
+    const stateVal = state?.state || "";
+    const stateClass = this._stateClass(stateVal);
+    const domainClass = `domain-${domain.replace(/_/g, "-")}`;
     const span = document.createElement("span");
-    span.className = "entity-chip";
+    span.className = `entity-chip ${stateClass} ${domainClass}`.trim();
+    span.dataset.entityId = entityId;
     span.title = entityId;
-    span.innerHTML = `<span class="entity-chip-icon">${icon}</span><span class="entity-chip-name">${this._escapeHTML(name)}</span><span class="entity-chip-state">${this._escapeHTML(stateVal)}</span>`;
+    span.innerHTML = `<span class="entity-chip-icon">${icon}</span><span class="entity-chip-name">${this._escapeHTML(name)}</span>${stateVal ? `<span class="entity-chip-state">${this._escapeHTML(stateVal)}</span>` : ""}`;
     return span;
   }
 
+  // Called on every hass update — refreshes state/name on all live entity chips in chat
+  _refreshEntityChips() {
+    if (!this._hass?.states) return;
+    this.shadowRoot?.querySelectorAll(".entity-chip[data-entity-id]").forEach((chip) => {
+      const entityId = chip.dataset.entityId;
+      const state = this._hass.states[entityId];
+      if (!state) return;
+      const stateVal = state.state;
+      const name = state.attributes?.friendly_name || entityId;
+      const nameSpan = chip.querySelector(".entity-chip-name");
+      const stateSpan = chip.querySelector(".entity-chip-state");
+      if (nameSpan) nameSpan.textContent = name;
+      if (stateSpan) {
+        stateSpan.textContent = stateVal;
+      } else if (stateVal) {
+        const s = document.createElement("span");
+        s.className = "entity-chip-state";
+        s.textContent = stateVal;
+        chip.appendChild(s);
+      }
+      // Refresh state class
+      chip.classList.remove("state-on", "state-off", "state-unavailable");
+      const sc = this._stateClass(stateVal);
+      if (sc) chip.classList.add(sc);
+    });
+  }
+
   _injectEntityChips(container) {
-    // Walk text nodes in the container and replace backtick entity IDs with chips
+    // Walk text nodes and replace `backtick entity IDs` with live chips
     const ENTITY_ID_RE = /`([a-z_]+\.[a-z0-9_]+)`/g;
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
     const replacements = [];
@@ -527,6 +558,22 @@ export const AIMixin = (Base) => class extends Base {
       }
       if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
       textNode.parentNode.replaceChild(frag, textNode);
+    });
+  }
+
+  // Convert bullet lists where ≥4 items each contain an entity chip into a compact grid
+  _promoteEntityListsToGrid(container) {
+    container.querySelectorAll("ul, ol").forEach((list) => {
+      const items = Array.from(list.querySelectorAll(":scope > li"));
+      const chipItems = items.filter((li) => li.querySelector(".entity-chip[data-entity-id]"));
+      if (chipItems.length < 4) return;
+      const grid = document.createElement("div");
+      grid.className = "entity-result-grid";
+      chipItems.forEach((li) => {
+        const chip = li.querySelector(".entity-chip[data-entity-id]");
+        if (chip) grid.appendChild(chip);  // move (not clone) so data-entity-id stays live
+      });
+      list.parentNode.replaceChild(grid, list);
     });
   }
 
@@ -854,6 +901,8 @@ export const AIMixin = (Base) => class extends Base {
 
       // Replace backtick entity IDs (e.g. `media_player.tv`) with rich entity chips
       this._injectEntityChips(msg);
+      // Promote large entity lists (≥4 chips) to compact grid
+      this._promoteEntityListsToGrid(msg);
 
       history.appendChild(msg);
 
