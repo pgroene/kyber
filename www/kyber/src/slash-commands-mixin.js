@@ -581,10 +581,21 @@ export const SlashMixin = (Base) => class extends Base {
       return;
     }
 
+    // Fetch release notes from our API (non-fatal if it fails)
+    let hacsReleaseNotes = "";
+    try {
+      const rInfo = await this._hass.callApi("GET", "kyber/self_update");
+      hacsReleaseNotes = rInfo.release_notes || "";
+    } catch (_) { /* non-fatal */ }
+
     this._buildCommandCard({
       icon: "⬆️",
       title: `Update Kyber via HACS${withRestart ? " + Restart" : ""}`,
-      detail: `v${installedVer} → v${latestVer}${withRestart ? "\n⚠️ HA will restart after update." : ""}`,
+      detail: [
+        `v${installedVer} → v${latestVer}`,
+        hacsReleaseNotes ? `\n📋 ${hacsReleaseNotes.trim()}` : "",
+        withRestart ? "\n⚠️ HA will restart after update." : "",
+      ].filter(Boolean).join(""),
       warning: withRestart ? "Home Assistant will restart. Active sessions will be interrupted." : null,
       onConfirm: async (card) => {
         const t = this._t || ((k) => k);
@@ -593,7 +604,13 @@ export const SlashMixin = (Base) => class extends Base {
         try {
           await this._hass.callService("update", "install", { entity_id: entityId });
           btn.textContent = `${t("update_installed")} v${latestVer}`;
-          this._appendMessage(`✅ Kyber updated to **v${latestVer}**${releaseUrl ? ` — [release notes](${releaseUrl})` : ""}.${withRestart ? "\n⏳ Restarting…" : ""}`, "assistant");
+          this._appendMessage(
+            `✅ Kyber updated to **v${latestVer}**.\n\n` +
+            (hacsReleaseNotes
+              ? `📋 **Release notes:**\n${hacsReleaseNotes}`
+              : (releaseUrl ? `[Release notes](${releaseUrl})` : "")),
+            "assistant"
+          );
           this._checkUpdateBadge();
           if (withRestart) {
             await new Promise((r) => setTimeout(r, 1500));
@@ -648,9 +665,13 @@ export const SlashMixin = (Base) => class extends Base {
         try {
           const result = await this._hass.callApi("POST", "kyber/self_update", { restart: withRestart });
           btn.textContent = `${t("update_updated")} v${latest_version}`;
+          const postNotes = result.release_notes || "";
           this._appendMessage(
-            `✅ Kyber force-updated to **v${latest_version}**${release_url ? ` — [release notes](${release_url})` : ""}.` +
-            (result.restarting ? "\n⏳ Restarting Home Assistant…" : "\n🔄 Restart HA to apply the new version."),
+            `✅ Kyber force-updated to **v${latest_version}**.\n\n` +
+            (postNotes
+              ? `📋 **Release notes:**\n${postNotes}`
+              : (release_url ? `[Release notes](${release_url})` : "")) +
+            (result.restarting ? "\n\n⏳ Restarting Home Assistant…" : "\n\n🔄 Restart HA to apply the new version."),
             "assistant"
           );
           this._checkUpdateBadge();
