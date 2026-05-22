@@ -37,6 +37,24 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 
 ## [Unreleased]
 
+## [0.5.8] -- 2026-05-22
+
+### Added
+- **Chat history compaction** -- when history exceeds 12 000 chars or 20 messages, oldest context is summarized and replaced with a `-- Older context was summarized --` banner; prevents context-window overflow (#223)
+- **Meta field + action history entry ID** -- `[CHANGE]` chat messages now store `history_entry_id` so the Undo button can be restored after a panel reload (#223)
+- **Undo button restore on reload** -- chat messages that had an Undo button re-fetch the action history entry on load and re-render a live Undo or greyed Undone button (#223)
+- **Action history** -- new `KyberActionHistoryView` + `KyberActionHistoryEntryView` API endpoints; history panel in the UI (#223)
+- **Memory improvements** -- equivalence detection (`X and Y are the same`), routine categories, action history integration
+- **Release notes inline** -- `/update` and `/update force` now show release notes inline in chat after install instead of just a link (#224)
+- **Entity chip adornments** -- AI response text now renders entity IDs as interactive chips with domain icons and live state
+
+### Fixed
+- **[Critical]** `action_history.py` missing from v0.5.7 release (v0.5.7.1)
+- **[Critical]** JS frontend files not synced to `www/` mirror, causing `_loadActionHistory is not a function` (v0.5.7.2)
+- **[Critical]** Browser cache serving stale JS mixin files -- bumped all import version numbers (v0.5.7.3)
+- **[Critical]** Entity adornments not showing -- AI never instructed to use backtick notation for entity IDs (v0.5.7.4)
+- `sync_www.py` now syncs JS files as well as Python files -- prevents mirror drift
+
 ### Added
 - **10 new language translations**: DE, FR, ES, IT, PT, PL, HU, SV, RU, ZH-Hans
 - **Self-healing execution** â€” when a plan action fails, a correction micro-agent automatically re-tries with domain-specific knowledge; result shown in chat with `[ðŸ”§ CORRECTION]` marker (closes #187)
