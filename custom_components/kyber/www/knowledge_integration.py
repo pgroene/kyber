@@ -16,14 +16,41 @@ from homeassistant.exceptions import HomeAssistantError
 
 from .api_utilities import async_ai_call
 
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
+from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, _sanitize_user_input
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
 from . import deep_analyzer as _deep
 from .analyzer import analyze_automations as _analyze_automations
 
 _LOGGER = logging.getLogger(__name__)
 
-# ── Background deep-analysis job state ───────────────────────────────────────
+
+def _sanitize_knowledge_payload(
+    body: dict[str, Any], *, fields: tuple[str, ...]
+) -> tuple[dict[str, Any], bool]:
+    """Sanitize user-controlled knowledge fields and report whether anything changed."""
+    sanitized = False
+    updates: dict[str, Any] = {}
+
+    for field in fields:
+        if field not in body:
+            continue
+        if field == "tags":
+            cleaned_tags: list[str] = []
+            for tag in list(body.get("tags", []) or []):
+                cleaned_tag, changed = _sanitize_user_input(str(tag))
+                sanitized = sanitized or changed
+                cleaned_tags.append(cleaned_tag)
+            updates[field] = cleaned_tags
+            continue
+
+        cleaned_value, changed = _sanitize_user_input(str(body.get(field, "")))
+        sanitized = sanitized or changed
+        updates[field] = cleaned_value
+
+    return updates, sanitized
+
+
+# â”€â”€ Background deep-analysis job state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Single-job tracker: only one deep analysis can run at a time.
 _DEEP_JOB: dict[str, Any] = {
     "running": False,
@@ -96,7 +123,7 @@ async def _async_background_deep_analysis(
             "duration_s": round(_DEEP_JOB["finished_at"] - (_DEEP_JOB["started_at"] or 0), 1),
         }
         _LOGGER.warning(
-            "Kyber deep analysis complete — %d items analyzed, %d facts stored in %d passes",
+            "Kyber deep analysis complete â€” %d items analyzed, %d facts stored in %d passes",
             _DEEP_JOB["analyzed"], _DEEP_JOB["facts"], _DEEP_JOB["run"],
         )
 
@@ -106,22 +133,22 @@ _FACT_EXTRACTION_PROMPT = """\
 You are a fact extractor for a Home Assistant AI assistant.
 Analyse the user message and conversation context for TWO types of learnable facts:
 
-TYPE 1 — ALIAS: User equates two terms ("X en Y zijn hetzelfde", "X is my Y", "X and Y are the same").
+TYPE 1 â€” ALIAS: User equates two terms ("X en Y zijn hetzelfde", "X is my Y", "X and Y are the same").
 Output: {{"type":"alias","subject":"<HA entity_id or area name>","user_term":"<colloquial word>",\
 "content":"When user says '<user_term>' they mean '<subject>'.","category":"entity_alias",\
 "tags":["<user_term>","<subject>"]}}
 
-TYPE 2 — ROUTINE: User expresses a recurring time/context preference ("elke ochtend", "als ik wakker word",
+TYPE 2 â€” ROUTINE: User expresses a recurring time/context preference ("elke ochtend", "als ik wakker word",
 "every morning", "next time I ...", "volgende keer als ...").
 Output: {{"type":"routine","subject":"<short label e.g. morning coffee>",\
-"content":"<when context> → <action>","category":"routine","tags":["<context word>","<action word>"]}}
+"content":"<when context> â†’ <action>","category":"routine","tags":["<context word>","<action word>"]}}
 
 User said: "{user_prompt}"
 Recent conversation context:
 {context_snippet}
 
 Return a JSON array of found facts, e.g. [{{}}, {{}}], or [] if nothing learnable.
-Output ONLY valid JSON — no prose, no markdown fences.
+Output ONLY valid JSON â€” no prose, no markdown fences.
 """
 
 async def _try_extract_learned_facts(
@@ -186,7 +213,7 @@ async def _try_extract_learned_fact(
     user_prompt: str,
     context_snippet: str,
 ) -> dict[str, Any] | None:
-    """Legacy single-fact wrapper — returns first extracted fact or None."""
+    """Legacy single-fact wrapper â€” returns first extracted fact or None."""
     facts = await _try_extract_learned_facts(hass, entity_id, user_prompt, context_snippet)
     return facts[0] if facts else None
 
@@ -194,10 +221,10 @@ async def _try_extract_learned_fact(
 class KyberKnowledgeView(HomeAssistantView):
     """CRUD endpoint for learned knowledge entries.
 
-    GET    /api/kyber/knowledge            → list all
-    GET    /api/kyber/knowledge?q=...      → search
-    POST   /api/kyber/knowledge            → add (body: category, content, ...)
-    DELETE /api/kyber/knowledge?id=ENTRYID → delete
+    GET    /api/kyber/knowledge            â†’ list all
+    GET    /api/kyber/knowledge?q=...      â†’ search
+    POST   /api/kyber/knowledge            â†’ add (body: category, content, ...)
+    DELETE /api/kyber/knowledge?id=ENTRYID â†’ delete
     """
 
     url = "/api/kyber/knowledge"
@@ -243,19 +270,38 @@ class KyberKnowledgeView(HomeAssistantView):
                        if k in ("category", "subject", "content", "tags",
                                 "confidence", "source", "provenance",
                                 "user_rating", "needs_review")}
+            sanitized_changes, was_sanitized = _sanitize_knowledge_payload(
+                body,
+                fields=("subject", "content", "tags"),
+            )
+            if was_sanitized:
+                return self.json_message(
+                    "Knowledge input contains disallowed prompt-injection content",
+                    HTTPStatus.BAD_REQUEST,
+                )
+            changes.update(sanitized_changes)
             updated = await kstore.async_update(str(entry_id), **changes)
             if not updated:
                 return self.json_message(f"Entry '{entry_id}' not found", HTTPStatus.NOT_FOUND)
             return self.json({"status": "ok", "entry": updated})
-        content = str(body.get("content", "")).strip()
+        sanitized_fields, was_sanitized = _sanitize_knowledge_payload(
+            body,
+            fields=("subject", "content", "tags"),
+        )
+        if was_sanitized:
+            return self.json_message(
+                "Knowledge input contains disallowed prompt-injection content",
+                HTTPStatus.BAD_REQUEST,
+            )
+        content = str(sanitized_fields.get("content", body.get("content", ""))).strip()
         if not content:
             return self.json_message("Missing 'content' field", HTTPStatus.BAD_REQUEST)
         try:
             entry = await kstore.async_add(
                 category=str(body.get("category", "general")),
                 content=content,
-                subject=str(body.get("subject", "")),
-                tags=list(body.get("tags", []) or []),
+                subject=str(sanitized_fields.get("subject", body.get("subject", ""))),
+                tags=list(sanitized_fields.get("tags", body.get("tags", []) or [])),
                 source=str(body.get("source", "user")),
                 confidence=float(body.get("confidence", 1.0)),
                 provenance=str(body.get("provenance", "Added manually by user")),
@@ -282,8 +328,8 @@ class KyberKnowledgeView(HomeAssistantView):
 class KyberKnowledgeAnalyzeView(HomeAssistantView):
     """Run the automation/scene/script analyzer and return inferred proposals.
 
-    GET  /api/kyber/knowledge/analyze         → return proposals (not saved)
-    POST /api/kyber/knowledge/analyze         → body: {entry_indices: [...], save: true}
+    GET  /api/kyber/knowledge/analyze         â†’ return proposals (not saved)
+    POST /api/kyber/knowledge/analyze         â†’ body: {entry_indices: [...], save: true}
                                                 save selected proposals
     """
 
@@ -336,8 +382,8 @@ class KyberKnowledgeDeepAnalyzeView(HomeAssistantView):
     the home that the item implies. Accepted facts are saved into the
     KnowledgeStore tagged with `deep:<kind>` + `src:<ident>`.
 
-    GET  /api/kyber/knowledge/analyze_deep        → memo status (what's been analyzed)
-    POST /api/kyber/knowledge/analyze_deep        → run a sweep
+    GET  /api/kyber/knowledge/analyze_deep        â†’ memo status (what's been analyzed)
+    POST /api/kyber/knowledge/analyze_deep        â†’ run a sweep
        body: {kinds?: ["automation","script","blueprint"],
               limit?: int = 5,
               force?: bool = false}
@@ -374,7 +420,7 @@ class KyberKnowledgeDeepAnalyzeView(HomeAssistantView):
         limit = max(1, min(50, limit))
         force = bool(body.get("force", False))
 
-        # background=true → fire-and-forget, return immediately with job state
+        # background=true â†’ fire-and-forget, return immediately with job state
         if body.get("background"):
             if _DEEP_JOB["running"]:
                 return self.json({"status": "already_running", "job": dict(_DEEP_JOB)})
@@ -492,7 +538,7 @@ class KyberKnowledgeFeedbackView(HomeAssistantView):
         })
 
 
-# ── Status accessor for _DEEP_JOB (used by debug status view) ────────────────
+# â”€â”€ Status accessor for _DEEP_JOB (used by debug status view) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def get_deep_job_status() -> dict:
     """Return a copy of the current deep analysis job state."""
     return dict(_DEEP_JOB)

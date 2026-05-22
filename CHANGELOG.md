@@ -43,6 +43,7 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 - Hardened authenticated Kyber API endpoints: admin-only debug/prompt-test access is enforced server-side, action history is scoped to the authenticated user, internal exception details are no longer returned to clients, and the debug tab is hidden for non-admin users.
 - Redacted credential-like values from debug bundles, blocked knowledge entries that contain API keys or passwords, and avoided exposing provider secrets through Kyber diagnostics.
 - Added per-user request throttling for `/api/kyber/complete`, exposed a configurable requests-per-minute limit, and showed a friendly wait message in the frontend when Kyber returns HTTP 429.
+- Sanitized prompt-injection markers before building AI context, rejected injected knowledge writes, and stripped control-token markers from source display names.
 
 ## [0.5.9] -- 2026-05-22
 
