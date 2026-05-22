@@ -5,8 +5,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-import re
-
 DOMAIN = "kyber"
 
 _INJECTION_PATTERNS = [
