@@ -5,7 +5,35 @@ from __future__ import annotations
 import re
 from typing import Any
 
+import re
+
 DOMAIN = "kyber"
+
+_INJECTION_PATTERNS = [
+    re.compile(r'(?i)ignore\s+(previous|all|prior)\s+instructions?'),
+    re.compile(r'(?i)forget\s+(your|all|previous)\s+instructions?'),
+    re.compile(r'(?i)you\s+are\s+now\s+a\b'),
+    re.compile(r'(?i)act\s+as\s+(if\s+you\s+are|a\s+(?!kyber))\b'),
+    re.compile(r'(?i)disregard\s+(previous|all|your)'),
+    re.compile(r'<\|?(system|user|assistant)\|?>'),
+]
+
+
+def _sanitize_user_input(text: str) -> tuple[str, bool]:
+    """Remove common prompt-injection phrases from user-controlled text."""
+    if not isinstance(text, str):
+        text = str(text) if text is not None else ""
+
+    cleaned = text
+    sanitized = False
+    for pattern in _INJECTION_PATTERNS:
+        updated = pattern.sub(" ", cleaned)
+        if updated != cleaned:
+            sanitized = True
+            cleaned = updated
+
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned, sanitized
 
 CONF_AI_TASK_ENTITY_ID = "ai_task_entity_id"
 CONF_NARRATOR_AI_TASK_ENTITY_ID = "narrator_ai_task_entity_id"

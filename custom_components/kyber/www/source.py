@@ -27,6 +27,13 @@ _MEMO_VERSION = 1
 _MEMO_KEY = "kyber_analysis_memo"
 
 
+def _strip_prompt_delimiters(text: Any) -> str:
+    """Remove prompt-role delimiter characters from user-visible names."""
+    if text is None:
+        return ""
+    return str(text).translate({ord("<"): None, ord(">"): None, ord("|"): None})
+
+
 # ── Hashing ──────────────────────────────────────────────────────────
 def content_hash(obj: Any) -> str:
     """Stable SHA-256 hash of any JSON/YAML-serialisable structure."""
@@ -126,7 +133,7 @@ def read_automations(hass: HomeAssistant) -> list[dict[str, Any]]:
             actions = [actions]
         out.append({
             "id": str(cfg.get("id", f"_anon_{idx}")),
-            "alias": cfg.get("alias") or "",
+            "alias": _strip_prompt_delimiters(cfg.get("alias") or ""),
             "description": cfg.get("description") or "",
             "mode": cfg.get("mode", "single"),
             "trigger": triggers,
@@ -149,7 +156,7 @@ def read_scripts(hass: HomeAssistant) -> list[dict[str, Any]]:
             seq = [seq]
         out.append({
             "id": str(cfg.get("id", f"_anon_{idx}")),
-            "alias": cfg.get("alias") or cfg.get("name") or cfg.get("id") or "",
+            "alias": _strip_prompt_delimiters(cfg.get("alias") or cfg.get("name") or cfg.get("id") or ""),
             "description": cfg.get("description") or "",
             "mode": cfg.get("mode", "single"),
             "sequence": seq,
@@ -179,7 +186,7 @@ def read_blueprints(hass: HomeAssistant) -> list[dict[str, Any]]:
         out.append({
             "path": rel_str,
             "kind": kind,
-            "name": meta.get("name") or path.stem,
+            "name": _strip_prompt_delimiters(meta.get("name") or path.stem),
             "description": meta.get("description") or "",
             "domain": meta.get("domain") or kind,
             "source_url": meta.get("source_url") or "",
