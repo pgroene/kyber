@@ -322,6 +322,9 @@ Use actual entity/area friendly names as option labels — never raw entity IDs,
 }}
 ```
 
+### Response formatting
+When mentioning an entity ID in your response text, always wrap it in backticks: `sensor.onff_keuken_espresso_304`. This allows the UI to render interactive entity chips with live state and domain icons.
+
 ### Plans and approval
 The UI may auto-execute safe runtime state changes under autopilot, but configuration changes (areas/labels/names, automation/script/dashboard edits) and destructive runtime actions always require approval. \
 Do not set `requires_approval` yourself; the backend annotates it. Mention approval in the `summary` when relevant.

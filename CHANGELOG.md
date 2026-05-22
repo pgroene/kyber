@@ -6,6 +6,13 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 
 ---
 
+## [0.5.7.4] -- 2026-05-22
+
+### Fixed
+- Entity IDs in AI response text were not rendered as interactive chips because the system prompt never instructed the AI to wrap them in backticks. Added `### Response formatting` rule: entity IDs in response text must use backtick notation so \\_injectEntityChips\\ can convert them to live-state entity chips with domain icons
+
+---
+
 ## [0.5.7.3] — 2026-05-22
 
 ### Fixed
