@@ -40,7 +40,7 @@ from .const import (
 from .analyzer import analyze_automations as _analyze_automations
 from . import deep_analyzer as _deep
 from .knowledge import get_knowledge_store
-from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView, KyberLabelsView, KyberAreaSuggestionsView, KyberProposalApproveView, KyberPingView, KyberSelfUpdateView, KyberNarratorRunView, KyberExplorerRunView
+from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberGuardrailsView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView, KyberLabelsView, KyberAreaSuggestionsView, KyberProposalApproveView, KyberPingView, KyberSelfUpdateView, KyberNarratorRunView, KyberExplorerRunView
 from .action_history import KyberActionHistoryView, KyberActionHistoryUndoView, KyberActionHistoryEntryView
 from .debug_and_diagnostics import KyberHomeExportView, KyberMemoryExportView, KyberGlobalLogHandler, KyberDebugLogsView
 
@@ -525,6 +525,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     if _DOMAIN not in hass.data or not isinstance(hass.data.get(_DOMAIN), dict):
         hass.data[_DOMAIN] = {}
     hass.data[_DOMAIN].setdefault(AREA_REPORTS_KEY, [])
+    hass.data[_DOMAIN].setdefault("autopilot_overrides", {})
 
     # Initialize per-agent asyncio locks to prevent concurrent runs
     import asyncio as _asyncio_locks
@@ -541,6 +542,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberSessionNameView(config))
     hass.http.register_view(KyberSaveView())
     hass.http.register_view(KyberExecuteView())
+    hass.http.register_view(KyberGuardrailsView())
     hass.http.register_view(KyberActionHistoryView())
     hass.http.register_view(KyberActionHistoryUndoView())
     hass.http.register_view(KyberActionHistoryEntryView())

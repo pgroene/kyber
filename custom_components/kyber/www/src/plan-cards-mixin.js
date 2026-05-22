@@ -107,6 +107,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
     };
     const ON_STATES = new Set(["on", "open", "home", "playing", "unlocked", "active", "true",
       "heat", "cool", "auto", "fan_only", "dry", "heat_cool", "heat_cool"]);
+    const HIGH_RISK_DOMAINS = new Set(["lock", "alarm_control_panel", "cover", "garage_door", "input_boolean"]);
 
     const typeLabels = {
       assign_area: "Area",
@@ -188,6 +189,19 @@ export const PlanCardsMixin = (Base) => class extends Base {
       (a) => !a.entity_id || areaOnlyTypes.has(a.type) || serviceTypes.has(a.type) || !invalidEntities.has(a.entity_id)
     );
     const hasExecutable = executableActions.length > 0;
+    const highRiskDomains = [...new Set(
+      executableActions
+        .filter((a) => a.type === "call_service")
+        .map((a) => (a.domain || a.entity_id?.split(".")?.[0] || "").toLowerCase())
+        .filter((domain) => HIGH_RISK_DOMAINS.has(domain))
+    )];
+    const guardrailControls = highRiskDomains
+      .map((domain) => `
+        <label class="plan-guardrail-option">
+          <input type="checkbox" data-guardrail-domain="${this._escapeHtml(domain)}">
+          Allow autopilot for ${this._escapeHtml(domain)} actions
+        </label>`)
+      .join("");
 
     // Split executable actions by approval requirement.
     // Config/destructive actions (assign_area, rename_entity, lock unlock, etc.)
@@ -210,6 +224,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
       ${missingWarning}
       ${warnings}
       ${approvalBadge}
+      ${guardrailControls ? `<div class="plan-warning">⚠ High-risk autopilot domains require confirmation unless you allow them below.${guardrailControls}</div>` : ""}
       ${autopilotCanRun && !requiresApproval
         ? `<div class="plan-result" style="color:var(--warning-color,#ff9800);font-size:12px">⚡ Autopilot: executing in 2s…</div>`
         : `<button class="btn-execute"${hasExecutable ? "" : " disabled"}>✅ Execute${invalidEntities.size > 0 && hasExecutable ? ` (${executableActions.length} of ${(plan.actions || []).length})` : ""}</button>`
@@ -220,6 +235,34 @@ export const PlanCardsMixin = (Base) => class extends Base {
     // Grab the result element (last .plan-result in card)
     const allResults = card.querySelectorAll(".plan-result");
     const resultEl = allResults[allResults.length - 1];
+    const guardrailInputs = [...card.querySelectorAll("[data-guardrail-domain]")];
+
+    if (guardrailInputs.length > 0) {
+      this._hass.callApi("GET", "kyber/guardrails")
+        .then((data) => {
+          const overrides = data?.overrides || {};
+          guardrailInputs.forEach((input) => {
+            const domain = input.dataset.guardrailDomain;
+            input.checked = overrides[domain] === "auto";
+          });
+        })
+        .catch(() => {});
+      guardrailInputs.forEach((input) => {
+        input.addEventListener("change", async () => {
+          input.disabled = true;
+          try {
+            await this._hass.callApi("POST", "kyber/guardrails", {
+              domain: input.dataset.guardrailDomain,
+              mode: input.checked ? "auto" : "ask",
+            });
+          } catch (err) {
+            input.checked = !input.checked;
+          } finally {
+            input.disabled = false;
+          }
+        });
+      });
+    }
 
     // doExecute(opts): user click = approved:true (runs all incl. config changes).
     // Autopilot path passes approved:false and only the safe subset.

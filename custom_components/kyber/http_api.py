@@ -113,7 +113,7 @@ from .debug_and_diagnostics import (
 from .action_execution import (
     _CONFIG_CHANGING_ACTION_TYPES, _DESTRUCTIVE_SERVICES,
     _action_requires_approval, _annotate_plan_approval, _build_service_undo,
-    KyberExecuteView,
+    KyberExecuteView, KyberGuardrailsView,
 )
 from .knowledge_integration import (
     _FACT_EXTRACTION_PROMPT, _try_extract_learned_fact, _try_extract_learned_facts,

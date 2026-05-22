@@ -16,11 +16,32 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
 
 from .action_history import get_store as get_action_history_store
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
+from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, _HIGH_RISK_DOMAINS
 from .knowledge import get_store as get_knowledge_store
 from .tool_execution import _execute_tool
 
 _LOGGER = logging.getLogger(__name__)
+_AUTOPILOT_OVERRIDES_KEY = "autopilot_overrides"
+
+
+def _get_autopilot_overrides(hass: HomeAssistant) -> dict[tuple[str | None, str], str]:
+    """Return the in-memory per-user autopilot override map."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    return domain_data.setdefault(_AUTOPILOT_OVERRIDES_KEY, {})
+
+
+def _get_autopilot_mode(hass: HomeAssistant, user_id: str | None, domain: str) -> str:
+    """Return the effective autopilot mode for a user/domain pair."""
+    if domain not in _HIGH_RISK_DOMAINS:
+        return "auto"
+    overrides = _get_autopilot_overrides(hass)
+    return overrides.get((user_id, domain), "ask")
+
+
+def _get_user_guardrail_modes(hass: HomeAssistant, user_id: str | None) -> dict[str, str]:
+    """Return the current high-risk domain guardrail modes for one user."""
+    return {domain: _get_autopilot_mode(hass, user_id, domain) for domain in sorted(_HIGH_RISK_DOMAINS)}
+
 # Action types that change Home Assistant CONFIGURATION (registry/persistent
 # data) and therefore must always require explicit user approval, even when
 # autopilot is enabled. Runtime state changes (call_service turn_on/off) can
@@ -166,6 +187,41 @@ def _build_service_undo(domain: str, service: str, entity_id: str, pre_state: An
                     "description": f"Restore {entity_id} volume to {old_vol}"}
     return None
 
+class KyberGuardrailsView(HomeAssistantView):
+    """Manage per-user autopilot guardrail overrides for high-risk domains."""
+
+    url = "/api/kyber/guardrails"
+    name = "api:kyber:guardrails"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        ha_user = request.get("hass_user")
+        user_id = str(getattr(ha_user, "id", "") or "") or None
+        return self.json({"overrides": _get_user_guardrail_modes(request.app["hass"], user_id)})
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        ha_user = request.get("hass_user")
+        user_id = str(getattr(ha_user, "id", "") or "") or None
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
+        domain = str(body.get("domain", "")).strip().lower()
+        mode = str(body.get("mode", "")).strip().lower()
+        if domain not in _HIGH_RISK_DOMAINS:
+            return self.json_message("Unsupported high-risk domain", HTTPStatus.BAD_REQUEST)
+        if mode not in {"ask", "auto"}:
+            return self.json_message("Mode must be 'ask' or 'auto'", HTTPStatus.BAD_REQUEST)
+        _get_autopilot_overrides(hass)[(user_id, domain)] = mode
+        return self.json({
+            "status": "ok",
+            "domain": domain,
+            "mode": mode,
+            "overrides": _get_user_guardrail_modes(hass, user_id),
+        })
+
+
 class KyberExecuteView(HomeAssistantView):
     """Handle POST /api/kyber/execute — applies entity registry actions."""
 
@@ -205,14 +261,27 @@ class KyberExecuteView(HomeAssistantView):
                         "service": action.get("service"),
                         "reason": "Configuration / destructive action requires explicit user approval.",
                     })
+                    continue
+                if str(action.get("type", "")).lower() == "call_service":
+                    guardrail_domain = str(action.get("domain", "")).strip().lower()
+                    guardrail_entity_id = str(action.get("entity_id", "")).strip().lower()
+                    if not guardrail_domain and "." in guardrail_entity_id:
+                        guardrail_domain = guardrail_entity_id.split(".", 1)[0]
+                    if guardrail_domain in _HIGH_RISK_DOMAINS and _get_autopilot_mode(hass, user_id, guardrail_domain) != "auto":
+                        blocked.append({
+                            "type": action.get("type"),
+                            "entity_id": action.get("entity_id"),
+                            "domain": guardrail_domain,
+                            "service": action.get("service"),
+                            "reason": f"Autopilot guardrail is set to ask for '{guardrail_domain}' actions.",
+                        })
             if blocked:
                 return self.json({
                     "status": "approval_required",
                     "blocked_actions": blocked,
                     "message": (
-                        "These actions change Home Assistant configuration or are "
-                        "destructive and cannot be auto-executed. The user must click "
-                        "Execute to approve them."
+                        "These actions require confirmation. Click Execute to approve them, "
+                        "or enable a per-domain autopilot override for high-risk domains."
                     ),
                 }, status_code=HTTPStatus.FORBIDDEN)
 

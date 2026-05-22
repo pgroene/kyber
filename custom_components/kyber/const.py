@@ -9,6 +9,8 @@ import re
 
 DOMAIN = "kyber"
 
+_HIGH_RISK_DOMAINS = {"lock", "alarm_control_panel", "cover", "garage_door", "input_boolean"}
+
 _INJECTION_PATTERNS = [
     re.compile(r'(?i)ignore\s+(previous|all|prior)\s+instructions?'),
     re.compile(r'(?i)forget\s+(your|all|previous)\s+instructions?'),
