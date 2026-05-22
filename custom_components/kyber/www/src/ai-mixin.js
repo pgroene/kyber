@@ -645,7 +645,7 @@ export const AIMixin = (Base) => class extends Base {
     const allQuoted = [...strippedText.matchAll(/"([^"]{1,40})"/g)].map((m) => m[1]);
     if (allQuoted.length >= 2) {
       allQuoted.forEach((v) => { if (!chips.includes(v)) chips.push(v); });
-      return chips.slice(0, 12);
+      return chips.slice(0, 6);
     }
 
     return chips;
