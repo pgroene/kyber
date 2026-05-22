@@ -84,8 +84,8 @@ jobs:
         working-directory: www/kyber
       - name: JS syntax check
         run: |
-          node --check www/kyber/kyber-panel.js
-          for f in www/kyber/src/*.js; do node --check "$f"; done
+          node --check custom_components/kyber/www/kyber-panel.js
+          for f in custom_components/kyber/www/src/*.js; do node --check "$f"; done
       - name: Run JS tests
         run: npm test
         working-directory: www/kyber
@@ -196,7 +196,6 @@ jobs:
           from pathlib import Path
           for init in [
               Path("custom_components/kyber/__init__.py"),
-              Path("custom_components/kyber/www/__init__.py"),
           ]:
               if not init.exists():
                   continue
@@ -207,19 +206,6 @@ jobs:
                   init.write_text(new_text)
                   print(f"  bumped cache-bust in {init}")
           EOF
-
-      # ── Sync www/ Python mirror ─────────────────────────────────────────
-      - name: Sync www/ Python mirror
-        run: python scripts/sync_www.py
-
-      # ── Sync JS files into www mirror ───────────────────────────────────
-      - name: Sync JS files to www mirror
-        run: |
-          for f in www/kyber/src/*.js; do
-            cp "$f" "custom_components/kyber/www/src/$(basename $f)"
-          done
-          cp www/kyber/kyber-panel.js custom_components/kyber/www/kyber-panel.js
-          echo "JS files synced"
 
       # ── Promote [Unreleased] in CHANGELOG ──────────────────────────────
       - name: Update CHANGELOG
@@ -275,7 +261,6 @@ jobs:
           git add \
             custom_components/kyber/manifest.json \
             custom_components/kyber/__init__.py \
-            custom_components/kyber/www/__init__.py \
             custom_components/kyber/www/kyber-panel.js \
             custom_components/kyber/www/src/ \
             CHANGELOG.md

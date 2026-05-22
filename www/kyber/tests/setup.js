@@ -7,7 +7,7 @@
  */
 
 // Register the custom element
-await import("../kyber-panel.js");
+await import("kyber-www/kyber-panel.js");
 
 /**
  * Clean up all appended elements after each test so DOM is fresh.

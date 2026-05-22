@@ -26,9 +26,6 @@ jobs:
       - name: Install test dependencies
         run: pip install -r requirements-test.txt
 
-      - name: Check www/ mirror is in sync
-        run: python scripts/sync_www.py --check
-
       - name: Run tests
         run: pytest tests/ -v --tb=short
         env:
@@ -53,7 +50,7 @@ jobs:
         working-directory: www/kyber
 
       - name: Check JS syntax
-        run: node --check www/kyber/kyber-panel.js && for f in www/kyber/src/*.js; do node --check "$f"; done
+        run: node --check custom_components/kyber/www/kyber-panel.js && for f in custom_components/kyber/www/src/*.js; do node --check "$f"; done
 
       - name: Run JS tests
         run: npm test

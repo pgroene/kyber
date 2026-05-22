@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, "../..");
 
 export default defineConfig({
   testDir: "./tests/ui",
@@ -33,9 +34,9 @@ export default defineConfig({
     },
   ],
 
-  // Spin up a local static file server serving www/kyber/
+  // Serve the repo root so tests can access both www/ and custom_components/kyber/www/
   webServer: {
-    command: `npx serve ${__dirname} -p 7878 --no-clipboard`,
+    command: `npx serve ${repoRoot} -p 7878 --no-clipboard`,
     port: 7878,
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
