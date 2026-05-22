@@ -1,13 +1,13 @@
 import { vi } from "vitest";
 
-function renderPanel(mode = "chat") {
+function renderPanel(mode = "chat", debugEnabled = false) {
   const element = document.createElement("kyber-panel");
   element.panel = { config: { mode } };
   document.body.appendChild(element);
 
   const fetchMock = vi.fn().mockResolvedValue({
     ok: true,
-    json: async () => ({ enabled: true }),
+    json: async () => ({ enabled: debugEnabled }),
   });
   vi.stubGlobal("fetch", fetchMock);
 
