@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("pytest_homeassistant_custom_component", reason="requires pytest-homeassistant-custom-component")
 
-from custom_components.kyber.const import _redact_secrets
+from custom_components.kyber.const import _contains_credential_pattern, _redact_secrets
 
 
 def test_redact_secrets_redacts_nested_values() -> None:
@@ -87,3 +87,38 @@ async def test_knowledge_endpoint_rejects_credential_content(
 
     assert resp.status == 400
     assert await resp.json() == {"error": "Content contains credential pattern"}
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "password=abc",
+        "api-key=123",
+        "Bearer short",
+        "sk-ABC123",
+    ],
+)
+def test_contains_credential_pattern_catches_short_secrets(content: str) -> None:
+    assert _contains_credential_pattern(content) is True
+
+
+async def test_knowledge_update_rejects_credential_content(
+    hass,
+    setup_integration,
+    hass_client,
+) -> None:
+    client = await hass_client()
+    create_resp = await client.post(
+        "/api/kyber/knowledge",
+        json={"content": "safe note", "subject": "good entry"},
+    )
+    assert create_resp.status == 200
+    entry = (await create_resp.json())["entry"]
+
+    update_resp = await client.post(
+        "/api/kyber/knowledge",
+        json={"id": entry["id"], "content": "password=abc"},
+    )
+
+    assert update_resp.status == 400
+    assert await update_resp.json() == {"error": "Content contains credential pattern"}

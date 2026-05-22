@@ -500,7 +500,11 @@ class KnowledgeStore:
             invalidate_index = False
             for k, v in changes.items():
                 if k in allowed:
-                    if k == "confidence":
+                    if k == "content":
+                        v = str(v).strip()
+                        if _contains_credential_pattern(v):
+                            raise ValueError("Credential pattern detected in content")
+                    elif k == "confidence":
                         v = max(0.0, min(1.0, float(v)))
                     elif k == "user_rating":
                         v = max(0, min(5, int(v)))
