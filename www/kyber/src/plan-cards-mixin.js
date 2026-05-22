@@ -73,6 +73,41 @@ export const PlanCardsMixin = (Base) => class extends Base {
     const card = document.createElement("div");
     card.className = "plan-card";
 
+    const DOMAIN_ICONS = {
+      light: "mdi:lightbulb",
+      switch: "mdi:toggle-switch",
+      sensor: "mdi:eye",
+      binary_sensor: "mdi:radiobox-marked",
+      climate: "mdi:thermostat",
+      media_player: "mdi:cast",
+      cover: "mdi:window-shutter-open",
+      fan: "mdi:fan",
+      lock: "mdi:lock",
+      camera: "mdi:cctv",
+      automation: "mdi:robot",
+      script: "mdi:script-text",
+      scene: "mdi:palette",
+      input_boolean: "mdi:toggle-switch",
+      timer: "mdi:timer-outline",
+      number: "mdi:numeric",
+      input_number: "mdi:numeric",
+      select: "mdi:format-list-bulleted",
+      input_select: "mdi:format-list-bulleted",
+      vacuum: "mdi:robot-vacuum",
+      alarm_control_panel: "mdi:shield-home",
+      water_heater: "mdi:water-boiler",
+      humidifier: "mdi:air-humidifier",
+      button: "mdi:gesture-tap-button",
+      input_button: "mdi:gesture-tap-button",
+      input_text: "mdi:form-textbox",
+      person: "mdi:account",
+      device_tracker: "mdi:map-marker",
+      weather: "mdi:cloud",
+      group: "mdi:group",
+    };
+    const ON_STATES = new Set(["on", "open", "home", "playing", "unlocked", "active", "true",
+      "heat", "cool", "auto", "fan_only", "dry", "heat_cool", "heat_cool"]);
+
     const typeLabels = {
       assign_area: "Area",
       rename_entity: "Name",
@@ -99,12 +134,27 @@ export const PlanCardsMixin = (Base) => class extends Base {
       }
     });
 
+    const buildEntityChip = (entityId, missing) => {
+      if (!entityId) return "";
+      const domain = entityId.split(".")[0] || "";
+      const haState = this._hass?.states?.[entityId];
+      const friendlyName = haState?.attributes?.friendly_name || entityId;
+      const icon = haState?.attributes?.icon || DOMAIN_ICONS[domain] || "mdi:home-assistant";
+      const rawState = (haState?.state || "unknown").toLowerCase();
+      const isOn = ON_STATES.has(rawState);
+      const stateClass = rawState === "unavailable" ? "state-unavailable" : isOn ? "state-on" : "state-off";
+      const domainClass = `domain-${domain.replace(/_/g, "-")}`;
+      const nameDisplay = friendlyName.length > 24 ? `${friendlyName.slice(0, 23)}…` : friendlyName;
+      return `<div class="entity-chip ${stateClass} ${domainClass}${missing ? " entity-chip-missing" : ""}" title="${this._escapeHtml(entityId)}">
+        <ha-icon icon="${this._escapeHtml(icon)}" class="entity-chip-icon"></ha-icon>
+        <span class="entity-chip-name">${this._escapeHtml(nameDisplay)}</span>${missing ? '<span class="entity-chip-warn">⚠</span>' : ""}
+      </div>`;
+    };
+
     const changeRows = (plan.actions || [])
       .map((a) => {
         const missing = a.entity_id && invalidEntities.has(a.entity_id);
-        const entityHtml = a.entity_id
-          ? `<span class="change-entity${missing ? " entity-missing" : ""}">${this._escapeHtml(a.entity_id)}${missing ? " ⚠" : ""}</span>`
-          : "";
+        const entityHtml = buildEntityChip(a.entity_id, missing);
         // For service calls, show domain.service as the badge
         const typeLabel = a.type === "call_service"
           ? `${a.domain || "?"}.${a.service || "?"}`
@@ -189,13 +239,22 @@ export const PlanCardsMixin = (Base) => class extends Base {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ actions: actionsToRun, approved }),
+          body: JSON.stringify({ actions: actionsToRun, approved, summary: plan.summary || "" }),
         });
         if (resp.status === 403) {
           const blocked = await resp.json().catch(() => ({}));
           resultEl.textContent = `🔒 Approval required for ${(blocked.blocked_actions || []).length} action(s). Click Execute to approve.`;
           resultEl.className = "plan-result";
-          if (card.querySelector(".btn-execute")) card.querySelector(".btn-execute").disabled = false;
+          if (card.querySelector(".btn-execute")) {
+            card.querySelector(".btn-execute").disabled = false;
+          }
+          // Auto-scroll to / highlight the execute button so it's visible
+          const btn = card.querySelector(".btn-execute");
+          if (btn) {
+            btn.classList.add("kyber-approval-pulse");
+            btn.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            setTimeout(() => btn.classList.remove("kyber-approval-pulse"), 3000);
+          }
           return;
         }
         const data = await resp.json();
@@ -226,36 +285,46 @@ export const PlanCardsMixin = (Base) => class extends Base {
           this._addChatHistory("user", `I clicked Execute on the proposal: "${plan.summary || ""}".`);
           this._addChatHistory("assistant", `[CHANGE] The following changes were successfully applied:\n${changeLines.join("\n")}`);
 
-          // Collect undo actions from results and show Undo button
+          const historyEntry = data.history_entry || null;
           const undoActions = ok
             .map((r) => r.undo_action)
             .filter(Boolean);
-          if (undoActions.length > 0) {
+          if (typeof this._loadActionHistory === "function") {
+            this._loadActionHistory();
+          }
+          if ((historyEntry && Array.isArray(historyEntry.undo_plan) && historyEntry.undo_plan.length > 0) || undoActions.length > 0) {
+            const undoCount = historyEntry?.undo_plan?.length || undoActions.length;
             const undoBtn = document.createElement("button");
             undoBtn.className = "btn-undo";
-            undoBtn.textContent = `↩ Undo (${undoActions.length} action${undoActions.length > 1 ? "s" : ""})`;
+            undoBtn.textContent = `↩ Undo (${undoCount} action${undoCount > 1 ? "s" : ""})`;
             resultEl.after(undoBtn);
             undoBtn.addEventListener("click", async () => {
               undoBtn.disabled = true;
               undoBtn.textContent = "Undoing…";
               try {
                 const token2 = this._hass.auth.data.access_token;
-                const r2 = await fetch("/api/kyber/execute", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token2}` },
-                  body: JSON.stringify({ actions: undoActions }),
-                });
+                const request = historyEntry
+                  ? fetch(`/api/kyber/history/actions/${encodeURIComponent(historyEntry.id)}/undo`, {
+                      method: "POST",
+                      headers: { Authorization: `Bearer ${token2}` },
+                    })
+                  : fetch("/api/kyber/execute", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token2}` },
+                      body: JSON.stringify({ actions: undoActions, approved: true }),
+                    });
+                const r2 = await request;
                 const d2 = await r2.json();
-                const f2 = (d2.results || []).filter((r) => r.status !== "ok");
-                if (f2.length === 0) {
-                  undoBtn.textContent = "↩ Undone ✓";
-                  undoBtn.disabled = true;
-                  resultEl.textContent = "↩ Changes undone successfully.";
-                  resultEl.className = "plan-result success";
-                  this._addChatHistory("assistant", `[CHANGE] Undid: ${plan.summary || "previous changes"}`);
-                } else {
-                  undoBtn.textContent = `↩ Undo failed (${f2.length} error${f2.length > 1 ? "s" : ""})`;
-                  undoBtn.disabled = false;
+                if (!r2.ok || d2.status === "failed") {
+                  throw new Error(d2.message || `HTTP ${r2.status}`);
+                }
+                undoBtn.textContent = "↩ Undone ✓";
+                undoBtn.disabled = true;
+                resultEl.textContent = "↩ Changes undone successfully.";
+                resultEl.className = "plan-result success";
+                this._addChatHistory("assistant", `[CHANGE] Undid: ${plan.summary || "previous changes"}`);
+                if (typeof this._loadActionHistory === "function") {
+                  this._loadActionHistory();
                 }
               } catch (e) {
                 undoBtn.textContent = `↩ Undo error: ${e.message}`;
@@ -293,8 +362,57 @@ export const PlanCardsMixin = (Base) => class extends Base {
             resultEl.after(chip);
           });
         } else {
-          resultEl.textContent = `⚠ ${failed.length} action(s) failed: ${failed.map((r) => r.message).join("; ")}`;
+          const failedMsgs = failed.map((r) => r.message || "unknown error").join("; ");
+          resultEl.textContent = `⚠ ${failed.length} action(s) failed: ${failedMsgs}`;
           resultEl.className = "plan-result error";
+
+          // Record failure in chat history so the AI knows what happened
+          this._addChatHistory(
+            "assistant",
+            `[FAILED] ${failed.length} action(s) failed for "${plan.summary || "plan"}": ${failedMsgs}`
+          );
+
+          // ── Correction micro-agent result ─────────────────────────────────
+          if (data.correction && data.correction.corrected_actions && data.correction.corrected_actions.length > 0) {
+            const corr = data.correction;
+            resultEl.textContent += `\n🔧 Correction: ${corr.message || "Retrying with corrected plan…"}`;
+
+            // Show toast for learned fact
+            if (corr.learned_fact && typeof this._showToast === "function") {
+              this._showToast(corr.learned_fact);
+            }
+
+            // Execute corrected actions automatically
+            setTimeout(async () => {
+              try {
+                const token = this._hass.auth.data.access_token;
+                const corrResp = await fetch("/api/kyber/execute", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({ actions: corr.corrected_actions, approved: opts.approved !== false }),
+                });
+                const corrData = await corrResp.json();
+                const corrFailed = (corrData.results || []).filter((r) => r.status !== "ok");
+                if (corrFailed.length === 0) {
+                  resultEl.textContent = `🔧 Corrected & applied — ${corr.corrected_actions.length} action(s)`;
+                  resultEl.className = "plan-result success";
+                  this._addChatHistory(
+                    "assistant",
+                    `[🔧 CORRECTION] Successfully applied corrected plan: ${corr.message || plan.summary || ""}`
+                  );
+                } else {
+                  resultEl.textContent = `🔧 Correction also failed: ${corrFailed.map((r) => r.message).join("; ")}`;
+                  resultEl.className = "plan-result error";
+                }
+              } catch (corrErr) {
+                _LOGGER.debug("Kyber: correction re-execute error", corrErr);
+              }
+            }, 500);
+          }
+
           if (card.querySelector(".btn-execute")) card.querySelector(".btn-execute").disabled = false;
         }
       } catch (err) {

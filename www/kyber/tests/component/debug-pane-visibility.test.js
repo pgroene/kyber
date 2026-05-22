@@ -62,7 +62,7 @@ describe("debug pane visibility", () => {
   });
 
   it("shows the debug pane in debug mode", async () => {
-    const { element } = renderPanel("debug");
+    const { element } = renderPanel("debug", true);
     await element._applyModeAndDebugFlag();
 
     const pane = element.shadowRoot.getElementById("debug-pane");

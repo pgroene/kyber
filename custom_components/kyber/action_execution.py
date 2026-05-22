@@ -15,6 +15,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
 
+from .action_history import get_store as get_action_history_store
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
 from .knowledge import get_store as get_knowledge_store
 from .tool_execution import _execute_tool
@@ -219,6 +220,9 @@ class KyberExecuteView(HomeAssistantView):
         device_reg = dr.async_get(hass)
 
         results: list[dict] = []
+        applied_actions: list[dict[str, Any]] = []
+        entity_changes: list[dict[str, Any]] = []
+        history_entry: dict[str, Any] | None = None
 
         # Read-only tool call types — execute transparently without entity_id
         _READ_TOOL_TYPES = {
@@ -403,9 +407,17 @@ class KyberExecuteView(HomeAssistantView):
                         else:
                             raise
                     undo_action = _build_service_undo(domain, service, svc_entity_id, pre_state)
+                    post_state = hass.states.get(svc_entity_id) if svc_entity_id else None
                     result: dict = {"status": "ok", "type": action_type, "entity_id": svc_entity_id or domain}
                     if undo_action:
                         result["undo_action"] = undo_action
+                    if svc_entity_id:
+                        entity_changes.append({
+                            "entity_id": svc_entity_id,
+                            "service": f"{domain}.{service}",
+                            "from_state": pre_state.state if pre_state else None,
+                            "to_state": post_state.state if post_state else None,
+                        })
                     # Auto-label on first control interaction
                     if svc_entity_id and service in ("turn_on", "turn_off", "toggle"):
                         try:
@@ -560,4 +572,56 @@ class KyberExecuteView(HomeAssistantView):
                 _LOGGER.error("Execute action %s on %s failed: %s", action_type, entity_id, err)
                 results.append({"entity_id": entity_id, "status": "error", "message": str(err)})
 
-        return self.json({"results": results})
+        applied_actions = [
+            action
+            for action, result in zip(actions, results)
+            if action.get("type") not in _READ_TOOL_TYPES and result.get("status") == "ok"
+        ]
+
+        # ── Correction micro-agent — triggered when call_service actions fail ─
+        # Only call_service failures are correctable; config/registry errors are
+        # not (renaming an entity that doesn't exist won't be fixed by an AI).
+        correction: dict | None = None
+        _has_service_failures = any(
+            r.get("status") == "error"
+            for r in results
+            if any(
+                a.get("type") == "call_service" and
+                a.get("entity_id", "") == r.get("entity_id", "")
+                for a in actions
+            )
+        )
+        if _has_service_failures:
+            try:
+                from .correction_agent import async_try_correct_failures
+                _LOGGER.info(
+                    "Kyber: execution had failures — invoking correction micro-agent"
+                )
+                correction = await async_try_correct_failures(
+                    hass, results, actions, _plan_summary
+                )
+                if correction:
+                    _LOGGER.info(
+                        "Kyber: correction agent returned %d corrected action(s)",
+                        len(correction.get("corrected_actions", [])),
+                    )
+            except Exception as _corr_err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Kyber: correction micro-agent raised an error: %s", _corr_err
+                )
+
+        has_failures = any(result.get("status") != "ok" for result in results)
+        if applied_actions and not has_failures:
+            try:
+                astore = get_action_history_store(hass)
+                history_entry = await astore.async_record(_plan_summary or "Applied Kyber actions", applied_actions, entity_changes)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Kyber: action history record failed: %s", err)
+
+        response_payload: dict = {"results": results}
+        if history_entry:
+            response_payload["history_entry"] = history_entry
+        if correction:
+            response_payload["correction"] = correction
+
+        return self.json(response_payload)

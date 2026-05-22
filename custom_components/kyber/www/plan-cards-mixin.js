@@ -1,6 +1,8 @@
 export const PlanCardsMixin = (Base) => class extends Base {
   /** Build a confirm card for slash commands. onConfirm(card) is called when Execute is clicked. */
-  _buildCommandCard({ icon = "▶", title, detail, warning, danger = false, onConfirm }) {
+  _buildCommandCard({ icon = "▶", title, detail, warning, danger = false, executeLabel, onConfirm }) {
+    const t = this._t || ((k) => k);
+    const btnLabel = executeLabel ?? t("cmd_confirm_execute");
     const history = this.shadowRoot.getElementById("chat-history");
     const card = document.createElement("div");
     card.className = `command-card${danger ? " danger" : ""}`;
@@ -9,8 +11,8 @@ export const PlanCardsMixin = (Base) => class extends Base {
       ${detail ? `<div class="command-card-detail">${this._escapeHtml(detail)}</div>` : ""}
       ${warning ? `<div class="command-card-warning">⚠ ${this._escapeHtml(warning)}</div>` : ""}
       <div class="command-card-actions">
-        <button class="btn-cmd-execute${danger ? " danger" : ""}">▶ Execute</button>
-        <button class="btn-cmd-cancel">✕ Cancel</button>
+        <button class="btn-cmd-execute${danger ? " danger" : ""}">${btnLabel}</button>
+        <button class="btn-cmd-cancel">✕ ${t("cmd_cancel")}</button>
       </div>
     `;
     card.querySelector(".btn-cmd-execute").addEventListener("click", () => {
@@ -187,13 +189,22 @@ export const PlanCardsMixin = (Base) => class extends Base {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ actions: actionsToRun, approved }),
+          body: JSON.stringify({ actions: actionsToRun, approved, summary: plan.summary || "" }),
         });
         if (resp.status === 403) {
           const blocked = await resp.json().catch(() => ({}));
           resultEl.textContent = `🔒 Approval required for ${(blocked.blocked_actions || []).length} action(s). Click Execute to approve.`;
           resultEl.className = "plan-result";
-          if (card.querySelector(".btn-execute")) card.querySelector(".btn-execute").disabled = false;
+          if (card.querySelector(".btn-execute")) {
+            card.querySelector(".btn-execute").disabled = false;
+          }
+          // Auto-scroll to / highlight the execute button so it's visible
+          const btn = card.querySelector(".btn-execute");
+          if (btn) {
+            btn.classList.add("kyber-approval-pulse");
+            btn.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            setTimeout(() => btn.classList.remove("kyber-approval-pulse"), 3000);
+          }
           return;
         }
         const data = await resp.json();
@@ -214,8 +225,9 @@ export const PlanCardsMixin = (Base) => class extends Base {
               ? `${action.current_state} → ${action.new_state}`
               : "";
             const target = action.entity_id || action.area_id || r.entity_id || r.area_id || "";
+            const svcDomain = action.domain || (action.entity_id && action.entity_id.includes(".") ? action.entity_id.split(".")[0] : "?");
             const svcLabel = action.type === "call_service"
-              ? `${action.domain}.${action.service}`
+              ? `${svcDomain}.${action.service || "?"}`
               : (action.type || "change");
             return `- ${svcLabel}${target ? " on " + target : ""}${fromTo ? ": " + fromTo : ""}${desc ? " (" + desc + ")" : ""}`;
           });
@@ -246,7 +258,8 @@ export const PlanCardsMixin = (Base) => class extends Base {
                 const f2 = (d2.results || []).filter((r) => r.status !== "ok");
                 if (f2.length === 0) {
                   undoBtn.textContent = "↩ Undone ✓";
-                  resultEl.textContent = "↩ Changes undone.";
+                  undoBtn.disabled = true;
+                  resultEl.textContent = "↩ Changes undone successfully.";
                   resultEl.className = "plan-result success";
                   this._addChatHistory("assistant", `[CHANGE] Undid: ${plan.summary || "previous changes"}`);
                 } else {
@@ -259,9 +272,87 @@ export const PlanCardsMixin = (Base) => class extends Base {
               }
             });
           }
+
+          // Show label-applied chips for auto-labelled entities
+          ok.forEach((r) => {
+            const labelInfo = r.label_applied;
+            if (!labelInfo) return;
+            const chip = document.createElement("div");
+            chip.className = "kyber-label-applied-chip";
+            chip.innerHTML = `
+              <ha-icon icon="${this._escapeHtml(labelInfo.icon)}"></ha-icon>
+              <span>${this._escapeHtml(labelInfo.label_name)} applied to ${this._escapeHtml(labelInfo.entity_name)}</span>
+              <button class="kyber-undo-label-btn">↩ Undo</button>
+            `;
+            chip.querySelector(".kyber-undo-label-btn").addEventListener("click", async (evt) => {
+              evt.stopPropagation();
+              const btn = chip.querySelector(".kyber-undo-label-btn");
+              btn.disabled = true;
+              btn.textContent = "…";
+              try {
+                await this._hass.callApi("POST", "kyber/execute", {
+                  actions: [{ type: "remove_label", entity_id: labelInfo.entity_id, label_id: labelInfo.label_id }],
+                  approved: true,
+                });
+                chip.remove();
+              } catch (e) {
+                btn.textContent = "⚠ Error"; btn.disabled = false;
+              }
+            });
+            resultEl.after(chip);
+          });
         } else {
-          resultEl.textContent = `⚠ ${failed.length} action(s) failed: ${failed.map((r) => r.message).join("; ")}`;
+          const failedMsgs = failed.map((r) => r.message || "unknown error").join("; ");
+          resultEl.textContent = `⚠ ${failed.length} action(s) failed: ${failedMsgs}`;
           resultEl.className = "plan-result error";
+
+          // Record failure in chat history so the AI knows what happened
+          this._addChatHistory(
+            "assistant",
+            `[FAILED] ${failed.length} action(s) failed for "${plan.summary || "plan"}": ${failedMsgs}`
+          );
+
+          // ── Correction micro-agent result ─────────────────────────────────
+          if (data.correction && data.correction.corrected_actions && data.correction.corrected_actions.length > 0) {
+            const corr = data.correction;
+            resultEl.textContent += `\n🔧 Correction: ${corr.message || "Retrying with corrected plan…"}`;
+
+            // Show toast for learned fact
+            if (corr.learned_fact && typeof this._showToast === "function") {
+              this._showToast(corr.learned_fact);
+            }
+
+            // Execute corrected actions automatically
+            setTimeout(async () => {
+              try {
+                const token = this._hass.auth.data.access_token;
+                const corrResp = await fetch("/api/kyber/execute", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({ actions: corr.corrected_actions, approved: opts.approved !== false }),
+                });
+                const corrData = await corrResp.json();
+                const corrFailed = (corrData.results || []).filter((r) => r.status !== "ok");
+                if (corrFailed.length === 0) {
+                  resultEl.textContent = `🔧 Corrected & applied — ${corr.corrected_actions.length} action(s)`;
+                  resultEl.className = "plan-result success";
+                  this._addChatHistory(
+                    "assistant",
+                    `[🔧 CORRECTION] Successfully applied corrected plan: ${corr.message || plan.summary || ""}`
+                  );
+                } else {
+                  resultEl.textContent = `🔧 Correction also failed: ${corrFailed.map((r) => r.message).join("; ")}`;
+                  resultEl.className = "plan-result error";
+                }
+              } catch (corrErr) {
+                _LOGGER.debug("Kyber: correction re-execute error", corrErr);
+              }
+            }, 500);
+          }
+
           if (card.querySelector(".btn-execute")) card.querySelector(".btn-execute").disabled = false;
         }
       } catch (err) {

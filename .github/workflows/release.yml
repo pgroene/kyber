@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   release:
-    name: Update CHANGELOG and create GitHub Release
+    name: Create GitHub Release
     runs-on: ubuntu-latest
 
     steps:
@@ -18,28 +18,16 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Update CHANGELOG.md
-        run: python scripts/update_changelog.py ${{ github.ref_name }}
-
-      - name: Commit updated CHANGELOG
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
-          git diff --staged --quiet || git commit -m "chore: update CHANGELOG for ${{ github.ref_name }} [skip ci]"
-          git push origin main
-
-      - name: Extract release notes
+      - name: Extract release notes from CHANGELOG
         run: |
           python - <<'EOF'
-          import re, sys
+          import re
           tag = "${{ github.ref_name }}"
           version = tag.lstrip("v")
           changelog = open("CHANGELOG.md", encoding="utf-8").read()
@@ -49,6 +37,7 @@ jobs:
           notes = m.group(1).strip() if m else f"Release {tag}"
           open("/tmp/release_notes.md", "w", encoding="utf-8").write(notes)
           print("Release notes written.")
+          print(notes[:200])
           EOF
 
       - name: Create GitHub Release
