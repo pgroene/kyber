@@ -258,7 +258,7 @@ class KyberKnowledgeView(HomeAssistantView):
                 is_admin=is_admin,
             )
         else:
-            entries = await kstore.async_all(user_id=user_id, is_admin=is_admin)
+            entries = await kstore.async_list_knowledge(user_id=user_id, is_admin=is_admin)
         needs_review = request.query.get("needs_review", "").strip().lower()
         if needs_review in ("1", "true", "yes"):
             entries = [e for e in entries if e.get("needs_review")]
@@ -337,6 +337,30 @@ class KyberKnowledgeView(HomeAssistantView):
         entry_id = request.query.get("id", "").strip()
         if not entry_id:
             return self.json_message("Missing 'id' query parameter", HTTPStatus.BAD_REQUEST)
+        entry = await kstore.async_get(entry_id)
+        if entry is None:
+            return self.json_message(f"Entry '{entry_id}' not found", HTTPStatus.NOT_FOUND)
+        ok = await kstore.async_delete(
+            entry_id,
+            requesting_user_id=user_id,
+            is_admin=is_admin,
+        )
+        if not ok:
+            return self.json_message("Not allowed to delete this knowledge entry", HTTPStatus.FORBIDDEN)
+        return self.json({"status": "ok"})
+
+
+class KyberKnowledgeEntryView(HomeAssistantView):
+    """Operate on a single knowledge entry."""
+
+    url = "/api/kyber/knowledge/{entry_id}"
+    name = "api:kyber:knowledge:entry"
+    requires_auth = True
+
+    async def delete(self, request: web.Request, entry_id: str) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        kstore = get_knowledge_store(hass)
+        user_id, is_admin = _request_user_context(request)
         entry = await kstore.async_get(entry_id)
         if entry is None:
             return self.json_message(f"Entry '{entry_id}' not found", HTTPStatus.NOT_FOUND)

@@ -77,6 +77,28 @@ async def test_knowledge_delete_requires_owner_or_admin(
     assert admin_override.status == 200
 
 
+async def test_knowledge_entry_delete_view_enforces_ownership(
+    hass: HomeAssistant,
+    setup_integration,
+    hass_client,
+    hass_read_only_access_token: str,
+) -> None:
+    admin_client = await hass_client()
+    readonly_client = await hass_client(hass_read_only_access_token)
+
+    admin_personal = await _create_knowledge_entry(admin_client, content="entry delete private", personal=True)
+    denied = await readonly_client.delete(f"/api/kyber/knowledge/{admin_personal['id']}")
+    assert denied.status == 403
+
+    readonly_personal = await _create_knowledge_entry(readonly_client, content="entry delete own", personal=True)
+    allowed = await readonly_client.delete(f"/api/kyber/knowledge/{readonly_personal['id']}")
+    assert allowed.status == 200
+
+    readonly_personal_2 = await _create_knowledge_entry(readonly_client, content="entry delete admin", personal=True)
+    admin_allowed = await admin_client.delete(f"/api/kyber/knowledge/{readonly_personal_2['id']}")
+    assert admin_allowed.status == 200
+
+
 async def test_knowledge_purge_is_admin_only(
     hass: HomeAssistant,
     setup_integration,

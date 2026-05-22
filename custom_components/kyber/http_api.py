@@ -118,7 +118,7 @@ from .action_execution import (
 )
 from .knowledge_integration import (
     _FACT_EXTRACTION_PROMPT, _try_extract_learned_fact, _try_extract_learned_facts,
-    KyberKnowledgeView, KyberKnowledgeAnalyzeView,
+    KyberKnowledgeView, KyberKnowledgeEntryView, KyberKnowledgeAnalyzeView,
     KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView,
     KyberNarratorRunView, KyberExplorerRunView, get_deep_job_status,
 )
