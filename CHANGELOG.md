@@ -6,7 +6,7 @@ New entries are prepended automatically when a release tag is pushed (see `.gith
 
 ---
 
-## [Unreleased] — v0.5.5
+## [Unreleased] — v0.5.7
 
 ### Added
 - i18n: English and Dutch translations for the panel UI via `i18n.js`; all mixin files wired to `this._t`
