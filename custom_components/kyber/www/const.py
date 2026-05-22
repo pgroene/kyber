@@ -121,10 +121,10 @@ DEFAULT_DEEP_LEARNING_INTERVAL_DAYS = 7
 DEFAULT_DEEP_LEARNING_MAX_BATCH = 5
 
 _CREDENTIAL_PATTERNS = [
-    r"(?i)bearer\s+\S{8,}",
-    r"sk-[a-zA-Z0-9]{20,}",
-    r"(?i)api[-_]?key\s*[:=]\s*\S{6,}",
-    r"(?i)password\s*[:=]\s*\S{6,}",
+    r"(?i)bearer\s+\S{4,}",
+    r"sk-[a-zA-Z0-9]{6,}",
+    r"(?i)api[-_]?key\s*[:=]\s*\S{3,}",
+    r"(?i)password\s*[:=]\s*\S{3,}",
 ]
 _SECRET_KEYS_RE = re.compile(r"(?i)(api.?key|authorization|bearer|password|secret|token|access.?token)")
 _COMPILED_CREDENTIAL_PATTERNS = [re.compile(pattern) for pattern in _CREDENTIAL_PATTERNS]

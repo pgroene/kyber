@@ -485,6 +485,13 @@ def _parse_request_body(body: dict, request: "web.Request") -> dict:
     }
 
 
+def _escape_fenced_block_content(text: str) -> str:
+    """Prevent user-controlled text from breaking out of fenced blocks."""
+    if not isinstance(text, str):
+        return ""
+    return text.replace("```", "``\u200b`")
+
+
 def _build_prompt_sections(body_fields: dict, context: str, request: "web.Request") -> dict:
     """Build all system-prompt sections and assemble the instruction string.
 
@@ -524,6 +531,8 @@ def _build_prompt_sections(body_fields: dict, context: str, request: "web.Reques
     else:
         user_section = ""
 
+    escaped_user_yaml = _escape_fenced_block_content(user_yaml)
+
     if editor_mode == "dashboard":
         if user_yaml.strip():
             yaml_section = (
@@ -531,7 +540,7 @@ def _build_prompt_sections(body_fields: dict, context: str, request: "web.Reques
                 f"The user is actively editing the dashboard. The current YAML is shown below.\n"
                 f"**You MUST respond with a ```yaml block containing the FULL updated YAML \u2014 do NOT use a plan block or open_dashboard. "
                 f"The user will click Apply to update the editor.**\n\n"
-                f"```yaml\n{user_yaml}\n```\n\n"
+                f"```yaml\n{escaped_user_yaml}\n```\n\n"
             )
         else:
             yaml_section = (
@@ -540,23 +549,29 @@ def _build_prompt_sections(body_fields: dict, context: str, request: "web.Reques
             )
     else:
         yaml_section = (
-            f"## Current automation YAML\n```yaml\n{user_yaml}\n```\n\n"
+            f"## Current automation YAML\n```yaml\n{escaped_user_yaml}\n```\n\n"
             if user_yaml.strip()
             else ""
         )
 
+    safe_compacted_summary = ""
+    if compacted_summary:
+        safe_compacted_summary, _ = _sanitize_user_input(compacted_summary)
+
     # Build conversation history block â€” placed right before the user message
     # so the model sees it as the most recent context.
     conversation_block = ""
-    if compacted_summary or history:
+    if safe_compacted_summary or history:
         parts = []
-        if compacted_summary:
-            parts.append(f"[Earlier in this conversation]\n{compacted_summary}")
+        if safe_compacted_summary:
+            parts.append(f"[Earlier in this conversation]\n{safe_compacted_summary}")
         if history:
             lines = []
             for msg in history:
                 role = msg.get("role", "user")
                 content = str(msg.get("content", "")).strip()
+                if role == "user":
+                    content, _ = _sanitize_user_input(content)
                 if content:
                     lines.append(f"{'User' if role == 'user' else 'Assistant'}: {content}")
             if lines:
@@ -2190,6 +2205,11 @@ class KyberView(HomeAssistantView):
             response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved, call_token_usage = \
                 await _run_ai_loop(hass, entity_id, instructions, kstore, user_prompt, request_id, history, intent, config=self._config)
         except HomeAssistantError as err:
+            await token_budget_store.async_record(
+                budget_provider,
+                estimated_prompt_tokens,
+                max_daily_tokens,
+            )
             _progress_complete(hass, request_id)
             _debug_detach_log_capture(_debug_log_handler)
             hass.data[_CHAT_BUSY_KEY] = False
@@ -2199,6 +2219,11 @@ class KyberView(HomeAssistantView):
             )
         except Exception as err:  # noqa: BLE001
             _LOGGER.exception("Kyber: unexpected error during AI loop (type=%s)", type(err).__name__)
+            await token_budget_store.async_record(
+                budget_provider,
+                estimated_prompt_tokens,
+                max_daily_tokens,
+            )
             _progress_complete(hass, request_id)
             _debug_detach_log_capture(_debug_log_handler)
             hass.data[_CHAT_BUSY_KEY] = False
