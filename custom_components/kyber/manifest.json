@@ -1,10 +1,10 @@
 {
   "domain": "kyber",
   "name": "Kyber",
+  "after_dependencies": ["recorder"],
   "codeowners": [
     "@pgroene"
   ],
-  "after_dependencies": ["recorder"],
   "config_flow": true,
   "dependencies": [
     "ai_task",

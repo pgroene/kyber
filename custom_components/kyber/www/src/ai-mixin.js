@@ -1224,6 +1224,7 @@ export const AIMixin = (Base) => class extends Base {
 
   /** Start a single polling loop for all Kyber status UI (explorer banner + narrator badge). */
   _startStatusPolling() {
+    if (this._statusPollInterval) return;
     this._clearStatusPoll();
     this._statusPollFailures = 0;
     this._checkKyberStatus();

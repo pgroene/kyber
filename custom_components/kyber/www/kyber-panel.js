@@ -508,6 +508,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
   }
 
   _startStatusPolling() {
+    if (this._statusPollInterval) return;
     clearInterval(this._statusPollInterval);
     this._checkKyberStatus();
     this._statusPollInterval = setInterval(() => this._checkKyberStatus(), 5000);

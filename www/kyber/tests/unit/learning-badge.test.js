@@ -215,27 +215,27 @@ describe("_startStatusPolling timer", () => {
     vi.useRealTimers();
   });
 
-  it("_statusPollTimer is set after _startStatusPolling", () => {
+  it("_statusPollInterval is set after _startStatusPolling", () => {
     const { element } = makePanel();
     // Reset any timer started during render so we can test a fresh call
-    element._statusPollTimer = null;
+    element._statusPollInterval = null;
     element._startStatusPolling();
-    expect(element._statusPollTimer).toBeTruthy();
+    expect(element._statusPollInterval).toBeTruthy();
   });
 
   it("_startStatusPolling does not restart if timer is already set", () => {
     const { element } = makePanel();
-    element._statusPollTimer = null;
+    element._statusPollInterval = null;
     element._startStatusPolling();
-    const firstTimer = element._statusPollTimer;
+    const firstTimer = element._statusPollInterval;
     element._startStatusPolling(); // second call should be a no-op
-    expect(element._statusPollTimer).toBe(firstTimer);
+    expect(element._statusPollInterval).toBe(firstTimer);
   });
 
   it("fetch is called at startup and every 5 seconds", async () => {
     const { element } = makePanel();
-    clearInterval(element._statusPollTimer); // clear the interval started by connectedCallback
-    element._statusPollTimer = null;
+    clearInterval(element._statusPollInterval); // clear the interval started by connectedCallback
+    element._statusPollInterval = null;
     global.fetch = mockStatusFetch({ status: "phase1_summaries", done: 0, total: 10 });
     global.fetch.mockClear();
     element._startStatusPolling();
