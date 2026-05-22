@@ -6,6 +6,13 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 
 ---
 
+## [0.5.7.1] — 2026-05-22
+
+### Fixed
+- **[Critical]** `action_history.py` was missing from the v0.5.7 release, causing Kyber to fail to load in Home Assistant with `ModuleNotFoundError: No module named 'custom_components.kyber.action_history'`
+
+---
+
 ## [Unreleased]
 
 ### Added
