@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Sync Python source files from custom_components/kyber/ to custom_components/kyber/www/.
+"""Sync source files to custom_components/kyber/www/ mirror.
+
+Syncs:
+  - Python modules + manifest.json  (custom_components/kyber/*.py → www/)
+  - JS frontend files               (www/kyber/src/*.js → www/src/, www/kyber/kyber-panel.js → www/)
 
 Run normally to copy all files:
     python scripts/sync_www.py
@@ -18,48 +22,53 @@ ROOT = Path(__file__).parent.parent
 SRC = ROOT / "custom_components" / "kyber"
 DEST = SRC / "www"
 
-# ??  JS FRONTEND FILES ARE NOT SYNCED BY THIS SCRIPT
-# The following files must be MANUALLY copied after changes:
-#   www/kyber/src/plan-cards-mixin.js  ? custom_components/kyber/www/src/plan-cards-mixin.js
-#   www/kyber/src/styles.js            ? custom_components/kyber/www/src/styles.js
-#   www/kyber/src/utils-mixin.js       ? custom_components/kyber/www/src/utils-mixin.js
-#   www/kyber/src/*.js                 ? custom_components/kyber/www/src/*.js
-#   www/kyber/kyber-panel.js           ? custom_components/kyber/www/kyber-panel.js
-# Run: Copy-Item www/kyber/src/*.js custom_components/kyber/www/src/ -Force
-#      Copy-Item www/kyber/kyber-panel.js custom_components/kyber/www/ -Force
-# Files to sync: Python modules + manifest (exclude www/ subdirectory itself)
+# Python files to sync: modules + manifest (exclude www/ subdirectory itself)
 SYNC_PATTERNS = ["*.py", "manifest.json"]
 
-# Files in www/ that are NOT mirrors of src files (frontend assets)
+# Files in www/ that are NOT mirrors of src files (frontend assets, not Python)
 EXCLUDE_NAMES = {
-    "kyber-panel.js",
-    "ai-mixin.js",
-    "plan-cards-mixin.js",
     "codemirror-bundle.js",
     "icon.png",
     "manifest.json",  # must NOT be in www/ mirror — Hassfest treats it as a second integration
 }
 
+# JS frontend source root
+JS_SRC = ROOT / "www" / "kyber"
 
-def _collect_sync_files() -> list[Path]:
-    """Return src files that should be mirrored to www/."""
-    files: list[Path] = []
+
+def _collect_sync_files() -> list[tuple[Path, Path]]:
+    """Return (src, dest) pairs for all files that should be mirrored to www/."""
+    pairs: list[tuple[Path, Path]] = []
+
+    # Python files: custom_components/kyber/*.py → www/
     for pattern in SYNC_PATTERNS:
         for f in SRC.glob(pattern):
             if f.name not in EXCLUDE_NAMES:
-                files.append(f)
-    return sorted(files)
+                pairs.append((f, DEST / f.name))
+
+    # JS panel entry: www/kyber/kyber-panel.js → www/kyber-panel.js
+    panel = JS_SRC / "kyber-panel.js"
+    if panel.exists():
+        pairs.append((panel, DEST / "kyber-panel.js"))
+
+    # JS src files: www/kyber/src/*.js → www/src/*.js
+    js_src_dir = JS_SRC / "src"
+    if js_src_dir.exists():
+        for f in sorted(js_src_dir.glob("*.js")):
+            pairs.append((f, DEST / "src" / f.name))
+
+    return pairs
 
 
 def sync_files(dry_run: bool = False) -> int:
     """Copy src files to www/. Returns count of files copied."""
     copied = 0
-    for src_file in _collect_sync_files():
-        dest_file = DEST / src_file.name
+    for src_file, dest_file in _collect_sync_files():
         if not dest_file.exists() or not filecmp.cmp(src_file, dest_file, shallow=False):
             if dry_run:
                 print(f"  would copy: {src_file.name}")
             else:
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src_file, dest_file)
                 print(f"  copied: {src_file.name}")
             copied += 1
@@ -69,8 +78,7 @@ def sync_files(dry_run: bool = False) -> int:
 def check_files() -> int:
     """Check that all src files are mirrored. Returns count of out-of-sync files."""
     stale: list[str] = []
-    for src_file in _collect_sync_files():
-        dest_file = DEST / src_file.name
+    for src_file, dest_file in _collect_sync_files():
         if not dest_file.exists():
             stale.append(f"  MISSING: {src_file.name}")
         elif not filecmp.cmp(src_file, dest_file, shallow=False):
@@ -93,7 +101,8 @@ def main() -> None:
     if args.check:
         stale = check_files()
         if stale == 0:
-            print(f"www/ mirror is up-to-date ({len(_collect_sync_files())} files)")
+            total = len(_collect_sync_files())
+            print(f"www/ mirror is up-to-date ({total} files)")
         sys.exit(1 if stale else 0)
     else:
         copied = sync_files(dry_run=args.dry_run)

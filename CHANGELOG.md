@@ -6,6 +6,14 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 
 ---
 
+## [0.5.7.2] — 2026-05-22
+
+### Fixed
+- **[Critical]** JS frontend files (`utils-mixin.js`, `ai-mixin.js`, etc.) were not being synced to the `www/` mirror, causing `this._loadActionHistory is not a function` on panel load
+- `scripts/sync_www.py` now also syncs all JS files (`www/kyber/src/*.js` and `kyber-panel.js`) in addition to Python files, preventing this class of bug in future
+
+---
+
 ## [0.5.7.1] — 2026-05-22
 
 ### Fixed

@@ -240,6 +240,115 @@ export const UtilsMixin = (Base) => class extends Base {
     }
   }
 
+  async _loadActionHistory() {
+    try {
+      const token = this._hass?.auth?.data?.access_token;
+      if (!token) return;
+      const resp = await fetch("/api/kyber/history/actions?limit=50", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      this._actionHistory = Array.isArray(data.entries) ? data.entries : [];
+      this._renderActionHistory();
+    } catch {
+      // Non-fatal: keep the panel empty.
+    }
+  }
+
+  _toggleActionHistory() {
+    const panel = this.shadowRoot?.getElementById("action-history-panel");
+    const btn = this.shadowRoot?.getElementById("btn-history-toggle");
+    if (!panel || !btn) return;
+    const isHidden = panel.hasAttribute("hidden");
+    if (isHidden) {
+      panel.removeAttribute("hidden");
+      btn.classList.add("active");
+      this._loadActionHistory();
+    } else {
+      panel.setAttribute("hidden", "");
+      btn.classList.remove("active");
+    }
+  }
+
+  _formatRelativeTime(ts) {
+    if (!ts) return "—";
+    const diffSeconds = Math.round(ts - Date.now() / 1000);
+    const abs = Math.abs(diffSeconds);
+    const rtf = typeof Intl !== "undefined" && Intl.RelativeTimeFormat
+      ? new Intl.RelativeTimeFormat((this._hass?.language || "en").split("-")[0], { numeric: "auto" })
+      : null;
+    if (!rtf) return new Date(ts * 1000).toLocaleString();
+    if (abs < 60) return rtf.format(diffSeconds, "second");
+    if (abs < 3600) return rtf.format(Math.round(diffSeconds / 60), "minute");
+    if (abs < 86400) return rtf.format(Math.round(diffSeconds / 3600), "hour");
+    return rtf.format(Math.round(diffSeconds / 86400), "day");
+  }
+
+  async _undoActionHistoryEntry(entryId, btn) {
+    if (!entryId || !this._hass) return;
+    const original = btn?.textContent || "↩ Undo";
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Undoing…";
+    }
+    try {
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch(`/api/kyber/history/actions/${encodeURIComponent(entryId)}/undo`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.status === "failed") {
+        throw new Error(data.message || `HTTP ${resp.status}`);
+      }
+      await this._loadActionHistory();
+      this._appendMessage(`↩ Undid: ${data.entry?.summary || "previous action"}`, "assistant");
+    } catch (err) {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = `${original} ⚠`;
+      }
+    }
+  }
+
+  _renderActionHistory() {
+    const list = this.shadowRoot?.getElementById("action-history-list");
+    if (!list) return;
+    const entries = Array.isArray(this._actionHistory) ? this._actionHistory : [];
+    if (entries.length === 0) {
+      list.innerHTML = '<div class="action-history-empty">No applied actions yet.</div>';
+      return;
+    }
+    list.innerHTML = "";
+    entries.forEach((entry) => {
+      const wrap = document.createElement("div");
+      wrap.className = "action-history-entry";
+      const status = String(entry.status || "applied");
+      const badgeLabel = status === "undone" ? "↩ Undone" : status === "failed" ? "⚠ Failed" : "✅ Applied";
+      const changes = Array.isArray(entry.entity_changes) ? entry.entity_changes : [];
+      const chips = changes.map((change) => `
+        <span class="action-history-chip">${this._escapeHtml(change.entity_id || "entity")} · ${this._escapeHtml(change.from_state ?? "?")} → ${this._escapeHtml(change.to_state ?? "?")}</span>
+      `).join("");
+      wrap.innerHTML = `
+        <div class="action-history-meta">
+          <span class="action-history-time">${this._escapeHtml(this._formatRelativeTime(entry.ts))}</span>
+          <span class="action-history-status status-${this._escapeHtml(status)}">${badgeLabel}</span>
+        </div>
+        <div class="action-history-summary">${this._escapeHtml(entry.summary || "Applied actions")}</div>
+        <div class="action-history-chips">${chips || '<span class="action-history-empty-inline">No entity changes captured.</span>'}</div>
+      `;
+      if (status === "applied" && Array.isArray(entry.undo_plan) && entry.undo_plan.length > 0) {
+        const btn = document.createElement("button");
+        btn.className = "action-history-undo";
+        btn.textContent = `↩ Undo (${entry.undo_plan.length})`;
+        btn.addEventListener("click", () => this._undoActionHistoryEntry(entry.id, btn));
+        wrap.appendChild(btn);
+      }
+      list.appendChild(wrap);
+    });
+  }
+
   /** Populate the popover body with the knowledge recalled this turn (or a fallback). */
   _renderMemoryPopoverContent() {
     const body = this.shadowRoot?.getElementById("memory-popover-body");
