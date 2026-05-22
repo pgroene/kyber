@@ -129,10 +129,11 @@ async def async_ai_call(
 
 class _AzureAIResult:
     """Minimal wrapper so Azure responses are compatible with async_ai_call callers."""
-    __slots__ = ("data",)
+    __slots__ = ("data", "usage")
 
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str, usage: dict[str, Any] | None = None) -> None:
         self.data = text
+        self.usage = usage or {}
 
 
 async def async_azure_ai_call(
@@ -228,7 +229,7 @@ async def async_azure_ai_call(
         "[Azure←] task=%s deployment=%s response_chars=%d",
         task_name, deployment, len(text),
     )
-    return _AzureAIResult(text)
+    return _AzureAIResult(text, usage=data.get("usage") if isinstance(data, dict) else None)
 
 
 async def async_openai_ai_call(
@@ -323,7 +324,7 @@ async def async_openai_ai_call(
         "[OpenAI←] task=%s model=%s response_chars=%d",
         task_name, model, len(text),
     )
-    return _AzureAIResult(text)
+    return _AzureAIResult(text, usage=data.get("usage") if isinstance(data, dict) else None)
 
 
 async def async_anthropic_ai_call(
@@ -438,7 +439,7 @@ async def async_anthropic_ai_call(
         "[Anthropic←] task=%s model=%s response_chars=%d",
         task_name, model, len(text),
     )
-    return _AzureAIResult(text)
+    return _AzureAIResult(text, usage=data.get("usage") if isinstance(data, dict) else None)
 
 
 def _progress_emit(hass: HomeAssistant, request_id: str, event: dict) -> None:

@@ -44,6 +44,7 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 - Redacted credential-like values from debug bundles, blocked knowledge entries that contain API keys or passwords, and avoided exposing provider secrets through Kyber diagnostics.
 - Added per-user request throttling for `/api/kyber/complete`, exposed a configurable requests-per-minute limit, and showed a friendly wait message in the frontend when Kyber returns HTTP 429.
 - Sanitized prompt-injection markers before building AI context, rejected injected knowledge writes, and stripped control-token markers from source display names.
+- Added daily token budget tracking, surfaced budget usage in debug status, and showed a token badge in the frontend with warning states near the configured limit.
 
 ## [0.5.9] -- 2026-05-22
 

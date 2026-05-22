@@ -32,7 +32,7 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=111";
+import { STYLES } from "./src/styles.js?v=112";
 import { getT } from "./src/i18n.js?v=2";
 import { UtilsMixin } from "./src/utils-mixin.js?v=101";
 import { SessionMixin } from "./src/session-mixin.js?v=88";
@@ -80,6 +80,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     this._lovelaceResources = undefined;
     this._historyRestored = false;
     this._actionHistory = [];
+    this._tokenUsage = { used: 0, budget: 0, pct: 0 };
     this._t = getT("en"); // overwritten in set hass() once language is known
     this._DEFAULT_GREETING = this._t("greeting");
   }
@@ -175,6 +176,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
             <span class="narrator-progress" id="narrator-progress" hidden title="AI narrator is building entity descriptions in the background"></span>
             <button class="memory-badge" id="memory-badge" title="${this._t("memory_badge_title")}">🧠 <span id="memory-count">…</span></button>
+            <button class="token-badge" id="token-badge" title="Daily token usage">🪙 <span id="token-count">0</span></button>
             <button class="history-badge" id="btn-history-toggle" title="Show applied action history">🕘 History</button>
             <button class="update-badge" id="update-badge" hidden title="Update available — click to install">⬆️ <span id="update-badge-label">${this._t("update_badge")}</span></button>
             <button class="autopilot-badge" id="autopilot-badge" title="Toggle autopilot — auto-executes safe proposals">${this._t("autopilot_badge")}</button>
@@ -231,6 +233,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
 
     this._bindEvents(shadow);
     this._restorePersistedHistory();
+    this._updateTokenBadgeFromUsage(this._tokenUsage);
     this._applyModeAndDebugFlag();
   }
 
@@ -528,6 +531,39 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     });
   }
 
+  _formatTokenCount(value) {
+    const tokens = Math.max(0, Number(value) || 0);
+    if (tokens >= 1_000_000) return `${Math.round(tokens / 100_000) / 10}M`;
+    if (tokens >= 10_000) return `${Math.round(tokens / 1_000)}k`;
+    if (tokens >= 1_000) return `${Math.round(tokens / 100) / 10}k`;
+    return String(tokens);
+  }
+
+  _updateTokenBadgeFromUsage(tokenUsage) {
+    const badge = this.shadowRoot?.getElementById("token-badge");
+    const countEl = this.shadowRoot?.getElementById("token-count");
+    if (!badge || !countEl) return;
+    const usage = tokenUsage && typeof tokenUsage === "object"
+      ? tokenUsage
+      : { used: 0, budget: 0, pct: 0 };
+    this._tokenUsage = usage;
+    const used = Math.max(0, Number(usage.used) || 0);
+    const budget = Math.max(0, Number(usage.budget) || 0);
+    const pct = Math.max(0, Number(usage.pct) || 0);
+    countEl.textContent = budget > 0
+      ? `${this._formatTokenCount(used)}/${this._formatTokenCount(budget)}`
+      : this._formatTokenCount(used);
+    badge.classList.remove("token-badge--warning", "token-badge--danger");
+    if (budget > 0 && pct >= 100) {
+      badge.classList.add("token-badge--danger");
+    } else if (budget > 0 && pct >= 80) {
+      badge.classList.add("token-badge--warning");
+    }
+    badge.title = budget > 0
+      ? `Daily token usage: ${used.toLocaleString()} / ${budget.toLocaleString()} (${pct}%)`
+      : `Daily token usage: ${used.toLocaleString()} tokens (budget disabled)`;
+  }
+
   _startStatusPolling() {
     if (this._statusPollInterval) return;
     clearInterval(this._statusPollInterval);
@@ -542,6 +578,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
       if (!resp.ok) return;
       const data = await resp.json();
+      this._updateTokenBadgeFromUsage(data.token_usage || this._tokenUsage);
       const ep = data.explorer_progress || {};
       const status = ep.status || "idle";
 

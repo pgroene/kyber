@@ -1387,6 +1387,35 @@ export const STYLES = `
     background: color-mix(in srgb, var(--accent, #03a9f4) 28%, transparent);
   }
 
+  .token-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: color-mix(in srgb, var(--secondary-text-color, #9aa0a6) 12%, transparent);
+    color: var(--secondary-text-color, #c5c9ce);
+    border: 1px solid color-mix(in srgb, var(--secondary-text-color, #9aa0a6) 30%, transparent);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    cursor: default;
+    white-space: nowrap;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    outline: none;
+  }
+
+  .token-badge--warning {
+    color: #f0b429;
+    border-color: color-mix(in srgb, #f0b429 55%, transparent);
+    background: color-mix(in srgb, #f0b429 16%, transparent);
+  }
+
+  .token-badge--danger {
+    color: #ff6b6b;
+    border-color: color-mix(in srgb, #ff6b6b 60%, transparent);
+    background: color-mix(in srgb, #ff6b6b 16%, transparent);
+  }
+
   .history-badge {
     display: flex;
     align-items: center;
