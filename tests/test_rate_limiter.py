@@ -33,6 +33,22 @@ def test_rate_limiter_blocks_after_limit() -> None:
     assert retry_after > 0
 
 
+def test_rate_limiter_retry_after_is_clamped_to_window() -> None:
+    limiter = RateLimiter()
+
+    with patch("custom_components.kyber.rate_limiter.time.monotonic", return_value=100.0):
+        limiter.record("user-1")
+    with patch("custom_components.kyber.rate_limiter.time.monotonic", return_value=100.0):
+        allowed, retry_after = limiter.check("user-1", 1)
+    assert allowed is False
+    assert retry_after == 60
+
+    with patch("custom_components.kyber.rate_limiter.time.monotonic", return_value=159.9):
+        allowed, retry_after = limiter.check("user-1", 1)
+    assert allowed is False
+    assert retry_after == 1
+
+
 async def test_complete_endpoint_returns_429_when_rate_limited(
     hass,
     setup_integration,
@@ -45,6 +61,7 @@ async def test_complete_endpoint_returns_429_when_rate_limited(
         resp = await client.post("/api/kyber/complete", json={"prompt": "hello"})
 
     assert resp.status == 429
+    assert resp.headers["Retry-After"] == "17"
     assert await resp.json() == {"error": "Too many requests", "retry_after": 17}
     check_mock.assert_called_once()
     record_mock.assert_not_called()

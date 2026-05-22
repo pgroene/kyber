@@ -15,7 +15,8 @@ class RateLimiter:
         window = [t for t in self._windows[user_id] if now - t < 60]
         self._windows[user_id] = window
         if len(window) >= max_rpm:
-            retry_after = int(60 - (now - window[0])) + 1
+            age_of_oldest_request = now - window[0]
+            retry_after = max(1, min(60, int(60 - age_of_oldest_request)))
             return False, retry_after
         return True, 0
 

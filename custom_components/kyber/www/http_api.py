@@ -1971,10 +1971,12 @@ class KyberView(HomeAssistantView):
             hass.data[_CHAT_BUSY_KEY] = False
             _preempt_event.clear()
             _debug_detach_log_capture(_debug_log_handler)
-            return self.json(
+            response = self.json(
                 {"error": "Too many requests", "retry_after": retry_after},
                 status_code=HTTPStatus.TOO_MANY_REQUESTS,
             )
+            response.headers["Retry-After"] = str(retry_after)
+            return response
         _rate_limiter.record(user_id)
 
         # If the narrator is currently running, tell the user early so the
