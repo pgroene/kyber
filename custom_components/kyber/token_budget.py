@@ -72,27 +72,56 @@ class TokenBudgetStore:
         budget: int,
         estimated_tokens: int = 0,
     ) -> tuple[bool, dict[str, Any]]:
-        """Check whether another AI call is allowed for this provider."""
+        """Check whether another AI call is allowed and reserve the estimated tokens.
+
+        If allowed, tokens are reserved immediately to prevent concurrent requests
+        from all passing the same budget check. Call async_record() to correct the
+        reservation to the actual token count (positive or negative delta).
+        """
         await self.async_load()
         async with self._lock:
             changed = self._ensure_current_day()
             usage = self._build_usage(provider, budget)
-            projected_used = usage["used"] + max(0, int(estimated_tokens or 0))
+            est = max(0, int(estimated_tokens or 0))
+            projected_used = usage["used"] + est
             usage["projected_used"] = projected_used
             usage["projected_pct"] = self._calculate_pct(projected_used, budget)
             allowed = budget <= 0 or projected_used < budget
-            if changed:
+            if allowed and est > 0:
+                # Reserve tokens now so concurrent requests see updated usage.
+                providers = self._data.setdefault("providers", {})
+                provider_data = providers.setdefault(provider, {"used_tokens": 0})
+                provider_data["used_tokens"] = int(provider_data.get("used_tokens", 0) or 0) + est
+                await self._store.async_save(self._data)
+            elif changed:
                 await self._store.async_save(self._data)
             return allowed, usage
 
-    async def async_record(self, provider: str, tokens: int, budget: int = 0) -> dict[str, Any]:
-        """Record used tokens for a provider and return the updated snapshot."""
+    async def async_record(
+        self,
+        provider: str,
+        tokens: int,
+        budget: int = 0,
+        estimated_tokens: int = 0,
+    ) -> dict[str, Any]:
+        """Record actual token usage, correcting any prior reservation.
+
+        If async_check() reserved ``estimated_tokens``, this method adds the
+        difference (actual - estimated) so the running total stays accurate.
+        When estimated_tokens=0 (legacy callers or error paths) the full
+        ``tokens`` value is added as before.
+        """
         await self.async_load()
         async with self._lock:
             self._ensure_current_day()
             providers = self._data.setdefault("providers", {})
             provider_data = providers.setdefault(provider, {"used_tokens": 0})
-            provider_data["used_tokens"] = int(provider_data.get("used_tokens", 0) or 0) + max(0, int(tokens or 0))
+            actual = max(0, int(tokens or 0))
+            est = max(0, int(estimated_tokens or 0))
+            delta = actual - est  # may be negative (over-reserved)
+            provider_data["used_tokens"] = max(
+                0, int(provider_data.get("used_tokens", 0) or 0) + delta
+            )
             await self._store.async_save(self._data)
             return self._build_usage(provider, budget)
 

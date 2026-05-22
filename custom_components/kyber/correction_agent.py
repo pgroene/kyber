@@ -236,7 +236,7 @@ async def async_try_correct_failures(
         any(
             a.get("type") == "call_service" and
             (a.get("entity_id", "") == r.get("entity_id", "") or
-             a.get("domain", "") == r.get("entity_id", "").split(".")[0])
+             a.get("domain", "") == (r.get("entity_id", "").split(".")[0] if "." in r.get("entity_id", "") else ""))
             for a in original_actions
         )
     ]
@@ -254,9 +254,19 @@ async def async_try_correct_failures(
         )
     ]
     if not failed_action_dicts:
-        # Fall back: just use all original call_service actions
+        # Narrow fallback: match by domain of the failed entity_ids only
+        failed_domains = {
+            r.get("entity_id", "").split(".")[0]
+            for r in failed
+            if "." in r.get("entity_id", "")
+        }
         failed_action_dicts = [
-            a for a in original_actions if a.get("type") == "call_service"
+            a for a in original_actions
+            if a.get("type") == "call_service"
+            and (
+                a.get("domain", "") in failed_domains
+                or a.get("entity_id", "").split(".")[0] in failed_domains
+            )
         ]
 
     _LOGGER.info(
