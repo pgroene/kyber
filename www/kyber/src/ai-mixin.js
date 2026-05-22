@@ -359,6 +359,7 @@ export const AIMixin = (Base) => class extends Base {
       const data = await resp.json();
       this._hideThinking();
       this._clearWarningBanner(); // dismiss any prior "AI unavailable" banner on success
+      this._updateTokenBadgeFromUsage?.(data.token_usage || this._tokenUsage);
       // Store the assistant's text reply in history
       const textOnly = data.response
         .replace(/```yaml[\s\S]*?```/gi, "")

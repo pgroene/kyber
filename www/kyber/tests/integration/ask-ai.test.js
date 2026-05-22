@@ -196,6 +196,21 @@ describe("_askAI — response handling", () => {
     expect(msgs.length).toBeGreaterThan(0);
     expect(msgs[msgs.length - 1].textContent).toContain("Network error");
   });
+
+  it("updates the token badge from complete responses", async () => {
+    vi.stubGlobal("fetch", mockFetch({
+      response: "Done",
+      yaml_blocks: [],
+      plan: null,
+      token_usage: { used: 950, budget: 1000, pct: 95 },
+      budget_warning: true,
+    }));
+    const { element } = makePanel();
+    await askWithInput(element, "Budget check");
+    const badge = element.shadowRoot.getElementById("token-badge");
+    expect(element.shadowRoot.getElementById("token-count").textContent).toBe("950/1k");
+    expect(badge.classList.contains("token-badge--warning")).toBe(true);
+  });
 });
 
 describe("_askAI — slash commands", () => {

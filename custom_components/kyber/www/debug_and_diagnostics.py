@@ -11,8 +11,9 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, _redact_secrets
+from .const import CONF_AI_TASK_ENTITY_ID, CONF_MAX_DAILY_TOKENS, DOMAIN, _redact_secrets
 from .knowledge import get_store as get_knowledge_store
+from .token_budget import get_budget_provider, get_store as get_token_budget_store
 from .entity_narrator import NARRATOR_STATS_KEY
 from .knowledge_integration import get_deep_job_status as _get_deep_job_status
 from .api_utilities import async_ai_call
@@ -268,6 +269,10 @@ class KyberDebugStatusView(HomeAssistantView):
         snap = hass.data.get(_DEBUG_LAST_TURN_KEY)
         ai_task_entity = str(hass.data.get("kyber_ai_task_entity", ""))
         narrator_ai_task_entity = str(hass.data.get("kyber_narrator_ai_task_entity", ""))
+        config = dict(hass.data.get("kyber_config", {}))
+        budget_provider = get_budget_provider(config)
+        token_budget = int(config.get(CONF_MAX_DAILY_TOKENS, 0) or 0)
+        token_usage = await get_token_budget_store(hass).async_get_usage(budget_provider, token_budget)
 
         def _entity_info(entity_id: str) -> dict:
             """Return display name, model, and server URL for an ai_task entity."""
@@ -345,6 +350,7 @@ class KyberDebugStatusView(HomeAssistantView):
             "ai_task_info": _entity_info(ai_task_entity),
             "narrator_ai_task_entity": narrator_ai_task_entity,
             "narrator_ai_task_info": _entity_info(narrator_ai_task_entity),
+            "token_usage": token_usage,
             "knowledge": {
                 "total": len(all_entries),
                 "by_category": cat_counts,

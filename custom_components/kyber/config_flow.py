@@ -47,6 +47,7 @@ from .const import (
     DEFAULT_ANTHROPIC_MODEL,
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
+    CONF_MAX_DAILY_TOKENS,
     CONF_MAX_TOKENS,
     CONF_MAX_REQUESTS_PER_MINUTE,
     CONF_NARRATOR_ENABLED,
@@ -60,6 +61,7 @@ from .const import (
     CONF_LABEL_ASSIGNMENT_MODE,
     DEFAULT_ENABLE_DEBUG_VIEWS,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
+    DEFAULT_MAX_DAILY_TOKENS,
     DEFAULT_MAX_TOKENS,
     DEFAULT_MAX_REQUESTS_PER_MINUTE,
     DEFAULT_NARRATOR_ENABLED,
@@ -136,6 +138,7 @@ def _build_setup_schema(
     default_entity: str = "",
     max_tokens: int = DEFAULT_MAX_TOKENS,
     max_requests_per_minute: int = DEFAULT_MAX_REQUESTS_PER_MINUTE,
+    max_daily_tokens: int = DEFAULT_MAX_DAILY_TOKENS,
     enable_debug: bool = DEFAULT_ENABLE_DEBUG_VIEWS,
     run_initial_analyze: bool = DEFAULT_RUN_INITIAL_ANALYZE,
     deep_learning_interval_days: int = DEFAULT_DEEP_LEARNING_INTERVAL_DAYS,
@@ -165,6 +168,7 @@ def _build_setup_schema(
             **_build_options_schema(
                 max_tokens=max_tokens,
                 max_requests_per_minute=max_requests_per_minute,
+                max_daily_tokens=max_daily_tokens,
                 enable_debug=enable_debug,
                 run_initial_analyze=run_initial_analyze,
                 deep_learning_interval_days=deep_learning_interval_days,
@@ -187,6 +191,7 @@ def _build_options_schema(
     collapsed: bool = False,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     max_requests_per_minute: int = DEFAULT_MAX_REQUESTS_PER_MINUTE,
+    max_daily_tokens: int = DEFAULT_MAX_DAILY_TOKENS,
     chat_max_limit: int = 2_000_000,
     enable_debug: bool = DEFAULT_ENABLE_DEBUG_VIEWS,
     run_initial_analyze: bool = DEFAULT_RUN_INITIAL_ANALYZE,
@@ -221,6 +226,11 @@ def _build_options_schema(
     model_fields[vol.Optional(CONF_MAX_TOKENS, default=max_tokens)] = selector.NumberSelector(
         selector.NumberSelectorConfig(
             min=2_000, max=chat_max_limit, step=1, mode=selector.NumberSelectorMode.BOX
+        )
+    )
+    model_fields[vol.Optional(CONF_MAX_DAILY_TOKENS, default=max_daily_tokens)] = selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=0, max=100_000_000, step=1_000, mode=selector.NumberSelectorMode.BOX
         )
     )
     narrator_key = (
@@ -402,6 +412,7 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
                     data={
                         CONF_AI_TASK_ENTITY_ID: entity_id,
                         CONF_MAX_TOKENS: int(model.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)),
+                        CONF_MAX_DAILY_TOKENS: int(model.get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS)),
                         CONF_NARRATOR_AI_TASK_ENTITY_ID: str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip(),
                         CONF_NARRATOR_MAX_TOKENS: int(model.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS)),
                         CONF_RUN_INITIAL_ANALYZE: bool(agents.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),
@@ -484,6 +495,7 @@ class KyberOptionsFlow(OptionsFlow):
                         include_entity=True,
                         max_tokens=int(model.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)),
                         max_requests_per_minute=int(developer.get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE)),
+                        max_daily_tokens=int(model.get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS)),
                         narrator_ai_entity=str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")),
                         narrator_max_tokens=int(model.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS)),
                     ),
@@ -492,6 +504,7 @@ class KyberOptionsFlow(OptionsFlow):
 
             data: dict[str, Any] = {
                 CONF_MAX_TOKENS: int(model.get(CONF_MAX_TOKENS, _get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS))),
+                CONF_MAX_DAILY_TOKENS: int(model.get(CONF_MAX_DAILY_TOKENS, _get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS))),
                 CONF_NARRATOR_AI_TASK_ENTITY_ID: str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, _get(CONF_NARRATOR_AI_TASK_ENTITY_ID, ""))).strip(),
                 CONF_NARRATOR_MAX_TOKENS: int(model.get(CONF_NARRATOR_MAX_TOKENS, _get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS))),
                 CONF_RUN_INITIAL_ANALYZE: bool(agents.get(CONF_RUN_INITIAL_ANALYZE, _get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE))),
@@ -522,6 +535,7 @@ class KyberOptionsFlow(OptionsFlow):
 
         entity_id = _get(CONF_AI_TASK_ENTITY_ID, "")
         current_tokens = _get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)
+        current_daily_tokens = _get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS)
 
         # Always offer the inferred value when opening options — user can still override
         if entity_id:
@@ -540,6 +554,7 @@ class KyberOptionsFlow(OptionsFlow):
             collapsed=True,
             max_tokens=current_tokens,
             max_requests_per_minute=int(_get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE)),
+            max_daily_tokens=int(current_daily_tokens),
             chat_max_limit=chat_max_limit,
             enable_debug=bool(_get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)),
             run_initial_analyze=bool(_get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),

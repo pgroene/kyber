@@ -19,7 +19,6 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
-from homeassistant.helpers.storage import Store
 from .model_stats import record_call as _record_model_call
 
 try:
@@ -33,6 +32,7 @@ from .const import (
     CONF_AI_TASK_ENTITY_ID,
     CONF_AREA_ASSIGNMENT_MODE,
     CONF_CLOUD_PROVIDER,
+    CONF_MAX_DAILY_TOKENS,
     CONF_CLOUD_USE_FOR_CHAT,
     CLOUD_PROVIDER_ANTHROPIC,
     CLOUD_PROVIDER_AZURE,
@@ -66,6 +66,7 @@ from .const import (
     MAX_TOOL_RESULT_CHARS,
     SYSTEM_PROMPT_TEMPLATE,
     DEFAULT_LABEL_ASSIGNMENT_MODE,
+    DEFAULT_MAX_DAILY_TOKENS,
     _sanitize_user_input,
 )
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
@@ -133,6 +134,7 @@ from .prompt_regression_api import (
 )
 from .config_flow import _infer_max_tokens
 from .rate_limiter import _rate_limiter
+from .token_budget import get_budget_provider, get_store as get_token_budget_store
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -156,6 +158,50 @@ def _sanitize_prompt_value(text: str, max_len: int = 0) -> str:
     if max_len > 0 and len(cleaned) > max_len:
         cleaned = cleaned[:max_len]
     return cleaned
+
+
+def _extract_result_token_usage(
+    result: Any,
+    *,
+    prompt_fallback: int,
+    response_fallback: int,
+) -> dict[str, int]:
+    """Extract provider token usage when available, else fall back to estimates."""
+    usage = getattr(result, "usage", None)
+    if not isinstance(usage, dict):
+        usage = {}
+
+    def _as_int(value: Any) -> int | None:
+        try:
+            if value is None:
+                return None
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    prompt_tokens = _as_int(usage.get("prompt_tokens"))
+    if prompt_tokens is None:
+        prompt_tokens = _as_int(usage.get("input_tokens"))
+
+    response_tokens = _as_int(usage.get("completion_tokens"))
+    if response_tokens is None:
+        response_tokens = _as_int(usage.get("output_tokens"))
+    if response_tokens is None:
+        response_tokens = _as_int(usage.get("response_tokens"))
+
+    total_tokens = _as_int(usage.get("total_tokens"))
+
+    prompt_tokens = prompt_fallback if prompt_tokens is None else max(0, prompt_tokens)
+    response_tokens = response_fallback if response_tokens is None else max(0, response_tokens)
+    if total_tokens is None:
+        total_tokens = prompt_tokens + response_tokens
+    total_tokens = max(0, total_tokens)
+
+    return {
+        "prompt_tokens": prompt_tokens,
+        "response_tokens": response_tokens,
+        "total_tokens": total_tokens,
+    }
 
 
 # Appended to the tool-exchange when we need a plain-text synthesis pass
@@ -909,6 +955,14 @@ async def _run_ai_loop(
     _use_azure = _cloud_use_for_chat and _cloud_provider == CLOUD_PROVIDER_AZURE and bool(_azure_endpoint and _azure_api_key and _azure_deployment)
     _use_openai = _cloud_use_for_chat and _cloud_provider == CLOUD_PROVIDER_OPENAI and bool(_openai_api_key)
     _use_anthropic = _cloud_use_for_chat and _cloud_provider == CLOUD_PROVIDER_ANTHROPIC and bool(_anthropic_api_key)
+    _budget_provider = get_budget_provider(_cfg)
+    _token_usage = {
+        "provider": _budget_provider,
+        "prompt_tokens": 0,
+        "response_tokens": 0,
+        "total_tokens": 0,
+        "calls": 0,
+    }
 
     # Qwen3 thinking mode emits <think>â€¦</think> blocks that break plan/tool parsing.
     if "qwen3" in entity_id.lower():
@@ -1189,19 +1243,28 @@ async def _run_ai_loop(
             str(result.data) if result.data is not None else ""
         )
         _resp_tokens_est = len(response_text) // 4
-        _record_model_call(hass, entity_id, _elapsed_ms, _prompt_tokens_est + _resp_tokens_est, success=True)
+        _call_usage = _extract_result_token_usage(
+            result,
+            prompt_fallback=_prompt_tokens_est,
+            response_fallback=_resp_tokens_est,
+        )
+        _token_usage["calls"] += 1
+        _token_usage["prompt_tokens"] += _call_usage["prompt_tokens"]
+        _token_usage["response_tokens"] += _call_usage["response_tokens"]
+        _token_usage["total_tokens"] += _call_usage["total_tokens"]
+        _record_model_call(hass, entity_id, _elapsed_ms, _call_usage["total_tokens"], success=True)
         _LOGGER.info(
             "Kyber: AI call OK â€” entity=%s model=%s round=%d elapsed=%dms "
             "prompt_tokens~%d resp_tokens~%d total_tokens~%d",
             entity_id, _model_name, _round + 1, _elapsed_ms,
-            _prompt_tokens_est, _resp_tokens_est, _prompt_tokens_est + _resp_tokens_est,
+            _call_usage["prompt_tokens"], _call_usage["response_tokens"], _call_usage["total_tokens"],
         )
         _progress_emit(hass, request_id, {
             "type": "timing",
-            "message": f"â± {_elapsed_ms}ms Â· ~{_prompt_tokens_est + _resp_tokens_est:,} tokens",
+            "message": f"⏱ {_elapsed_ms}ms · ~{_call_usage['total_tokens']:,} tokens",
             "elapsed_ms": _elapsed_ms,
-            "prompt_tokens": _prompt_tokens_est,
-            "resp_tokens": _resp_tokens_est,
+            "prompt_tokens": _call_usage["prompt_tokens"],
+            "resp_tokens": _call_usage["response_tokens"],
             "round": _round + 1,
         })
         if not isinstance(result.data, str):
@@ -1547,10 +1610,19 @@ async def _run_ai_loop(
                         if isinstance(synth_result.data, str)
                         else (str(synth_result.data) if synth_result.data is not None else "")
                     )
+                    _synth_usage = _extract_result_token_usage(
+                        synth_result,
+                        prompt_fallback=len(synth_prompt) // 4,
+                        response_fallback=len(synth_text) // 4,
+                    )
+                    _token_usage["calls"] += 1
+                    _token_usage["prompt_tokens"] += _synth_usage["prompt_tokens"]
+                    _token_usage["response_tokens"] += _synth_usage["response_tokens"]
+                    _token_usage["total_tokens"] += _synth_usage["total_tokens"]
                     synth_text = _strip_tool_calls(synth_text).strip()
                     _LOGGER.info(
-                        "Kyber: synthesis pass OK â€” elapsed=%dms resp_tokens~%d",
-                        _synth_ms, len(synth_text) // 4,
+                        "Kyber: synthesis pass OK — elapsed=%dms resp_tokens~%d",
+                        _synth_ms, _synth_usage["response_tokens"],
                     )
                     if synth_text:
                         response_text = synth_text
@@ -1564,7 +1636,7 @@ async def _run_ai_loop(
                 )
             break
 
-    return response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved
+    return response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved, _token_usage
 
 
 def _extract_response_components(
@@ -2038,10 +2110,35 @@ class KyberView(HomeAssistantView):
             hass, kstore, user_prompt, instructions, request_id, entity_id=entity_id
         )
 
+        budget_provider = get_budget_provider(self._config)
+        max_daily_tokens = int(self._config.get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS) or 0)
+        token_budget_store = get_token_budget_store(hass)
+        estimated_prompt_tokens = (len(instructions) // 4) + sum(
+            len(str(entry.get("content", ""))) // 4 for entry in history if entry.get("content")
+        )
+        budget_allowed, preflight_token_usage = await token_budget_store.async_check(
+            budget_provider,
+            max_daily_tokens,
+            estimated_tokens=estimated_prompt_tokens,
+        )
+        if not budget_allowed:
+            _progress_complete(hass, request_id)
+            _debug_detach_log_capture(_debug_log_handler)
+            hass.data[_CHAT_BUSY_KEY] = False
+            hass.data.get("kyber_preempt_event", None) and hass.data["kyber_preempt_event"].clear()
+            return self.json(
+                {
+                    "error": "Daily token budget exceeded. Resets at midnight.",
+                    "token_usage": preflight_token_usage,
+                    "budget_warning": True,
+                },
+                status_code=HTTPStatus.TOO_MANY_REQUESTS,
+            )
+
         _progress_emit(hass, request_id, {"type": "info", "message": f"Built context: {context_stats.get('entity_count', 0)} entities, {context_stats.get('area_count', 0)} areas"})
 
         try:
-            response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved = \
+            response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved, call_token_usage = \
                 await _run_ai_loop(hass, entity_id, instructions, kstore, user_prompt, request_id, history, intent, config=self._config)
         except HomeAssistantError as err:
             _progress_complete(hass, request_id)
@@ -2058,6 +2155,12 @@ class KyberView(HomeAssistantView):
             hass.data[_CHAT_BUSY_KEY] = False
             hass.data.get("kyber_preempt_event", None) and hass.data["kyber_preempt_event"].clear()
             return self.json_message("Internal error", HTTPStatus.INTERNAL_SERVER_ERROR)
+
+        token_usage = await token_budget_store.async_record(
+            budget_provider,
+            int(call_token_usage.get("total_tokens", 0) or 0),
+            max_daily_tokens,
+        )
 
         try:
             components = _extract_response_components(response_text, intent, user_prompt, hass, tool_log)
@@ -2164,6 +2267,7 @@ class KyberView(HomeAssistantView):
                 tool_log=tool_log,
                 intent=intent,
                 response_text=response_text,
+                plan_block=plan_block,
                 auto_rating=auto_rating,
                 elapsed_ms=int((_time.time() - _turn_started_at) * 1000),
                 logs=_debug_log_sink or [],
@@ -2173,6 +2277,8 @@ class KyberView(HomeAssistantView):
                     "had_summary": bool(compacted_summary),
                     "editor_mode": editor_mode,
                     "context_stats": context_stats,
+                    "token_usage": token_usage,
+                    "call_token_usage": call_token_usage,
                 },
             )
         except Exception as err:  # noqa: BLE001
@@ -2301,6 +2407,8 @@ class KyberView(HomeAssistantView):
             "elapsed_ms": _total_ms,
             "area_suggestions": area_suggestions or None,
             "aliases_saved": _aliases_saved or None,
+            "token_usage": token_usage,
+            "budget_warning": True if token_usage.get("warning") else None,
         })
 
 
