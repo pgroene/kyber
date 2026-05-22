@@ -223,8 +223,25 @@ describe("_buildPlanCard — execute", () => {
 // Autopilot mode
 // ---------------------------------------------------------------------------
 describe("_buildPlanCard — autopilot", () => {
+  const highRiskPlan = {
+    summary: "Lock the front door",
+    actions: [
+      { type: "call_service", domain: "lock", service: "lock", entity_id: "light.bedroom", requires_approval: true, high_risk: true, risk_domain: "lock" },
+    ],
+    requires_approval: true,
+    high_risk: true,
+    high_risk_domains: ["lock"],
+  };
+
   beforeEach(() => {
     vi.useFakeTimers();
+    const storage = new Map();
+    vi.stubGlobal("localStorage", {
+      getItem: (key) => storage.has(key) ? storage.get(key) : null,
+      setItem: (key, value) => storage.set(key, String(value)),
+      clear: () => storage.clear(),
+      removeItem: (key) => storage.delete(key),
+    });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ results: [{ status: "ok" }] }),
@@ -245,6 +262,31 @@ describe("_buildPlanCard — autopilot", () => {
     expect(fetch).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(2100);
     expect(fetch).toHaveBeenCalled();
+  });
+
+  it("does not auto-execute high-risk plans without an override", async () => {
+    const { element } = makePanel({
+      states: { "light.bedroom": { entity_id: "light.bedroom", attributes: {} } },
+    });
+    element._autopilot = true;
+    const card = element._buildPlanCard(highRiskPlan);
+
+    expect(card.textContent).toContain("High risk");
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("reuses stored high-risk override for autopilot", async () => {
+    localStorage.setItem("kyber.autopilot.override.lock", "1");
+    const { element } = makePanel({
+      states: { "light.bedroom": { entity_id: "light.bedroom", attributes: {} } },
+    });
+    element._autopilot = true;
+    element._buildPlanCard(highRiskPlan);
+
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(fetch).toHaveBeenCalled();
+    expect(JSON.parse(fetch.mock.calls[0][1].body).approved).toBe(true);
   });
 
   it("does not auto-execute when autopilot is off", async () => {

@@ -167,9 +167,10 @@ export const PlanCardsMixin = (Base) => class extends Base {
           : "";
         const arrow = from && to ? `${from} → ${to}` : from || to;
         return `
-          <li class="change-row${missing ? " row-invalid" : ""}">
+          <li class="change-row${missing ? " row-invalid" : ""}${a.high_risk ? " row-risk" : ""}">
             ${entityHtml}
             <span class="change-type-badge">${this._escapeHtml(typeLabel)}</span>
+            ${a.high_risk ? `<span class="change-type-badge">⚠ High risk</span>` : ""}
             <span class="change-delta">${arrow}</span>
           </li>`;
       })
@@ -189,15 +190,26 @@ export const PlanCardsMixin = (Base) => class extends Base {
     );
     const hasExecutable = executableActions.length > 0;
 
-    // Split executable actions by approval requirement.
-    // Config/destructive actions (assign_area, rename_entity, lock unlock, etc.)
-    // ALWAYS need an explicit user click — autopilot cannot bypass them.
     const approvalActions = executableActions.filter((a) => a.requires_approval === true);
-    const autoActions = executableActions.filter((a) => a.requires_approval !== true);
-    const requiresApproval = plan.requires_approval === true || approvalActions.length > 0;
-    const autopilotCanRun = this._autopilot && autoActions.length > 0;
-    const approvalBadge = requiresApproval
-      ? `<div class="plan-approval-note">🔒 ${approvalActions.length} action(s) change Home Assistant configuration and require your explicit approval.</div>`
+    const getGuardrailKey = (domain) => `kyber.autopilot.override.${String(domain || "").toLowerCase()}`;
+    const hasGuardrailOverride = (domain) => {
+      try {
+        return window.localStorage.getItem(getGuardrailKey(domain)) === "1";
+      } catch (_) {
+        return false;
+      }
+    };
+    const highRiskActions = approvalActions.filter((a) => a.high_risk === true);
+    const highRiskDomains = [...new Set(highRiskActions.map((a) => String(a.risk_domain || a.domain || "").toLowerCase()).filter(Boolean))];
+    const manualApprovalActions = approvalActions.filter((a) => !a.high_risk || !hasGuardrailOverride(a.risk_domain || a.domain));
+    const autoActions = executableActions.filter((a) => !manualApprovalActions.includes(a));
+    const requiresApproval = manualApprovalActions.length > 0;
+    const autopilotCanRun = this._autopilot && autoActions.length > 0 && !requiresApproval;
+    const approvalBadge = approvalActions.length > 0
+      ? `<div class="plan-approval-note">🔒 ${approvalActions.length} action(s) require approval${highRiskDomains.length ? ` — high risk: ${highRiskDomains.map((d) => this._escapeHtml(d)).join(", ")}` : ""}.</div>`
+      : "";
+    const guardrailPrompt = this._autopilot && highRiskDomains.length > 0
+      ? `<label class="plan-warning"><input type="checkbox" class="guardrail-override-checkbox"> Allow autopilot for ${this._escapeHtml(highRiskDomains.join(", "))} after I approve this plan.</label>`
       : "";
 
     card.innerHTML = `
@@ -210,7 +222,8 @@ export const PlanCardsMixin = (Base) => class extends Base {
       ${missingWarning}
       ${warnings}
       ${approvalBadge}
-      ${autopilotCanRun && !requiresApproval
+      ${guardrailPrompt}
+      ${autopilotCanRun
         ? `<div class="plan-result" style="color:var(--warning-color,#ff9800);font-size:12px">⚡ Autopilot: executing in 2s…</div>`
         : `<button class="btn-execute"${hasExecutable ? "" : " disabled"}>✅ Execute${invalidEntities.size > 0 && hasExecutable ? ` (${executableActions.length} of ${(plan.actions || []).length})` : ""}</button>`
       }
@@ -427,19 +440,24 @@ export const PlanCardsMixin = (Base) => class extends Base {
     };
 
     if (card.querySelector(".btn-execute")) {
-      card.querySelector(".btn-execute").addEventListener("click", () => doExecute({ approved: true }));
+      card.querySelector(".btn-execute").addEventListener("click", () => {
+        const remember = card.querySelector(".guardrail-override-checkbox")?.checked;
+        if (remember) {
+          highRiskDomains.forEach((domain) => {
+            try {
+              window.localStorage.setItem(getGuardrailKey(domain), "1");
+            } catch (_) {
+              // ignore storage failures
+            }
+          });
+        }
+        doExecute({ approved: true });
+      });
     }
 
-    // Autopilot: only auto-execute the SAFE subset (runtime state changes).
-    // Config-changing/destructive actions always wait for explicit approval.
-    if (this._autopilot && autoActions.length > 0 && !requiresApproval) {
-      setTimeout(() => doExecute({ approved: false, actions: autoActions }), 2000);
-    } else if (this._autopilot && autoActions.length > 0 && requiresApproval) {
-      // Mixed plan: auto-run safe ones, leave Execute button for the rest.
-      setTimeout(() => {
-        resultEl.textContent = `⚡ Autopilot: running ${autoActions.length} safe action(s); config changes await your approval…`;
-        doExecute({ approved: false, actions: autoActions });
-      }, 2000);
+    if (autopilotCanRun) {
+      const autopilotApproved = autoActions.some((a) => a.requires_approval === true);
+      setTimeout(() => doExecute({ approved: !autopilotApproved ? false : true, actions: autoActions }), 2000);
     }
 
     return card;

@@ -112,7 +112,7 @@ from .debug_and_diagnostics import (
     _build_redaction_map, _restore_kyber_version_in_bug_report, _build_redacted_bundle_summary,
 )
 from .action_execution import (
-    _CONFIG_CHANGING_ACTION_TYPES, _DESTRUCTIVE_SERVICES,
+    _CONFIG_CHANGING_ACTION_TYPES, _DESTRUCTIVE_SERVICES, _classify_risk,
     _action_requires_approval, _annotate_plan_approval, _build_service_undo,
     KyberExecuteView,
 )
