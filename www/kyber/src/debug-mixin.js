@@ -727,11 +727,11 @@ export const DebugMixin = (Base) => class extends Base {
         · prompt: ${snap.char_count?.toLocaleString() ?? "?"} chars (~${snap.approx_tokens?.toLocaleString() ?? "?"} tokens)
         · auto_rating: ${snap.auto_rating ? `⚠ ${snap.auto_rating}/5` : "—"}
       </div>
-      <details class="debug-section" open>
+      <details class="debug-section">
         <summary><strong>User prompt</strong></summary>
         <pre class="dbg-pre">${this._escapeHtml(snap.user_prompt || "")}</pre>
       </details>
-      <details class="debug-section" open>
+      <details class="debug-section">
         <summary><strong>📌 Knowledge entries used this turn (${picked.length})</strong></summary>
         ${picked.length === 0 ? '<em>None injected.</em>' : '<div class="kn-list" id="dbg-picked-list"></div>'}
       </details>
