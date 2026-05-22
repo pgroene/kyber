@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.0] - 2026-05-22
+
+### Security
+- Authentication hardening: admin-only debug/prompt-test endpoints; action history scoped per user; no internal error leakage (#196)
+- Secrets hygiene: credential detection in knowledge store; debug bundles redacted; CredentialPatternError with pre-validation (#197)
+- Rate limiting: per-user RPM throttle on /complete; UI retry countdown; Retry-After header (#193)
+- Prompt injection protection: sanitized in input, history replay, summary, YAML fences (#195)
+- Token budget: daily per-user tracking; chat header badge (80%/100% thresholds); failed calls accounted (#199)
+- Two-layer knowledge: global (owner_id=null) + personal per-user; GDPR-safe deletes (#200)
+- Knowledge access control: users see own + global; admins see all; per-entry DELETE (#198)
+- Dangerous action guardrails: high-risk domains ask-before-execute by default; per-user override API; safety floor (#194)
+
+### Fixed
+- Debug last turn sections no longer auto-expand when data loads
+
+# Changelog
+
 All notable changes to Kyber are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 The `[Unreleased]` section is automatically promoted to a versioned entry by the **Do Release** pipeline on every merge to `main`.
@@ -13,14 +30,14 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 
 ---
 
-## [0.5.7.3] Ã¢â‚¬â€ 2026-05-22
+## [0.5.7.3] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-22
 
 ### Fixed
-- **[Critical]** Bumped all JS mixin import version numbers (?v=N+1) so browsers discard stale cached copies of the mixin files that shipped without _loadActionHistory Ã¢â‚¬â€ the previous hotfix (v0.5.7.2) replaced the files on the server but browsers continued serving old cached versions
+- **[Critical]** Bumped all JS mixin import version numbers (?v=N+1) so browsers discard stale cached copies of the mixin files that shipped without _loadActionHistory ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the previous hotfix (v0.5.7.2) replaced the files on the server but browsers continued serving old cached versions
 
 ---
 
-## [0.5.7.2] Ã¢â‚¬â€ 2026-05-22 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-22
+## [0.5.7.2] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-22 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-22
 
 ### Fixed
 - **[Critical]** JS frontend files (`utils-mixin.js`, `ai-mixin.js`, etc.) were not being synced to the `www/` mirror, causing `this._loadActionHistory is not a function` on panel load
@@ -28,7 +45,7 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 
 ---
 
-## [0.5.7.1] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-22
+## [0.5.7.1] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-22
 
 ### Fixed
 - **[Critical]** `action_history.py` was missing from the v0.5.7 release, causing Kyber to fail to load in Home Assistant with `ModuleNotFoundError: No module named 'custom_components.kyber.action_history'`
@@ -53,7 +70,7 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 ## [0.5.9] -- 2026-05-22
 
 ### Changed
-- Entity chips in AI responses now show **live state** Ã¢â‚¬â€ when a light turns on/off the chip updates without a page reload
+- Entity chips in AI responses now show **live state** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â when a light turns on/off the chip updates without a page reload
 - Entity chip formatting improved: no more duplicate entity ID text or parentheses around chips
 - Bullet lists with 4+ entity chips are automatically converted to a compact card grid
 - System prompt updated: AI now writes entity IDs as chips only, no surrounding plain text
@@ -77,48 +94,48 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 
 ### Added
 - **10 new language translations**: DE, FR, ES, IT, PT, PL, HU, SV, RU, ZH-Hans
-- **Self-healing execution** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â when a plan action fails, a correction micro-agent automatically re-tries with domain-specific knowledge; result shown in chat with `[ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â§ CORRECTION]` marker (closes #187)
+- **Self-healing execution** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â when a plan action fails, a correction micro-agent automatically re-tries with domain-specific knowledge; result shown in chat with `[ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â§ CORRECTION]` marker (closes #187)
 - Toast notification when a fact is learned from a correction (`_showToast`)
 - Approval queue auto-highlights (orange pulse + scroll-into-view) when execution requires approval
 - Failed actions now recorded in chat history with `[FAILED]` marker
 - i18n: English and Dutch translations for the panel UI via `i18n.js`; all mixin files wired to `this._t`
-- `translations/nl.json` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Dutch translations for the Home Assistant config flow UI
-- `CONTRIBUTING.md` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â PR-only workflow guide with release checklist
+- `translations/nl.json` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Dutch translations for the Home Assistant config flow UI
+- `CONTRIBUTING.md` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â PR-only workflow guide with release checklist
 - Playwright tests for copy button behaviour (7 tests) and self-healing correction flow (8 tests)
-- `docs/correction-agent.md` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â architecture guide for the correction micro-agent
+- `docs/correction-agent.md` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â architecture guide for the correction micro-agent
 
 ### Fixed
-- **[Critical]** Chat history race condition ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â each load/save created a new `Store` instance, bypassing per-instance locking. Now a single shared `Store` + `asyncio.Lock` is stored in `hass.data`, preventing concurrent writes from corrupting session data
-- **[High]** Path traversal in self-update zip extraction ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â checks for `..` path components and absolute paths _before_ `mkdir()`, preventing writes outside `custom_components/kyber/`
-- **[Medium]** Knowledge `_persist()` deadlock ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â split into `_persist()` (acquires lock) and `_persist_unlocked()` (for callers already holding the lock); entry snapshot prevents concurrent mutation
-- **[Medium]** XSS in `_appendThinkingEvent` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â simple events now use `textContent` instead of `innerHTML`; the HTML variant renamed to `_appendThinkingEventHTML` to make its requirements explicit
-- Copy button broken on AI messages and in the bug report dialog ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â all 3 clipboard call sites now include an `execCommand('copy')` fallback for HTTP environments
+- **[Critical]** Chat history race condition ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â each load/save created a new `Store` instance, bypassing per-instance locking. Now a single shared `Store` + `asyncio.Lock` is stored in `hass.data`, preventing concurrent writes from corrupting session data
+- **[High]** Path traversal in self-update zip extraction ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â checks for `..` path components and absolute paths _before_ `mkdir()`, preventing writes outside `custom_components/kyber/`
+- **[Medium]** Knowledge `_persist()` deadlock ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â split into `_persist()` (acquires lock) and `_persist_unlocked()` (for callers already holding the lock); entry snapshot prevents concurrent mutation
+- **[Medium]** XSS in `_appendThinkingEvent` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â simple events now use `textContent` instead of `innerHTML`; the HTML variant renamed to `_appendThinkingEventHTML` to make its requirements explicit
+- Copy button broken on AI messages and in the bug report dialog ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â all 3 clipboard call sites now include an `execCommand('copy')` fallback for HTTP environments
 - Pre-existing JS test failures: `_extractSuggestions` cap (6 chips), `_startStatusPolling` timer tests, debug-pane visibility, memory-badge text
 
 ---
 
-## [0.5.6] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-22 01:00 +0200
+## [0.5.6] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-22 01:00 +0200
 
 ### Fixed
-- **Background AI tasks silently falling back** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â when the configured AI entity returns "does not support thinking", background tasks now automatically retry via Azure if configured
-- **Label creation broken on newer HA** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â `LabelRegistry.async_create()` removed the `label_id` keyword argument; now tries with fallback
+- **Background AI tasks silently falling back** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â when the configured AI entity returns "does not support thinking", background tasks now automatically retry via Azure if configured
+- **Label creation broken on newer HA** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â `LabelRegistry.async_create()` removed the `label_id` keyword argument; now tries with fallback
 
 ### Added
 - Restart overlay with spinner animation shown while Home Assistant restarts (fixes #183)
 
 ### Fixed
-- Copy button broken on HTTP (non-HTTPS) setups ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â `navigator.clipboard.writeText` requires HTTPS; added `execCommand('copy')` fallback so copy works on plain HTTP local installs
+- Copy button broken on HTTP (non-HTTPS) setups ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â `navigator.clipboard.writeText` requires HTTPS; added `execCommand('copy')` fallback so copy works on plain HTTP local installs
 
 ---
 
-## [0.5.3] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 21:59 +0200
+## [0.5.3] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 21:59 +0200
 
 ### Fixed
-- `CLOUD_PROVIDER_ANTHROPIC` `NameError` in the `www/` copy of `http_api.py` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â missing import caused a 500 error when Anthropic was selected
+- `CLOUD_PROVIDER_ANTHROPIC` `NameError` in the `www/` copy of `http_api.py` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â missing import caused a 500 error when Anthropic was selected
 
 ---
 
-## [0.5.2] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 21:44 +0200
+## [0.5.2] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 21:44 +0200
 
 ### Fixed
 - Intent classifier false positives causing the wrong response mode to be selected (closes #113)
@@ -126,7 +143,7 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 
 ---
 
-## [0.5.1] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 21:07 +0200
+## [0.5.1] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 21:07 +0200
 
 ### Fixed
 - 3 flaky tests caused by test-ordering state corruption in the debug and summarize test files
@@ -135,7 +152,7 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 
 ---
 
-## [0.5.0] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 21:00 +0200
+## [0.5.0] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 21:00 +0200
 
 ### Fixed
 - Knowledge store deduplication: spurious signal-word false-matches removed from TF-IDF index
@@ -147,83 +164,83 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 
 ---
 
-## [0.4.9] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 20:51 +0200
+## [0.4.9] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 20:51 +0200
 
 ### Fixed
 - Options flow discarded all existing config keys when only a subset of form sections were submitted, breaking settings after reconfigure (closes #167)
 
 ---
 
-## [0.4.8] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 20:48 +0200
+## [0.4.8] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 20:48 +0200
 
 ### Fixed
 - Synthesis (summarise) AI call always routed to the local Ollama provider regardless of the configured cloud provider setting (closes #166)
 
 ---
 
-## [0.4.7] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 20:42 +0200
+## [0.4.7] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 20:42 +0200
 
 ### Security
 - Path validation in blueprint/source loader: replaced fragile `str.startswith()` check with `Path.relative_to()` to prevent path-traversal when reading user-supplied file paths (closes #165)
 
 ---
 
-## [0.4.6] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 20:41 +0200
+## [0.4.6] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 20:41 +0200
 
 ### Fixed
-- Busy flag and log handler not cleared on all AI error paths ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the panel remained permanently locked after a timeout or unhandled exception (closes #164)
+- Busy flag and log handler not cleared on all AI error paths ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the panel remained permanently locked after a timeout or unhandled exception (closes #164)
 
 ---
 
-## [0.4.5] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 18:25 +0200
+## [0.4.5] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 18:25 +0200
 
-_Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
+_Tag alias for v0.4.4 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â same commit._
 
 ---
 
-## [0.4.4] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 18:25 +0200
+## [0.4.4] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 18:25 +0200
 
 ### Added
 - Anthropic (Claude) cloud provider: `claude-3-5-sonnet-20241022` and `claude-3-haiku-20240307` with streaming support and 429 rate-limit back-off
 
 ---
 
-## [0.4.3] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 18:20 +0200
+## [0.4.3] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 18:20 +0200
 
 ### Added
 - General cloud-provider configuration layer (`cloud_provider.py`) supporting Azure AI Foundry and OpenAI endpoints
 
 ---
 
-## [0.4.2] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 17:42 +0200
+## [0.4.2] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 17:42 +0200
 
 ### Fixed
 - Azure AI Foundry 429 (rate limit) responses now trigger exponential back-off and surface a clean error message in the chat panel rather than a raw HTTP error
 
 ---
 
-## [0.4.1] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 17:06 +0200
+## [0.4.1] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 17:06 +0200
 
 ### Fixed
-- Config entry `options` not merged into the active config dict at setup ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â cloud provider settings were silently ignored after a Home Assistant restart
+- Config entry `options` not merged into the active config dict at setup ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â cloud provider settings were silently ignored after a Home Assistant restart
 
 ---
 
-## [0.4.0] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 16:41 +0200
+## [0.4.0] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 16:41 +0200
 
 ### Added
 - Azure AI Foundry cloud provider: route AI calls to Azure Foundry by setting `kyber_cloud_provider: azure_ai_foundry` in the integration options
 
 ---
 
-## [0.3.9] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 16:36 +0200
+## [0.3.9] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 16:36 +0200
 
 ### Fixed
 - Regression-test capture saves the snapshot to the HA config directory instead of the integration source tree, making it writable in production installations
 
 ---
 
-## [0.3.8] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 16:29 +0200
+## [0.3.8] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 16:29 +0200
 
 ### Fixed
 - Disambiguated entity chips showed display names instead of entity IDs in the click payload
@@ -231,7 +248,7 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.3.7] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 16:06 +0200
+## [0.3.7] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 16:06 +0200
 
 ### Fixed
 - `SyntaxError` in `http_api.py` was blocking startup on recent Python versions
@@ -239,7 +256,7 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.3.6] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 14:56 +0200
+## [0.3.6] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 14:56 +0200
 
 ### Added
 - Entity disambiguation as interactive chips: when a query matches multiple entities, Kyber shows a "toon meer" (show more) collapsible chip list with one-click selection
@@ -250,14 +267,14 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.3.5] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 13:36 +0200
+## [0.3.5] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 13:36 +0200
 
 ### Fixed
 - Resolved correct Ollama endpoint and model per AI-task entity when multiple entities are configured across different servers
 
 ---
 
-## [0.3.4] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 13:01 +0200
+## [0.3.4] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 13:01 +0200
 
 ### Added
 - Ollama debug pre-flight shows the configured endpoint URL and all currently-pulled models
@@ -265,23 +282,23 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.3.3] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 11:28 +0200
+## [0.3.3] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 11:28 +0200
 
 ### Added
-- Model name included in `[AIÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢]` / `[AIÃƒÂ¢Ã¢â‚¬Â Ã‚Â]` debug log lines for easier multi-model diagnostics
+- Model name included in `[AIÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢]` / `[AIÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ãƒâ€šÃ‚Â]` debug log lines for easier multi-model diagnostics
 - Debug panel now visible in normal chat mode when debug is enabled (not only in the dedicated debug-mode view)
 - Warning banner when the AI task entity is unavailable or misconfigured
 
 ---
 
-## [0.3.2] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 11:13 +0200
+## [0.3.2] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 11:13 +0200
 
 ### Fixed
-- Kyber logger not set to `DEBUG` level when debug mode is enabled ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â detailed request/response logs were being silently discarded at the default `WARNING` level
+- Kyber logger not set to `DEBUG` level when debug mode is enabled ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â detailed request/response logs were being silently discarded at the default `WARNING` level
 
 ---
 
-## [0.3.1] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 10:08 +0200
+## [0.3.1] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 10:08 +0200
 
 ### Added
 - Chat preemption: sending a new message while an AI call is in-flight immediately cancels the in-flight request
@@ -290,7 +307,7 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.3.0] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 09:34 +0200
+## [0.3.0] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 09:34 +0200
 
 ### Added
 - Live progress indicator card: each tool call and AI round-trip is shown in real time as it happens
@@ -300,14 +317,14 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.2.26] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-21 00:02 +0200
+## [0.2.26] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-21 00:02 +0200
 
 ### Fixed
 - Options flow missing fields caused a `vol.Any` serialisation error when saving settings
 
 ---
 
-## [0.2.25] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 23:54 +0200
+## [0.2.25] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 23:54 +0200
 
 ### Fixed
 - Single-step config flow broken after recent refactor
@@ -315,49 +332,49 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.2.24] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 23:47 +0200
+## [0.2.24] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 23:47 +0200
 
 ### Changed
 - Collapsed 2-step config flow into a single step for a simpler initial setup experience
 
 ---
 
-## [0.2.22] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 23:22 +0200
+## [0.2.22] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 23:22 +0200
 
 ### Fixed
 - `vol.Any` schema rejected extra keys in the `model_config` sub-dict
 
 ---
 
-## [0.2.21] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 23:01 +0200
+## [0.2.21] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 23:01 +0200
 
 ### Fixed
-- Main Kyber panel not removed on integration unload/remove ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â stale sidebar entry persisted across HA restarts
+- Main Kyber panel not removed on integration unload/remove ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â stale sidebar entry persisted across HA restarts
 
 ---
 
-## [0.2.20] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 22:50 +0200
+## [0.2.20] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 22:50 +0200
 
 ### Fixed
 - Missing `reconfigure` step in `translations/en.json` caused a UI error when trying to reconfigure the integration
 
 ---
 
-## [0.2.19] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 22:34 +0200
+## [0.2.19] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 22:34 +0200
 
 ### Added
-- `async_step_reconfigure` support in the config flow ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â allows editing the Ollama connection without removing and re-adding the integration
+- `async_step_reconfigure` support in the config flow ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â allows editing the Ollama connection without removing and re-adding the integration
 
 ---
 
-## [0.2.18] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 21:58 +0200
+## [0.2.18] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 21:58 +0200
 
 ### Fixed
 - Signal-word filter in `async_pick_relevant` was incorrectly rejecting valid memory matches on common query words
 
 ---
 
-## [0.2.17] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 21:33 +0200
+## [0.2.17] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 21:33 +0200
 
 ### Fixed
 - `low_quality` narrator entries excluded from TF-IDF index to improve retrieval precision and reduce noise (closes #155)
@@ -365,22 +382,22 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.2.16] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 21:10 +0200
+## [0.2.16] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 21:10 +0200
 
 ### Added
 - Device context expansion: memory-matched entity aliases are resolved to their full device context before the prompt is assembled
 
 ---
 
-## [0.2.15] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 20:59 +0200
+## [0.2.15] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 20:59 +0200
 
 ### Fixed
-- Stop 401 poll storm when the HA session expires ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the progress-poller now backs off instead of flooding requests
+- Stop 401 poll storm when the HA session expires ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the progress-poller now backs off instead of flooding requests
 - Debug panel JSON parse error guarded against malformed responses
 
 ---
 
-## [0.2.14] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 20:16 +0200
+## [0.2.14] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 20:16 +0200
 
 ### Added
 - Learning pipeline quick wins: noise filtering, helper and template indexing in the integration explorer (closes #149)
@@ -389,21 +406,21 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.2.13] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 18:56 +0200
+## [0.2.13] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 18:56 +0200
 
 ### Fixed
 - Review card alias display and button entity preference in action proposals (closes #148)
 
 ---
 
-## [0.2.12] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 18:44 +0200
+## [0.2.12] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 18:44 +0200
 
 ### Fixed
 - Dashboard indexer label quality and alias format improved (closes #147)
 
 ---
 
-## [0.2.11] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 18:23 +0200
+## [0.2.11] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 18:23 +0200
 
 ### Fixed
 - `get_entity_state` serialises `datetime` attributes correctly (closes #146)
@@ -411,7 +428,7 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.2.10] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 18:05 +0200
+## [0.2.10] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 18:05 +0200
 
 ### Added
 - Proposal review flow with label descriptions (closes #136)
@@ -421,7 +438,7 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.2.9] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 17:32 +0200
+## [0.2.9] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 17:32 +0200
 
 ### Added
 - Multi-language translation: AI language detection now injects locale-specific vocabulary hints for French, German, Spanish, Italian, and Portuguese
@@ -431,21 +448,21 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.2.8] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 14:09 +0200
+## [0.2.8] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 14:09 +0200
 
 ### Performance
-- System prompt compressed 31% (ÃƒÂ¢Ã‹â€ Ã¢â‚¬â„¢2 007 tokens) by removing redundant tool descriptions and merging static instruction blocks
+- System prompt compressed 31% (ÃƒÆ’Ã‚Â¢Ãƒâ€¹Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢2 007 tokens) by removing redundant tool descriptions and merging static instruction blocks
 
 ---
 
-## [0.2.7] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 14:01 +0200
+## [0.2.7] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 14:01 +0200
 
 ### Added
 - Zones support: zone entity states, occupancy context, and person location tracking via new `get_person_locations` tool
 
 ---
 
-## [0.2.6] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 13:51 +0200
+## [0.2.6] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 13:51 +0200
 
 ### Fixed
 - `SyntaxError` in `__init__.py` blocking startup
@@ -453,28 +470,28 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.2.5] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 13:43 +0200
+## [0.2.5] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 13:43 +0200
 
 ### Added
 - Review queue in the chat pane with compact card design and bulk approve/reject rules
 
 ---
 
-## [0.2.4] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 13:29 +0200
+## [0.2.4] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 13:29 +0200
 
 ### Fixed
 - Review flow approve/reject button endpoints corrected after API rename
 
 ---
 
-## [0.2.3] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 13:20 +0200
+## [0.2.3] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 13:20 +0200
 
 ### Fixed
 - Missing `_timeAgo` declaration in `debug-mixin.js` caused a `ReferenceError` that blocked panel initialisation
 
 ---
 
-## [0.2.2] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 12:01 +0200
+## [0.2.2] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 12:01 +0200
 
 ### Added
 - Memory review flow: proposed memory edits are shown to the user for approval before being saved
@@ -482,18 +499,18 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.2.1] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 11:11 +0200
+## [0.2.1] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 11:11 +0200
 
 ### Fixed
-- Domain-intent boost in memory retrieval was not applied ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â relevant domain entries were ranked too low
+- Domain-intent boost in memory retrieval was not applied ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â relevant domain entries were ranked too low
 - Media player search hint missing from entity vocabulary
 
 ---
 
-## [0.2.0] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-20 08:08 +0200
+## [0.2.0] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-20 08:08 +0200
 
 ### Added
-- `/update force` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â self-update directly from the latest GitHub release, bypassing HACS
+- `/update force` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â self-update directly from the latest GitHub release, bypassing HACS
 - Dutch kitchen-appliance vocabulary extended to all supported AI languages
 - `search_automations` tool for schedule and timing questions
 - Conversation-driven area discovery with language-agnostic prompts (closes #135)
@@ -508,52 +525,52 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.1.20] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 19:07 +0200
+## [0.1.20] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 19:07 +0200
 
 ### Fixed
 - Action plans that referenced bogus entity IDs are now rescued by matching the area name and substituting valid entities
 
 ---
 
-## [0.1.19] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 18:20 +0200
+## [0.1.19] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 18:20 +0200
 
 ### Added
-- State filter on `list_entities` tool ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â filter by state value (e.g. `on`, `off`, `unavailable`)
+- State filter on `list_entities` tool ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â filter by state value (e.g. `on`, `off`, `unavailable`)
 - New `list_entities_without_area` tool for area-assignment workflows
-- Tool name alias resolution ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the AI can use alternate names for tools without triggering an error
+- Tool name alias resolution ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the AI can use alternate names for tools without triggering an error
 
 ---
 
-## [0.1.18] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 18:05 +0200
+## [0.1.18] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 18:05 +0200
 
 ### Fixed
-- `T00L_CALL` zero/O regex: the AI sometimes writes `T00L_CALL` with a zero instead of the letter O ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â both are now handled
+- `T00L_CALL` zero/O regex: the AI sometimes writes `T00L_CALL` with a zero instead of the letter O ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â both are now handled
 - Intent classifier over-triggering on borderline messages reduced via stricter matching
 
 ---
 
-## [0.1.17] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 17:51 +0200
+## [0.1.17] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 17:51 +0200
 
 ### Added
 - Brand icons bundled in `custom_components/kyber/brand/` for HACS store display
 
 ---
 
-## [0.1.15] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 17:44 +0200
+## [0.1.15] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 17:44 +0200
 
 ### Fixed
 - AI was responding without tool calls when it should always call tools for real home data; strict enforcement rule added to the system prompt
 
 ---
 
-## [0.1.14] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 17:41 +0200
+## [0.1.14] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 17:41 +0200
 
 ### Added
 - Thinking animation (spinner) displayed in the chat panel while the AI is processing
 
 ---
 
-## [0.1.13] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 17:38 +0200
+## [0.1.13] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 17:38 +0200
 
 ### Fixed
 - AI was narrating its own tool calls aloud; tool result messages are now stripped from the rendered chat output
@@ -561,14 +578,14 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.1.12] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 17:26 +0200
+## [0.1.12] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 17:26 +0200
 
 ### Fixed
 - Misrouted `open_editor` plans now rescued and redirected to the correct editor endpoint
 
 ---
 
-## [0.1.11] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 17:22 +0200
+## [0.1.11] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 17:22 +0200
 
 ### Fixed
 - Strip AI response preamble (e.g. "Certainly!", "Of course!") before rendering in chat
@@ -576,65 +593,65 @@ _Tag alias for v0.4.4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same commit._
 
 ---
 
-## [0.1.10] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 17:10 +0200
+## [0.1.10] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 17:10 +0200
 
 ### Added
 - Intent classification: pre-classify each user message into `action`, `question`, `editor`, or `info` to select the right response format
 
 ---
 
-## [0.1.9] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 17:00 +0200
+## [0.1.9] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 17:00 +0200
 
 ### Fixed
 - Added `issue_tracker` field to `manifest.json` and root brand assets required for HACS default-store submission (closes #26)
 
 ---
 
-## [0.1.5] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 16:16 +0200
+## [0.1.5] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 16:16 +0200
 
 ### Added
-- Smart context: area-based home-state snapshot ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â only entities relevant to the user's request (by area) are included in the AI prompt; a context badge shows which areas were selected
+- Smart context: area-based home-state snapshot ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â only entities relevant to the user's request (by area) are included in the AI prompt; a context badge shows which areas were selected
 
 ---
 
-## [0.1.4] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 15:44 +0200
+## [0.1.4] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 15:44 +0200
 
 ### Fixed
-- Removed `/no_think` system-prompt suffix ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â it was producing raw token-ID output on llama3
+- Removed `/no_think` system-prompt suffix ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â it was producing raw token-ID output on llama3
 
 ---
 
-## [0.1.3] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 15:24 +0200
+## [0.1.3] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 15:24 +0200
 
 ### Fixed
 - Added `/no_think` suffix to the system prompt to prevent qwen3 thinking-mode tokens from leaking into chat responses
 
 ---
 
-## [0.1.2] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 14:53 +0200
+## [0.1.2] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 14:53 +0200
 
 ### Added
 - Persistent chat history: conversation context survives panel reloads and Home Assistant restarts (closes #24)
 
 ---
 
-## [0.1.1] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 11:16 +0200
+## [0.1.1] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 11:16 +0200
 
 ### Changed
 - Version bump and HACS metadata corrections post-submission
 
 ---
 
-## [0.1.0] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 2026-05-16 10:51 +0200
+## [0.1.0] ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 2026-05-16 10:51 +0200
 
 ### Added
-- **Initial release** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Kyber submitted to HACS custom repositories
+- **Initial release** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Kyber submitted to HACS custom repositories
 - Local AI chat panel for Home Assistant, powered by Ollama
 - Proposal cards with one-click Undo
 - Automation and script YAML editor with CodeMirror 6
 - Dashboard editor (create and edit Lovelace dashboards as YAML)
 - Slash commands: `/dashboard`, `/automation`, `/script`, `/blueprint`, `/area`, `/memory`, `/update`
-- AI Entity Narrator ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â background batch narration of all entities with alias generation
+- AI Entity Narrator ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â background batch narration of all entities with alias generation
 - TF-IDF hybrid memory retrieval with cosine similarity
 - Tool-calling loop (up to 5 rounds) with duplicate call detection
 - Named conversation sessions with rolling history and automatic compaction
