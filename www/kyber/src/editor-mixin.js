@@ -401,34 +401,64 @@ export const EditorMixin = (Base) => class extends Base {
   }
 
   async _maybeCompact() {
-    if (this._chatHistory.length <= this._COMPACT_TRIGGER) return;
+    const totalChars = this._chatHistory.reduce((sum, m) => sum + (m.content || "").length, 0);
+    const sizeTriggered = totalChars > this._COMPACT_SIZE_TRIGGER;
+    const countTriggered = this._chatHistory.length > this._COMPACT_COUNT_TRIGGER;
+    if (!sizeTriggered && !countTriggered) return;
 
-    const overflow = this._chatHistory.length - this._HISTORY_WINDOW;
-    const toCompact = this._chatHistory.splice(0, overflow);
+    // Determine cut point (whole messages only — never split a message)
+    let cutIndex = 0;
+    if (sizeTriggered) {
+      // Walk from oldest; accumulate until we've covered >= COMPACT_OLDEST_CHARS
+      let charCount = 0;
+      for (let i = 0; i < this._chatHistory.length; i++) {
+        charCount += (this._chatHistory[i].content || "").length;
+        cutIndex = i + 1;
+        if (charCount >= this._COMPACT_OLDEST_CHARS) break;
+      }
+    } else {
+      // Count-triggered: compact oldest half
+      cutIndex = Math.floor(this._chatHistory.length / 2);
+    }
+
+    // Always keep at least one message in the recent window
+    cutIndex = Math.min(cutIndex, this._chatHistory.length - 1);
+    if (cutIndex <= 0) return;
+
+    const toCompact = this._chatHistory.splice(0, cutIndex);
 
     try {
       const token = this._hass.auth.data.access_token;
       const resp = await fetch("/api/kyber/summarize", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          previous_summary: this._compactedSummary,
-          messages: toCompact,
-        }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ previous_summary: this._compactedSummary, messages: toCompact }),
       });
-
       if (resp.ok) {
         const data = await resp.json();
         this._compactedSummary = data.summary || this._compactedSummary;
+        this._showCompactionBanner();
         this._persistHistory();
+      } else {
+        this._chatHistory.unshift(...toCompact);
       }
-    } catch (err) {
-      // Compaction failure is non-fatal — messages just stay in history
+    } catch (_err) {
+      // Compaction failure is non-fatal — restore messages
       this._chatHistory.unshift(...toCompact);
     }
+  }
+
+  _showCompactionBanner() {
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (!history) return;
+    const wrap = document.createElement("div");
+    wrap.className = "chat-message-wrap system-compact";
+    const msg = document.createElement("div");
+    msg.className = "chat-message system-compact";
+    msg.textContent = "💬 Older context was summarized to keep responses accurate. For a fresh start, begin a new conversation.";
+    wrap.appendChild(msg);
+    history.appendChild(wrap);
+    history.scrollTop = history.scrollHeight;
   }
 
   _setEditorContextLabel(mode, label) {

@@ -56,9 +56,13 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     this._dirty = false;
     this._chatHistory = [];
     this._compactedSummary = "";
-    // Keep last 5 messages verbatim; compact when total exceeds 7
-    this._HISTORY_WINDOW = 5;
-    this._COMPACT_TRIGGER = 7;
+    // Compaction: fire when total chars > 12000 OR message count > 20
+    // Compact oldest whole-messages covering ~6000 chars (never split a message)
+    this._COMPACT_SIZE_TRIGGER = 12000;
+    this._COMPACT_COUNT_TRIGGER = 20;
+    this._COMPACT_OLDEST_CHARS = 6000;
+    // Cap on history entries sent to the AI per request (most recent N messages)
+    this._HISTORY_WINDOW = 10;
     // Autocomplete state
     this._acItems = [];
     this._acIndex = -1;
