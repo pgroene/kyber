@@ -103,32 +103,38 @@ async def _async_background_deep_analysis(
 # Mini prompt used for the post-turn fact-extraction LLM call.
 # Kept intentionally tiny to be fast and not cost much context budget.
 _FACT_EXTRACTION_PROMPT = """\
-You are a fact extractor for a Home Assistant assistant.
-Given a user correction, extract ONE name alias mapping — what the user calls something \
-vs what it is named in Home Assistant.
+You are a fact extractor for a Home Assistant AI assistant.
+Analyse the user message and conversation context for TWO types of learnable facts:
+
+TYPE 1 — ALIAS: User equates two terms ("X en Y zijn hetzelfde", "X is my Y", "X and Y are the same").
+Output: {{"type":"alias","subject":"<HA entity_id or area name>","user_term":"<colloquial word>",\
+"content":"When user says '<user_term>' they mean '<subject>'.","category":"entity_alias",\
+"tags":["<user_term>","<subject>"]}}
+
+TYPE 2 — ROUTINE: User expresses a recurring time/context preference ("elke ochtend", "als ik wakker word",
+"every morning", "next time I ...", "volgende keer als ...").
+Output: {{"type":"routine","subject":"<short label e.g. morning coffee>",\
+"content":"<when context> → <action>","category":"routine","tags":["<context word>","<action word>"]}}
 
 User said: "{user_prompt}"
 Recent conversation context:
 {context_snippet}
 
-If you can identify a clear name mismatch, output ONLY a JSON object (no extra text):
-{{"subject": "<HA name>", "user_term": "<user word>", \
-"content": "When user says '<user word>' they mean '<HA name>'.", \
-"category": "area_alias", "tags": ["<user word>", "<HA name>"]}}
-
-If there is no clear mismatch to learn, output: null
+Return a JSON array of found facts, e.g. [{{}}, {{}}], or [] if nothing learnable.
+Output ONLY valid JSON — no prose, no markdown fences.
 """
 
-async def _try_extract_learned_fact(
+async def _try_extract_learned_facts(
     hass: HomeAssistant,
     entity_id: str,
     user_prompt: str,
     context_snippet: str,
-) -> dict[str, Any] | None:
-    """Run a mini LLM call to extract a learned name alias from a correction turn.
+) -> list[dict[str, Any]]:
+    """Run a mini LLM call to extract learnable facts from a correction/routine turn.
 
-    Returns a dict with keys subject, user_term, content, category, tags — or None.
-    Failures are silently swallowed; this is a best-effort enhancement.
+    Returns a list of fact dicts (may be empty).  Each dict has keys:
+    subject, user_term, content, category, tags.
+    Failures are silently swallowed; this is best-effort.
     """
     import json as _json
     try:
@@ -144,28 +150,45 @@ async def _try_extract_learned_fact(
         )
         raw = result.data if isinstance(result.data, str) else str(result.data)
         raw = raw.strip()
-        # Strip common model wrappers (```json ... ```, ```...```)
         raw = re.sub(r"^```[a-z]*\s*", "", raw, flags=re.IGNORECASE)
         raw = re.sub(r"\s*```$", "", raw, flags=re.IGNORECASE)
         raw = raw.strip()
-        if raw.lower() == "null" or not raw.startswith("{"):
-            return None
-        data = _json.loads(raw)
-        subject = data.get("subject", "").strip()
-        user_term = data.get("user_term", "").strip()
-        content = data.get("content", "").strip()
-        if not subject or not user_term or not content:
-            return None
-        return {
-            "subject": subject,
-            "user_term": user_term,
-            "content": content,
-            "category": data.get("category", "area_alias"),
-            "tags": data.get("tags", [user_term, subject]),
-        }
+        if not raw or raw.lower() in ("null", "[]"):
+            return []
+        parsed = _json.loads(raw)
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        if not isinstance(parsed, list):
+            return []
+        facts: list[dict[str, Any]] = []
+        for item in parsed:
+            subject = (item.get("subject") or item.get("user_term") or "").strip()
+            content = (item.get("content") or "").strip()
+            if not subject or not content:
+                continue
+            facts.append({
+                "subject": subject,
+                "user_term": (item.get("user_term") or subject).strip(),
+                "content": content,
+                "category": item.get("category", "entity_alias"),
+                "tags": item.get("tags", [subject]),
+            })
+        return facts
     except Exception as err:  # noqa: BLE001
         _LOGGER.debug("Kyber: fact extraction failed (non-critical): %s", err)
-        return None
+        return []
+
+
+# Keep backward-compat alias used by tests
+async def _try_extract_learned_fact(
+    hass: HomeAssistant,
+    entity_id: str,
+    user_prompt: str,
+    context_snippet: str,
+) -> dict[str, Any] | None:
+    """Legacy single-fact wrapper — returns first extracted fact or None."""
+    facts = await _try_extract_learned_facts(hass, entity_id, user_prompt, context_snippet)
+    return facts[0] if facts else None
 
 
 class KyberKnowledgeView(HomeAssistantView):

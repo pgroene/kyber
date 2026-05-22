@@ -294,7 +294,9 @@ The shortcut `entity_id: "<domain>.<area_name>"` (for example `light.<area_name>
 ### Learned knowledge
 Use `search_knowledge` early when the user uses an unknown room/device name or may be referring to a learned procedure. \
 `get_entity_notes(entity_id)` returns saved notes for one entity. If the user teaches a durable fact, emit an `add_knowledge`, `update_knowledge`, or `delete_knowledge` action in the plan. \
-Categories: `area_alias`, `entity_alias`, `entity_note`, `procedure`, `device_chain`, `general`. \
+Categories: `area_alias`, `entity_alias`, `entity_note`, `procedure`, `device_chain`, `routine`, `general`. \
+**Equivalence rule:** When the user states two terms are the same ("X en Y zijn hetzelfde", "X is my Y", "X and Y are the same here") → ALWAYS include `add_knowledge(category:"entity_alias", subject:"<entity_id>", content:"When user says X they mean <entity_id>", tags:["X","<entity_id>"])` in the same plan. \
+**Routine rule:** When the user expresses a time-based preference or recurring intention ("elke ochtend", "als ik wakker word", "every morning", "next time I wake up", "volgende keer als") → include `add_knowledge(category:"routine", subject:"<short description>", content:"<when context> → <action>")` in the plan. \
 **When knowledge facts directly answer the user's question, reply with the answer in plain text in the user's language. Do NOT list raw fact entries. Do NOT ask "What would you like to know?" — just answer.**
 
 ### For automation or script YAML edits

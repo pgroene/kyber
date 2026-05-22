@@ -41,6 +41,7 @@ from .analyzer import analyze_automations as _analyze_automations
 from . import deep_analyzer as _deep
 from .knowledge import get_knowledge_store
 from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView, KyberLabelsView, KyberAreaSuggestionsView, KyberProposalApproveView, KyberPingView, KyberSelfUpdateView, KyberNarratorRunView, KyberExplorerRunView
+from .action_history import KyberActionHistoryView, KyberActionHistoryUndoView
 from .debug_and_diagnostics import KyberHomeExportView, KyberMemoryExportView, KyberGlobalLogHandler, KyberDebugLogsView
 
 _LOGGER = logging.getLogger(__name__)
@@ -566,6 +567,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberSelfUpdateView())
     hass.http.register_view(KyberNarratorRunView(config))
     hass.http.register_view(KyberExplorerRunView())
+    hass.http.register_view(KyberActionHistoryView())
+    hass.http.register_view(KyberActionHistoryUndoView())
 
     # Install global log handler + set logger level
     _kyber_root = logging.getLogger("custom_components.kyber")

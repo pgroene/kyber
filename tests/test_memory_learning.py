@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from custom_components.kyber.http_api import _CORRECTION_SIGNALS_RE
-from custom_components.kyber.knowledge_integration import _try_extract_learned_fact
+from custom_components.kyber.knowledge_integration import _try_extract_learned_facts
 
 
 def test_correction_signal_regex_matches_equivalence_statements() -> None:
@@ -23,7 +23,7 @@ async def test_try_extract_learned_fact_returns_alias_and_routine(hass, monkeypa
 
     monkeypatch.setattr("custom_components.kyber.knowledge_integration.async_ai_call", _fake_ai_call)
 
-    facts = await _try_extract_learned_fact(
+    facts = await _try_extract_learned_facts(
         hass,
         "ai_task.test",
         "koffie en espresso zijn hetzelfde, en als ik wakker word wil ik espresso",
