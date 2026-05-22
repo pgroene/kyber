@@ -77,6 +77,7 @@ http_api = _load("custom_components.kyber.http_api", ROOT / "custom_components" 
 
 _action_requires_approval = http_api._action_requires_approval
 _annotate_plan_approval = http_api._annotate_plan_approval
+_classify_risk = http_api._classify_risk
 _NARRATION_PATTERNS = http_api._NARRATION_PATTERNS
 _BARE_JSON_TOOL_RESULT_RE = http_api._BARE_JSON_TOOL_RESULT_RE
 
@@ -129,6 +130,14 @@ class TestActionRequiresApproval:
             "type": "call_service", "domain": "cover", "service": "open_cover"
         }) is True
 
+    def test_lock_turn_on_is_still_high_risk(self):
+        assert _action_requires_approval({
+            "type": "call_service", "domain": "lock", "service": "lock"
+        }) is True
+        assert _classify_risk({
+            "type": "call_service", "domain": "lock", "service": "lock"
+        }) == {"risk_domain": "lock", "risk_reason": "lock.lock"}
+
     def test_non_dict_returns_false(self):
         assert _action_requires_approval("not a dict") is False
         assert _action_requires_approval(None) is False
@@ -168,6 +177,15 @@ class TestAnnotatePlanApproval:
         plan = {"actions": [{"type": "create_label", "name": "MyLabel"}]}
         result = _annotate_plan_approval(plan)
         assert result["requires_approval"] is True
+
+    def test_high_risk_plan_adds_domain_metadata(self):
+        plan = {"actions": [{"type": "call_service", "domain": "lock", "service": "lock"}]}
+        result = _annotate_plan_approval(plan)
+        assert result["requires_approval"] is True
+        assert result["high_risk"] is True
+        assert result["high_risk_domains"] == ["lock"]
+        assert result["actions"][0]["high_risk"] is True
+        assert result["actions"][0]["risk_domain"] == "lock"
 
     def test_empty_actions_no_approval(self):
         plan = {"actions": []}
