@@ -1,0 +1,108 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kyber ? Be?ll?t?s",
+        "description": "V?laszd ki az AI-feladat entit?st, ?s ?ll?tsd be a tokenkorl?tot valamint az ind?t?si viselked?st.",
+        "data": {
+          "ai_task_entity_id": "Cseveg?si modell",
+          "max_tokens": "Cseveg?si modell: kontextusablak (token)",
+          "narrator_ai_task_entity_id": "M?veleti modell (opcion?lis)",
+          "narrator_max_tokens": "M?veleti modell: kontextusablak (token)",
+          "enable_debug_views": "Hibakeres?si n?zetek enged?lyez?se (Kyber Debug oldals?v + k?r?nk?nti hibakeres? eszk?z?k)",
+          "run_initial_analyze": "1 kezdeti elemz?si futtat?s az install?l?s ut?n",
+          "initial_deep_learning_runs": "Kezdeti deep learning fut?sok (1-10, aj?nlott: 10)",
+          "narrator_enabled": "Entit?snarr?tor enged?lyez?se",
+          "narrator_max_batch": "Narr?tor k?tegm?ret",
+          "area_assignment_mode": "Ter?let-hozz?rendel?si m?d"
+        },
+        "data_description": {
+          "narrator_ai_task_entity_id": "K?tegelt feldolgoz?shoz ?s kisebb feladatokhoz, p?ld?ul entit?snarr?ci?hoz haszn?latos. Itt egy kisebb, olcs?bb modell is j?l m?k?dik. Alap?rtelmez?s szerint a cseveg?si modell."
+        }
+      },
+      "reconfigure": {
+        "title": "Kyber ? ?jrakonfigur?l?s",
+        "description": "Friss?tsd az AI-feladat entit?st ?s a be?ll?t?sokat.",
+        "data": {
+          "ai_task_entity_id": "Cseveg?si modell",
+          "max_tokens": "Cseveg?si modell: kontextusablak (token)",
+          "narrator_ai_task_entity_id": "M?veleti modell (opcion?lis)",
+          "narrator_max_tokens": "M?veleti modell: kontextusablak (token)",
+          "enable_debug_views": "Hibakeres?si n?zetek enged?lyez?se (Kyber Debug oldals?v + k?r?nk?nti hibakeres? eszk?z?k)",
+          "run_initial_analyze": "1 kezdeti elemz?si futtat?s az install?l?s ut?n",
+          "initial_deep_learning_runs": "Kezdeti deep learning fut?sok (1-10, aj?nlott: 10)",
+          "narrator_enabled": "Entit?snarr?tor enged?lyez?se",
+          "narrator_max_batch": "Narr?tor k?tegm?ret",
+          "area_assignment_mode": "Ter?let-hozz?rendel?si m?d"
+        },
+        "data_description": {
+          "narrator_ai_task_entity_id": "K?tegelt feldolgoz?shoz ?s kisebb feladatokhoz, p?ld?ul entit?snarr?ci?hoz haszn?latos. Itt egy kisebb, olcs?bb modell is j?l m?k?dik. Alap?rtelmez?s szerint a cseveg?si modell."
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "A kiv?lasztott AI-feladat entit?s nem tal?lhat?. Ellen?rizd, hogy az AI-integr?ci? (pl. Ollama, Home Assistant Cloud, OpenAI) be van-e ?ll?tva, ?s az entit?s l?tezik-e.",
+      "cannot_connect": "Nem siker?lt el?rni az AI-szolg?ltat?t. Ellen?rizd az integr?ci? be?ll?t?sait."
+    },
+    "abort": {
+      "already_configured": "A Kyber m?r be van ?ll?tva.",
+      "reconfigure_successful": "A Kyber ?jra lett konfigur?lva az ?j AI-entit?ssal."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Kyber be?ll?t?sok",
+        "description": "Friss?tsd a modellbe?ll?t?sokat ?s a funkci?jelz?ket.",
+        "sections": {
+          "model_config": {
+            "name": "Modellkonfigur?ci?",
+            "data": {
+              "ai_task_entity_id": "Cseveg?si modell",
+              "max_tokens": "Cseveg?si modell: kontextusablak (token)",
+              "narrator_ai_task_entity_id": "M?veleti modell (opcion?lis)",
+              "narrator_max_tokens": "M?veleti modell: kontextusablak (token)"
+            },
+            "data_description": {
+              "max_tokens": "{chat_stats}",
+              "narrator_ai_task_entity_id": "K?tegelt feldolgoz?shoz ?s kisebb feladatokhoz, p?ld?ul entit?snarr?ci?hoz haszn?latos. Itt egy kisebb, olcs?bb modell is j?l m?k?dik. Alap?rtelmez?s szerint a cseveg?si modell.",
+              "narrator_max_tokens": "{ops_stats}"
+            }
+          },
+          "agents": {
+            "name": "?gyn?k?k",
+            "data": {
+              "narrator_enabled": "Entit?snarr?tor enged?lyez?se",
+              "narrator_interval_days": "Narr?tor: futtat?s minden N napban",
+              "narrator_max_batch": "Narr?tor k?tegm?ret",
+              "run_initial_analyze": "Elemz?s futtat?sa HA ?jraind?t?skor",
+              "deep_learning_interval_days": "Deep learning: futtat?s minden N napban",
+              "deep_learning_max_batch": "Deep learning k?tegm?ret"
+            },
+            "data_description": {
+              "narrator_interval_days": "{narrator_run_stats}",
+              "deep_learning_interval_days": "{deep_learning_run_stats}"
+            }
+          },
+          "area_assignment": {
+            "name": "Automatikus hozz?rendel?sek",
+            "data": {
+              "area_assignment_mode": "Ter?let-hozz?rendel?si m?d",
+              "label_assignment_mode": "C?mke-hozz?rendel?si m?d"
+            },
+            "data_description": {
+              "area_assignment_mode": "Ter?let-hozz?rendel?sek javaslata vagy automatikus alkalmaz?sa a besz?lget?sben eml?tett entit?sokra.",
+              "label_assignment_mode": "Kyber: eszk?zt?pus c?mk?k javaslata vagy automatikus alkalmaz?sa a besz?lget?sben szerepl? entit?sokra."
+            }
+          },
+          "developer": {
+            "name": "Fejleszt?",
+            "data": {
+              "enable_debug_views": "Hibakeres?si n?zetek enged?lyez?se (Kyber Debug oldals?v + k?r?nk?nti hibakeres? eszk?z?k)"
+            }
+          }
+        }
+      }
+    }
+  }
+}
