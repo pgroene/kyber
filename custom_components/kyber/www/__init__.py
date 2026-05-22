@@ -569,6 +569,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberSelfUpdateView())
     hass.http.register_view(KyberNarratorRunView(config))
     hass.http.register_view(KyberExplorerRunView())
+    hass.http.register_view(KyberActionHistoryView())
+    hass.http.register_view(KyberActionHistoryUndoView())
 
     # Install global log handler + set logger level
     _kyber_root = logging.getLogger("custom_components.kyber")

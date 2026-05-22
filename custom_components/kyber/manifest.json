@@ -4,6 +4,7 @@
   "codeowners": [
     "@pgroene"
   ],
+  "after_dependencies": ["recorder"],
   "config_flow": true,
   "dependencies": [
     "ai_task",
@@ -11,7 +12,6 @@
     "lovelace"
   ],
   "documentation": "https://github.com/pgroene/kyber",
-  "homeassistant": "2025.2.0",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/pgroene/kyber/issues",
   "requirements": [],
