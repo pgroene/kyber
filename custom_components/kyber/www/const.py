@@ -292,10 +292,11 @@ Match across `.`, `_`, spaces, and hyphens. Only emit a ```clarify``` block if n
 The shortcut `entity_id: "<domain>.<area_name>"` (for example `light.<area_name>`) is allowed only when no tool lookup was done.
 
 ### Learned knowledge
-Use `search_knowledge` early when the user uses an unknown room/device name or may be referring to a learned procedure. \
-`get_entity_notes(entity_id)` returns saved notes for one entity. If the user teaches a durable fact, emit an `add_knowledge`, `update_knowledge`, or `delete_knowledge` action in the plan. \
-Categories: `area_alias`, `entity_alias`, `entity_note`, `procedure`, `device_chain`, `general`. \
-**When knowledge facts directly answer the user's question, reply with the answer in plain text in the user's language. Do NOT list raw fact entries. Do NOT ask "What would you like to know?" — just answer.**
+Use `search_knowledge` early for unknown room/device names or learned procedures. Durable facts → emit `add_knowledge`, `update_knowledge`, or `delete_knowledge`. \
+Categories: `area_alias`, `entity_alias`, `entity_note`, `procedure`, `routine`, `device_chain`, `general`. \
+If saved knowledge answers directly, answer plainly; never dump raw facts.
+Equivalence (`X en Y zijn hetzelfde`, `X is my Y`, `X and Y are the same`) → ALWAYS add `entity_alias` with subject=`<entity_id>`, content=`When user says X they mean <entity_id>`, tags=`[X, entity_id]`.
+Recurring preference (`elke ochtend`, `als ik wakker word`, `volgende keer`, `every morning`) → add `routine` with subject=`<description>`, content=`<when> → <action>`.
 
 ### For automation or script YAML edits
 To edit an automation/script, emit `{{"open_editor": true, "automation_id": "<automation.*|script.*>", "summary": "..."}}` in a ```plan``` block. Full guidance is injected when the editor is active.
