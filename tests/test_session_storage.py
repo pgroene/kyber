@@ -216,6 +216,48 @@ class TestSanitizeHistory:
         result = _sanitize_history(msgs)
         assert len(result) == 1
 
+    def test_preserves_meta_history_entry_id(self):
+        msgs = [
+            {"role": "assistant", "content": "[CHANGE] lights off", "meta": {"history_entry_id": "abc-123"}},
+        ]
+        result = _sanitize_history(msgs)
+        assert result[0]["meta"] == {"history_entry_id": "abc-123"}
+
+    def test_strips_meta_without_history_entry_id(self):
+        msgs = [
+            {"role": "user", "content": "hi", "meta": {"unrelated": "value"}},
+        ]
+        result = _sanitize_history(msgs)
+        assert "meta" not in result[0]
+
+    def test_strips_non_string_history_entry_id(self):
+        msgs = [
+            {"role": "assistant", "content": "msg", "meta": {"history_entry_id": 12345}},
+        ]
+        result = _sanitize_history(msgs)
+        assert "meta" not in result[0]
+
+    def test_strips_meta_that_is_not_a_dict(self):
+        msgs = [
+            {"role": "user", "content": "hi", "meta": "not-a-dict"},
+        ]
+        result = _sanitize_history(msgs)
+        assert "meta" not in result[0]
+
+    def test_meta_not_added_when_absent(self):
+        msgs = [{"role": "user", "content": "hello"}]
+        result = _sanitize_history(msgs)
+        assert "meta" not in result[0]
+
+    def test_meta_history_entry_id_only_field_preserved(self):
+        """Extra keys in meta are NOT preserved — only history_entry_id."""
+        msgs = [
+            {"role": "assistant", "content": "msg", "meta": {"history_entry_id": "x1", "other": "data"}},
+        ]
+        result = _sanitize_history(msgs)
+        assert result[0]["meta"] == {"history_entry_id": "x1"}
+        assert "other" not in result[0]["meta"]
+
 
 # ── _sanitize_summary ─────────────────────────────────────────────────────────
 

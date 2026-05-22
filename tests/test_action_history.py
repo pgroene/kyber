@@ -103,3 +103,59 @@ async def test_action_history_undo_endpoint_executes_reverse_service(hass, setup
     updated = await store.async_get(entry["id"])
     assert updated is not None
     assert updated["status"] == "undone"
+
+
+async def test_action_history_entry_view_returns_entry(hass, setup_integration, hass_client):
+    """GET /api/kyber/history/actions/{entry_id} returns the entry by ID."""
+    store = get_store(hass)
+    entry = await store.async_record(
+        "Turn on kitchen light",
+        [{
+            "type": "call_service",
+            "domain": "light",
+            "service": "turn_on",
+            "entity_id": "light.kitchen",
+        }],
+        [],
+    )
+
+    client = await hass_client()
+    resp = await client.get(f"/api/kyber/history/actions/{entry['id']}")
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["id"] == entry["id"]
+    assert data["summary"] == "Turn on kitchen light"
+    assert data["status"] == "applied"
+    assert len(data["undo_plan"]) == 1
+    assert data["undo_plan"][0]["service"] == "turn_off"
+
+
+async def test_action_history_entry_view_returns_404_for_unknown_id(hass, setup_integration, hass_client):
+    """GET /api/kyber/history/actions/{id} returns 404 when entry is not found."""
+    client = await hass_client()
+    resp = await client.get("/api/kyber/history/actions/nonexistent-id")
+    assert resp.status == 404
+
+
+async def test_action_history_entry_view_returns_undone_status(hass, setup_integration, hass_client):
+    """GET /api/kyber/history/actions/{id} reflects updated status after undo."""
+    store = get_store(hass)
+    entry = await store.async_record(
+        "Turn off bedroom light",
+        [{
+            "type": "call_service",
+            "domain": "light",
+            "service": "turn_off",
+            "entity_id": "light.bedroom",
+        }],
+        [],
+    )
+    await store.async_mark_status(entry["id"], "undone")
+
+    client = await hass_client()
+    resp = await client.get(f"/api/kyber/history/actions/{entry['id']}")
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["status"] == "undone"
