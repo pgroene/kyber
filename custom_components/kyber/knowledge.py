@@ -24,6 +24,8 @@ from typing import Any, Iterable
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
+from .const import _contains_credential_pattern
+
 _LOGGER = logging.getLogger(__name__)
 
 _STORAGE_VERSION = 1
@@ -355,6 +357,8 @@ class KnowledgeStore:
             if category not in CATEGORIES:
                 category = "general"
             content_stripped = content.strip()
+            if _contains_credential_pattern(content_stripped):
+                raise ValueError("Credential pattern detected in content")
             subject_stripped = (subject or "").strip()
             # Dedup: skip if identical content+subject+category already exists.
             for existing in self._entries.values():

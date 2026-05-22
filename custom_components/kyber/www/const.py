@@ -1,4 +1,9 @@
-"""Constants for the kyber integration."""
+"""Constants and shared security helpers for the kyber integration."""
+
+from __future__ import annotations
+
+import re
+from typing import Any
 
 DOMAIN = "kyber"
 
@@ -82,6 +87,49 @@ DEFAULT_NARRATOR_MAX_TOKENS = 4_000
 DEFAULT_NARRATOR_INTERVAL_DAYS = 1
 DEFAULT_DEEP_LEARNING_INTERVAL_DAYS = 7
 DEFAULT_DEEP_LEARNING_MAX_BATCH = 5
+
+_CREDENTIAL_PATTERNS = [
+    r"(?i)bearer\s+\S{8,}",
+    r"sk-[a-zA-Z0-9]{20,}",
+    r"(?i)api[-_]?key\s*[:=]\s*\S{6,}",
+    r"(?i)password\s*[:=]\s*\S{6,}",
+]
+_SECRET_KEYS_RE = re.compile(r"(?i)(api.?key|authorization|bearer|password|secret|token|access.?token)")
+_COMPILED_CREDENTIAL_PATTERNS = [re.compile(pattern) for pattern in _CREDENTIAL_PATTERNS]
+
+
+def _contains_credential_pattern(text: str) -> bool:
+    if not isinstance(text, str):
+        return False
+    return any(pattern.search(text) for pattern in _COMPILED_CREDENTIAL_PATTERNS)
+
+
+def _redact_secret_string(text: str) -> str:
+    if not isinstance(text, str):
+        return text
+    redacted = text
+    for pattern in _COMPILED_CREDENTIAL_PATTERNS:
+        redacted = pattern.sub("[REDACTED]", redacted)
+    return redacted
+
+
+def _redact_secrets(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        redacted: dict[Any, Any] = {}
+        for key, value in obj.items():
+            key_str = str(key)
+            if _SECRET_KEYS_RE.search(key_str):
+                redacted[key] = "[REDACTED]"
+            else:
+                redacted[key] = _redact_secrets(value)
+        return redacted
+    if isinstance(obj, list):
+        return [_redact_secrets(item) for item in obj]
+    if isinstance(obj, tuple):
+        return tuple(_redact_secrets(item) for item in obj)
+    if isinstance(obj, str):
+        return _redact_secret_string(obj)
+    return obj
 
 # ── Tuning constants ──────────────────────────────────────────────────────────
 # Shared limits used across backend modules:
