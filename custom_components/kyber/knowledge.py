@@ -38,6 +38,7 @@ CATEGORIES = {
     "routine",         # contextual behavior: when I wake up → espresso machine on
     "device_chain",    # X depends on Y (TV behind switch.tv_power)
     "language_hint",   # locale-specific vocabulary (seeded from language_hints.py)
+    "routine",         # contextual behaviour: "every morning → espresso machine on"
     "general",         # anything else
     "proposal",        # pending review items that execute on approval
 }

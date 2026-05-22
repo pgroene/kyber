@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+from custom_components.kyber.action_history import ActionHistoryStore, get_store
+
+
+async def test_action_history_record_generates_undo_plan(hass):
+    store = ActionHistoryStore(hass)
+
+    entry = await store.async_record(
+        "Turn on espresso machine",
+        [{
+            "type": "call_service",
+            "domain": "switch",
+            "service": "turn_on",
+            "entity_id": "switch.espresso",
+        }],
+        [{
+            "entity_id": "switch.espresso",
+            "service": "switch.turn_on",
+            "from_state": "off",
+            "to_state": "on",
+        }],
+    )
+
+    assert entry["status"] == "applied"
+    assert entry["undo_plan"] == [{
+        "type": "call_service",
+        "domain": "switch",
+        "service": "turn_off",
+        "entity_id": "switch.espresso",
+        "service_data": {},
+        "description": "Undo switch.turn_on for switch.espresso",
+    }]
+
+    entries = await store.async_list()
+    assert entries[0]["summary"] == "Turn on espresso machine"
+    assert entries[0]["entity_changes"][0]["to_state"] == "on"
+
+
+async def test_action_history_async_undo_marks_entry_undone(hass):
+    store = ActionHistoryStore(hass)
+    entry = await store.async_record(
+        "Turn off bedroom light",
+        [{
+            "type": "call_service",
+            "domain": "light",
+            "service": "turn_off",
+            "entity_id": "light.bedroom",
+        }],
+        [],
+    )
+
+    undo_plan = await store.async_undo(entry["id"])
+    updated = await store.async_get(entry["id"])
+
+    assert undo_plan[0]["service"] == "turn_on"
+    assert updated is not None
+    assert updated["status"] == "undone"
+
+
+async def test_action_history_list_returns_newest_first(hass):
+    store = ActionHistoryStore(hass)
+    first = await store.async_record("First", [], [])
+    second = await store.async_record("Second", [], [])
+
+    entries = await store.async_list(limit=2)
+
+    assert [entry["id"] for entry in entries] == [second["id"], first["id"]]
+
+
+async def test_action_history_undo_endpoint_executes_reverse_service(hass, setup_integration, hass_client):
+    calls: list[tuple[str, str, dict]] = []
+
+    async def _handle_turn_off(call):
+        calls.append((call.domain, call.service, dict(call.data or {})))
+
+    hass.services.async_register("switch", "turn_off", _handle_turn_off)
+    store = get_store(hass)
+    entry = await store.async_record(
+        "Turn on espresso machine",
+        [{
+            "type": "call_service",
+            "domain": "switch",
+            "service": "turn_on",
+            "entity_id": "switch.espresso",
+        }],
+        [{
+            "entity_id": "switch.espresso",
+            "service": "switch.turn_on",
+            "from_state": "off",
+            "to_state": "on",
+        }],
+    )
+
+    client = await hass_client()
+    resp = await client.post(f"/api/kyber/history/actions/{entry['id']}/undo")
+
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["status"] == "ok"
+    assert calls == [("switch", "turn_off", {"entity_id": "switch.espresso"})]
+
+    updated = await store.async_get(entry["id"])
+    assert updated is not None
+    assert updated["status"] == "undone"

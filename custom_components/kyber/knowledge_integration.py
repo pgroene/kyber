@@ -103,56 +103,38 @@ async def _async_background_deep_analysis(
 # Mini prompt used for the post-turn fact-extraction LLM call.
 # Kept intentionally tiny to be fast and not cost much context budget.
 _FACT_EXTRACTION_PROMPT = """\
-You are a fact extractor for a Home Assistant assistant.
-Extract durable learnable facts from the user's correction or preference.
+You are a fact extractor for a Home Assistant AI assistant.
+Analyse the user message and conversation context for TWO types of learnable facts:
+
+TYPE 1 — ALIAS: User equates two terms ("X en Y zijn hetzelfde", "X is my Y", "X and Y are the same").
+Output: {{"type":"alias","subject":"<HA entity_id or area name>","user_term":"<colloquial word>",\
+"content":"When user says '<user_term>' they mean '<subject>'.","category":"entity_alias",\
+"tags":["<user_term>","<subject>"]}}
+
+TYPE 2 — ROUTINE: User expresses a recurring time/context preference ("elke ochtend", "als ik wakker word",
+"every morning", "next time I ...", "volgende keer als ...").
+Output: {{"type":"routine","subject":"<short label e.g. morning coffee>",\
+"content":"<when context> → <action>","category":"routine","tags":["<context word>","<action word>"]}}
 
 User said: "{user_prompt}"
 Recent conversation context:
 {context_snippet}
 
-Return ONLY a JSON array of fact objects, or null if there is nothing durable to learn.
-Each fact object must have these keys:
-- type: "alias" or "routine"
-- subject
-- user_term
-- content
-- category
-- tags
-
-Rules:
-1. Alias facts (`type: "alias"`)
-   - Use for equivalence statements like "X en Y zijn hetzelfde", "X is my Y", "X and Y are the same".
-   - `category` must be `entity_alias`.
-   - `subject` must be the Home Assistant entity or canonical device name from the conversation context.
-   - `user_term` must be the user-facing word or phrase to remember.
-   - `content` must be: "When user says '<user_term>' they mean '<subject>'"
-   - `tags` should include `<user_term>` and `<subject>`.
-
-2. Routine facts (`type: "routine"`)
-   - Use for time-based preferences or recurring intentions like "elke ochtend", "als ik wakker word", "next time I wake up", "every morning".
-   - `category` must be `routine`.
-   - `subject` should be a short description of the routine.
-   - `user_term` should capture the trigger/context phrase.
-   - `content` must be: "When user [context], action: [what to do]"
-   - `tags` should include the context and key entity/action words when known.
-
-Examples:
-[
-  {{"type": "alias", "subject": "switch.espresso_machine", "user_term": "koffie", "content": "When user says 'koffie' they mean 'switch.espresso_machine'", "category": "entity_alias", "tags": ["koffie", "switch.espresso_machine"]}},
-  {{"type": "routine", "subject": "morning espresso", "user_term": "als ik wakker word", "content": "When user wakes up, action: turn on the espresso machine", "category": "routine", "tags": ["wake_up", "espresso"]}}
-]
+Return a JSON array of found facts, e.g. [{{}}, {{}}], or [] if nothing learnable.
+Output ONLY valid JSON — no prose, no markdown fences.
 """
 
-async def _try_extract_learned_fact(
+async def _try_extract_learned_facts(
     hass: HomeAssistant,
     entity_id: str,
     user_prompt: str,
     context_snippet: str,
 ) -> list[dict[str, Any]]:
-    """Run a mini LLM call to extract learnable alias/routine facts.
+    """Run a mini LLM call to extract learnable facts from a correction/routine turn.
 
-    Returns a normalized list of fact dicts. Failures are silently swallowed;
-    this is a best-effort enhancement.
+    Returns a list of fact dicts (may be empty).  Each dict has keys:
+    subject, user_term, content, category, tags.
+    Failures are silently swallowed; this is best-effort.
     """
     import json as _json
     try:
@@ -168,50 +150,45 @@ async def _try_extract_learned_fact(
         )
         raw = result.data if isinstance(result.data, str) else str(result.data)
         raw = raw.strip()
-        # Strip common model wrappers (```json ... ```, ```...```)
         raw = re.sub(r"^```[a-z]*\s*", "", raw, flags=re.IGNORECASE)
         raw = re.sub(r"\s*```$", "", raw, flags=re.IGNORECASE)
         raw = raw.strip()
-        if raw.lower() == "null" or not raw:
+        if not raw or raw.lower() in ("null", "[]"):
             return []
-        data = _json.loads(raw)
-        if isinstance(data, dict):
-            data = [data]
-        if not isinstance(data, list):
+        parsed = _json.loads(raw)
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        if not isinstance(parsed, list):
             return []
-
         facts: list[dict[str, Any]] = []
-        for item in data:
-            if not isinstance(item, dict):
+        for item in parsed:
+            subject = (item.get("subject") or item.get("user_term") or "").strip()
+            content = (item.get("content") or "").strip()
+            if not subject or not content:
                 continue
-            subject = str(item.get("subject", "")).strip()
-            user_term = str(item.get("user_term", "")).strip()
-            content = str(item.get("content", "")).strip()
-            fact_type = str(item.get("type", "")).strip().lower()
-            category = str(item.get("category", "")).strip() or (
-                "entity_alias" if fact_type == "alias" else "routine"
-            )
-            if not subject or not user_term or not content:
-                continue
-            if fact_type not in {"alias", "routine"}:
-                fact_type = "alias" if category == "entity_alias" else "routine"
-            tags = [
-                str(tag).strip()
-                for tag in (item.get("tags", []) or [user_term, subject])
-                if str(tag).strip()
-            ]
             facts.append({
-                "type": fact_type,
                 "subject": subject,
-                "user_term": user_term,
+                "user_term": (item.get("user_term") or subject).strip(),
                 "content": content,
-                "category": category,
-                "tags": tags,
+                "category": item.get("category", "entity_alias"),
+                "tags": item.get("tags", [subject]),
             })
         return facts
     except Exception as err:  # noqa: BLE001
         _LOGGER.debug("Kyber: fact extraction failed (non-critical): %s", err)
         return []
+
+
+# Keep backward-compat alias used by tests
+async def _try_extract_learned_fact(
+    hass: HomeAssistant,
+    entity_id: str,
+    user_prompt: str,
+    context_snippet: str,
+) -> dict[str, Any] | None:
+    """Legacy single-fact wrapper — returns first extracted fact or None."""
+    facts = await _try_extract_learned_facts(hass, entity_id, user_prompt, context_snippet)
+    return facts[0] if facts else None
 
 
 class KyberKnowledgeView(HomeAssistantView):
