@@ -387,9 +387,9 @@ class KyberKnowledgeDeepAnalyzeView(HomeAssistantView):
                 limit=limit,
                 force=force,
             )
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.error("Kyber deep_analyzer: unexpected error: %s", err, exc_info=True)
-            return self.json_message(f"Deep analyze error: {err}", HTTPStatus.INTERNAL_SERVER_ERROR)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Kyber deep_analyzer: unexpected error")
+            return self.json_message("Internal error", HTTPStatus.INTERNAL_SERVER_ERROR)
         try:
             return self.json({"status": "ok", **result})
         except Exception as ser_err:  # noqa: BLE001

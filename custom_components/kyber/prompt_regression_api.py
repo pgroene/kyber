@@ -26,6 +26,14 @@ from .debug_and_diagnostics import _DEBUG_SNAPSHOTS_KEY as _DEBUG_TURNS_KEY
 _LOGGER = logging.getLogger(__name__)
 
 
+def _admin_required(view: HomeAssistantView, request: web.Request) -> web.Response | None:
+    """Return a 403 response when the request is not from an admin user."""
+    ha_user = request.get("hass_user")
+    if not ha_user or not getattr(ha_user, "is_admin", False):
+        return view.json_message("Admin required", HTTPStatus.FORBIDDEN)
+    return None
+
+
 def _cases_dir(hass: HomeAssistant) -> Path:
     """Return the test-case storage directory, rooted in the HA config dir."""
     return Path(hass.config.config_dir) / "kyber_regression_tests" / "cases"
@@ -138,6 +146,9 @@ class KyberPromptTestsView(HomeAssistantView):
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
+        response = _admin_required(self, request)
+        if response is not None:
+            return response
         hass: HomeAssistant = request.app["hass"]
         cases_dir = _cases_dir(hass)
         cases = _load_test_cases(cases_dir)
@@ -171,6 +182,9 @@ class KyberPromptTestsRunView(HomeAssistantView):
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
+        response = _admin_required(self, request)
+        if response is not None:
+            return response
         hass: HomeAssistant = request.app["hass"]
         body: dict[str, Any] = {}
         try:
@@ -254,6 +268,9 @@ class KyberPromptTestsCaptureView(HomeAssistantView):
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
+        response = _admin_required(self, request)
+        if response is not None:
+            return response
         hass: HomeAssistant = request.app["hass"]
         body: dict[str, Any] = {}
         try:
@@ -325,9 +342,9 @@ class KyberPromptTestsCaptureView(HomeAssistantView):
             (case_dir / "tool_mocks.json").write_text(
                 json.dumps(tool_mocks, indent=2, ensure_ascii=False), encoding="utf-8"
             )
-        except Exception as exc:
-            _LOGGER.error("prompt_tests: failed to save test case: %s", exc)
-            return self.json({"error": f"Failed to save: {exc}"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("prompt_tests: failed to save test case")
+            return self.json({"error": "Internal error"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
         return self.json({
             "id": case_id,
@@ -349,6 +366,9 @@ class KyberPromptTestsRegenerateView(HomeAssistantView):
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
+        response = _admin_required(self, request)
+        if response is not None:
+            return response
         hass: HomeAssistant = request.app["hass"]
         body: dict[str, Any] = {}
         try:

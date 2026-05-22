@@ -37,7 +37,7 @@ import { getT } from "./src/i18n.js?v=2";
 import { UtilsMixin } from "./src/utils-mixin.js?v=101";
 import { SessionMixin } from "./src/session-mixin.js?v=88";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=89";
-import { DebugMixin } from "./src/debug-mixin.js?v=102";
+import { DebugMixin } from "./src/debug-mixin.js?v=103";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=96";
 import { EditorMixin } from "./src/editor-mixin.js?v=95";
 import { AIMixin } from "./src/ai-mixin.js?v=109";
@@ -239,9 +239,10 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     const chat = shadow.querySelector(".chat-pane");
     const pane = shadow.getElementById("debug-pane");
     const closeBtn = shadow.getElementById("btn-debug-close");
+    const isAdmin = !!this._hass?.user?.is_admin;
 
-    // Apply debug layout SYNCHRONOUSLY before any async work to avoid flash
-    if (this._mode === "debug") {
+    // Apply debug layout SYNCHRONOUSLY before any async work to avoid flash.
+    if (this._mode === "debug" && isAdmin) {
       if (chat) chat.style.display = "none";
       if (pane) {
         pane.removeAttribute("hidden");
@@ -258,11 +259,10 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       if (closeBtn) closeBtn.style.display = "";
     }
 
-    // Fetch debug-mode flag from backend (async — layout already applied above)
-    let debugEnabled = true; // default until we know
+    let debugEnabled = true;
     try {
       const token = this._hass?.auth?.data?.access_token;
-      if (token) {
+      if (token && isAdmin) {
         const resp = await fetch("/api/kyber/debug/mode", { headers: { Authorization: `Bearer ${token}` } });
         if (resp.ok) {
           const data = await resp.json();
@@ -270,27 +270,43 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
         }
       }
     } catch (e) { /* keep default */ }
-    this._debugEnabled = debugEnabled;
     const btnDebug = shadow.getElementById("btn-debug");
-    if (btnDebug) btnDebug.style.display = debugEnabled ? "" : "none";
-    // Load initial memory count so the badge shows a real number at startup
-    this._loadMemoryCount();
-
-    // Now render debug tab content (needs hass + debug flag confirmed)
-    if (this._mode === "debug") {
-      this._renderDebugTab(this._debugTab);
-    } else if (debugEnabled) {
-      // In chat mode with debug ON: reveal the debug pane at the bottom so
-      // the user can see Last turn / Logs without switching to /kyber-debug.
-      const pane = shadow.getElementById("debug-pane");
+    if (!isAdmin) {
+      if (btnDebug) btnDebug.style.display = "none";
       if (pane) {
-        pane.removeAttribute("hidden");
+        pane.setAttribute("hidden", "");
         pane.classList.remove("debug-pane--standalone");
       }
-      this._debugTab = this._debugTab || "last_turn";
-      this._renderDebugTab(this._debugTab);
+      if (chat) chat.style.display = "";
+      this._debugEnabled = false;
+      this._loadMemoryCount();
+      if (this._mode !== "debug") {
+        this._startStatusPolling();
+      }
+      return;
     }
-    // Start explorer banner polling in chat mode
+    const canRenderDebug = debugEnabled && isAdmin;
+    this._debugEnabled = canRenderDebug;
+    if (btnDebug) btnDebug.style.display = canRenderDebug ? "" : "none";
+    if (!canRenderDebug && pane) {
+      pane.setAttribute("hidden", "");
+      pane.classList.remove("debug-pane--standalone");
+    }
+    if (!canRenderDebug && chat) {
+      chat.style.display = "";
+    }
+    this._loadMemoryCount();
+
+    if (canRenderDebug) {
+      if (this._mode === "debug") {
+        this._renderDebugTab(this._debugTab);
+      } else {
+        pane.removeAttribute("hidden");
+        pane.classList.remove("debug-pane--standalone");
+        this._debugTab = this._debugTab || "last_turn";
+        this._renderDebugTab(this._debugTab);
+      }
+    }
     if (this._mode !== "debug") {
       this._startStatusPolling();
     }

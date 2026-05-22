@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 
-function renderPanel(mode = "chat", debugEnabled = false) {
+function renderPanel(mode = "chat", debugEnabled = false, isAdmin = true) {
   const element = document.createElement("kyber-panel");
   element.panel = { config: { mode } };
   document.body.appendChild(element);
@@ -17,6 +17,7 @@ function renderPanel(mode = "chat", debugEnabled = false) {
 
   element.hass = {
     auth: { data: { access_token: "test-token" } },
+    user: { is_admin: isAdmin },
     states: {},
     panels: {},
     callApi: vi.fn().mockResolvedValue({}),
@@ -73,5 +74,18 @@ describe("debug pane visibility", () => {
     expect(pane.classList.contains("debug-pane--standalone")).toBe(true);
     expect(chat.style.display).toBe("none");
     expect(closeBtn.style.display).toBe("none");
+  });
+
+  it("hides debug controls for non-admin users", async () => {
+    const { element, fetchMock } = renderPanel("chat", true, false);
+    await element._applyModeAndDebugFlag();
+
+    const pane = element.shadowRoot.getElementById("debug-pane");
+    const btnDebug = element.shadowRoot.getElementById("btn-debug");
+
+    expect(btnDebug.style.display).toBe("none");
+    expect(pane.hasAttribute("hidden")).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/kyber/debug/mode")).toBe(false);
+    expect(element._renderDebugTab).not.toHaveBeenCalled();
   });
 });
