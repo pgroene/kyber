@@ -651,7 +651,7 @@ export const AIMixin = (Base) => class extends Base {
     return chips;
   }
 
-  _appendMessage(text, type) {
+  _appendMessage(text, type, meta = null) {
     const history = this.shadowRoot.getElementById("chat-history");
     const wrap = document.createElement("div");
     wrap.className = `chat-message-wrap ${type}`;
@@ -710,9 +710,72 @@ export const AIMixin = (Base) => class extends Base {
       wrap.appendChild(retryBtn);
     }
 
+    // Restore Undo button for [CHANGE] messages that have a history_entry_id
+    if (type === "assistant" && meta?.history_entry_id) {
+      this._restoreActionUndoButton(wrap, meta.history_entry_id);
+    }
+
     history.appendChild(wrap);
     history.scrollTop = history.scrollHeight;
   }
+
+  /**
+   * Async fire-and-forget: fetches the action history entry and attaches an
+   * Undo button (or "↩ Undone ✓" label) to the given chat message wrapper.
+   * Failure is silent — the message still renders without the button.
+   */
+  async _restoreActionUndoButton(wrap, entryId) {
+    if (!this._hass || !entryId) return;
+    try {
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch(`/api/kyber/history/actions/${encodeURIComponent(entryId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) return; // entry not found or error — skip silently
+      const entry = await resp.json();
+
+      if (entry.status === "undone") {
+        const label = document.createElement("button");
+        label.className = "btn-undo";
+        label.textContent = "↩ Undone ✓";
+        label.disabled = true;
+        wrap.appendChild(label);
+        return;
+      }
+
+      if (entry.status !== "applied") return;
+      const undoCount = Array.isArray(entry.undo_plan) ? entry.undo_plan.length : 0;
+      if (undoCount === 0) return;
+
+      const undoBtn = document.createElement("button");
+      undoBtn.className = "btn-undo";
+      undoBtn.textContent = `↩ Undo (${undoCount} action${undoCount > 1 ? "s" : ""})`;
+      undoBtn.addEventListener("click", async () => {
+        undoBtn.disabled = true;
+        undoBtn.textContent = "Undoing…";
+        try {
+          const token2 = this._hass.auth.data.access_token;
+          const r = await fetch(`/api/kyber/history/actions/${encodeURIComponent(entryId)}/undo`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token2}` },
+          });
+          const d = await r.json();
+          if (!r.ok || d.status === "failed") throw new Error(d.message || `HTTP ${r.status}`);
+          undoBtn.textContent = "↩ Undone ✓";
+          undoBtn.disabled = true;
+          this._addChatHistory("assistant", `[CHANGE] Undid action history entry ${entryId}`);
+          if (typeof this._loadActionHistory === "function") this._loadActionHistory();
+        } catch (e) {
+          undoBtn.textContent = `↩ Undo error: ${e.message}`;
+          undoBtn.disabled = false;
+        }
+      });
+      wrap.appendChild(undoBtn);
+    } catch (_) {
+      // Non-fatal — silently skip
+    }
+  }
+
 
   _appendAIResponse(fullText, yamlBlocks, plan, learnedFact = null, clarify = null, knowledgeIds = []) {
     const history = this.shadowRoot.getElementById("chat-history");

@@ -283,9 +283,13 @@ export const PlanCardsMixin = (Base) => class extends Base {
           });
 
           this._addChatHistory("user", `I clicked Execute on the proposal: "${plan.summary || ""}".`);
-          this._addChatHistory("assistant", `[CHANGE] The following changes were successfully applied:\n${changeLines.join("\n")}`);
 
           const historyEntry = data.history_entry || null;
+          this._addChatHistory(
+            "assistant",
+            `[CHANGE] The following changes were successfully applied:\n${changeLines.join("\n")}`,
+            historyEntry?.id ? { history_entry_id: historyEntry.id } : null
+          );
           const undoActions = ok
             .map((r) => r.undo_action)
             .filter(Boolean);

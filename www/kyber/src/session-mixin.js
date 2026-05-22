@@ -2,10 +2,17 @@ export const SessionMixin = (Base) => class extends Base {
   _sanitizeHistoryForPersistence(messages) {
     if (!Array.isArray(messages)) return [];
     return messages
-      .map((msg) => ({
-        role: msg?.role === "user" ? "user" : "assistant",
-        content: String(msg?.content || "").trim(),
-      }))
+      .map((msg) => {
+        const entry = {
+          role: msg?.role === "user" ? "user" : "assistant",
+          content: String(msg?.content || "").trim(),
+        };
+        // Preserve meta.history_entry_id for Undo button restoration on reload
+        if (msg?.meta?.history_entry_id) {
+          entry.meta = { history_entry_id: msg.meta.history_entry_id };
+        }
+        return entry;
+      })
       .filter((msg) => msg.content.length > 0)
       .slice(-200);
   }
@@ -16,10 +23,12 @@ export const SessionMixin = (Base) => class extends Base {
     history.innerHTML = `<div class="chat-message assistant">${this._escapeHtml(this._DEFAULT_GREETING)}</div>`;
   }
 
-  _addChatHistory(role, content) {
+  _addChatHistory(role, content, meta = null) {
     const text = String(content || "").trim();
     if (!text) return;
-    this._chatHistory.push({ role: role === "user" ? "user" : "assistant", content: text });
+    const entry = { role: role === "user" ? "user" : "assistant", content: text };
+    if (meta?.history_entry_id) entry.meta = { history_entry_id: meta.history_entry_id };
+    this._chatHistory.push(entry);
     this._persistHistory();
     // Auto-generate session title every 5 messages
     if (this._chatHistory.length % 5 === 0) {
@@ -56,7 +65,7 @@ export const SessionMixin = (Base) => class extends Base {
         this._chatHistory = persistedHistory;
         this._compactedSummary = persistedSummary;
         this._resetChatView();
-        this._chatHistory.forEach((msg) => this._appendMessage(msg.content, msg.role === "user" ? "user" : "assistant"));
+        this._chatHistory.forEach((msg) => this._appendMessage(msg.content, msg.role === "user" ? "user" : "assistant", msg.meta || null));
         console.log("[Kyber] restored", persistedHistory.length, "messages from history");
       }
       this._historyRestored = true;

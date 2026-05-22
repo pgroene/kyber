@@ -20,7 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 _CHAT_HISTORY_STORE_VERSION = 1
 _CHAT_HISTORY_STORE_KEY = f"{DOMAIN}_chat_history"
 _CHAT_HISTORY_MAX_MESSAGES = 20
-_CHAT_MESSAGE_MAX_CHARS = 1500
+_CHAT_MESSAGE_MAX_CHARS = 2000
 _CHAT_SUMMARY_MAX_CHARS = 2000
 _SESSIONS_MAX = 20
 _SESSION_NAME_MAX_CHARS = 80
@@ -76,11 +76,11 @@ def _get_active_session(user_data: dict[str, Any]) -> tuple[str, dict[str, Any]]
     return sid, session
 
 
-def _sanitize_history(messages: Any) -> list[dict[str, str]]:
+def _sanitize_history(messages: Any) -> list[dict]:
     """Normalize chat history payload to a safe, bounded list."""
     if not isinstance(messages, list):
         return []
-    normalized: list[dict[str, str]] = []
+    normalized: list[dict] = []
     for msg in messages:
         if not isinstance(msg, dict):
             continue
@@ -88,7 +88,12 @@ def _sanitize_history(messages: Any) -> list[dict[str, str]]:
         content = str(msg.get("content", "")).strip()
         if not content:
             continue
-        normalized.append({"role": role, "content": content[:_CHAT_MESSAGE_MAX_CHARS]})
+        entry: dict = {"role": role, "content": content[:_CHAT_MESSAGE_MAX_CHARS]}
+        # Preserve meta.history_entry_id for Undo button restoration — whitelist only
+        raw_meta = msg.get("meta")
+        if isinstance(raw_meta, dict) and isinstance(raw_meta.get("history_entry_id"), str):
+            entry["meta"] = {"history_entry_id": raw_meta["history_entry_id"]}
+        normalized.append(entry)
     return normalized[-_CHAT_HISTORY_MAX_MESSAGES:]
 
 
