@@ -548,6 +548,14 @@ class KnowledgeStore:
             if _entry_visible_to_user(entry, user_id, is_admin)
         ]
 
+    async def async_list_knowledge(
+        self,
+        user_id: str | None,
+        is_admin: bool,
+    ) -> list[dict[str, Any]]:
+        """Return the knowledge entries visible to the requesting user."""
+        return await self.async_all(user_id=user_id, is_admin=is_admin)
+
     async def async_search(
         self,
         query: str = "",
