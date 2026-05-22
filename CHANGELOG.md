@@ -6,7 +6,14 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 
 ---
 
-## [0.5.7.2] â€” 2026-05-22
+## [0.5.7.3] — 2026-05-22
+
+### Fixed
+- **[Critical]** Bumped all JS mixin import version numbers (?v=N+1) so browsers discard stale cached copies of the mixin files that shipped without _loadActionHistory — the previous hotfix (v0.5.7.2) replaced the files on the server but browsers continued serving old cached versions
+
+---
+
+## [0.5.7.2] — 2026-05-22 â€” 2026-05-22
 
 ### Fixed
 - **[Critical]** JS frontend files (`utils-mixin.js`, `ai-mixin.js`, etc.) were not being synced to the `www/` mirror, causing `this._loadActionHistory is not a function` on panel load

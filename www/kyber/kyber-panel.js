@@ -32,16 +32,16 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=110";
-import { getT } from "./src/i18n.js?v=1";
-import { UtilsMixin } from "./src/utils-mixin.js?v=100";
-import { SessionMixin } from "./src/session-mixin.js?v=87";
-import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=88";
-import { DebugMixin } from "./src/debug-mixin.js?v=101";
-import { SlashMixin } from "./src/slash-commands-mixin.js?v=95";
-import { EditorMixin } from "./src/editor-mixin.js?v=94";
-import { AIMixin } from "./src/ai-mixin.js?v=107";
-import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=94";
+import { STYLES } from "./src/styles.js?v=111";
+import { getT } from "./src/i18n.js?v=2";
+import { UtilsMixin } from "./src/utils-mixin.js?v=101";
+import { SessionMixin } from "./src/session-mixin.js?v=88";
+import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=89";
+import { DebugMixin } from "./src/debug-mixin.js?v=102";
+import { SlashMixin } from "./src/slash-commands-mixin.js?v=96";
+import { EditorMixin } from "./src/editor-mixin.js?v=95";
+import { AIMixin } from "./src/ai-mixin.js?v=108";
+import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=95";
 
 // ---------------------------------------------------------------------------
 // Custom Element
