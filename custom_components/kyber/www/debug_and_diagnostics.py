@@ -54,6 +54,14 @@ def _get_debug_mode(hass: HomeAssistant) -> bool:
     return bool(val)
 
 
+def _admin_required(view: HomeAssistantView, request: web.Request) -> web.Response | None:
+    """Return a 403 response when the request is not from an admin user."""
+    ha_user = request.get("hass_user")
+    if not ha_user or not getattr(ha_user, "is_admin", False):
+        return view.json_message("Admin required", HTTPStatus.FORBIDDEN)
+    return None
+
+
 class _KyberTurnLogHandler(logging.Handler):
     """Logging handler that captures kyber.* records for a single turn."""
 
@@ -205,6 +213,9 @@ class KyberDebugLastTurnView(HomeAssistantView):
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
+        response = _admin_required(self, request)
+        if response is not None:
+            return response
         hass: HomeAssistant = request.app["hass"]
         snap = hass.data.get(_DEBUG_LAST_TURN_KEY)
         if not snap:
@@ -220,6 +231,9 @@ class KyberDebugToolHistoryView(HomeAssistantView):
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
+        response = _admin_required(self, request)
+        if response is not None:
+            return response
         hass: HomeAssistant = request.app["hass"]
         history = hass.data.get(_DEBUG_TOOL_HISTORY_KEY)
         try:
@@ -238,6 +252,9 @@ class KyberDebugStatusView(HomeAssistantView):
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
+        response = _admin_required(self, request)
+        if response is not None:
+            return response
         import os as _os
         hass: HomeAssistant = request.app["hass"]
         kstore = get_knowledge_store(hass)
@@ -384,6 +401,9 @@ class KyberDebugBundleView(HomeAssistantView):
         return _KYBER_VERSION
 
     async def get(self, request: web.Request) -> web.Response:
+        response = _admin_required(self, request)
+        if response is not None:
+            return response
         import io
         import json as _json
         import zipfile
@@ -478,6 +498,9 @@ class KyberBugReportView(HomeAssistantView):
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
+        response = _admin_required(self, request)
+        if response is not None:
+            return response
         import re as _re
         from collections import OrderedDict
         from urllib.parse import quote as _quote
@@ -671,6 +694,9 @@ class KyberDebugLogsView(HomeAssistantView):
     _LEVEL_ORDER = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
 
     async def get(self, request: web.Request) -> web.Response:
+        response = _admin_required(self, request)
+        if response is not None:
+            return response
         import datetime as _dt
         hass: HomeAssistant = request.app["hass"]
         buf: list[dict] = list(hass.data.get(_KYBER_GLOBAL_LOG_KEY) or [])
@@ -700,6 +726,9 @@ class KyberDebugLogsView(HomeAssistantView):
 
     async def delete(self, request: web.Request) -> web.Response:
         """Clear the log buffer. DELETE /api/kyber/debug/logs"""
+        response = _admin_required(self, request)
+        if response is not None:
+            return response
         hass: HomeAssistant = request.app["hass"]
         hass.data[_KYBER_GLOBAL_LOG_KEY] = []
         return self.json({"cleared": True})

@@ -176,6 +176,8 @@ class KyberExecuteView(HomeAssistantView):
     async def post(self, request: web.Request) -> web.Response:
         """Execute a list of entity registry actions from a plan."""
         hass: HomeAssistant = request.app["hass"]
+        ha_user = request.get("hass_user")
+        request_user_id = str(getattr(ha_user, "id", "") or "") or None
 
         try:
             body = await request.json()
@@ -614,7 +616,12 @@ class KyberExecuteView(HomeAssistantView):
         if applied_actions and not has_failures:
             try:
                 astore = get_action_history_store(hass)
-                history_entry = await astore.async_record(_plan_summary or "Applied Kyber actions", applied_actions, entity_changes)
+                history_entry = await astore.async_record(
+                    _plan_summary or "Applied Kyber actions",
+                    applied_actions,
+                    entity_changes,
+                    user_id=request_user_id,
+                )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Kyber: action history record failed: %s", err)
 

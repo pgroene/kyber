@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from custom_components.kyber.action_history import ActionHistoryStore, get_store
 
 
@@ -90,10 +92,12 @@ async def test_action_history_undo_endpoint_executes_reverse_service(hass, setup
             "from_state": "off",
             "to_state": "on",
         }],
+        user_id="user-1",
     )
 
     client = await hass_client()
-    resp = await client.post(f"/api/kyber/history/actions/{entry['id']}/undo")
+    with patch("custom_components.kyber.action_history._user_id_from_request", return_value="user-1"):
+        resp = await client.post(f"/api/kyber/history/actions/{entry['id']}/undo")
 
     assert resp.status == 200
     data = await resp.json()
@@ -117,10 +121,12 @@ async def test_action_history_entry_view_returns_entry(hass, setup_integration, 
             "entity_id": "light.kitchen",
         }],
         [],
+        user_id="user-1",
     )
 
     client = await hass_client()
-    resp = await client.get(f"/api/kyber/history/actions/{entry['id']}")
+    with patch("custom_components.kyber.action_history._user_id_from_request", return_value="user-1"):
+        resp = await client.get(f"/api/kyber/history/actions/{entry['id']}")
 
     assert resp.status == 200
     data = await resp.json()
@@ -134,7 +140,8 @@ async def test_action_history_entry_view_returns_entry(hass, setup_integration, 
 async def test_action_history_entry_view_returns_404_for_unknown_id(hass, setup_integration, hass_client):
     """GET /api/kyber/history/actions/{id} returns 404 when entry is not found."""
     client = await hass_client()
-    resp = await client.get("/api/kyber/history/actions/nonexistent-id")
+    with patch("custom_components.kyber.action_history._user_id_from_request", return_value="user-1"):
+        resp = await client.get("/api/kyber/history/actions/nonexistent-id")
     assert resp.status == 404
 
 
@@ -150,11 +157,13 @@ async def test_action_history_entry_view_returns_undone_status(hass, setup_integ
             "entity_id": "light.bedroom",
         }],
         [],
+        user_id="user-1",
     )
-    await store.async_mark_status(entry["id"], "undone")
+    await store.async_mark_status(entry["id"], "undone", user_id="user-1")
 
     client = await hass_client()
-    resp = await client.get(f"/api/kyber/history/actions/{entry['id']}")
+    with patch("custom_components.kyber.action_history._user_id_from_request", return_value="user-1"):
+        resp = await client.get(f"/api/kyber/history/actions/{entry['id']}")
 
     assert resp.status == 200
     data = await resp.json()
