@@ -213,3 +213,52 @@ async def test_debug_status_includes_token_usage(
     assert body["token_usage"]["used"] == 250
     assert body["token_usage"]["budget"] == 1000
     assert body["token_usage"]["pct"] == 25
+
+
+@pytest.mark.parametrize(
+    ("raised_kind", "expected_status"),
+    [
+        ("provider", 503),
+        ("unexpected", 500),
+    ],
+)
+async def test_complete_records_estimated_tokens_on_ai_failures(
+    hass: HomeAssistant,
+    hass_client,
+    raised_kind: str,
+    expected_status: int,
+) -> None:
+    from custom_components.kyber import http_api as http_api_module
+
+    (_, _, _, _, get_budget_provider, get_token_budget_store) = _kyber_imports()
+    entry = await _setup_token_budget_integration(hass, max_daily_tokens=5000)
+    store = get_token_budget_store(hass)
+    provider = get_budget_provider(entry.data)
+    original_record = store.async_record
+    record_usage = AsyncMock(side_effect=original_record)
+    store.async_record = record_usage
+    raised = (
+        http_api_module.HomeAssistantError("provider unavailable")
+        if raised_kind == "provider"
+        else RuntimeError("boom")
+    )
+
+    client = await hass_client()
+    with patch.object(
+        store,
+        "async_check",
+        new=AsyncMock(return_value=(True, {"used": 0, "budget": 5000, "pct": 0, "warning": False})),
+    ), patch(
+        "custom_components.kyber.http_api._run_ai_loop",
+        new=AsyncMock(side_effect=raised),
+    ):
+        resp = await client.post("/api/kyber/complete", json={"prompt": "Explain the living room lights"})
+
+    assert resp.status == expected_status
+    record_usage.assert_awaited_once()
+    called_provider, recorded_tokens, recorded_budget = record_usage.await_args.args
+    assert called_provider == provider
+    assert recorded_budget == 5000
+    assert recorded_tokens > 0
+    usage = await store.async_get_usage(provider, 5000)
+    assert usage["used"] == recorded_tokens

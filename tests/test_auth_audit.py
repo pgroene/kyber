@@ -8,6 +8,7 @@ import pytest
 
 pytest.importorskip("pytest_homeassistant_custom_component", reason="requires pytest-homeassistant-custom-component")
 
+from custom_components.kyber.action_execution import KyberExecuteView
 from custom_components.kyber.debug_and_diagnostics import (
     KyberDebugBundleView,
     KyberDebugLastTurnView,
@@ -209,3 +210,21 @@ async def test_action_history_is_scoped_to_request_user(
 
     readonly_undo = await readonly_client.post(f"/api/kyber/history/actions/{admin_entry_id}/undo")
     assert readonly_undo.status == 404
+
+
+async def test_execute_rejects_requests_without_resolved_user_id(hass) -> None:
+    class _Request(dict):
+        def __init__(self) -> None:
+            super().__init__(hass_user=type("User", (), {"id": None})())
+            self.app = {"hass": hass}
+
+        async def json(self) -> dict:
+            return {
+                "summary": "Missing user",
+                "actions": [{"type": "call_service", "domain": "light", "service": "turn_on", "entity_id": "light.kitchen"}],
+            }
+
+    response = await KyberExecuteView().post(_Request())
+
+    assert response.status == 401
+    assert json.loads(response.text) == {"message": "Unable to resolve authenticated user"}

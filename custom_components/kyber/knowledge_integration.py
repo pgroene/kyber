@@ -296,7 +296,12 @@ class KyberKnowledgeView(HomeAssistantView):
                     HTTPStatus.BAD_REQUEST,
                 )
             changes.update(sanitized_changes)
-            updated = await kstore.async_update(str(entry_id), **changes)
+            try:
+                updated = await kstore.async_update(str(entry_id), **changes)
+            except ValueError as err:
+                if str(err) == "Credential pattern detected in content":
+                    return self.json({"error": "Content contains credential pattern"}, status_code=HTTPStatus.BAD_REQUEST)
+                raise
             if not updated:
                 return self.json_message(f"Entry '{entry_id}' not found", HTTPStatus.NOT_FOUND)
             return self.json({"status": "ok", "entry": updated})

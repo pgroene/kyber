@@ -178,6 +178,8 @@ class KyberExecuteView(HomeAssistantView):
         hass: HomeAssistant = request.app["hass"]
         ha_user = request.get("hass_user")
         user_id = str(getattr(ha_user, "id", "") or "") or None
+        if not user_id:
+            return self.json_message("Unable to resolve authenticated user", HTTPStatus.UNAUTHORIZED)
 
         try:
             body = await request.json()
