@@ -50,6 +50,13 @@ from .const import (
     CONF_ENABLE_MCP_IN_CHAT,
     CONF_MCP_ALLOW_STATE_CHANGES,
     CONF_MCP_CLIENT_SERVERS,
+    CONF_MCP_TOOL_MODE,
+    CONF_MCP_EXPOSE_ONLY,
+    MCP_TOOL_MODE_KYBER_ONLY,
+    MCP_TOOL_MODE_HYBRID,
+    MCP_TOOL_MODE_DYNAMIC,
+    DEFAULT_MCP_TOOL_MODE,
+    DEFAULT_MCP_EXPOSE_ONLY,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_MAX_DAILY_TOKENS,
     CONF_MAX_TOKENS,
@@ -228,6 +235,8 @@ def _build_options_schema(
     enable_mcp_in_chat: bool = DEFAULT_ENABLE_MCP_IN_CHAT,
     mcp_allow_state_changes: bool = DEFAULT_MCP_ALLOW_STATE_CHANGES,
     mcp_client_servers: str = DEFAULT_MCP_CLIENT_SERVERS,
+    mcp_tool_mode: str = DEFAULT_MCP_TOOL_MODE,
+    mcp_expose_only: bool = DEFAULT_MCP_EXPOSE_ONLY,
 ) -> vol.Schema:
     """Options schema grouped into sections."""
     model_fields: dict = {}
@@ -384,6 +393,17 @@ def _build_options_schema(
                         vol.Optional(CONF_ENABLE_MCP, default=enable_mcp): selector.BooleanSelector(),
                         vol.Optional(CONF_ENABLE_MCP_IN_CHAT, default=enable_mcp_in_chat): selector.BooleanSelector(),
                         vol.Optional(CONF_MCP_ALLOW_STATE_CHANGES, default=mcp_allow_state_changes): selector.BooleanSelector(),
+                        vol.Optional(CONF_MCP_TOOL_MODE, default=mcp_tool_mode): selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                options=[
+                                    {"value": MCP_TOOL_MODE_KYBER_ONLY, "label": "Kyber only — kyber_ask + helpers (default)"},
+                                    {"value": MCP_TOOL_MODE_HYBRID, "label": "Hybrid — kyber_ask + direct HA intent tools"},
+                                    {"value": MCP_TOOL_MODE_DYNAMIC, "label": "Dynamic — direct HA intent tools only"},
+                                ],
+                                mode=selector.SelectSelectorMode.DROPDOWN,
+                            )
+                        ),
+                        vol.Optional(CONF_MCP_EXPOSE_ONLY, default=mcp_expose_only): selector.BooleanSelector(),
                         vol.Optional(CONF_MCP_CLIENT_SERVERS, default=mcp_client_servers): selector.TextSelector(
                             selector.TextSelectorConfig(multiline=True)
                         ),
@@ -568,6 +588,8 @@ class KyberOptionsFlow(OptionsFlow):
                 CONF_ENABLE_MCP: bool(developer.get(CONF_ENABLE_MCP, _get(CONF_ENABLE_MCP, DEFAULT_ENABLE_MCP))),
                 CONF_ENABLE_MCP_IN_CHAT: bool(developer.get(CONF_ENABLE_MCP_IN_CHAT, _get(CONF_ENABLE_MCP_IN_CHAT, DEFAULT_ENABLE_MCP_IN_CHAT))),
                 CONF_MCP_CLIENT_SERVERS: str(developer.get(CONF_MCP_CLIENT_SERVERS, _get(CONF_MCP_CLIENT_SERVERS, DEFAULT_MCP_CLIENT_SERVERS))),
+                CONF_MCP_TOOL_MODE: str(developer.get(CONF_MCP_TOOL_MODE, _get(CONF_MCP_TOOL_MODE, DEFAULT_MCP_TOOL_MODE))),
+                CONF_MCP_EXPOSE_ONLY: bool(developer.get(CONF_MCP_EXPOSE_ONLY, _get(CONF_MCP_EXPOSE_ONLY, DEFAULT_MCP_EXPOSE_ONLY))),
                 CONF_MAX_REQUESTS_PER_MINUTE: int(developer.get(CONF_MAX_REQUESTS_PER_MINUTE, _get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE))),
                 CONF_CLOUD_PROVIDER: str(cloud.get(CONF_CLOUD_PROVIDER, _get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER))).strip(),
                 CONF_CLOUD_USE_FOR_CHAT: bool(cloud.get(CONF_CLOUD_USE_FOR_CHAT, _get(CONF_CLOUD_USE_FOR_CHAT, DEFAULT_CLOUD_USE_FOR_CHAT))),
@@ -635,6 +657,8 @@ class KyberOptionsFlow(OptionsFlow):
             enable_mcp_in_chat=bool(_get(CONF_ENABLE_MCP_IN_CHAT, DEFAULT_ENABLE_MCP_IN_CHAT)),
             mcp_allow_state_changes=bool(_get(CONF_MCP_ALLOW_STATE_CHANGES, DEFAULT_MCP_ALLOW_STATE_CHANGES)),
             mcp_client_servers=str(_get(CONF_MCP_CLIENT_SERVERS, DEFAULT_MCP_CLIENT_SERVERS)),
+            mcp_tool_mode=str(_get(CONF_MCP_TOOL_MODE, DEFAULT_MCP_TOOL_MODE)),
+            mcp_expose_only=bool(_get(CONF_MCP_EXPOSE_ONLY, DEFAULT_MCP_EXPOSE_ONLY)),
         )
 
         from .model_stats import format_stats as _fmt_stats, format_run_stats as _fmt_run_stats

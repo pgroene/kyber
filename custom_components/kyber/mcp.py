@@ -10,11 +10,14 @@ Transport: Streamable HTTP (MCP spec 2024-11-05)
 
 Authentication: Home Assistant long-lived access token in Authorization header.
 
-Exposed tools:
-  kyber_ask         — Natural-language query through Kyber's full AI pipeline.
-  get_entity_state  — Get current state of one or more HA entities.
-  list_entities     — List all HA entities with their states and areas.
-  call_service      — Call a Home Assistant service directly.
+Tool modes (CONF_MCP_TOOL_MODE):
+  kyber_only  — kyber_ask + helper read tools (default, issue #249)
+  hybrid      — kyber_ask + direct HA intent tools (fast path + smart path)
+  dynamic     — direct HA intent tools only (no Kyber AI loop, lowest token cost)
+
+Entity filtering (CONF_MCP_EXPOSE_ONLY):
+  When True (default), only entities exposed to the HA Assist voice assistant
+  are accessible via MCP tools (issue #244).
 """
 from __future__ import annotations
 
@@ -33,7 +36,14 @@ from .const import (
     CONF_AI_TASK_ENTITY_ID,
     CONF_MAX_REQUESTS_PER_MINUTE,
     CONF_MCP_ALLOW_STATE_CHANGES,
+    CONF_MCP_TOOL_MODE,
+    CONF_MCP_EXPOSE_ONLY,
     DEFAULT_MAX_REQUESTS_PER_MINUTE,
+    DEFAULT_MCP_TOOL_MODE,
+    DEFAULT_MCP_EXPOSE_ONLY,
+    MCP_TOOL_MODE_KYBER_ONLY,
+    MCP_TOOL_MODE_HYBRID,
+    MCP_TOOL_MODE_DYNAMIC,
     DOMAIN,
     _sanitize_user_input,
 )
@@ -55,6 +65,265 @@ def _mcp_log(hass: HomeAssistant, entry: dict) -> None:
     buf.append(entry)
     if len(buf) > _MCP_LOG_MAX:
         del buf[: len(buf) - _MCP_LOG_MAX]
+
+
+# ---------------------------------------------------------------------------
+# Entity exposure filtering (#244)
+# ---------------------------------------------------------------------------
+
+def _get_exposed_entity_ids(hass: HomeAssistant) -> set[str] | None:
+    """Return set of entity IDs exposed to HA Assist, or None if unavailable.
+
+    Uses the homeassistant component's async_should_expose when available.
+    Falls back to None (meaning: no filtering) if the component is not loaded.
+    """
+    try:
+        from homeassistant.components.homeassistant import async_should_expose
+        return {
+            state.entity_id
+            for state in hass.states.async_all()
+            if async_should_expose(hass, "conversation", state.entity_id)
+        }
+    except (ImportError, Exception):  # noqa: BLE001
+        return None
+
+
+def _filter_entities_by_exposure(
+    hass: HomeAssistant,
+    entity_ids: list[str],
+    expose_only: bool,
+) -> list[str]:
+    """Filter entity_ids to only exposed ones when expose_only is True."""
+    if not expose_only:
+        return entity_ids
+    exposed = _get_exposed_entity_ids(hass)
+    if exposed is None:
+        return entity_ids
+    return [eid for eid in entity_ids if eid in exposed]
+
+
+# ---------------------------------------------------------------------------
+# Dynamic intent tools for hybrid/dynamic mode (#249, #248, #250)
+# ---------------------------------------------------------------------------
+
+# Maps HA domain → list of (service, description, extra_schema_properties)
+_DOMAIN_SERVICE_SPECS: dict[str, list[tuple[str, str, dict]]] = {
+    "light": [
+        ("turn_on", "Turn on a light. Optionally set brightness (0-255) or color_temp (mireds).", {
+            "brightness": {"type": "integer", "description": "Brightness 0-255", "minimum": 0, "maximum": 255},
+            "color_temp": {"type": "integer", "description": "Color temperature in mireds"},
+            "rgb_color": {"type": "array", "items": {"type": "integer"}, "description": "RGB color [r,g,b] each 0-255"},
+        }),
+        ("turn_off", "Turn off a light.", {}),
+        ("toggle", "Toggle a light on/off.", {}),
+    ],
+    "switch": [
+        ("turn_on", "Turn on a switch.", {}),
+        ("turn_off", "Turn off a switch.", {}),
+        ("toggle", "Toggle a switch on/off.", {}),
+    ],
+    "input_boolean": [
+        ("turn_on", "Turn on an input boolean helper.", {}),
+        ("turn_off", "Turn off an input boolean helper.", {}),
+        ("toggle", "Toggle an input boolean helper.", {}),
+    ],
+    "climate": [
+        ("set_temperature", "Set the target temperature for a climate device.", {
+            "temperature": {"type": "number", "description": "Target temperature in the unit configured in HA"},
+            "hvac_mode": {"type": "string", "description": "Optional HVAC mode to set simultaneously (heat/cool/auto/off)"},
+        }),
+        ("set_hvac_mode", "Set the HVAC mode for a climate device.", {
+            "hvac_mode": {"type": "string", "description": "HVAC mode: off, heat, cool, heat_cool, auto, dry, fan_only"},
+        }),
+    ],
+    "cover": [
+        ("open_cover", "Open a cover (blind/shutter/garage door).", {}),
+        ("close_cover", "Close a cover.", {}),
+        ("stop_cover", "Stop a moving cover.", {}),
+        ("set_cover_position", "Set a cover to a specific position.", {
+            "position": {"type": "integer", "description": "Position 0 (closed) to 100 (open)", "minimum": 0, "maximum": 100},
+        }),
+    ],
+    "media_player": [
+        ("media_play", "Start playing media.", {}),
+        ("media_pause", "Pause media playback.", {}),
+        ("media_stop", "Stop media playback.", {}),
+        ("volume_set", "Set the volume level.", {
+            "volume_level": {"type": "number", "description": "Volume 0.0 (mute) to 1.0 (max)", "minimum": 0.0, "maximum": 1.0},
+        }),
+        ("select_source", "Select a media source/input.", {
+            "source": {"type": "string", "description": "Source name to select"},
+        }),
+    ],
+    "lock": [
+        ("lock", "Lock a lock.", {}),
+        ("unlock", "Unlock a lock.", {}),
+    ],
+    "fan": [
+        ("turn_on", "Turn on a fan.", {}),
+        ("turn_off", "Turn off a fan.", {}),
+        ("set_percentage", "Set fan speed percentage.", {
+            "percentage": {"type": "integer", "description": "Speed 0-100%", "minimum": 0, "maximum": 100},
+        }),
+    ],
+    "vacuum": [
+        ("start", "Start a vacuum robot.", {}),
+        ("pause", "Pause a vacuum robot.", {}),
+        ("stop", "Stop a vacuum robot.", {}),
+        ("return_to_base", "Send vacuum robot back to its dock.", {}),
+    ],
+    "scene": [
+        ("turn_on", "Activate a scene.", {}),
+    ],
+    "script": [
+        ("turn_on", "Run a script.", {}),
+    ],
+    "automation": [
+        ("trigger", "Manually trigger an automation.", {}),
+        ("turn_on", "Enable an automation.", {}),
+        ("turn_off", "Disable an automation.", {}),
+    ],
+    "input_select": [
+        ("select_option", "Select an option from a dropdown helper.", {
+            "option": {"type": "string", "description": "Option value to select"},
+        }),
+    ],
+    "number": [
+        ("set_value", "Set the value of a number helper or entity.", {
+            "value": {"type": "number", "description": "Numeric value to set"},
+        }),
+    ],
+}
+
+
+def _build_intent_tools(hass: HomeAssistant, expose_only: bool) -> list[dict]:
+    """Build dynamic HA intent tool schemas based on exposed entity domains.
+
+    Implements #249 (hybrid tool mode), #248 (parallel execution via dynamic list),
+    and #250 (entity capability discovery).
+    """
+    from homeassistant.helpers import area_registry as ar, entity_registry as er
+
+    exposed_ids = _get_exposed_entity_ids(hass) if expose_only else None
+
+    # Group exposed entity IDs by domain, with friendly names
+    domain_entities: dict[str, list[str]] = {}
+    area_reg = ar.async_get(hass)
+    entity_reg = er.async_get(hass)
+
+    entity_area: dict[str, str] = {}
+    for entry in entity_reg.entities.values():
+        area_id = entry.area_id
+        if not area_id and entry.device_id:
+            from homeassistant.helpers import device_registry as dr
+            dev = dr.async_get(hass).async_get(entry.device_id)
+            if dev:
+                area_id = dev.area_id
+        if area_id:
+            area = area_reg.async_get_area(area_id)
+            if area:
+                entity_area[entry.entity_id] = area.name
+
+    for state in hass.states.async_all():
+        eid = state.entity_id
+        if exposed_ids is not None and eid not in exposed_ids:
+            continue
+        domain = eid.split(".")[0]
+        if domain in _DOMAIN_SERVICE_SPECS:
+            domain_entities.setdefault(domain, []).append(eid)
+
+    tools: list[dict] = []
+    for domain, services in _DOMAIN_SERVICE_SPECS.items():
+        entity_ids = domain_entities.get(domain, [])
+        if not entity_ids:
+            continue  # skip tools for domains with no exposed entities
+
+        # Build entity enum with area hints for the LLM (#250 — capability discovery)
+        entity_labels = []
+        for eid in sorted(entity_ids):
+            state = hass.states.get(eid)
+            name = (state.attributes.get("friendly_name", eid) if state else eid)
+            area = entity_area.get(eid)
+            label = f"{eid} ({name}"
+            if area:
+                label += f", {area}"
+            label += ")"
+            entity_labels.append(label)
+
+        for service, description, extra_props in services:
+            tool_name = f"{domain}_{service}"
+            props: dict = {
+                "entity_id": {
+                    "type": "string",
+                    "description": (
+                        f"Entity ID to act on. Available: {', '.join(entity_labels[:20])}"
+                        + (" …" if len(entity_labels) > 20 else "")
+                    ),
+                },
+                **extra_props,
+            }
+            tools.append({
+                "name": tool_name,
+                "description": f"{description} No AI loop — direct HA service call (low token cost).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": props,
+                    "required": ["entity_id"],
+                },
+            })
+
+    return tools
+
+
+async def _handle_intent_tool(
+    hass: HomeAssistant,
+    tool_name: str,
+    args: dict,
+    is_admin: bool,
+    expose_only: bool,
+) -> dict:
+    """Execute a dynamic intent tool call (direct HA service, no Kyber AI loop).
+
+    Implements the fast path in hybrid mode (#249).
+    """
+    if not is_admin:
+        return {"error": "Direct intent tools require administrator privileges"}
+
+    parts = tool_name.split("_", 1)
+    if len(parts) != 2:
+        return {"error": f"Malformed tool name: {tool_name}"}
+
+    domain, service = parts[0], parts[1]
+
+    entity_id: str = str(args.get("entity_id", "")).strip()
+    if not entity_id:
+        return {"error": "entity_id is required"}
+
+    # Validate entity exists
+    if not hass.states.get(entity_id):
+        return {"error": f"Entity not found: {entity_id}"}
+
+    # Enforce exposure filter (#244)
+    if expose_only:
+        exposed = _get_exposed_entity_ids(hass)
+        if exposed is not None and entity_id not in exposed:
+            return {"error": f"Entity {entity_id} is not exposed to MCP. Enable it in Settings → Voice assistants → Expose."}
+
+    # Build service data — entity_id + any extra args
+    service_data: dict = {"entity_id": entity_id}
+    for key, val in args.items():
+        if key != "entity_id":
+            service_data[key] = val
+
+    if not hass.services.has_service(domain, service):
+        return {"error": f"Service {domain}.{service} not found in Home Assistant"}
+
+    try:
+        await hass.services.async_call(domain, service, service_data, blocking=True)
+    except Exception as err:  # noqa: BLE001
+        return {"error": str(err)}
+
+    return {"status": "ok", "called": f"{domain}.{service}", "entity_id": entity_id}
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +397,7 @@ _TOOLS: list[dict] = [
     {
         "name": "list_entities",
         "description": (
-            "List Home Assistant entities with their current states. Optionally filter by domain or area. "
+            "List Home Assistant entities with their current states. Optionally filter by domain, area, or exposure. "
             "TOKEN COST: Low (~200 tokens). "
             "PREFER THIS over kyber_ask when the user asks what devices exist or wants a state overview."
         ),
@@ -142,6 +411,10 @@ _TOOLS: list[dict] = [
                 "area": {
                     "type": "string",
                     "description": "Optional area name filter, e.g. 'bedroom', 'kitchen'",
+                },
+                "expose_only": {
+                    "type": "boolean",
+                    "description": "When true, only return entities exposed to HA voice assistant (Assist). Default false.",
                 },
             },
         },
@@ -551,11 +824,18 @@ async def _build_home_summary(hass: HomeAssistant) -> dict:
 
 
 async def _handle_list_entities(hass: HomeAssistant, params: dict) -> dict:
-    """List HA entities with optional domain/area filter."""
+    """List HA entities with optional domain/area/exposure filter.
+
+    Supports expose_only param to restrict results to HA-exposed entities (#244).
+    """
     from homeassistant.helpers import area_registry as ar, entity_registry as er, device_registry as dr
 
     domain_filter: str | None = params.get("domain", "").strip() or None
     area_filter: str | None = params.get("area", "").strip().lower() or None
+    # expose_only: True = only entities exposed to HA Assist (#244)
+    expose_only: bool = bool(params.get("expose_only", False))
+
+    exposed_ids: set[str] | None = _get_exposed_entity_ids(hass) if expose_only else None
 
     area_reg = ar.async_get(hass)
     entity_reg = er.async_get(hass)
@@ -578,6 +858,8 @@ async def _handle_list_entities(hass: HomeAssistant, params: dict) -> dict:
     results = []
     for state in hass.states.async_all():
         eid = state.entity_id
+        if exposed_ids is not None and eid not in exposed_ids:
+            continue
         if domain_filter and not eid.startswith(f"{domain_filter}."):
             continue
         area_name = entity_area.get(eid)
@@ -591,7 +873,7 @@ async def _handle_list_entities(hass: HomeAssistant, params: dict) -> dict:
         })
 
     results.sort(key=lambda e: e["entity_id"])
-    return {"entities": results, "count": len(results)}
+    return {"entities": results, "count": len(results), "expose_only": expose_only}
 
 
 async def _handle_call_service(hass: HomeAssistant, params: dict, *, is_admin: bool = False) -> dict:
@@ -991,7 +1273,17 @@ class KyberMCPView(HomeAssistantView):
             })
 
         if method == "tools/list":
-            tools = list(_TOOLS)
+            tool_mode = self._config.get(CONF_MCP_TOOL_MODE, DEFAULT_MCP_TOOL_MODE)
+            expose_only = self._config.get(CONF_MCP_EXPOSE_ONLY, DEFAULT_MCP_EXPOSE_ONLY)
+            if tool_mode == MCP_TOOL_MODE_DYNAMIC:
+                # Dynamic mode: only HA intent tools, no kyber_ask (#249)
+                tools = _build_intent_tools(hass, expose_only)
+            elif tool_mode == MCP_TOOL_MODE_HYBRID:
+                # Hybrid mode: kyber_ask for complex tasks + HA intent tools for simple ones (#249)
+                tools = list(_TOOLS) + _build_intent_tools(hass, expose_only)
+            else:
+                # kyber_only (default): existing behaviour
+                tools = list(_TOOLS)
             if self._config.get(CONF_MCP_ALLOW_STATE_CHANGES, False):
                 tools.append(_EXECUTE_PLAN_TOOL)
             return _ok(req_id, {"tools": tools})
@@ -1002,6 +1294,7 @@ class KyberMCPView(HomeAssistantView):
             return await self._call_tool(hass, req_id, tool_name, tool_args, user_id, is_admin)
 
         if method == "resources/list":
+            expose_only = self._config.get(CONF_MCP_EXPOSE_ONLY, DEFAULT_MCP_EXPOSE_ONLY)
             return _ok(req_id, {"resources": [
                 {
                     "uri": "home://summary",
@@ -1012,11 +1305,24 @@ class KyberMCPView(HomeAssistantView):
                         "Read this resource before answering any questions about the home."
                     ),
                     "mimeType": "application/json",
-                }
+                },
+                {
+                    "uri": "home://entities",
+                    "name": "Entity Snapshot",
+                    "description": (
+                        "Live snapshot of all "
+                        + ("exposed " if expose_only else "")
+                        + "Home Assistant entities with their current states and areas. "
+                        "Use this to discover what devices exist and their current state "
+                        "without making a separate tool call."
+                    ),
+                    "mimeType": "application/json",
+                },
             ]})
 
         if method == "resources/read":
             uri: str = params.get("uri", "")
+            expose_only = self._config.get(CONF_MCP_EXPOSE_ONLY, DEFAULT_MCP_EXPOSE_ONLY)
             if uri == "home://summary":
                 return _ok(req_id, {"contents": [
                     {
@@ -1025,39 +1331,113 @@ class KyberMCPView(HomeAssistantView):
                         "text": json.dumps(await _build_home_summary(hass)),
                     }
                 ]})
+            if uri == "home://entities":
+                entity_snapshot = await _handle_list_entities(
+                    hass,
+                    {"expose_only": expose_only},
+                )
+                return _ok(req_id, {"contents": [
+                    {
+                        "uri": "home://entities",
+                        "mimeType": "application/json",
+                        "text": json.dumps(entity_snapshot, ensure_ascii=False),
+                    }
+                ]})
             return _err(req_id, -32602, f"Unknown resource: {uri}")
 
         if method == "prompts/list":
+            tool_mode = self._config.get(CONF_MCP_TOOL_MODE, DEFAULT_MCP_TOOL_MODE)
             return _ok(req_id, {"prompts": [
                 {
                     "name": "home_assistant_rules",
-                    "description": "Ground rules for answering Home Assistant questions via Kyber",
-                }
+                    "description": "Ground rules and live entity context for Home Assistant via Kyber",
+                },
+                {
+                    "name": "kyber_tool_guide",
+                    "description": (
+                        f"Guide for using Kyber MCP tools in {tool_mode} mode — "
+                        "when to use kyber_ask vs direct intent tools"
+                    ),
+                },
             ]})
 
         if method == "prompts/get":
             prompt_name: str = params.get("name", "")
+            expose_only = self._config.get(CONF_MCP_EXPOSE_ONLY, DEFAULT_MCP_EXPOSE_ONLY)
+            tool_mode = self._config.get(CONF_MCP_TOOL_MODE, DEFAULT_MCP_TOOL_MODE)
+
             if prompt_name == "home_assistant_rules":
+                # Build live entity context for the prompt (#246)
+                entity_data = await _handle_list_entities(hass, {"expose_only": expose_only})
+                entities = entity_data.get("entities", [])
+                entity_lines = []
+                for e in entities[:150]:  # cap to avoid token explosion
+                    area = f" [{e['area']}]" if e.get("area") else ""
+                    entity_lines.append(f"  - {e['entity_id']}: {e['state']} ({e['friendly_name']}{area})")
+                entity_context = "\n".join(entity_lines)
+                if len(entities) > 150:
+                    entity_context += f"\n  … and {len(entities) - 150} more (use list_entities tool to see all)"
+
                 return _ok(req_id, {
-                    "description": "Ground rules for answering Home Assistant questions via Kyber",
+                    "description": "Ground rules and live entity context for Home Assistant via Kyber",
                     "messages": [
                         {
                             "role": "user",
                             "content": {
                                 "type": "text",
                                 "text": (
+                                    "## Home Assistant Rules\n\n"
                                     "When answering any question about the user's home, devices, "
                                     "lights, switches, sensors, or any Home Assistant entity:\n"
-                                    "1. ALWAYS call list_entities or get_entity_state first.\n"
-                                    "2. NEVER guess or use training data for entity names or states.\n"
-                                    "3. Read the home://summary resource for an overview.\n"
-                                    "4. Use kyber_ask to let Kyber's AI handle complex requests.\n"
-                                    "The home data changes in real time — only tool results are accurate."
+                                    "1. ALWAYS use tool data — NEVER guess entity names or states from training data.\n"
+                                    "2. The state below is a snapshot; call get_entity_state for the latest value.\n"
+                                    "3. Use kyber_ask to let Kyber's AI handle complex or ambiguous requests.\n"
+                                    "4. Read the home://summary resource for counts and areas overview.\n\n"
+                                    f"## Current Home Entities ({len(entities)} total"
+                                    + (" — exposed only" if expose_only else "")
+                                    + ")\n\n"
+                                    + (entity_context if entity_lines else "  (no entities available)")
                                 ),
                             },
                         }
                     ],
                 })
+
+            if prompt_name == "kyber_tool_guide":
+                if tool_mode == MCP_TOOL_MODE_HYBRID:
+                    guide = (
+                        "## Kyber Hybrid Tool Mode\n\n"
+                        "You have access to both kyber_ask and direct HA intent tools.\n\n"
+                        "**Use direct intent tools** (light_turn_on, switch_turn_off, etc.) when:\n"
+                        "- The request is simple and deterministic (turn on/off, set value)\n"
+                        "- You know the exact entity_id\n"
+                        "- Token efficiency matters (direct tools cost ~50 tokens vs 2000+ for kyber_ask)\n\n"
+                        "**Use kyber_ask** when:\n"
+                        "- The request is ambiguous ('make the living room cosy')\n"
+                        "- Multi-step planning is needed\n"
+                        "- Natural language entity resolution is required\n"
+                        "- You want Kyber's self-correction and retry logic\n"
+                    )
+                elif tool_mode == MCP_TOOL_MODE_DYNAMIC:
+                    guide = (
+                        "## Kyber Dynamic Tool Mode\n\n"
+                        "You have direct HA intent tools only — no kyber_ask.\n\n"
+                        "Each tool maps to a specific HA service call (e.g. light_turn_on, climate_set_temperature).\n"
+                        "These are low-cost direct service calls with no AI loop overhead.\n"
+                        "Use list_entities or the home://entities resource to discover available entity IDs.\n"
+                    )
+                else:
+                    guide = (
+                        "## Kyber Tool Mode: kyber_only\n\n"
+                        "Use kyber_ask for all home control and queries — it runs Kyber's full AI pipeline.\n"
+                        "Use get_entity_state, list_entities for quick reads without triggering the AI loop.\n"
+                        "Use kyber_ask mode='quick' to reduce token usage by ~70% for simple factual questions.\n"
+                    )
+                return _ok(req_id, {
+                    "description": f"Tool usage guide for {tool_mode} mode",
+                    "messages": [{"role": "user", "content": {"type": "text", "text": guide}}],
+                })
+
             return _err(req_id, -32602, f"Unknown prompt: {prompt_name}")
 
         # Unknown method
@@ -1084,7 +1464,12 @@ class KyberMCPView(HomeAssistantView):
             elif name == "kyber_recall":
                 result = await _handle_kyber_recall(hass, tool_args)
             elif name == "list_entities":
-                result = await _handle_list_entities(hass, args)
+                # Merge config-level expose_only default with per-call override (#244)
+                config_expose_only = self._config.get(CONF_MCP_EXPOSE_ONLY, DEFAULT_MCP_EXPOSE_ONLY)
+                merged_args = {**args}
+                if "expose_only" not in merged_args:
+                    merged_args["expose_only"] = config_expose_only
+                result = await _handle_list_entities(hass, merged_args)
             elif name == "call_service":
                 result = await _handle_call_service(hass, args, is_admin=is_admin)
             elif name == "calendar_get_events":
@@ -1097,6 +1482,10 @@ class KyberMCPView(HomeAssistantView):
                 if not self._config.get(CONF_MCP_ALLOW_STATE_CHANGES, False):
                     return _err(req_id, -32602, "kyber_execute_plan is disabled. Enable 'MCP can change state of home' in Kyber settings.")
                 result = await _handle_kyber_execute_plan(hass, args, user_id, is_admin)
+            elif "_" in name and name.split("_")[0] in _DOMAIN_SERVICE_SPECS:
+                # Dynamic intent tool (hybrid/dynamic mode) — direct HA service call (#249)
+                expose_only = self._config.get(CONF_MCP_EXPOSE_ONLY, DEFAULT_MCP_EXPOSE_ONLY)
+                result = await _handle_intent_tool(hass, name, args, is_admin, expose_only)
             else:
                 return _err(req_id, -32602, f"Unknown tool: {name}")
         except Exception as err:  # noqa: BLE001

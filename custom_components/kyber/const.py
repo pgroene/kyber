@@ -76,6 +76,15 @@ CONF_ENABLE_MCP = "enable_mcp"
 CONF_ENABLE_MCP_IN_CHAT = "enable_mcp_in_chat"
 CONF_MCP_ALLOW_STATE_CHANGES = "mcp_allow_state_changes"
 CONF_MCP_CLIENT_SERVERS = "mcp_client_servers"
+CONF_MCP_TOOL_MODE = "mcp_tool_mode"
+CONF_MCP_EXPOSE_ONLY = "mcp_expose_only"  # filter to HA-exposed entities
+
+# MCP tool mode values
+MCP_TOOL_MODE_KYBER_ONLY = "kyber_only"   # only kyber_ask + helpers (current default)
+MCP_TOOL_MODE_HYBRID = "hybrid"           # kyber_ask + HA intent tools
+MCP_TOOL_MODE_DYNAMIC = "dynamic"         # HA intent tools only (no kyber_ask)
+DEFAULT_MCP_TOOL_MODE = MCP_TOOL_MODE_KYBER_ONLY
+DEFAULT_MCP_EXPOSE_ONLY = True
 CONF_USER_NAME = "user_name"
 CONF_RUN_INITIAL_ANALYZE = "run_initial_analyze"
 CONF_INITIAL_DEEP_LEARNING_RUNS = "initial_deep_learning_runs"
