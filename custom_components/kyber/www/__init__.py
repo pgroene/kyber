@@ -13,6 +13,8 @@ from .const import (
     CONF_AI_TASK_ENTITY_ID,
     CONF_NARRATOR_AI_TASK_ENTITY_ID,
     CONF_ENABLE_DEBUG_VIEWS,
+    CONF_ENABLE_MCP,
+    DEFAULT_ENABLE_MCP,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_INITIAL_LEARNING_DONE,
     CONF_INITIAL_LEARNING_VERSION,
@@ -572,8 +574,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberSelfUpdateView())
     hass.http.register_view(KyberNarratorRunView(config))
     hass.http.register_view(KyberExplorerRunView())
-    hass.http.register_view(KyberMCPView(config))
-    hass.http.register_view(KyberMcpLogView())
+    mcp_enabled = bool(
+        entry.options.get(CONF_ENABLE_MCP, entry.data.get(CONF_ENABLE_MCP, DEFAULT_ENABLE_MCP))
+    )
+    if mcp_enabled:
+        hass.http.register_view(KyberMCPView(config))
+        hass.http.register_view(KyberMcpLogView())
     hass.http.register_view(KyberClassicLogView())
     hass.http.register_view(KyberActionHistoryView())
     hass.http.register_view(KyberActionHistoryUndoView())

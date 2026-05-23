@@ -14,7 +14,8 @@ This page documents every configurable setting in Kyber, with screen sketches so
    - [Model Configuration](#21-model-configuration)
    - [Agents](#22-agents)
    - [Auto Assignments](#23-auto-assignments)
-   - [Developer](#24-developer)
+   - [Cloud Provider](#24-cloud-provider)
+   - [Developer](#25-developer)
 3. [Debug Panel — Status Tab](#3-debug-panel--status-tab)
    - [Entity Explorer](#31-entity-explorer)
    - [AI Narrator](#32-ai-narrator)
@@ -250,7 +251,69 @@ Controls whether Kyber automatically suggests or applies area and label assignme
 
 ---
 
-### 2.4 Developer
+### 2.4 Cloud Provider
+
+Connect Kyber to a cloud AI model (Azure AI Foundry, OpenAI, or Anthropic) instead of — or in addition to — a local HA ai_task entity.
+
+> **How it works:** Select your provider from the dropdown. Only that provider's fields are shown — switch providers and save to see the new provider's credentials. Your previously entered credentials for other providers are preserved in config even when not displayed.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ▼ Cloud Provider                                           │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Cloud provider                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ None (use local HA ai_task entity)              [▼] │   │
+│  │ ─────────────────────────────────────────────────── │   │
+│  │ Azure AI Foundry                                    │   │
+│  │ OpenAI (or compatible: Groq, Mistral, OpenRouter…)  │   │
+│  │ Anthropic (Claude)                                  │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  Use cloud model for chat                                   │
+│  [✓] ON                                                     │
+│                                                             │
+│  ── When Azure is selected ──────────────────────────────  │
+│                                                             │
+│  azure_endpoint   [https://…                           ]   │
+│  azure_api_key    [••••••••••••••••••••••••••••••   👁]   │
+│  azure_deployment [my-gpt4o-deployment             ]   │
+│  azure_api_version [2024-05-01-preview             ]   │
+│                                                             │
+│  ── When OpenAI is selected ─────────────────────────────  │
+│                                                             │
+│  openai_api_key   [sk-••••••••••••••••••••••••••   👁]   │
+│  openai_model     [gpt-4o                          ]   │
+│  openai_base_url  [https://api.openai.com/v1       ]   │
+│                                                             │
+│  ── When Anthropic is selected ──────────────────────────  │
+│                                                             │
+│  anthropic_api_key [sk-ant-••••••••••••••••••••    👁]   │
+│  anthropic_model   [claude-sonnet-4-5              ]   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+| Field | Key | Default | Notes |
+|---|---|---|---|
+| Cloud provider | `cloud_provider` | `none` | Selects which cloud backend to use; only that provider's fields are shown |
+| Use cloud model for chat | `cloud_use_for_chat` | `true` | Route chat requests through the cloud model instead of the local ai_task entity |
+| Azure endpoint | `azure_endpoint` | — | Your Azure AI Foundry endpoint URL |
+| Azure API key | `azure_api_key` | — | Azure resource key |
+| Azure deployment | `azure_deployment` | — | Name of the deployed model (e.g. `gpt-4o`) |
+| Azure API version | `azure_api_version` | `2024-05-01-preview` | Azure REST API version string |
+| OpenAI API key | `openai_api_key` | — | Also works for Groq, Mistral, OpenRouter etc. with a custom base URL |
+| OpenAI model | `openai_model` | `gpt-4o` | Model name as expected by the API |
+| OpenAI base URL | `openai_base_url` | — | Override endpoint for compatible providers (e.g. `https://api.groq.com/openai/v1`) |
+| Anthropic API key | `anthropic_api_key` | — | Anthropic API key |
+| Anthropic model | `anthropic_model` | `claude-sonnet-4-5` | Model name (e.g. `claude-opus-4-5`) |
+
+> **Tip:** To use Groq, Mistral, or OpenRouter, pick **OpenAI** as provider, enter their API key, and set the base URL to their OpenAI-compatible endpoint.
+
+---
+
+### 2.5 Developer
 
 Advanced options for development and debugging.
 
@@ -263,12 +326,17 @@ Advanced options for development and debugging.
 │  (Kyber Debug sidebar + per-turn debug tools)               │
 │  [ ] OFF                                                    │
 │                                                             │
+│  Enable MCP server                                          │
+│  (POST /api/kyber/mcp — use Kyber from ChatGPT, Claude etc) │
+│  [✓] ON                                                     │
+│                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 | Field | Key | Default | Notes |
 |---|---|---|---|
 | Enable debug views | `enable_debug_views` | `false` | Adds the **Kyber Debug** sidebar entry (`/kyber-debug`) and per-turn debug bundle downloads; see [docs/debug-panel.md](debug-panel.md) |
+| Enable MCP server | `enable_mcp` | `true` | Registers the MCP endpoint at `POST /api/kyber/mcp`; disable to prevent external LLM clients from connecting. See [docs/mcp.md](mcp.md) |
 
 ---
 

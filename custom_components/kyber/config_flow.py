@@ -46,6 +46,7 @@ from .const import (
     CONF_ANTHROPIC_MODEL,
     DEFAULT_ANTHROPIC_MODEL,
     CONF_ENABLE_DEBUG_VIEWS,
+    CONF_ENABLE_MCP,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_MAX_DAILY_TOKENS,
     CONF_MAX_TOKENS,
@@ -60,6 +61,7 @@ from .const import (
     CONF_AREA_ASSIGNMENT_MODE,
     CONF_LABEL_ASSIGNMENT_MODE,
     DEFAULT_ENABLE_DEBUG_VIEWS,
+    DEFAULT_ENABLE_MCP,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
     DEFAULT_MAX_DAILY_TOKENS,
     DEFAULT_MAX_TOKENS,
@@ -194,6 +196,7 @@ def _build_options_schema(
     max_daily_tokens: int = DEFAULT_MAX_DAILY_TOKENS,
     chat_max_limit: int = 2_000_000,
     enable_debug: bool = DEFAULT_ENABLE_DEBUG_VIEWS,
+    enable_mcp: bool = DEFAULT_ENABLE_MCP,
     run_initial_analyze: bool = DEFAULT_RUN_INITIAL_ANALYZE,
     deep_learning_interval_days: int = DEFAULT_DEEP_LEARNING_INTERVAL_DAYS,
     deep_learning_max_batch: int = DEFAULT_DEEP_LEARNING_MAX_BATCH,
@@ -247,7 +250,7 @@ def _build_options_schema(
         )
     )
 
-    # Cloud provider fields — select provider, optionally use for chat, then provider-specific credentials
+    # Cloud provider fields — only show credentials for the selected provider
     _azure_endpoint_key = vol.Optional(CONF_AZURE_ENDPOINT, default=azure_endpoint) if azure_endpoint else vol.Optional(CONF_AZURE_ENDPOINT)
     _azure_key_key = vol.Optional(CONF_AZURE_API_KEY, default=azure_api_key) if azure_api_key else vol.Optional(CONF_AZURE_API_KEY)
     _azure_dep_key = vol.Optional(CONF_AZURE_DEPLOYMENT, default=azure_deployment) if azure_deployment else vol.Optional(CONF_AZURE_DEPLOYMENT)
@@ -268,19 +271,20 @@ def _build_options_schema(
             )
         ),
         vol.Optional(CONF_CLOUD_USE_FOR_CHAT, default=cloud_use_for_chat): selector.BooleanSelector(),
-        # Azure AI Foundry credentials
-        _azure_endpoint_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
-        _azure_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
-        _azure_dep_key: selector.TextSelector(),
-        vol.Optional(CONF_AZURE_API_VERSION, default=azure_api_version): selector.TextSelector(),
-        # OpenAI credentials (also works for Groq, Mistral, OpenRouter etc. via base URL)
-        _openai_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
-        vol.Optional(CONF_OPENAI_MODEL, default=openai_model): selector.TextSelector(),
-        _openai_base_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
-        # Anthropic (Claude) credentials
-        _anthropic_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
-        vol.Optional(CONF_ANTHROPIC_MODEL, default=anthropic_model): selector.TextSelector(),
     }
+
+    if cloud_provider == CLOUD_PROVIDER_AZURE:
+        cloud_fields[_azure_endpoint_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL))
+        cloud_fields[_azure_key_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))
+        cloud_fields[_azure_dep_key] = selector.TextSelector()
+        cloud_fields[vol.Optional(CONF_AZURE_API_VERSION, default=azure_api_version)] = selector.TextSelector()
+    elif cloud_provider == CLOUD_PROVIDER_OPENAI:
+        cloud_fields[_openai_key_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))
+        cloud_fields[vol.Optional(CONF_OPENAI_MODEL, default=openai_model)] = selector.TextSelector()
+        cloud_fields[_openai_base_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL))
+    elif cloud_provider == CLOUD_PROVIDER_ANTHROPIC:
+        cloud_fields[_anthropic_key_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))
+        cloud_fields[vol.Optional(CONF_ANTHROPIC_MODEL, default=anthropic_model)] = selector.TextSelector()
 
     return vol.Schema(
         {
@@ -370,6 +374,7 @@ def _build_options_schema(
                 vol.Schema(
                     {
                         vol.Optional(CONF_ENABLE_DEBUG_VIEWS, default=enable_debug): selector.BooleanSelector(),
+                        vol.Optional(CONF_ENABLE_MCP, default=enable_mcp): selector.BooleanSelector(),
                         vol.Optional(CONF_MAX_REQUESTS_PER_MINUTE, default=max_requests_per_minute): selector.NumberSelector(
                             selector.NumberSelectorConfig(
                                 min=0, max=600, step=1, mode=selector.NumberSelectorMode.BOX
@@ -516,6 +521,7 @@ class KyberOptionsFlow(OptionsFlow):
                 CONF_AREA_ASSIGNMENT_MODE: str(area.get(CONF_AREA_ASSIGNMENT_MODE, _get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE))),
                 CONF_LABEL_ASSIGNMENT_MODE: str(area.get(CONF_LABEL_ASSIGNMENT_MODE, _get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE))),
                 CONF_ENABLE_DEBUG_VIEWS: bool(developer.get(CONF_ENABLE_DEBUG_VIEWS, _get(CONF_ENABLE_DEBUG_VIEWS, False))),
+                CONF_ENABLE_MCP: bool(developer.get(CONF_ENABLE_MCP, _get(CONF_ENABLE_MCP, DEFAULT_ENABLE_MCP))),
                 CONF_MAX_REQUESTS_PER_MINUTE: int(developer.get(CONF_MAX_REQUESTS_PER_MINUTE, _get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE))),
                 CONF_CLOUD_PROVIDER: str(cloud.get(CONF_CLOUD_PROVIDER, _get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER))).strip(),
                 CONF_CLOUD_USE_FOR_CHAT: bool(cloud.get(CONF_CLOUD_USE_FOR_CHAT, _get(CONF_CLOUD_USE_FOR_CHAT, DEFAULT_CLOUD_USE_FOR_CHAT))),
@@ -557,6 +563,7 @@ class KyberOptionsFlow(OptionsFlow):
             max_daily_tokens=int(current_daily_tokens),
             chat_max_limit=chat_max_limit,
             enable_debug=bool(_get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)),
+            enable_mcp=bool(_get(CONF_ENABLE_MCP, DEFAULT_ENABLE_MCP)),
             run_initial_analyze=bool(_get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),
             deep_learning_interval_days=int(_get(CONF_DEEP_LEARNING_INTERVAL_DAYS, DEFAULT_DEEP_LEARNING_INTERVAL_DAYS)),
             deep_learning_max_batch=int(_get(CONF_DEEP_LEARNING_MAX_BATCH, DEFAULT_DEEP_LEARNING_MAX_BATCH)),
