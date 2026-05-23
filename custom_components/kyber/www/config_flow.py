@@ -277,20 +277,18 @@ def _build_options_schema(
             )
         ),
         vol.Optional(CONF_CLOUD_USE_FOR_CHAT, default=cloud_use_for_chat): selector.BooleanSelector(),
+        # All credential fields are always present so provider + credentials can be submitted in one step.
+        # The UI hides irrelevant fields via cloud_provider selection; voluptuous accepts them as Optional.
+        _azure_endpoint_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
+        _azure_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+        _azure_dep_key: selector.TextSelector(),
+        vol.Optional(CONF_AZURE_API_VERSION, default=azure_api_version): selector.TextSelector(),
+        _openai_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+        vol.Optional(CONF_OPENAI_MODEL, default=openai_model): selector.TextSelector(),
+        _openai_base_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
+        _anthropic_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+        vol.Optional(CONF_ANTHROPIC_MODEL, default=anthropic_model): selector.TextSelector(),
     }
-
-    if cloud_provider == CLOUD_PROVIDER_AZURE:
-        cloud_fields[_azure_endpoint_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL))
-        cloud_fields[_azure_key_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))
-        cloud_fields[_azure_dep_key] = selector.TextSelector()
-        cloud_fields[vol.Optional(CONF_AZURE_API_VERSION, default=azure_api_version)] = selector.TextSelector()
-    elif cloud_provider == CLOUD_PROVIDER_OPENAI:
-        cloud_fields[_openai_key_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))
-        cloud_fields[vol.Optional(CONF_OPENAI_MODEL, default=openai_model)] = selector.TextSelector()
-        cloud_fields[_openai_base_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL))
-    elif cloud_provider == CLOUD_PROVIDER_ANTHROPIC:
-        cloud_fields[_anthropic_key_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))
-        cloud_fields[vol.Optional(CONF_ANTHROPIC_MODEL, default=anthropic_model)] = selector.TextSelector()
 
     return vol.Schema(
         {

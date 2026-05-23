@@ -48,6 +48,7 @@ from .const import (
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_ENABLE_MCP,
     CONF_ENABLE_MCP_IN_CHAT,
+    CONF_MCP_ALLOW_STATE_CHANGES,
     CONF_MCP_CLIENT_SERVERS,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_MAX_DAILY_TOKENS,
@@ -65,6 +66,7 @@ from .const import (
     DEFAULT_ENABLE_DEBUG_VIEWS,
     DEFAULT_ENABLE_MCP,
     DEFAULT_ENABLE_MCP_IN_CHAT,
+    DEFAULT_MCP_ALLOW_STATE_CHANGES,
     DEFAULT_MCP_CLIENT_SERVERS,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
     DEFAULT_MAX_DAILY_TOKENS,
@@ -224,6 +226,7 @@ def _build_options_schema(
     anthropic_api_key: str = "",
     anthropic_model: str = DEFAULT_ANTHROPIC_MODEL,
     enable_mcp_in_chat: bool = DEFAULT_ENABLE_MCP_IN_CHAT,
+    mcp_allow_state_changes: bool = DEFAULT_MCP_ALLOW_STATE_CHANGES,
     mcp_client_servers: str = DEFAULT_MCP_CLIENT_SERVERS,
 ) -> vol.Schema:
     """Options schema grouped into sections."""
@@ -277,20 +280,18 @@ def _build_options_schema(
             )
         ),
         vol.Optional(CONF_CLOUD_USE_FOR_CHAT, default=cloud_use_for_chat): selector.BooleanSelector(),
+        # All credential fields are always present so provider + credentials can be submitted in one step.
+        # The UI hides irrelevant fields via cloud_provider selection; voluptuous accepts them as Optional.
+        _azure_endpoint_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
+        _azure_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+        _azure_dep_key: selector.TextSelector(),
+        vol.Optional(CONF_AZURE_API_VERSION, default=azure_api_version): selector.TextSelector(),
+        _openai_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+        vol.Optional(CONF_OPENAI_MODEL, default=openai_model): selector.TextSelector(),
+        _openai_base_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
+        _anthropic_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+        vol.Optional(CONF_ANTHROPIC_MODEL, default=anthropic_model): selector.TextSelector(),
     }
-
-    if cloud_provider == CLOUD_PROVIDER_AZURE:
-        cloud_fields[_azure_endpoint_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL))
-        cloud_fields[_azure_key_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))
-        cloud_fields[_azure_dep_key] = selector.TextSelector()
-        cloud_fields[vol.Optional(CONF_AZURE_API_VERSION, default=azure_api_version)] = selector.TextSelector()
-    elif cloud_provider == CLOUD_PROVIDER_OPENAI:
-        cloud_fields[_openai_key_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))
-        cloud_fields[vol.Optional(CONF_OPENAI_MODEL, default=openai_model)] = selector.TextSelector()
-        cloud_fields[_openai_base_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL))
-    elif cloud_provider == CLOUD_PROVIDER_ANTHROPIC:
-        cloud_fields[_anthropic_key_key] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))
-        cloud_fields[vol.Optional(CONF_ANTHROPIC_MODEL, default=anthropic_model)] = selector.TextSelector()
 
     return vol.Schema(
         {
@@ -382,6 +383,7 @@ def _build_options_schema(
                         vol.Optional(CONF_ENABLE_DEBUG_VIEWS, default=enable_debug): selector.BooleanSelector(),
                         vol.Optional(CONF_ENABLE_MCP, default=enable_mcp): selector.BooleanSelector(),
                         vol.Optional(CONF_ENABLE_MCP_IN_CHAT, default=enable_mcp_in_chat): selector.BooleanSelector(),
+                        vol.Optional(CONF_MCP_ALLOW_STATE_CHANGES, default=mcp_allow_state_changes): selector.BooleanSelector(),
                         vol.Optional(CONF_MCP_CLIENT_SERVERS, default=mcp_client_servers): selector.TextSelector(
                             selector.TextSelectorConfig(multiline=True)
                         ),
@@ -631,6 +633,7 @@ class KyberOptionsFlow(OptionsFlow):
             anthropic_api_key=str(_get(CONF_ANTHROPIC_API_KEY, "")),
             anthropic_model=str(_get(CONF_ANTHROPIC_MODEL, DEFAULT_ANTHROPIC_MODEL)),
             enable_mcp_in_chat=bool(_get(CONF_ENABLE_MCP_IN_CHAT, DEFAULT_ENABLE_MCP_IN_CHAT)),
+            mcp_allow_state_changes=bool(_get(CONF_MCP_ALLOW_STATE_CHANGES, DEFAULT_MCP_ALLOW_STATE_CHANGES)),
             mcp_client_servers=str(_get(CONF_MCP_CLIENT_SERVERS, DEFAULT_MCP_CLIENT_SERVERS)),
         )
 
