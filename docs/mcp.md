@@ -143,6 +143,28 @@ Call any Home Assistant service directly.
 
 > **Prefer `kyber_ask` over `call_service`** when you want the AI to interpret a natural-language request — it adds context awareness, entity resolution, and self-correction. Use `call_service` for direct, programmatic control.
 
+### `calendar_get_events`
+Fetch events from one or more Home Assistant calendar entities within a time range.
+
+```json
+{
+  "name": "calendar_get_events",
+  "arguments": {
+    "entity_ids": ["calendar.work", "calendar.family"],
+    "start": "2026-05-23T00:00:00",
+    "end": "2026-05-30T23:59:59"
+  }
+}
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `entity_ids` | `string[]` | Optional. Calendar entity IDs to query. Omit to query all calendars. |
+| `start` | `string` | ISO 8601 start of range. Defaults to now. |
+| `end` | `string` | ISO 8601 end of range. Defaults to 7 days from now. |
+
+Returns a list of events sorted by start time, with the `calendar` field indicating which calendar each event belongs to.
+
 ---
 
 ## Transport

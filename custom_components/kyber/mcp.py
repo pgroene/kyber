@@ -128,6 +128,31 @@ _TOOLS: list[dict] = [
         },
     },
     {
+        "name": "calendar_get_events",
+        "description": (
+            "Get calendar events from Home Assistant calendar entities. "
+            "Returns events within a time range for the specified calendars."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Calendar entity IDs, e.g. ['calendar.work', 'calendar.home']. If omitted, all calendars are queried.",
+                },
+                "start": {
+                    "type": "string",
+                    "description": "Start of time range in ISO 8601 format, e.g. '2026-05-23T00:00:00'. Defaults to now.",
+                },
+                "end": {
+                    "type": "string",
+                    "description": "End of time range in ISO 8601 format, e.g. '2026-05-30T23:59:59'. Defaults to 7 days from now.",
+                },
+            },
+        },
+    },
+    {
         "name": "call_service",
         "description": (
             "Call a Home Assistant service directly. Use kyber_ask for most requests; "
@@ -395,6 +420,73 @@ async def _handle_call_service(hass: HomeAssistant, params: dict) -> dict:
     return {"status": "ok", "called": f"{domain}.{service}"}
 
 
+async def _handle_calendar_get_events(hass: HomeAssistant, params: dict) -> dict:
+    """Get calendar events from HA calendar entities."""
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(tz=timezone.utc)
+    default_end = now + timedelta(days=7)
+
+    def _parse_dt(val: str | None, default: datetime) -> datetime:
+        if not val:
+            return default
+        try:
+            dt = datetime.fromisoformat(val)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except ValueError:
+            return default
+
+    start_dt = _parse_dt(params.get("start"), now)
+    end_dt = _parse_dt(params.get("end"), default_end)
+
+    requested_ids: list[str] = params.get("entity_ids") or []
+    if requested_ids:
+        calendar_ids = [e for e in requested_ids if hass.states.get(e)]
+        not_found = [e for e in requested_ids if not hass.states.get(e)]
+    else:
+        calendar_ids = [s.entity_id for s in hass.states.async_all("calendar")]
+        not_found = []
+
+    if not calendar_ids:
+        return {"error": "No calendar entities found", "not_found": not_found}
+
+    all_events: list[dict] = []
+    errors: list[str] = []
+
+    for entity_id in calendar_ids:
+        try:
+            result = await hass.services.async_call(
+                "calendar",
+                "get_events",
+                {
+                    "entity_id": entity_id,
+                    "start_date_time": start_dt.isoformat(),
+                    "end_date_time": end_dt.isoformat(),
+                },
+                blocking=True,
+                return_response=True,
+            )
+            events = (result or {}).get(entity_id, {}).get("events", [])
+            for ev in events:
+                ev["calendar"] = entity_id
+            all_events.extend(events)
+        except Exception as err:  # noqa: BLE001
+            errors.append(f"{entity_id}: {err}")
+
+    all_events.sort(key=lambda e: e.get("start", {}).get("dateTime") or e.get("start", {}).get("date", ""))
+
+    return {
+        "events": all_events,
+        "count": len(all_events),
+        "range": {"start": start_dt.isoformat(), "end": end_dt.isoformat()},
+        "calendars_queried": calendar_ids,
+        **({"not_found": not_found} if not_found else {}),
+        **({"errors": errors} if errors else {}),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main MCP view
 # ---------------------------------------------------------------------------
@@ -574,6 +666,8 @@ class KyberMCPView(HomeAssistantView):
                 result = await _handle_list_entities(hass, args)
             elif name == "call_service":
                 result = await _handle_call_service(hass, args)
+            elif name == "calendar_get_events":
+                result = await _handle_calendar_get_events(hass, args)
             else:
                 return _err(req_id, -32602, f"Unknown tool: {name}")
         except Exception as err:  # noqa: BLE001
