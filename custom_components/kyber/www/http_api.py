@@ -2613,7 +2613,11 @@ class KyberSelfUpdateView(HomeAssistantView):
         """Return current and latest version without installing."""
         ha_user = request.get("hass_user")
         if not ha_user or not ha_user.is_admin:
-            return self.json_message("Admin required", HTTPStatus.FORBIDDEN)
+            return web.Response(
+                text=json.dumps({"message": "Admin required"}),
+                content_type="application/json",
+                status=403,
+            )
 
         hass: HomeAssistant = request.app["hass"]
         from pathlib import Path as _Path
@@ -2648,7 +2652,11 @@ class KyberSelfUpdateView(HomeAssistantView):
         """Download latest release zip and extract over /config/custom_components/kyber/."""
         ha_user = request.get("hass_user")
         if not ha_user or not ha_user.is_admin:
-            return self.json_message("Admin required", HTTPStatus.FORBIDDEN)
+            return web.Response(
+                text=json.dumps({"message": "Admin required"}),
+                content_type="application/json",
+                status=403,
+            )
 
         hass: HomeAssistant = request.app["hass"]
         import io, zipfile, shutil, tempfile
@@ -2904,7 +2912,11 @@ class KyberProposalApproveView(HomeAssistantView):
     async def post(self, request: web.Request) -> web.Response:
         ha_user = request.get("hass_user")
         if not ha_user or not ha_user.is_admin:
-            return self.json_message("Admin required", HTTPStatus.FORBIDDEN)
+            return web.Response(
+                text=json.dumps({"message": "Admin required"}),
+                content_type="application/json",
+                status=403,
+            )
 
         hass: HomeAssistant = request.app["hass"]
         try:
