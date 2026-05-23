@@ -76,10 +76,13 @@ _TOOLS: list[dict] = [
     {
         "name": "kyber_ask",
         "description": (
-            "Ask Kyber to control your smart home using natural language. "
-            "Kyber will plan, execute, and self-correct if needed. "
-            "Use this for any home automation request: turning on lights, "
-            "adjusting thermostats, running scenes, checking device states, etc."
+            "Ask Kyber to control your smart home or answer complex questions using natural language. "
+            "Kyber will plan, execute tools, and self-correct if needed. "
+            "TOKEN COST: High (2000–8000 tokens) because the full AI pipeline runs. "
+            "WHEN TO USE: Actions that change state ('turn off lights', 'set thermostat to 21'), "
+            "multi-step tasks, or anything requiring reasoning across multiple devices. "
+            "WHEN NOT TO USE: Simple reads — use get_entity_state or list_entities instead (they cost ~50 tokens). "
+            "Use mode='quick' for simple factual questions to reduce token usage by ~70%."
         ),
         "inputSchema": {
             "type": "object",
@@ -88,13 +91,27 @@ _TOOLS: list[dict] = [
                     "type": "string",
                     "description": "Natural-language instruction, e.g. 'turn off all lights in the bedroom'",
                 },
+                "mode": {
+                    "type": "string",
+                    "enum": ["full", "quick"],
+                    "description": (
+                        "Pipeline mode. 'full' (default): complete AI loop with knowledge base, "
+                        "entity context and multi-round tool calling — best for actions and complex queries. "
+                        "'quick': minimal prompt, no knowledge base, single round — best for simple "
+                        "factual questions. Saves ~70% tokens."
+                    ),
+                },
             },
             "required": ["prompt"],
         },
     },
     {
         "name": "get_entity_state",
-        "description": "Get the current state of one or more Home Assistant entities.",
+        "description": (
+            "Get the current state of one or more Home Assistant entities. "
+            "TOKEN COST: Very low (~50 tokens). "
+            "PREFER THIS over kyber_ask for reading device states when you know the entity IDs."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -110,8 +127,9 @@ _TOOLS: list[dict] = [
     {
         "name": "list_entities",
         "description": (
-            "List Home Assistant entities. Optionally filter by domain or area. "
-            "Returns entity_id, state, friendly_name and area for each entity."
+            "List Home Assistant entities with their current states. Optionally filter by domain or area. "
+            "TOKEN COST: Low (~200 tokens). "
+            "PREFER THIS over kyber_ask when the user asks what devices exist or wants a state overview."
         ),
         "inputSchema": {
             "type": "object",
@@ -225,7 +243,12 @@ async def _handle_kyber_ask(
     user_id: str,
     is_admin: bool,
 ) -> dict:
-    """Run the user prompt through Kyber's full AI pipeline."""
+    """Run the user prompt through Kyber's AI pipeline.
+
+    mode='full'  — full pipeline: context, knowledge base, multi-round tool calling.
+    mode='quick' — minimal prompt, no knowledge base injection, single tool round.
+                   ~70 % fewer tokens; best for simple factual questions.
+    """
     from .http_api import (
         _run_ai_loop,
         _build_context,
@@ -239,6 +262,10 @@ async def _handle_kyber_ask(
     prompt: str = str(params.get("prompt", "")).strip()
     if not prompt:
         return {"error": "prompt is required"}
+
+    mode: str = str(params.get("mode", "full")).strip().lower()
+    if mode not in ("full", "quick"):
+        mode = "full"
 
     prompt, _ = _sanitize_user_input(prompt)
 
@@ -286,20 +313,31 @@ async def _handle_kyber_ask(
             self.name = "MCP client"
 
     mock_request = _MockRequest()
-    sections = _build_prompt_sections(body_fields, context, mock_request)
-    instructions = sections["instructions"]
-    intent = sections["intent"]
 
-    instructions, _ = await _inject_knowledge_into_instructions(
-        hass,
-        kstore,
-        prompt,
-        instructions,
-        request_id,
-        entity_id=entity_id,
-        user_id=user_id or None,
-        is_admin=is_admin,
-    )
+    if mode == "quick":
+        # Minimal instructions — no entity context injection, no knowledge base.
+        # Saves ~70 % of tokens for simple factual questions.
+        instructions = (
+            "You are a Home Assistant AI assistant (Kyber). "
+            "Answer the user's question concisely and accurately. "
+            "Use available tools to fetch live data if needed. "
+            "Do not make up device names, entity IDs, or states."
+        )
+        intent = prompt
+    else:
+        sections = _build_prompt_sections(body_fields, context, mock_request)
+        instructions = sections["instructions"]
+        intent = sections["intent"]
+        instructions, _ = await _inject_knowledge_into_instructions(
+            hass,
+            kstore,
+            prompt,
+            instructions,
+            request_id,
+            entity_id=entity_id,
+            user_id=user_id or None,
+            is_admin=is_admin,
+        )
 
     # Token budget check
     budget_provider = get_budget_provider(config)
@@ -346,6 +384,7 @@ async def _handle_kyber_ask(
         "response": response_text,
         "actions_executed": len(actions_executed),
         "token_usage": token_usage,
+        "mode": mode,
         "_tool_calls": tool_calls_log,
         "_prompt": prompt[:200],
     }
