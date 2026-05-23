@@ -205,6 +205,73 @@ _TOOLS: list[dict] = [
         },
     },
     {
+        "name": "search_entities",
+        "description": (
+            "Search Home Assistant entities by name, area, or keyword. "
+            "TOKEN COST: Very low (~50 tokens). "
+            "Use this to find entity IDs when you don't know them yet — then call get_entity_state for live state."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query, e.g. 'bedroom light', 'temperature sensor', 'washing machine'",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return. Defaults to 20.",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "kyber_remember",
+        "description": (
+            "Store a fact about the user's home in Kyber's persistent knowledge base. "
+            "Use this to remember entity aliases, user preferences, device notes, or procedures. "
+            "TOKEN COST: Very low (~50 tokens)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subject": {
+                    "type": "string",
+                    "description": "Short label for the fact, e.g. 'tv in living room' or 'morning routine'",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The fact to remember, e.g. 'media_player.samsung_tv' or 'turn on lights at 7am'",
+                },
+                "category": {
+                    "type": "string",
+                    "enum": ["entity_alias", "general", "procedure", "language_hint"],
+                    "description": "Category. 'entity_alias': maps name to entity_id. 'general': free-form note. 'procedure': multi-step routine. 'language_hint': language/phrasing preference.",
+                },
+            },
+            "required": ["subject", "content"],
+        },
+    },
+    {
+        "name": "kyber_recall",
+        "description": (
+            "Search Kyber's knowledge base for stored facts about the home. "
+            "Use this to look up entity aliases, procedures, or user preferences before guessing. "
+            "TOKEN COST: Very low (~50 tokens)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "What to search for, e.g. 'tv', 'morning routine', 'washing machine'",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "call_service",
         "description": (
             "Call a Home Assistant service directly. Use kyber_ask for most requests; "
@@ -389,6 +456,7 @@ async def _handle_kyber_ask(
         "response": response_text,
         "actions_executed": len(actions_executed),
         "token_usage": token_usage,
+        "call_tokens": int(token_usage.get("total_tokens", 0) or 0),
         "mode": mode,
         "_tool_calls": tool_calls_log,
         "_prompt": prompt[:200],
@@ -434,8 +502,6 @@ async def _handle_get_entity_state(hass: HomeAssistant, params: dict) -> dict:
 
 async def _build_home_summary(hass: HomeAssistant) -> dict:
     """Build a lightweight live summary of the home for the MCP home://summary resource."""
-    import datetime as _dt
-
     states = hass.states.async_all()
     domain_counts: dict[str, int] = {}
     for state in states:
@@ -454,10 +520,10 @@ async def _build_home_summary(hass: HomeAssistant) -> dict:
         "total_entities": len(states),
         "domains": domain_counts,
         "areas": areas,
-        "now": _dt.datetime.now().isoformat(timespec="seconds"),
         "note": (
             "This is live data from Home Assistant. "
-            "Use list_entities to get full entity details."
+            "Use list_entities to get full entity details. "
+            "Call get_datetime for the current time."
         ),
     }
 
@@ -507,6 +573,80 @@ async def _handle_list_entities(hass: HomeAssistant, params: dict) -> dict:
 
 
 async def _handle_call_service(hass: HomeAssistant, params: dict) -> dict:
+    """Call a HA service directly."""
+    domain: str = str(params.get("domain", "")).strip()
+    service: str = str(params.get("service", "")).strip()
+    service_data: dict = params.get("service_data") or {}
+
+    if not domain or not service:
+        return {"error": "domain and service are required"}
+
+    if not hass.services.has_service(domain, service):
+        return {"error": f"Service {domain}.{service} not found"}
+
+    try:
+        await hass.services.async_call(
+            domain, service, service_data, blocking=True
+        )
+    except Exception as err:  # noqa: BLE001
+        return {"error": str(err)}
+
+    return {"status": "ok", "called": f"{domain}.{service}"}
+
+
+async def _handle_search_entities(hass: HomeAssistant, params: dict) -> dict:
+    """Search entities by name/keyword — thin wrapper around Kyber's search_entities tool."""
+    from .tool_execution import _execute_tool
+    query: str = str(params.get("query", "")).strip()
+    limit: int = int(params.get("limit") or 20)
+    if not query:
+        return {"error": "query is required"}
+    result = json.loads(_execute_tool(hass, {"name": "search_entities", "query": query}))
+    if isinstance(result, dict) and "info" in result:
+        return {"entities": [], "count": 0, "query": query}
+    if isinstance(result, dict):
+        items = [{"entity_id": eid, **info} for eid, info in list(result.items())[:limit]]
+        return {"entities": items, "count": len(items), "query": query}
+    return {"entities": [], "count": 0, "query": query}
+
+
+async def _handle_kyber_remember(hass: HomeAssistant, params: dict) -> dict:
+    """Store a fact in Kyber's knowledge base."""
+    from .knowledge import get_store as get_knowledge_store
+    subject: str = str(params.get("subject", "")).strip()
+    content: str = str(params.get("content", "")).strip()
+    category: str = str(params.get("category") or "general").strip()
+    if not subject or not content:
+        return {"error": "subject and content are required"}
+    valid_categories = {"entity_alias", "general", "procedure", "language_hint"}
+    if category not in valid_categories:
+        category = "general"
+    store = get_knowledge_store(hass)
+    entry = await store.async_add(category=category, content=content, subject=subject, confidence=0.9, source="mcp")
+    return {"stored": True, "id": entry.get("id", ""), "subject": subject, "category": category}
+
+
+async def _handle_kyber_recall(hass: HomeAssistant, params: dict) -> dict:
+    """Search Kyber's knowledge base."""
+    from .knowledge import get_store as get_knowledge_store
+    query: str = str(params.get("query", "")).strip()
+    if not query:
+        return {"error": "query is required"}
+    store = get_knowledge_store(hass)
+    results = await store.async_search(query, limit=10)
+    facts = [
+        {
+            "id": e.get("id", ""),
+            "subject": e.get("subject", ""),
+            "content": e.get("content", ""),
+            "category": e.get("category", ""),
+        }
+        for e in (results or [])
+    ]
+    return {"facts": facts, "count": len(facts), "query": query}
+
+
+
     """Call a HA service directly."""
     domain: str = str(params.get("domain", "")).strip()
     service: str = str(params.get("service", "")).strip()
@@ -743,7 +883,7 @@ class KyberMCPView(HomeAssistantView):
                             "prompt": data.pop("_prompt", str(params.get("arguments", {}).get("prompt", ""))[:200]),
                             "response": str(data.get("response", ""))[:300],
                             "actions_executed": data.get("actions_executed", 0),
-                            "token_total": (data.get("token_usage") or {}).get("total_tokens"),
+                            "token_total": data.get("call_tokens") or (data.get("token_usage") or {}).get("total_tokens") or 0,
                             "tool_calls": data.pop("_tool_calls", []),
                         }
                     else:
@@ -907,6 +1047,12 @@ class KyberMCPView(HomeAssistantView):
                 result = await _handle_kyber_ask(hass, args, self._config, user_id, is_admin)
             elif name == "get_entity_state":
                 result = await _handle_get_entity_state(hass, args)
+            elif name == "search_entities":
+                result = await _handle_search_entities(hass, tool_args)
+            elif name == "kyber_remember":
+                result = await _handle_kyber_remember(hass, tool_args)
+            elif name == "kyber_recall":
+                result = await _handle_kyber_recall(hass, tool_args)
             elif name == "list_entities":
                 result = await _handle_list_entities(hass, args)
             elif name == "call_service":
