@@ -1777,7 +1777,7 @@ export const DebugMixin = (Base) => class extends Base {
         const d = await r.json();
         const tokens = d.call_tokens || d.token_usage?.total_tokens;
         const actions = (d.tool_log || []).filter(e => e.type === "tool_call").length;
-        const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""}${actions ? ` · ${actions} action(s)` : ""}`;
+        const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""} · ${actions} ⚙`;
         directEl.textContent = (d.response || "(no response)") + footer;
       } catch (e) {
         directEl.textContent = `❌ ${e.message}`;
