@@ -66,7 +66,23 @@ Restart Claude Desktop. You'll see Kyber listed as a connected tool.
 
 ## Available Tools
 
-Kyber exposes four tools over MCP:
+Kyber exposes the following tools over MCP:
+
+| Tool | Token cost | Purpose |
+|---|---|---|
+| `kyber_ask` | High | Full AI pipeline — reasoning, memory, planning |
+| `kyber_execute_plan` | Low | Execute a plan from `kyber_ask` directly |
+| `get_entity_state` | Very low | Read current state of one or more entities |
+| `list_entities` | Low | List entities with optional domain/area filter |
+| `search_entities` | Very low | Find entity IDs by name, area, or keyword |
+| `call_service` | Very low | Call any HA service directly |
+| `get_datetime` | Very low | Current date/time/timezone from HA |
+| `get_todo_items` | Very low | Items from HA todo list entities |
+| `calendar_get_events` | Very low | Events from HA calendar entities |
+| `kyber_remember` | Very low | Store a fact in Kyber's knowledge base |
+| `kyber_recall` | Very low | Search Kyber's knowledge base |
+
+---
 
 ### `kyber_ask`
 Send a natural-language question or command through Kyber's full AI pipeline — the same pipeline used in the chat panel, including memory, knowledge base lookup, entity context, and self-correction.
@@ -82,7 +98,30 @@ Send a natural-language question or command through Kyber's full AI pipeline —
 }
 ```
 
-**Returns:** AI response text, number of actions executed, and token usage.
+**Returns:** AI response text, a `plan` object (if the AI produced one), number of actions executed, and token usage.
+
+> The response may include a `plan.actions` array. Pass that directly to `kyber_execute_plan` to execute it — no need to re-invoke `kyber_ask`.
+
+---
+
+### `kyber_execute_plan`
+Execute a plan produced by `kyber_ask`. Pass the `actions` array from the plan response to apply each action against Home Assistant.
+
+> **Requires** the setting `MCP can change state of home` to be enabled in Kyber settings (`Settings → Kyber → Configure → Developer`).
+
+```json
+{
+  "name": "kyber_execute_plan",
+  "arguments": {
+    "actions": [
+      { "type": "call_service", "domain": "light", "service": "turn_off",
+        "service_data": { "entity_id": "light.living_room" } }
+    ]
+  }
+}
+```
+
+**Returns:** Per-action results with `status` (`ok` or `error`) and `undo_action` objects for each applied change.
 
 ---
 
@@ -124,6 +163,44 @@ List entities in your Home Assistant, optionally filtered by domain.
 
 ---
 
+### `search_entities`
+Search entities by name, area, or keyword. Useful when you don't know the exact entity ID — search first, then call `get_entity_state` for live state.
+
+```json
+{
+  "name": "search_entities",
+  "arguments": {
+    "query": "bedroom light",   // name, area, alias, or keyword
+    "limit": 20                 // optional, default 20
+  }
+}
+```
+
+**Returns:** Matching entity IDs with friendly name, domain, area, and current state.
+
+---
+
+### `call_service`
+Call any Home Assistant service directly.
+
+```json
+{
+  "name": "call_service",
+  "arguments": {
+    "domain": "light",
+    "service": "turn_on",
+    "service_data": {
+      "entity_id": "light.living_room",
+      "brightness": 200
+    }
+  }
+}
+```
+
+> **Prefer `kyber_ask` over `call_service`** when you want the AI to interpret a natural-language request — it adds context awareness, entity resolution, and self-correction. Use `call_service` for direct, programmatic control.
+
+---
+
 ### `get_datetime`
 Get the current date, time, day of week, and timezone from Home Assistant.
 
@@ -150,25 +227,6 @@ Fetch items from Home Assistant todo list entities (shopping lists, task lists, 
 
 ---
 
-### `call_service`
-Call any Home Assistant service directly.
-
-```json
-{
-  "name": "call_service",
-  "arguments": {
-    "domain": "light",
-    "service": "turn_on",
-    "service_data": {
-      "entity_id": "light.living_room",
-      "brightness": 200
-    }
-  }
-}
-```
-
-> **Prefer `kyber_ask` over `call_service`** when you want the AI to interpret a natural-language request — it adds context awareness, entity resolution, and self-correction. Use `call_service` for direct, programmatic control.
-
 ### `calendar_get_events`
 Fetch events from one or more Home Assistant calendar entities within a time range.
 
@@ -190,6 +248,40 @@ Fetch events from one or more Home Assistant calendar entities within a time ran
 | `end` | `string` | ISO 8601 end of range. Defaults to 7 days from now. |
 
 Returns a list of events sorted by start time, with the `calendar` field indicating which calendar each event belongs to.
+
+---
+
+### `kyber_remember`
+Store a fact about the user's home in Kyber's persistent knowledge base — entity aliases, preferences, device notes, or procedures.
+
+```json
+{
+  "name": "kyber_remember",
+  "arguments": {
+    "subject": "tv in living room",
+    "content": "The main TV is media_player.samsung_tv",
+    "category": "entity_alias"   // optional: entity_alias | home_preference | user_preference | entity_fact | home_fact | general
+  }
+}
+```
+
+Stored facts are automatically injected into future AI context via Kyber's knowledge retrieval.
+
+---
+
+### `kyber_recall`
+Search Kyber's knowledge base for stored facts. Use this before guessing entity IDs or user preferences.
+
+```json
+{
+  "name": "kyber_recall",
+  "arguments": {
+    "query": "tv"
+  }
+}
+```
+
+**Returns:** Matching facts with subject, content, category, and confidence score.
 
 ---
 

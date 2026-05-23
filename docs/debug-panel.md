@@ -76,6 +76,43 @@ Test cases are managed via `/api/kyber/prompt_tests`. They are stored in `.stora
 
 ---
 
+### MCP
+
+The MCP tab provides monitoring and comparison tools for the MCP server.
+
+**Path:** Kyber Debug sidebar (`/kyber-debug`) → **🔌 MCP** tab
+
+#### Side-by-side Compare
+
+Run the same prompt through the MCP pipeline (`kyber_ask`) and the classic chat pipeline simultaneously and compare the responses side by side. Useful for verifying that MCP and chat produce consistent results.
+
+```
+[Prompt ___________________________________] [▶ Run Compare]
+
+MCP Result                    │  Classic Result
+─────────────────────────────────────────────────────────
+"The living room light is…"   │  "The living room light is…"
+
+Timing: MCP 1204ms  •  Classic 892ms
+```
+
+#### Call Log
+
+A unified ring-buffer log of the last **200 calls** per source (MCP and Classic), stored in memory (cleared on HA restart).
+
+| Column | Description |
+|---|---|
+| Time | Timestamp of the call |
+| Source | 🔌 MCP or 🏠 Classic (chat panel) |
+| Method | Tool name or `chat` |
+| User | HA user ID |
+| ms | Elapsed time |
+| Outcome | ✅ ok / ❌ error |
+
+Use `GET /api/kyber/mcp/log` to retrieve the log programmatically. Use `DELETE /api/kyber/mcp/log` to clear it.
+
+---
+
 ## Bug Report Export
 
 From the Last Turn tab, click **Download Debug Bundle** to get a sanitised ZIP containing:

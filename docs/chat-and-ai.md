@@ -53,6 +53,30 @@ After sending, the AI reply appears as an assistant bubble:
 
 ![AI text response](images/03-chat-ai-response.png)
 
+### Entity chips
+
+Entity IDs mentioned in AI responses are rendered as **live entity chips** — interactive inline badges showing the entity's current state:
+
+```
+The switch.espresso_machine [☕ Espresso Machine  off] is currently off.
+```
+
+- The chip shows the domain icon, friendly name, and live state value
+- State classes are applied: `state-on` (amber), `state-off` (grey), `state-unavailable` (dimmed)
+- Unknown entity IDs (hallucinations) show a red `?` badge
+- Chips refresh automatically on every HA state update
+- Hover the assistant bubble to reveal the **📋 copy** and **👍 👎 feedback** buttons
+
+### Area approval bar
+
+When the AI detects entities with no area assigned, a compact approval bar appears **pinned at the top of the chat window**:
+
+```
+  Kitchen Light → assign to Kitchen?  ✓  ✗
+```
+
+Confirm or dismiss each suggestion without interrupting the chat flow.
+
 ---
 
 ## Proposal / Plan Cards
