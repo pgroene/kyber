@@ -578,13 +578,19 @@ export const STYLES = `
   .dbg-turn-feedback .tf-status.ok { color: var(--success-color, #4caf50); }
   .dbg-turn-feedback .tf-status.flag { color: var(--warning-color, #ff9800); }
 
+  /* Wrapper for AI message + its action row (enables hover-to-reveal) */
+  .ai-message-wrap {
+    display: flex; flex-direction: column; align-items: flex-start;
+  }
+
   /* Inline chat feedback row (thumbs up/down under AI responses) */
   .chat-feedback-row {
     display: flex; align-items: center; gap: 4px;
-    margin: 2px 0 6px 4px; opacity: 0.55;
+    margin: 2px 0 6px 4px; opacity: 0;
     transition: opacity 0.15s;
     align-self: flex-start;
   }
+  .ai-message-wrap:hover .chat-feedback-row { opacity: 1; }
   .chat-feedback-row:hover { opacity: 1; }
   .chat-feedback-row .tf-btn-rate {
     background: none; border: none; cursor: pointer;

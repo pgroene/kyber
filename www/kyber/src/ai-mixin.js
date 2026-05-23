@@ -555,30 +555,49 @@ export const AIMixin = (Base) => class extends Base {
   }
 
   _injectEntityChips(container) {
-    // Walk text nodes and replace entity IDs with live chips.
-    // Pass 1: backtick-wrapped `entity.id` — always replaced (hyphens allowed)
-    // Pass 2: bare entity.id — only replaced when entity exists in hass.states
+    // Walk the rendered HTML and replace entity IDs with live chips.
+    //
+    // Pass 1 — inline <code> elements: markdown converts `entity.id` to
+    //   <code>entity.id</code>. Backtick chars are gone by the time we run,
+    //   so we match <code> elements whose full text is a valid entity ID.
+    //   These are always chipped (even if unknown), mirroring backtick intent.
+    //   Block-level code (<pre><code>) is skipped to preserve code examples.
+    //
+    // Pass 2 — raw backtick text nodes: catches any `entity.id` that the
+    //   markdown parser left as literal text (rare). Always chipped.
+    //
+    // Pass 3 — bare entity IDs in plain text: only chipped when the entity
+    //   actually exists in hass.states, to avoid false positives.
+
+    const ENTITY_RE = /^[a-z_]+\.[a-z0-9_-]+$/;
     const BACKTICK_RE = /`([a-z_]+\.[a-z0-9_-]+)`/g;
     const BARE_RE = /\b([a-z_]+\.[a-z0-9_-]+)\b/g;
+    const BLOCK_SKIP = new Set(["PRE", "SCRIPT", "STYLE"]);
+    const ALL_SKIP = new Set(["CODE", "PRE", "SCRIPT", "STYLE"]);
 
-    // Skip text nodes inside code/pre blocks to preserve literal code display
-    const SKIP_TAGS = new Set(["CODE", "PRE", "SCRIPT", "STYLE"]);
-    const _insideSkip = (textNode) => {
-      let p = textNode.parentElement;
+    const _insideAny = (node, skipSet) => {
+      let p = node.parentElement;
       while (p && p !== container) {
-        if (SKIP_TAGS.has(p.tagName)) return true;
+        if (skipSet.has(p.tagName)) return true;
         p = p.parentElement;
       }
       return false;
     };
 
-    const _collectNodes = (re) => {
+    // Pass 1: inline <code> from markdown (`entity.id`)
+    Array.from(container.querySelectorAll("code")).forEach((codeEl) => {
+      if (_insideAny(codeEl, BLOCK_SKIP)) return;
+      const text = codeEl.textContent.trim();
+      if (ENTITY_RE.test(text)) codeEl.parentNode.replaceChild(this._entityChip(text), codeEl);
+    });
+
+    const _collectNodes = (re, skipSet) => {
       const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
       const nodes = [];
       let n;
       while ((n = walker.nextNode())) {
         re.lastIndex = 0;
-        if (!_insideSkip(n) && re.test(n.textContent)) nodes.push(n);
+        if (!_insideAny(n, skipSet) && re.test(n.textContent)) nodes.push(n);
       }
       return nodes;
     };
@@ -602,10 +621,10 @@ export const AIMixin = (Base) => class extends Base {
       textNode.parentNode.replaceChild(frag, textNode);
     };
 
-    // Pass 1: backtick entity IDs (always chip, even if unknown)
-    _collectNodes(BACKTICK_RE).forEach((n) => _replaceInNode(n, BACKTICK_RE, false));
-    // Pass 2: bare entity IDs (chip only when known to hass.states)
-    _collectNodes(BARE_RE).forEach((n) => _replaceInNode(n, BARE_RE, true));
+    // Pass 2: raw backtick text (always chip, skip block code only)
+    _collectNodes(BACKTICK_RE, BLOCK_SKIP).forEach((n) => _replaceInNode(n, BACKTICK_RE, false));
+    // Pass 3: bare entity IDs (chip only when entity exists in hass.states)
+    _collectNodes(BARE_RE, ALL_SKIP).forEach((n) => _replaceInNode(n, BARE_RE, true));
   }
 
   // Convert bullet lists where ≥4 items each contain an entity chip into a compact grid
@@ -1012,6 +1031,10 @@ export const AIMixin = (Base) => class extends Base {
       .replace(/\bUser:\s*$/gm, "")
       .trim();
     if (textOnly) {
+      // Wrap message + feedback row so hover on the bubble reveals the action row
+      const aiWrap = document.createElement("div");
+      aiWrap.className = "ai-message-wrap";
+
       const msg = document.createElement("div");
       msg.className = "chat-message assistant";
 
@@ -1033,7 +1056,7 @@ export const AIMixin = (Base) => class extends Base {
       // Promote large entity lists (≥4 chips) to compact grid
       this._promoteEntityListsToGrid(msg);
 
-      history.appendChild(msg);
+      aiWrap.appendChild(msg);
 
       // Action row: copy + thumbs up/down
       const actionRow = document.createElement("div");
@@ -1090,7 +1113,8 @@ export const AIMixin = (Base) => class extends Base {
         actionRow.appendChild(statusSpan);
       }
 
-      history.appendChild(actionRow);
+      aiWrap.appendChild(actionRow);
+      history.appendChild(aiWrap);
 
       // Fallback chips for non-bold question responses (e.g. Yes/No or entity disambiguation).
       // Only shown when the AI is explicitly asking the user to pick an option.

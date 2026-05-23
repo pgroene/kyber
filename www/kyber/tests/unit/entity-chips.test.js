@@ -211,16 +211,17 @@ describe("_injectEntityChips — bare entity IDs", () => {
     expect(chips.length).toBe(0);
   });
 
-  it("does NOT chip bare entity IDs inside <code> elements", () => {
+  it("chips entity IDs inside inline <code> (markdown renders `entity.id` as <code>entity.id</code>)", () => {
     const el = makeEl();
     const div = document.createElement("div");
     div.innerHTML = "Call <code>light.kitchen</code> via the API";
     el._injectEntityChips(div);
-    // The chip should not be inside the code element
-    const codeEl = div.querySelector("code");
-    expect(codeEl.querySelector(".entity-chip")).toBeNull();
-    // No chips anywhere
-    expect(div.querySelectorAll(".entity-chip").length).toBe(0);
+    // Inline <code> entity ID should become a chip (this is the markdown rendering of `light.kitchen`)
+    const chip = div.querySelector(".entity-chip");
+    expect(chip).not.toBeNull();
+    expect(chip.dataset.entityId).toBe("light.kitchen");
+    // The <code> element should be gone (replaced by the chip)
+    expect(div.querySelector("code")).toBeNull();
   });
 
   it("does NOT chip bare entity IDs inside <pre> elements", () => {
