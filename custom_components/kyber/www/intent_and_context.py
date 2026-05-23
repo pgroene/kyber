@@ -7,6 +7,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
 
@@ -206,6 +207,7 @@ def _classify_intent(user_prompt: str) -> str:
 
 def _build_home_state_by_area(
     entity_reg: er.EntityRegistry,
+    device_reg: dr.DeviceRegistry,
     area_by_id: dict[str, str],
     all_states: list,
 ) -> tuple[str, dict[str, Any]]:
@@ -250,6 +252,10 @@ def _build_home_state_by_area(
 
         entry = entity_reg.async_get(entity_id)
         area_id = entry.area_id if entry else None
+        if not area_id and entry and entry.device_id:
+            device = device_reg.async_get(entry.device_id)
+            if device:
+                area_id = device.area_id
         area_name = area_by_id.get(area_id or "", "") if area_id else ""
 
         if domain == "light":
@@ -337,6 +343,7 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
     """Build a compact context string with domain stats + area home state."""
     area_reg = ar.async_get(hass)
     entity_reg = er.async_get(hass)
+    device_reg = dr.async_get(hass)
     label_reg = lr.async_get(hass)
 
     areas = area_reg.async_list_areas()
@@ -375,7 +382,7 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
         entity_stats += f" ({', '.join(stats_parts)})"
 
     # Per-area home state
-    home_state_by_area, area_stats = _build_home_state_by_area(entity_reg, area_by_id, all_states)
+    home_state_by_area, area_stats = _build_home_state_by_area(entity_reg, device_reg, area_by_id, all_states)
     notable_state_block = ""
     if home_state_by_area != "(no area state available)":
         notable_state_block = f"\n### Current Home State (notable only)\n{home_state_by_area}\n"
