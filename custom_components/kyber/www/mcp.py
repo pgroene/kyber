@@ -388,6 +388,36 @@ async def _handle_get_entity_state(hass: HomeAssistant, params: dict) -> dict:
     return {"entities": results}
 
 
+async def _build_home_summary(hass: HomeAssistant) -> dict:
+    """Build a lightweight live summary of the home for the MCP home://summary resource."""
+    import datetime as _dt
+
+    states = hass.states.async_all()
+    domain_counts: dict[str, int] = {}
+    for state in states:
+        domain = state.entity_id.split(".")[0]
+        domain_counts[domain] = domain_counts.get(domain, 0) + 1
+
+    area_registry = hass.data.get("area_registry")
+    areas: list[str] = []
+    if area_registry is not None:
+        try:
+            areas = [a.name for a in area_registry.async_list_areas()]
+        except Exception:  # noqa: BLE001
+            areas = []
+
+    return {
+        "total_entities": len(states),
+        "domains": domain_counts,
+        "areas": areas,
+        "now": _dt.datetime.now().isoformat(timespec="seconds"),
+        "note": (
+            "This is live data from Home Assistant. "
+            "Use list_entities to get full entity details."
+        ),
+    }
+
+
 async def _handle_list_entities(hass: HomeAssistant, params: dict) -> dict:
     """List HA entities with optional domain/area filter."""
     from homeassistant.helpers import area_registry as ar, entity_registry as er, device_registry as dr
@@ -733,13 +763,19 @@ class KyberMCPView(HomeAssistantView):
                 "protocolVersion": MCP_PROTOCOL_VERSION,
                 "capabilities": {
                     "tools": {"listChanged": False},
+                    "resources": {"listChanged": False, "subscribe": False},
+                    "prompts": {"listChanged": False},
                 },
                 "serverInfo": _SERVER_INFO,
                 "instructions": (
                     "Kyber is an AI-powered Home Assistant controller. "
-                    "Use kyber_ask for natural-language home control. "
-                    "Use get_entity_state and list_entities to read device states. "
-                    "Use call_service for direct HA service calls."
+                    "IMPORTANT: Never answer questions about the user's home, devices, entities, or "
+                    "states from your training data. Always call the appropriate tool to get live data. "
+                    "Use kyber_ask for natural-language home control and conversation. "
+                    "Use list_entities to discover what devices exist in the home. "
+                    "Use get_entity_state to read current device states. "
+                    "Use call_service for direct HA service calls. "
+                    "Read the 'home://summary' resource for a quick overview of the home."
                 ),
             })
 
@@ -750,6 +786,65 @@ class KyberMCPView(HomeAssistantView):
             tool_name: str = str(params.get("name", ""))
             tool_args: dict = params.get("arguments") or {}
             return await self._call_tool(hass, req_id, tool_name, tool_args, user_id, is_admin)
+
+        if method == "resources/list":
+            return _ok(req_id, {"resources": [
+                {
+                    "uri": "home://summary",
+                    "name": "Home Summary",
+                    "description": (
+                        "Live overview of this Home Assistant installation: "
+                        "entity counts by domain, area names, and current time. "
+                        "Read this resource before answering any questions about the home."
+                    ),
+                    "mimeType": "application/json",
+                }
+            ]})
+
+        if method == "resources/read":
+            uri: str = params.get("uri", "")
+            if uri == "home://summary":
+                return _ok(req_id, {"contents": [
+                    {
+                        "uri": "home://summary",
+                        "mimeType": "application/json",
+                        "text": json.dumps(await _build_home_summary(hass)),
+                    }
+                ]})
+            return _err(req_id, -32602, f"Unknown resource: {uri}")
+
+        if method == "prompts/list":
+            return _ok(req_id, {"prompts": [
+                {
+                    "name": "home_assistant_rules",
+                    "description": "Ground rules for answering Home Assistant questions via Kyber",
+                }
+            ]})
+
+        if method == "prompts/get":
+            prompt_name: str = params.get("name", "")
+            if prompt_name == "home_assistant_rules":
+                return _ok(req_id, {
+                    "description": "Ground rules for answering Home Assistant questions via Kyber",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": (
+                                    "When answering any question about the user's home, devices, "
+                                    "lights, switches, sensors, or any Home Assistant entity:\n"
+                                    "1. ALWAYS call list_entities or get_entity_state first.\n"
+                                    "2. NEVER guess or use training data for entity names or states.\n"
+                                    "3. Read the home://summary resource for an overview.\n"
+                                    "4. Use kyber_ask to let Kyber's AI handle complex requests.\n"
+                                    "The home data changes in real time — only tool results are accurate."
+                                ),
+                            },
+                        }
+                    ],
+                })
+            return _err(req_id, -32602, f"Unknown prompt: {prompt_name}")
 
         # Unknown method
         return _err(req_id, -32601, f"Method not found: {method}")
