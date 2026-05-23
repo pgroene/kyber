@@ -57,6 +57,10 @@ from .const import (
     CONF_MAX_REQUESTS_PER_MINUTE,
     DEFAULT_MAX_REQUESTS_PER_MINUTE,
     CONF_LABEL_ASSIGNMENT_MODE,
+    CONF_ENABLE_MCP_IN_CHAT,
+    CONF_MCP_CLIENT_SERVERS,
+    DEFAULT_ENABLE_MCP_IN_CHAT,
+    DEFAULT_MCP_CLIENT_SERVERS,
     DOMAIN,
     KNOWLEDGE_BUDGET_CHARS,
     LABEL_ASSIGNMENT_OFF,
@@ -95,6 +99,7 @@ from .intent_and_context import (
     _build_home_state_by_area, _build_context,
 )
 from .tool_execution import _tool_result_summary, _state_matches, _execute_tool, _async_execute_tool, _ASYNC_TOOLS, TOOL_ALIASES, resolve_tool_call
+from .mcp_client import MCPClientManager, parse_servers_config, is_mcp_tool
 from .session_and_storage import (
     _CHAT_HISTORY_STORE_VERSION, _CHAT_HISTORY_STORE_KEY,
     _CHAT_HISTORY_MAX_MESSAGES, _CHAT_MESSAGE_MAX_CHARS, _CHAT_SUMMARY_MAX_CHARS,
@@ -1145,6 +1150,26 @@ async def _run_ai_loop(
     _ctx_warn_tokens: int = int(_ctx_window * 0.85)   # 85 % fill â†’ warn
     _ctx_hint_tokens: int = int(_ctx_window * 0.75)   # 75 % fill â†’ inject brief-reply hint
 
+
+    # -- MCP client -- load external tools if feature flag is on
+    _mcp_client = None
+    _mcp_tools = {}
+    _enable_mcp_in_chat = bool(_cfg.get(CONF_ENABLE_MCP_IN_CHAT, DEFAULT_ENABLE_MCP_IN_CHAT))
+    if _enable_mcp_in_chat:
+        _servers_raw = str(_cfg.get(CONF_MCP_CLIENT_SERVERS, DEFAULT_MCP_CLIENT_SERVERS))
+        _servers = parse_servers_config(_servers_raw)
+        if _servers:
+            _mcp_client = MCPClientManager(_servers)
+            try:
+                _mcp_tools = await _mcp_client.async_get_tools()
+                _LOGGER.debug('Kyber MCP client: loaded %d external tools', len(_mcp_tools))
+                _progress_emit(hass, request_id, {
+                    'type': 'debug',
+                    'message': f'[MCP] {len(_mcp_tools)} external tool(s) loaded',
+                })
+            except Exception as _mcp_err:  # noqa: BLE001
+                _LOGGER.warning('Kyber MCP client: failed to load tools: %s', _mcp_err)
+
     # Tool-calling loop â€” the AI may request live HA data via [TOOL_CALL: {...}]
     # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
     tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
@@ -1156,6 +1181,11 @@ async def _run_ai_loop(
     _loop_redirect_given = False  # allow one redirect hint before falling back to synthesis
     _auto_plan_rescued = False    # set when call_service tool call is auto-converted to plan
     loop_instructions = instructions  # default if the loop never runs
+    # Append MCP tool descriptions to instructions if external tools are available
+    if _mcp_tools and _mcp_client is not None:
+        _mcp_block = _mcp_client.build_prompt_block(_mcp_tools)
+        if _mcp_block:
+            instructions = instructions + "\n\n" + _mcp_block
 
     # â”€â”€ Quick-intent shortcut â€” skip the AI for trivially parseable requests
     # like "create an area outside". Small local models loop on get_areas
@@ -1408,7 +1438,12 @@ async def _run_ai_loop(
                 "is_admin": bool(getattr(request.get("hass_user"), "is_admin", False)),
             }
             call = resolve_tool_call(call)
-            if call.get("name") in _ASYNC_TOOLS:
+            tool_name = call.get("name", "")
+            # Route MCP client tools to the external server
+            if is_mcp_tool(tool_name) and _mcp_client is not None:
+                args = {k: v for k, v in call.items() if k not in ("name", "user_id", "is_admin")}
+                result = await _mcp_client.async_call_tool(tool_name, args)
+            elif call.get("name") in _ASYNC_TOOLS:
                 result = await _async_execute_tool(hass, call)
             else:
                 result = await hass.async_add_executor_job(_execute_tool, hass, call)

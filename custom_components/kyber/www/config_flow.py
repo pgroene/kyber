@@ -47,6 +47,8 @@ from .const import (
     DEFAULT_ANTHROPIC_MODEL,
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_ENABLE_MCP,
+    CONF_ENABLE_MCP_IN_CHAT,
+    CONF_MCP_CLIENT_SERVERS,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_MAX_DAILY_TOKENS,
     CONF_MAX_TOKENS,
@@ -62,6 +64,8 @@ from .const import (
     CONF_LABEL_ASSIGNMENT_MODE,
     DEFAULT_ENABLE_DEBUG_VIEWS,
     DEFAULT_ENABLE_MCP,
+    DEFAULT_ENABLE_MCP_IN_CHAT,
+    DEFAULT_MCP_CLIENT_SERVERS,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
     DEFAULT_MAX_DAILY_TOKENS,
     DEFAULT_MAX_TOKENS,
@@ -219,6 +223,8 @@ def _build_options_schema(
     openai_base_url: str = "",
     anthropic_api_key: str = "",
     anthropic_model: str = DEFAULT_ANTHROPIC_MODEL,
+    enable_mcp_in_chat: bool = DEFAULT_ENABLE_MCP_IN_CHAT,
+    mcp_client_servers: str = DEFAULT_MCP_CLIENT_SERVERS,
 ) -> vol.Schema:
     """Options schema grouped into sections."""
     model_fields: dict = {}
@@ -375,6 +381,10 @@ def _build_options_schema(
                     {
                         vol.Optional(CONF_ENABLE_DEBUG_VIEWS, default=enable_debug): selector.BooleanSelector(),
                         vol.Optional(CONF_ENABLE_MCP, default=enable_mcp): selector.BooleanSelector(),
+                        vol.Optional(CONF_ENABLE_MCP_IN_CHAT, default=enable_mcp_in_chat): selector.BooleanSelector(),
+                        vol.Optional(CONF_MCP_CLIENT_SERVERS, default=mcp_client_servers): selector.TextSelector(
+                            selector.TextSelectorConfig(multiline=True)
+                        ),
                         vol.Optional(CONF_MAX_REQUESTS_PER_MINUTE, default=max_requests_per_minute): selector.NumberSelector(
                             selector.NumberSelectorConfig(
                                 min=0, max=600, step=1, mode=selector.NumberSelectorMode.BOX
@@ -522,6 +532,8 @@ class KyberOptionsFlow(OptionsFlow):
                 CONF_LABEL_ASSIGNMENT_MODE: str(area.get(CONF_LABEL_ASSIGNMENT_MODE, _get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE))),
                 CONF_ENABLE_DEBUG_VIEWS: bool(developer.get(CONF_ENABLE_DEBUG_VIEWS, _get(CONF_ENABLE_DEBUG_VIEWS, False))),
                 CONF_ENABLE_MCP: bool(developer.get(CONF_ENABLE_MCP, _get(CONF_ENABLE_MCP, DEFAULT_ENABLE_MCP))),
+                CONF_ENABLE_MCP_IN_CHAT: bool(developer.get(CONF_ENABLE_MCP_IN_CHAT, _get(CONF_ENABLE_MCP_IN_CHAT, DEFAULT_ENABLE_MCP_IN_CHAT))),
+                CONF_MCP_CLIENT_SERVERS: str(developer.get(CONF_MCP_CLIENT_SERVERS, _get(CONF_MCP_CLIENT_SERVERS, DEFAULT_MCP_CLIENT_SERVERS))),
                 CONF_MAX_REQUESTS_PER_MINUTE: int(developer.get(CONF_MAX_REQUESTS_PER_MINUTE, _get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE))),
                 CONF_CLOUD_PROVIDER: str(cloud.get(CONF_CLOUD_PROVIDER, _get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER))).strip(),
                 CONF_CLOUD_USE_FOR_CHAT: bool(cloud.get(CONF_CLOUD_USE_FOR_CHAT, _get(CONF_CLOUD_USE_FOR_CHAT, DEFAULT_CLOUD_USE_FOR_CHAT))),
@@ -586,6 +598,8 @@ class KyberOptionsFlow(OptionsFlow):
             openai_base_url=str(_get(CONF_OPENAI_BASE_URL, "")),
             anthropic_api_key=str(_get(CONF_ANTHROPIC_API_KEY, "")),
             anthropic_model=str(_get(CONF_ANTHROPIC_MODEL, DEFAULT_ANTHROPIC_MODEL)),
+            enable_mcp_in_chat=bool(_get(CONF_ENABLE_MCP_IN_CHAT, DEFAULT_ENABLE_MCP_IN_CHAT)),
+            mcp_client_servers=str(_get(CONF_MCP_CLIENT_SERVERS, DEFAULT_MCP_CLIENT_SERVERS)),
         )
 
         from .model_stats import format_stats as _fmt_stats, format_run_stats as _fmt_run_stats
