@@ -594,8 +594,11 @@ async def _handle_list_entities(hass: HomeAssistant, params: dict) -> dict:
     return {"entities": results, "count": len(results)}
 
 
-async def _handle_call_service(hass: HomeAssistant, params: dict) -> dict:
-    """Call a HA service directly."""
+async def _handle_call_service(hass: HomeAssistant, params: dict, *, is_admin: bool = False) -> dict:
+    """Call a HA service directly. Requires admin privileges."""
+    if not is_admin:
+        return {"error": "call_service requires administrator privileges"}
+
     domain: str = str(params.get("domain", "")).strip()
     service: str = str(params.get("service", "")).strip()
     service_data: dict = params.get("service_data") or {}
@@ -690,28 +693,6 @@ async def _handle_kyber_execute_plan(
         approved=True,
     )
     return result
-
-
-async def _handle_call_service(hass: HomeAssistant, params: dict) -> dict:
-    """Call a HA service directly."""
-    domain: str = str(params.get("domain", "")).strip()
-    service: str = str(params.get("service", "")).strip()
-    service_data: dict = params.get("service_data") or {}
-
-    if not domain or not service:
-        return {"error": "domain and service are required"}
-
-    if not hass.services.has_service(domain, service):
-        return {"error": f"Service {domain}.{service} not found"}
-
-    try:
-        await hass.services.async_call(
-            domain, service, service_data, blocking=True
-        )
-    except Exception as err:  # noqa: BLE001
-        return {"error": str(err)}
-
-    return {"status": "ok", "called": f"{domain}.{service}"}
 
 
 async def _handle_calendar_get_events(hass: HomeAssistant, params: dict) -> dict:
@@ -1105,7 +1086,7 @@ class KyberMCPView(HomeAssistantView):
             elif name == "list_entities":
                 result = await _handle_list_entities(hass, args)
             elif name == "call_service":
-                result = await _handle_call_service(hass, args)
+                result = await _handle_call_service(hass, args, is_admin=is_admin)
             elif name == "calendar_get_events":
                 result = await _handle_calendar_get_events(hass, args)
             elif name == "get_datetime":
@@ -1120,7 +1101,7 @@ class KyberMCPView(HomeAssistantView):
                 return _err(req_id, -32602, f"Unknown tool: {name}")
         except Exception as err:  # noqa: BLE001
             _LOGGER.exception("Kyber MCP: tool %s raised: %s", name, err)
-            return _err(req_id, -32603, f"Internal error in {name}: {err}")
+            return _err(req_id, -32603, f"Internal error in {name}")
 
         if "error" in result:
             # Return tool errors as MCP content with isError=True

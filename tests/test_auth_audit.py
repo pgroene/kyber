@@ -15,6 +15,7 @@ from custom_components.kyber.debug_and_diagnostics import (
     KyberDebugModeView,
     KyberDebugStatusView,
 )
+from custom_components.kyber.http_api import KyberSelfUpdateView, KyberProposalApproveView
 from custom_components.kyber.prompt_regression_api import (
     KyberPromptTestsCaptureView,
     KyberPromptTestsRegenerateView,
@@ -100,6 +101,9 @@ _ADMIN_VIEW_CALLS = [
     (KyberPromptTestsRunView(), "post"),
     (KyberPromptTestsCaptureView(), "post"),
     (KyberPromptTestsRegenerateView(), "post"),
+    (KyberSelfUpdateView(), "get"),
+    (KyberSelfUpdateView(), "post"),
+    (KyberProposalApproveView(), "post"),
 ]
 
 

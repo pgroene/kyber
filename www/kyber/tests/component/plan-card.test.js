@@ -300,3 +300,42 @@ describe("_buildPlanCard — autopilot", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// _buildMemoryCard — XSS prevention
+// ---------------------------------------------------------------------------
+describe("_buildMemoryCard — XSS prevention", () => {
+  it("escapes HTML in userTerm, haTerm, and content", () => {
+    const { element } = makePanel();
+    const xssPayload = '<img src=x onerror=alert(1)>';
+    const learnedFact = {
+      summary: `Save alias: ${xssPayload} → '${xssPayload}'`,
+      actions: [{
+        description: `Save alias: ${xssPayload} → ha_term`,
+        subject: xssPayload,
+        content: xssPayload,
+      }],
+    };
+    const card = element._buildMemoryCard(learnedFact);
+    // The raw HTML tag must NOT appear as live HTML inside the card
+    expect(card.querySelector("img")).toBeNull();
+    // The text content should contain the literal characters (escaped)
+    expect(card.textContent).toContain("<img");
+  });
+
+  it("renders plain text userTerm and haTerm correctly", () => {
+    const { element } = makePanel();
+    const learnedFact = {
+      summary: "couch lamp maps to living room couch",
+      actions: [{
+        description: "Save alias: couch lamp → light.couch",
+        subject: "light.couch",
+        content: "couch lamp → light.couch",
+      }],
+    };
+    const card = element._buildMemoryCard(learnedFact);
+    expect(card.textContent).toContain("couch lamp");
+    expect(card.textContent).toContain("light.couch");
+    expect(card.querySelector(".btn-remember")).not.toBeNull();
+  });
+});

@@ -167,7 +167,7 @@ async def test_call_service_success():
         "domain": "light",
         "service": "turn_on",
         "service_data": {"entity_id": "light.bedroom"},
-    })
+    }, is_admin=True)
     assert result["status"] == "ok"
     assert result["called"] == "light.turn_on"
     hass.services.async_call.assert_awaited_once_with(
@@ -176,9 +176,21 @@ async def test_call_service_success():
 
 
 @pytest.mark.asyncio
+async def test_call_service_non_admin_rejected():
+    hass = _make_hass()
+    result = await _handle_call_service(hass, {
+        "domain": "light",
+        "service": "turn_on",
+    }, is_admin=False)
+    assert "error" in result
+    assert "admin" in result["error"].lower()
+    hass.services.async_call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_call_service_missing_domain():
     hass = _make_hass()
-    result = await _handle_call_service(hass, {"service": "turn_on"})
+    result = await _handle_call_service(hass, {"service": "turn_on"}, is_admin=True)
     assert "error" in result
 
 
@@ -186,7 +198,7 @@ async def test_call_service_missing_domain():
 async def test_call_service_not_found():
     hass = _make_hass()
     hass.services.has_service = MagicMock(return_value=False)
-    result = await _handle_call_service(hass, {"domain": "light", "service": "fly"})
+    result = await _handle_call_service(hass, {"domain": "light", "service": "fly"}, is_admin=True)
     assert "error" in result
 
 
@@ -579,9 +591,9 @@ async def test_get_entity_state_mixed_found_not_found():
 
 @pytest.mark.asyncio
 async def test_call_service_empty_service_data():
-    """call_service works when service_data is omitted."""
+    """call_service works when service_data is omitted (admin user)."""
     hass = _make_hass()
-    result = await _handle_call_service(hass, {"domain": "homeassistant", "service": "reload_all"})
+    result = await _handle_call_service(hass, {"domain": "homeassistant", "service": "reload_all"}, is_admin=True)
     assert result["status"] == "ok"
     hass.services.async_call.assert_awaited_once_with(
         "homeassistant", "reload_all", {}, blocking=True
@@ -595,7 +607,7 @@ async def test_call_service_exception_returns_error():
     hass.services.async_call = AsyncMock(side_effect=Exception("Service exploded"))
     result = await _handle_call_service(hass, {
         "domain": "light", "service": "turn_on", "service_data": {"entity_id": "light.x"},
-    })
+    }, is_admin=True)
     assert "error" in result
     assert "Service exploded" in result["error"]
 
@@ -627,3 +639,234 @@ async def test_initialize_null_id(mcp_view):
     assert result["id"] is None
     assert "protocolVersion" in result["result"]
 
+
+# ---------------------------------------------------------------------------
+# call_service admin enforcement via _dispatch
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_tools_call_call_service_non_admin_rejected(mcp_view):
+    """call_service via dispatch returns isError=True for non-admin users."""
+    hass = _make_hass()
+    result = await mcp_view._dispatch(hass, {
+        "jsonrpc": "2.0",
+        "id": 20,
+        "method": "tools/call",
+        "params": {
+            "name": "call_service",
+            "arguments": {"domain": "light", "service": "turn_on"},
+        },
+    }, "user-1", False)  # is_admin=False
+    assert result["result"]["isError"] is True
+    assert "admin" in result["result"]["content"][0]["text"].lower()
+    hass.services.async_call.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# _build_home_summary
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_build_home_summary_counts_domains():
+    """_build_home_summary returns correct domain counts and total."""
+    from custom_components.kyber.mcp import _build_home_summary
+    light = _make_state("light.bedroom", "on")
+    switch1 = _make_state("switch.fan", "off")
+    switch2 = _make_state("switch.pump", "on")
+    hass = _make_hass({"light.bedroom": light, "switch.fan": switch1, "switch.pump": switch2})
+    hass.data = {}
+
+    result = await _build_home_summary(hass)
+    assert result["total_entities"] == 3
+    assert result["domains"]["light"] == 1
+    assert result["domains"]["switch"] == 2
+    assert "note" in result
+
+
+@pytest.mark.asyncio
+async def test_build_home_summary_includes_areas():
+    """_build_home_summary lists area names when area_registry is available."""
+    from custom_components.kyber.mcp import _build_home_summary
+    hass = _make_hass({})
+
+    area_reg = MagicMock()
+    area1 = MagicMock(); area1.name = "Kitchen"
+    area2 = MagicMock(); area2.name = "Bedroom"
+    area_reg.async_list_areas = MagicMock(return_value=[area1, area2])
+    hass.data = {"area_registry": area_reg}
+
+    result = await _build_home_summary(hass)
+    assert "Kitchen" in result["areas"]
+    assert "Bedroom" in result["areas"]
+
+
+# ---------------------------------------------------------------------------
+# kyber_remember
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_handle_kyber_remember_stores_fact():
+    """kyber_remember persists a fact and returns stored=True."""
+    from custom_components.kyber.mcp import _handle_kyber_remember
+    hass = _make_hass()
+
+    mock_store = AsyncMock()
+    mock_store.async_add = AsyncMock(return_value={"id": "abc123"})
+
+    with patch("custom_components.kyber.knowledge.get_store", return_value=mock_store):
+        result = await _handle_kyber_remember(hass, {
+            "subject": "couch lamp",
+            "content": "couch lamp maps to light.living_room_couch",
+            "category": "entity_alias",
+        })
+
+    assert result["stored"] is True
+    assert result["subject"] == "couch lamp"
+    assert result["category"] == "entity_alias"
+    mock_store.async_add.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_kyber_remember_missing_subject_returns_error():
+    """kyber_remember returns error when subject is empty."""
+    from custom_components.kyber.mcp import _handle_kyber_remember
+    hass = _make_hass()
+    result = await _handle_kyber_remember(hass, {"content": "some content"})
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_handle_kyber_remember_missing_content_returns_error():
+    """kyber_remember returns error when content is empty."""
+    from custom_components.kyber.mcp import _handle_kyber_remember
+    hass = _make_hass()
+    result = await _handle_kyber_remember(hass, {"subject": "couch lamp"})
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_handle_kyber_remember_invalid_category_falls_back_to_general():
+    """kyber_remember silently falls back to 'general' for unknown categories."""
+    from custom_components.kyber.mcp import _handle_kyber_remember
+    hass = _make_hass()
+
+    mock_store = AsyncMock()
+    mock_store.async_add = AsyncMock(return_value={"id": "xyz"})
+
+    with patch("custom_components.kyber.knowledge.get_store", return_value=mock_store):
+        result = await _handle_kyber_remember(hass, {
+            "subject": "foo",
+            "content": "bar",
+            "category": "nonexistent_category",
+        })
+
+    assert result["category"] == "general"
+
+
+# ---------------------------------------------------------------------------
+# kyber_recall
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_handle_kyber_recall_returns_facts():
+    """kyber_recall returns matching facts for a query."""
+    from custom_components.kyber.mcp import _handle_kyber_recall
+    hass = _make_hass()
+
+    mock_store = AsyncMock()
+    mock_store.async_search = AsyncMock(return_value=[
+        {"id": "1", "subject": "couch lamp", "content": "maps to light.couch", "category": "entity_alias"},
+    ])
+
+    with patch("custom_components.kyber.knowledge.get_store", return_value=mock_store):
+        result = await _handle_kyber_recall(hass, {"query": "couch"})
+
+    assert result["count"] == 1
+    assert result["facts"][0]["subject"] == "couch lamp"
+    assert result["query"] == "couch"
+
+
+@pytest.mark.asyncio
+async def test_handle_kyber_recall_missing_query_returns_error():
+    """kyber_recall returns error when query is empty."""
+    from custom_components.kyber.mcp import _handle_kyber_recall
+    hass = _make_hass()
+    result = await _handle_kyber_recall(hass, {})
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_handle_kyber_recall_no_results():
+    """kyber_recall returns empty facts list when nothing matches."""
+    from custom_components.kyber.mcp import _handle_kyber_recall
+    hass = _make_hass()
+
+    mock_store = AsyncMock()
+    mock_store.async_search = AsyncMock(return_value=[])
+
+    with patch("custom_components.kyber.knowledge.get_store", return_value=mock_store):
+        result = await _handle_kyber_recall(hass, {"query": "nonexistent"})
+
+    assert result["count"] == 0
+    assert result["facts"] == []
+
+
+# ---------------------------------------------------------------------------
+# kyber_execute_plan
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_handle_kyber_execute_plan_empty_actions_returns_error():
+    """kyber_execute_plan returns error when actions list is empty."""
+    from custom_components.kyber.mcp import _handle_kyber_execute_plan
+    hass = _make_hass()
+    result = await _handle_kyber_execute_plan(hass, {"actions": []}, "user-1", True)
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_handle_kyber_execute_plan_missing_actions_returns_error():
+    """kyber_execute_plan returns error when actions key is absent."""
+    from custom_components.kyber.mcp import _handle_kyber_execute_plan
+    hass = _make_hass()
+    result = await _handle_kyber_execute_plan(hass, {}, "user-1", True)
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_handle_kyber_execute_plan_calls_execute_actions():
+    """kyber_execute_plan delegates to async_execute_actions with approved=True."""
+    from custom_components.kyber.mcp import _handle_kyber_execute_plan
+    hass = _make_hass()
+
+    actions = [{"type": "turn_on", "entity_id": "light.bedroom"}]
+
+    with patch("custom_components.kyber.action_execution.async_execute_actions", new_callable=AsyncMock) as mock_exec:
+        mock_exec.return_value = {"status": "ok", "results": [{"status": "ok"}]}
+        result = await _handle_kyber_execute_plan(hass, {"actions": actions}, "user-1", True)
+
+    mock_exec.assert_awaited_once()
+    call_kwargs = mock_exec.call_args
+    assert call_kwargs.kwargs.get("approved") is True
+    assert call_kwargs.kwargs.get("plan_summary") == "MCP execute_plan"
+    assert result["status"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# kyber_execute_plan disabled via config
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_tools_call_execute_plan_disabled(mcp_view):
+    """kyber_execute_plan returns MCP error when CONF_MCP_ALLOW_STATE_CHANGES is False."""
+    hass = _make_hass()
+    # Default mcp_view config does not set CONF_MCP_ALLOW_STATE_CHANGES
+    result = await mcp_view._dispatch(hass, {
+        "jsonrpc": "2.0", "id": 30, "method": "tools/call",
+        "params": {
+            "name": "kyber_execute_plan",
+            "arguments": {"actions": [{"type": "turn_on", "entity_id": "light.x"}]},
+        },
+    }, "user-1", True)
+    assert result["error"]["code"] == -32602
+    assert "disabled" in result["error"]["message"].lower()

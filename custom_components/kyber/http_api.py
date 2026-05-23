@@ -2256,6 +2256,7 @@ class KyberView(HomeAssistantView):
                                    user_id=str(getattr(request.get("hass_user"), "id", "") or "") or None,
                                    is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)))
         except HomeAssistantError as err:
+            _LOGGER.warning("Kyber: AI provider error: %s", err)
             await token_budget_store.async_record(
                 budget_provider,
                 estimated_prompt_tokens,
@@ -2266,7 +2267,7 @@ class KyberView(HomeAssistantView):
             hass.data[_CHAT_BUSY_KEY] = False
             hass.data.get("kyber_preempt_event", None) and hass.data["kyber_preempt_event"].clear()
             return self.json_message(
-                f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
+                "AI provider error. Check your AI Task configuration.", HTTPStatus.SERVICE_UNAVAILABLE
             )
         except Exception as err:  # noqa: BLE001
             _LOGGER.exception("Kyber: unexpected error during AI loop (type=%s)", type(err).__name__)
@@ -2610,6 +2611,10 @@ class KyberSelfUpdateView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:
         """Return current and latest version without installing."""
+        ha_user = request.get("hass_user")
+        if not ha_user or not ha_user.is_admin:
+            return self.json_message("Admin required", HTTPStatus.FORBIDDEN)
+
         hass: HomeAssistant = request.app["hass"]
         from pathlib import Path as _Path
         import importlib.metadata as _meta
@@ -2641,6 +2646,10 @@ class KyberSelfUpdateView(HomeAssistantView):
 
     async def post(self, request: web.Request) -> web.Response:
         """Download latest release zip and extract over /config/custom_components/kyber/."""
+        ha_user = request.get("hass_user")
+        if not ha_user or not ha_user.is_admin:
+            return self.json_message("Admin required", HTTPStatus.FORBIDDEN)
+
         hass: HomeAssistant = request.app["hass"]
         import io, zipfile, shutil, tempfile
         from pathlib import Path as _Path
@@ -2893,6 +2902,10 @@ class KyberProposalApproveView(HomeAssistantView):
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
+        ha_user = request.get("hass_user")
+        if not ha_user or not ha_user.is_admin:
+            return self.json_message("Admin required", HTTPStatus.FORBIDDEN)
+
         hass: HomeAssistant = request.app["hass"]
         try:
             body = await request.json()
