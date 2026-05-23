@@ -16,14 +16,18 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   async _renderDebugTab(tab) {
-    this._debugTab = tab;
     const body = this.shadowRoot.getElementById("debug-body");
     if (!body) return;
-    // Preserve user-toggled open/closed state of named sections before wipe
-    const sectionState = {};
-    body.querySelectorAll("details[data-sid]").forEach((d) => {
-      sectionState[d.dataset.sid] = d.open;
-    });
+    // Persist open/closed state keyed by "tab:sid" so it survives tab switches
+    // and background re-renders triggered by AI turns.
+    if (!this._debugSectionOpenState) this._debugSectionOpenState = {};
+    const prevTab = this._debugTab;
+    if (prevTab) {
+      body.querySelectorAll("details[data-sid]").forEach((d) => {
+        this._debugSectionOpenState[`${prevTab}:${d.dataset.sid}`] = d.open;
+      });
+    }
+    this._debugTab = tab;
     body.innerHTML = `<em>${this._t ? this._t("debug_loading") : "Loading…"}</em>`;
     try {
       if (tab === "memory") {
@@ -42,13 +46,11 @@ export const DebugMixin = (Base) => class extends Base {
     } catch (err) {
       body.innerHTML = `<div class="debug-error">Error: ${this._escapeHtml(err.message)}</div>`;
     }
-    // Restore user-toggled open/closed state of named sections after re-render
-    if (Object.keys(sectionState).length > 0) {
-      body.querySelectorAll("details[data-sid]").forEach((d) => {
-        const sid = d.dataset.sid;
-        if (sid in sectionState) d.open = sectionState[sid];
-      });
-    }
+    // Restore persisted open/closed state for this tab
+    body.querySelectorAll("details[data-sid]").forEach((d) => {
+      const key = `${tab}:${d.dataset.sid}`;
+      if (key in this._debugSectionOpenState) d.open = this._debugSectionOpenState[key];
+    });
   }
 
   async _renderDebugMemory(body) {
