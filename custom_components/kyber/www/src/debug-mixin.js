@@ -743,11 +743,11 @@ export const DebugMixin = (Base) => class extends Base {
         · prompt: ${snap.char_count?.toLocaleString() ?? "?"} chars (~${snap.approx_tokens?.toLocaleString() ?? "?"} tokens)
         · auto_rating: ${snap.auto_rating ? `⚠ ${snap.auto_rating}/5` : "—"}
       </div>
-      <details class="debug-section" data-sid="user-prompt" open>
+      <details class="debug-section" data-sid="user-prompt">
         <summary><strong>User prompt</strong></summary>
         <pre class="dbg-pre">${this._escapeHtml(snap.user_prompt || "")}</pre>
       </details>
-      <details class="debug-section" data-sid="knowledge" open>
+      <details class="debug-section" data-sid="knowledge">
         <summary><strong>📌 Knowledge entries used this turn (${picked.length})</strong></summary>
         ${picked.length === 0 ? '<em>None injected.</em>' : '<div class="kn-list" id="dbg-picked-list"></div>'}
       </details>
@@ -1553,7 +1553,7 @@ export const DebugMixin = (Base) => class extends Base {
 
     body.innerHTML = `
       <!-- ── Compare tool ─────────────────────────────────────────── -->
-      <details class="debug-section" data-sid="mcp-compare" open>
+      <details class="debug-section" data-sid="mcp-compare">
         <div style="margin-top:10px">
           <div style="display:flex;gap:8px;margin-bottom:10px">
             <input id="mcp-cmp-input" type="text" placeholder="Ask a question…"
@@ -1583,7 +1583,7 @@ export const DebugMixin = (Base) => class extends Base {
       </details>
 
       <!-- ── Unified call log ──────────────────────────────────────── -->
-      <details class="debug-section" data-sid="mcp-calllog" open style="margin-top:14px">
+      <details class="debug-section" data-sid="mcp-calllog" style="margin-top:14px">
         <summary style="font-weight:600;cursor:pointer;padding:6px 0">
           📋 Call log — MCP &amp; Classic
           <span style="font-size:0.8rem;font-weight:400;color:var(--secondary-text-color);margin-left:8px"
@@ -1790,7 +1790,9 @@ export const DebugMixin = (Base) => class extends Base {
         const d = await r.json();
         const tokens = d.call_tokens || d.token_usage?.total_tokens;
         const actions = (d.tool_log || []).filter(e => e.type === "tool_call").length;
-        const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""} · ${actions} ⚙`;
+        const mem = (d.knowledge_used || []).length;
+        const memStr = mem > 0 ? ` · 🧠 ${mem} memory` : "";
+        const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""} · ${actions} ⚙${memStr}`;
         directEl.textContent = (d.response || "(no response)") + footer;
       } catch (e) {
         directEl.textContent = `❌ ${e.message}`;
@@ -1821,7 +1823,9 @@ export const DebugMixin = (Base) => class extends Base {
           text = parsed.response || content;
           const tokens = parsed.token_usage?.total_tokens;
           const actions = parsed.actions_executed;
-          const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""}${actions != null ? ` · ${actions} action(s)` : ""}`;
+          const mem = (parsed.knowledge_used || []).length;
+          const memStr = mem > 0 ? ` · 🧠 ${mem} memory` : "";
+          const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""}${actions != null ? ` · ${actions} action(s)` : ""}${memStr}`;
           text += footer;
         } catch (_) {
           text += `\n\n─── ${ms}ms`;

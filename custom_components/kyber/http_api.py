@@ -434,7 +434,7 @@ async def _auto_record_search_alias(
 ) -> str | None:
     """Silently save a search query → entity mapping as a knowledge alias.
 
-    Called fire-and-forget after search_entities returns 1â€“3 results so future
+    Called fire-and-forget after search_entities returns 1–3 results so future
     turns can recall the mapping without searching again.  Skips if an identical
     fact (same subject) already exists.  Returns the alias string if newly saved,
     None if skipped.
@@ -462,9 +462,9 @@ async def _auto_record_search_alias(
             confidence=0.7,
             owner_id=owner_id,
         )
-        _LOGGER.debug("Kyber: auto-saved search alias '%s' â†’ %s", query, entity_str)
-        return f"'{query}' â†’ {entity_str}"
-    except BaseException as err:  # noqa: BLE001 â€” catch CancelledError too
+        _LOGGER.debug("Kyber: auto-saved search alias '%s' → %s", query, entity_str)
+        return f"'{query}' → {entity_str}"
+    except BaseException as err:  # noqa: BLE001 – catch CancelledError too
         _LOGGER.debug("Kyber: auto-record search alias failed (non-critical): %s", err)
         return None
 
@@ -2156,7 +2156,7 @@ class KyberView(HomeAssistantView):
         ha_user = request.get("hass_user")
         user_id = str(getattr(ha_user, "id", "") or "unknown")
         max_rpm = int(self._config.get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE))
-        allowed, retry_after = _rate_limiter.check(user_id, max_rpm)
+        allowed, retry_after = _rate_limiter.check_and_record(user_id, max_rpm)
         if not allowed:
             hass.data[_CHAT_BUSY_KEY] = False
             _preempt_event.clear()
@@ -2165,7 +2165,6 @@ class KyberView(HomeAssistantView):
                 {"error": "Too many requests", "retry_after": retry_after},
                 status_code=HTTPStatus.TOO_MANY_REQUESTS,
             )
-        _rate_limiter.record(user_id)
 
         # If the narrator is currently running, tell the user early so the
         # thinking bubble shows a helpful message instead of a blank spinner.
@@ -2265,8 +2264,9 @@ class KyberView(HomeAssistantView):
             _LOGGER.warning("Kyber: AI provider error: %s", err)
             await token_budget_store.async_record(
                 budget_provider,
-                estimated_prompt_tokens,
+                0,  # record 0 actual tokens; releases the reservation made in async_check
                 max_daily_tokens,
+                estimated_tokens=estimated_prompt_tokens,
             )
             _progress_complete(hass, request_id)
             _debug_detach_log_capture(_debug_log_handler)
@@ -2279,8 +2279,9 @@ class KyberView(HomeAssistantView):
             _LOGGER.exception("Kyber: unexpected error during AI loop (type=%s)", type(err).__name__)
             await token_budget_store.async_record(
                 budget_provider,
-                estimated_prompt_tokens,
+                0,  # record 0 actual tokens; releases the reservation made in async_check
                 max_daily_tokens,
+                estimated_tokens=estimated_prompt_tokens,
             )
             _progress_complete(hass, request_id)
             _debug_detach_log_capture(_debug_log_handler)
@@ -2292,6 +2293,7 @@ class KyberView(HomeAssistantView):
             budget_provider,
             int(call_token_usage.get("total_tokens", 0) or 0),
             max_daily_tokens,
+            estimated_tokens=estimated_prompt_tokens,
         )
 
         try:
@@ -2331,11 +2333,11 @@ class KyberView(HomeAssistantView):
             )
             for fact in facts:
                 _LOGGER.info(
-                    "Kyber: extracted learned fact: %s â†’ %s",
+                    "Kyber: extracted learned fact: %s → %s",
                     fact.get("user_term"), fact.get("subject"),
                 )
                 learned_facts.append({
-                    "summary": f"Remember: '{fact['user_term']}' â†’ '{fact['subject']}'",
+                    "summary": f"Remember: '{fact['user_term']}' → '{fact['subject']}'",
                     "actions": [{
                         "type": "add_knowledge",
                         "category": fact["category"],
@@ -2344,7 +2346,7 @@ class KyberView(HomeAssistantView):
                         "tags": fact["tags"],
                         "current_state": "(not learned)",
                         "new_state": "Remembered for next time",
-                        "description": f"Save {fact['category']}: {fact['user_term']} â†’ {fact['subject']}",
+                        "description": f"Save {fact['category']}: {fact['user_term']} → {fact['subject']}",
                     }],
                 })
         # backward compat: single field (first fact or None)

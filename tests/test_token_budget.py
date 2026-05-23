@@ -222,12 +222,13 @@ async def test_debug_status_includes_token_usage(
         ("unexpected", 500),
     ],
 )
-async def test_complete_records_estimated_tokens_on_ai_failures(
+async def test_complete_releases_token_reservation_on_ai_failures(
     hass: HomeAssistant,
     hass_client,
     raised_kind: str,
     expected_status: int,
 ) -> None:
+    """On AI failure the previously-reserved tokens should be released (net usage = 0)."""
     from custom_components.kyber import http_api as http_api_module
 
     (_, _, _, _, get_budget_provider, get_token_budget_store) = _kyber_imports()
@@ -256,9 +257,10 @@ async def test_complete_records_estimated_tokens_on_ai_failures(
 
     assert resp.status == expected_status
     record_usage.assert_awaited_once()
+    # On failure: 0 actual tokens recorded so the reservation is released
     called_provider, recorded_tokens, recorded_budget = record_usage.await_args.args
     assert called_provider == provider
     assert recorded_budget == 5000
-    assert recorded_tokens > 0
+    assert recorded_tokens == 0  # reservation released, not burned
     usage = await store.async_get_usage(provider, 5000)
-    assert usage["used"] == recorded_tokens
+    assert usage["used"] == 0  # net usage is zero after release

@@ -44,6 +44,9 @@ class TokenBudgetStore:
         self._data: dict[str, Any] = {"date": "", "providers": {}}
         self._loaded = False
         self._lock = asyncio.Lock()
+        # In-memory reservation counter for in-flight AI calls.
+        # Not persisted — only lives for the duration of the request.
+        self._pending: dict[str, int] = {}
 
     async def async_load(self) -> None:
         """Load token usage from storage once."""
@@ -72,28 +75,56 @@ class TokenBudgetStore:
         budget: int,
         estimated_tokens: int = 0,
     ) -> tuple[bool, dict[str, Any]]:
-        """Check whether another AI call is allowed for this provider."""
+        """Check whether another AI call is allowed and reserve the estimated tokens.
+
+        Uses an in-memory ``_pending`` counter so concurrent requests see updated
+        projected usage without touching persisted storage (which is only updated
+        when tokens are actually recorded in ``async_record``).
+        """
         await self.async_load()
         async with self._lock:
             changed = self._ensure_current_day()
             usage = self._build_usage(provider, budget)
-            projected_used = usage["used"] + max(0, int(estimated_tokens or 0))
+            est = max(0, int(estimated_tokens or 0))
+            pending = self._pending.get(provider, 0)
+            projected_used = usage["used"] + pending + est
             usage["projected_used"] = projected_used
             usage["projected_pct"] = self._calculate_pct(projected_used, budget)
             allowed = budget <= 0 or projected_used < budget
+            if allowed and est > 0:
+                # Reserve in-memory so concurrent requests see updated projected usage.
+                self._pending[provider] = pending + est
             if changed:
                 await self._store.async_save(self._data)
             return allowed, usage
 
-    async def async_record(self, provider: str, tokens: int, budget: int = 0) -> dict[str, Any]:
-        """Record used tokens for a provider and return the updated snapshot."""
+    async def async_record(
+        self,
+        provider: str,
+        tokens: int,
+        budget: int = 0,
+        estimated_tokens: int = 0,
+    ) -> dict[str, Any]:
+        """Record actual token usage and release any in-memory reservation.
+
+        ``estimated_tokens`` should match what was passed to ``async_check``.
+        For failed calls pass ``tokens=0`` to release the reservation without
+        burning budget.
+        """
         await self.async_load()
         async with self._lock:
             self._ensure_current_day()
-            providers = self._data.setdefault("providers", {})
-            provider_data = providers.setdefault(provider, {"used_tokens": 0})
-            provider_data["used_tokens"] = int(provider_data.get("used_tokens", 0) or 0) + max(0, int(tokens or 0))
-            await self._store.async_save(self._data)
+            # Release the in-memory reservation.
+            est = max(0, int(estimated_tokens or 0))
+            if est > 0:
+                self._pending[provider] = max(0, self._pending.get(provider, 0) - est)
+            # Record actual tokens in persistent storage.
+            actual = max(0, int(tokens or 0))
+            if actual > 0:
+                providers = self._data.setdefault("providers", {})
+                provider_data = providers.setdefault(provider, {"used_tokens": 0})
+                provider_data["used_tokens"] = int(provider_data.get("used_tokens", 0) or 0) + actual
+                await self._store.async_save(self._data)
             return self._build_usage(provider, budget)
 
     def _normalize_loaded(self, loaded: Any) -> dict[str, Any]:

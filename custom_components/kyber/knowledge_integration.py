@@ -12,8 +12,6 @@ from typing import Any
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
-
 from .api_utilities import async_ai_call
 
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN, _sanitize_user_input

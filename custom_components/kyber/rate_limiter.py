@@ -8,19 +8,22 @@ class RateLimiter:
     def __init__(self) -> None:
         self._windows: dict[str, list[float]] = defaultdict(list)
 
-    def check(self, user_id: str, max_rpm: int) -> tuple[bool, int]:
+    def check_and_record(self, user_id: str, max_rpm: int) -> tuple[bool, int]:
+        """Atomically check the rate limit and record the request if allowed.
+
+        Returns (allowed, retry_after_seconds).
+        """
         if max_rpm <= 0:
             return True, 0
         now = time.monotonic()
         window = [t for t in self._windows[user_id] if now - t < 60]
-        self._windows[user_id] = window
         if len(window) >= max_rpm:
             retry_after = int(60 - (now - window[0])) + 1
+            self._windows[user_id] = window
             return False, retry_after
+        window.append(now)
+        self._windows[user_id] = window
         return True, 0
-
-    def record(self, user_id: str) -> None:
-        self._windows[user_id].append(time.monotonic())
 
 
 _rate_limiter = RateLimiter()

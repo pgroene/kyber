@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   build: {
     lib: {
-      entry: path.resolve(__dirname, "src/kyber-panel.js"),
+      entry: path.resolve(__dirname, "../../custom_components/kyber/www/kyber-panel.js"),
       name: "KyberPanel",
       fileName: () => "kyber-panel.js",
       formats: ["es"],

@@ -14,6 +14,11 @@
 
 ### Fixed
 - Debug last turn sections no longer auto-expand when data loads
+- Search alias "Onthouden" chip showed garbled arrow (â†' → →) due to mojibake in source
+- MCP tab label showed raw key `debug_tab_mcp` instead of "🔌 MCP" due to stale i18n cache
+
+### Added
+- Compare view footer now shows 🧠 N memory when knowledge entries were injected that turn
 
 # Changelog
 

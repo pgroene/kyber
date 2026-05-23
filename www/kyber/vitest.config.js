@@ -3,9 +3,23 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, "../..");
+const wwwSrc = path.resolve(repoRoot, "custom_components/kyber/www");
 const mockPath = path.resolve(__dirname, "tests/mocks/codemirror-bundle.js");
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      // Map a simple alias to the canonical JS source location
+      "kyber-www": wwwSrc,
+    },
+  },
+  server: {
+    fs: {
+      // Allow Vite to serve files outside the default root (www/kyber)
+      allow: [repoRoot],
+    },
+  },
   plugins: [
     {
       // Intercept the codemirror-bundle import before Vite tries to parse the real 373KB bundle
@@ -31,8 +45,8 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
-      include: ["kyber-panel.js", "src/**/*.js"],
-      exclude: ["src/styles.js"],
+      include: [`${wwwSrc}/kyber-panel.js`, `${wwwSrc}/src/**/*.js`],
+      exclude: [`${wwwSrc}/src/styles.js`],
     },
   },
 });
