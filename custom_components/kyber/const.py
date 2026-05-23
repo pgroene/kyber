@@ -217,25 +217,71 @@ MAX_ENTITY_LIST_CHARS = 8_000
 # Injected only when the automation/script YAML editor is open or the user explicitly
 # wants to edit an automation. Keep out of the base prompt to save ~950 chars.
 AUTOMATION_EDITOR_GUIDANCE = """\
-### For automation or script YAML edits
-⚠️ ONLY use this when the user explicitly wants to edit the YAML of an automation or script.
-The `automation_id` MUST be an `automation.*` or `script.*` entity — NEVER a light, switch, sensor, or any other device entity.
+### For automation or script edits
+⚠️ ONLY use this when the user explicitly wants to edit or create an automation or script.
+The automation entity MUST be an `automation.*` or `script.*` entity — NEVER a light, switch, sensor, or other device entity.
 
-When the user wants to modify, edit, or update an automation or script, respond with a \
-```plan``` block signalling the frontend to open the YAML editor:
+#### Chat-driven edit (preferred — no YAML editor required)
+When the user wants to change/modify/update a specific automation:
+1. Call `get_automation(id=<automation_id or alias>)` to fetch the current config.
+2. Produce the full modified config as a JSON object (triggers, conditions, actions).
+3. Emit an `edit_automation` plan block:
+
+```plan
+{{
+  "edit_automation": true,
+  "entity_id": "<automation.*|script.*>",
+  "automation_id": "<HA config id, e.g. '1234567890'>",
+  "summary": "Short human description of what changed",
+  "changes": ["Trigger time: 07:30 → 07:00", "Added condition: Peter is home"],
+  "original_config": {{<original triggers/conditions/actions as JSON object>}},
+  "modified_config": {{<modified triggers/conditions/actions as JSON object>}}
+}}
+```
+
+The frontend renders the changes visually — no YAML needed. The user approves or refines.
+
+#### Create new automation
+When the user wants to create a new automation, confirm all entity_ids exist first, then:
+
+```plan
+{{
+  "create_automation": true,
+  "alias": "Short automation name",
+  "summary": "Human description of what it does",
+  "config": {{
+    "alias": "Short automation name",
+    "trigger": [{{...}}],
+    "condition": [{{...}}],
+    "action": [{{...}}]
+  }}
+}}
+```
+
+#### Simulation with mocks
+When the user wants to test/simulate an automation with specific overridden state values:
+
+```plan
+{{
+  "run_simulation": true,
+  "automation_id": "<HA config id>",
+  "mocks": {{"person.peter": "not_home", "binary_sensor.voordeur": "open"}}
+}}
+```
+
+#### Raw YAML editor (fallback)
+Only use `open_editor` when the user explicitly asks to "open the YAML editor" or "edit the YAML directly":
 
 ```plan
 {{
   "open_editor": true,
-  "automation_id": "<entity_id of the automation, e.g. automation.morning_lights>",
+  "automation_id": "<automation.*|script.*>",
   "summary": "Short description of what to change"
 }}
 ```
 
-The user will then click "Open YAML editor" and you will receive the full YAML to edit. \
-Do NOT return YAML in this initial response — just the plan block and a short explanation.
-
-⚠️ DO NOT use `open_editor` for turning lights on/off, controlling devices, or any service call. Those use `call_service` actions (see "For entity management commands" below).
+⚠️ DO NOT use `open_editor` for turning lights on/off, controlling devices, or any service call. Those use `call_service` actions.
+⚠️ DO NOT use `edit_automation` for non-automation entities.
 """
 
 # Injected only when the dashboard editor is open. Keep out of the base prompt to save
@@ -381,8 +427,11 @@ If the user teaches a fact, emit `add_knowledge`/`update_knowledge`/`delete_know
 **Routine** (recurring preference: "every morning", "next time I wake up") → `add_knowledge(category:"routine", subject:"<description>", content:"<when> → <action>")`.
 When facts answer the question, reply in plain text — do NOT dump raw entries.
 
-### For automation or script YAML edits
-To edit an automation/script, emit `{{"open_editor": true, "automation_id": "<automation.*|script.*>", "summary": "..."}}` in a ```plan``` block. Full guidance is injected when the editor is active.
+### For automation or script edits
+- **Chat-edit automation** → `get_automation(id=<id>)` → emit `edit_automation` plan block with `original_config` + `modified_config`. Full guidance injected.
+- **Create automation** → confirm entity_ids via tool → emit `create_automation` plan block. Full guidance injected.
+- **Simulate automation** → emit `run_simulation` plan block with `mocks`. Frontend tests with mocked states.
+- **Raw YAML editor** → only when user explicitly asks → emit `open_editor` plan block. Full guidance injected.
 
 ### For dashboard (Lovelace) editing
 When the user asks to edit, change, or open a dashboard and the editor is NOT already open, respond with a ```plan``` block containing `open_dashboard` and the exact `url_path` from the dashboards list (`null` for Overview).
@@ -451,7 +500,9 @@ Rules:
 - **Sun**: `get_entity_state("sun.sun", fields=["next_rising","next_setting","next_dawn","next_dusk"])` in local timezone.
 - **Weather**: `get_entity_state("<weather.*>", fields=["temperature","humidity","condition","forecast"])`.
 - **Thermostat** → `list_entities_by_domain(domain=climate)` → `call_service(domain=climate, service=set_temperature, service_data={{"temperature":<X>}})`. Never guess entity_id.
-- **Create automation** → confirm entity_ids via tool, then `create_automation` plan action with full trigger/condition/action structure. Emit plan immediately once ids are confirmed.
+- **Create automation** → confirm entity_ids via tool, then `create_automation` plan block (full config, not YAML). Full guidance injected.
+- **Edit automation** → `get_automation(id=<id>)` → `edit_automation` plan block with original + modified config JSON. Full guidance injected.
+- **Simulate automation** → `run_simulation` plan block with `mocks` dict. Frontend handles.
 - **Rename/delete area** → `get_areas` once → emit plan.
 - **TV / any named device** → `search_entities(query:"tv")` to find `media_player.*` first.
 - **Script or automation by name** → `search_entities(query:"X")` → `script.turn_on` / `automation.trigger`.

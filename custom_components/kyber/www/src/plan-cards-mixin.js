@@ -463,4 +463,577 @@ export const PlanCardsMixin = (Base) => class extends Base {
 
     return card;
   }
+
+  // ─── Automation editing cards ──────────────────────────────────────────────
+
+  /** Lightweight YAML serializer for automation config objects. */
+  _configToYaml(obj, indent = 0) {
+    const pad = "  ".repeat(indent);
+    if (obj === null || obj === undefined) return "null";
+    if (typeof obj === "boolean") return obj ? "true" : "false";
+    if (typeof obj === "number") return String(obj);
+    if (typeof obj === "string") {
+      if (/[:{}\[\],&*?|<>=!%@`]/.test(obj) || /^(true|false|yes|no|null|~|\d)/.test(obj) || obj.includes("\n")) {
+        return `"${obj.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`;
+      }
+      return obj;
+    }
+    if (Array.isArray(obj)) {
+      if (obj.length === 0) return "[]";
+      return obj.map((item) => {
+        if (typeof item === "object" && item !== null && !Array.isArray(item)) {
+          const lines = this._configToYaml(item, indent + 1).split("\n");
+          return `${pad}- ${lines[0].trimStart()}\n${lines.slice(1).join("\n")}`;
+        }
+        return `${pad}- ${this._configToYaml(item, indent + 1)}`;
+      }).join("\n");
+    }
+    if (typeof obj === "object") {
+      const keys = Object.keys(obj);
+      if (keys.length === 0) return "{}";
+      return keys.map((k) => {
+        const v = obj[k];
+        if (typeof v === "object" && v !== null) {
+          return `${pad}${k}:\n${this._configToYaml(v, indent + 1)}`;
+        }
+        return `${pad}${k}: ${this._configToYaml(v, indent + 1)}`;
+      }).join("\n");
+    }
+    return String(obj);
+  }
+
+  /** Extract all entity_ids referenced in an automation config. */
+  _extractEntityIds(config) {
+    const ids = new Set();
+    const scan = (obj) => {
+      if (!obj || typeof obj !== "object") return;
+      if (Array.isArray(obj)) { obj.forEach(scan); return; }
+      for (const [k, v] of Object.entries(obj)) {
+        if (k === "entity_id" && typeof v === "string") ids.add(v);
+        else if (k === "entity_id" && Array.isArray(v)) v.forEach((e) => typeof e === "string" && ids.add(e));
+        else scan(v);
+      }
+    };
+    scan(config);
+    return [...ids];
+  }
+
+  _describeTrigger(t) {
+    const p = t.platform || t.trigger || "";
+    switch (p) {
+      case "time": return `🕐 At ${t.at || "?"}`;
+      case "time_pattern": return `🕐 Every${t.hours ? ` ${t.hours}h` : ""}${t.minutes ? ` ${t.minutes}m` : ""}${t.seconds ? ` ${t.seconds}s` : ""}`;
+      case "state": {
+        const eid = Array.isArray(t.entity_id) ? t.entity_id.join(", ") : (t.entity_id || "?");
+        return `🔄 ${eid}${t.to != null ? ` → ${t.to}` : ""}`;
+      }
+      case "sun": return `🌅 Sun ${t.event || "?"}`;
+      case "homeassistant": return `🏠 HA ${t.event || "start"}`;
+      case "template": return `📋 Template trigger`;
+      case "numeric_state": {
+        const eid = Array.isArray(t.entity_id) ? t.entity_id[0] : (t.entity_id || "?");
+        return `🔢 ${eid}${t.above != null ? ` > ${t.above}` : ""}${t.below != null ? ` < ${t.below}` : ""}`;
+      }
+      case "zone": return `📍 ${t.entity_id || "?"} ${t.event || "enter/leave"} ${t.zone || ""}`;
+      case "webhook": return `🌐 Webhook: ${t.webhook_id || "?"}`;
+      case "conversation": return `💬 "${Array.isArray(t.command) ? t.command[0] : (t.command || "?")}"`;
+      default: return `⚡ ${p || "trigger"}`;
+    }
+  }
+
+  _describeCondition(c) {
+    const type = c.condition || "";
+    switch (type) {
+      case "state": {
+        const eid = Array.isArray(c.entity_id) ? c.entity_id.join(", ") : (c.entity_id || "?");
+        const st = Array.isArray(c.state) ? c.state.join("/") : (c.state ?? "?");
+        return `✅ ${eid} = ${st}`;
+      }
+      case "not": return `🚫 Not (${(c.conditions || []).length} condition${(c.conditions || []).length !== 1 ? "s" : ""})`;
+      case "and": return `🔗 All of ${(c.conditions || []).length} conditions`;
+      case "or": return `⚡ Any of ${(c.conditions || []).length} conditions`;
+      case "template": return `📋 Template condition`;
+      case "time": return `🕐 Time: ${c.after || ""}–${c.before || ""}`;
+      case "numeric_state": {
+        const eid = Array.isArray(c.entity_id) ? c.entity_id[0] : (c.entity_id || "?");
+        return `🔢 ${eid}${c.above != null ? ` > ${c.above}` : ""}${c.below != null ? ` < ${c.below}` : ""}`;
+      }
+      case "zone": return `📍 ${c.entity_id || "?"} in ${c.zone || "?"}`;
+      case "trigger": return `🔄 Trigger id: ${c.id || "?"}`;
+      default: return `❓ ${type || "condition"}`;
+    }
+  }
+
+  _describeAction(a) {
+    const svc = a.service || a.action || "";
+    if (svc) {
+      const target = a.target?.entity_id || a.entity_id || "";
+      const t = Array.isArray(target) ? target[0] : target;
+      return `▶ ${svc}${t ? `  [${t}]` : ""}`;
+    }
+    if (a.delay !== undefined) return `⏱ Wait ${typeof a.delay === "object" ? JSON.stringify(a.delay) : a.delay}`;
+    if (a.wait_template !== undefined) return "⏳ Wait for template";
+    if (a.wait_for_trigger !== undefined) return "⏳ Wait for trigger";
+    if (a.condition !== undefined) return "🔀 Stop if condition fails";
+    if (a.choose !== undefined) return `🔀 Choose (${(a.choose || []).length} option${(a.choose || []).length !== 1 ? "s" : ""})`;
+    if (a.if !== undefined) return "❓ If...then...else";
+    if (a.repeat !== undefined) return `🔁 Repeat${a.repeat?.count ? ` ${a.repeat.count}×` : ""}`;
+    if (a.parallel !== undefined) return "⚡ Parallel actions";
+    if (a.variables !== undefined) return "📦 Set variables";
+    if (a.event !== undefined) return `📣 Fire event: ${a.event}`;
+    return "⚡ Action";
+  }
+
+  _evalConditionWithMocks(cond, mocks) {
+    const type = cond.condition || "";
+    const getState = (eid) => mocks[eid] ?? this._hass?.states[eid]?.state ?? null;
+    switch (type) {
+      case "state": {
+        const eids = Array.isArray(cond.entity_id) ? cond.entity_id : [cond.entity_id];
+        const states = Array.isArray(cond.state) ? cond.state : (cond.state != null ? [String(cond.state)] : []);
+        const results = eids.map((eid) => {
+          const s = getState(eid);
+          if (s === null) return null;
+          return states.length > 0 ? states.includes(String(s)) : true;
+        });
+        if (results.includes(null)) return null;
+        return results.every(Boolean);
+      }
+      case "numeric_state": {
+        const eids = Array.isArray(cond.entity_id) ? cond.entity_id : [cond.entity_id];
+        const results = eids.map((eid) => {
+          const s = parseFloat(getState(eid));
+          if (isNaN(s)) return null;
+          if (cond.above != null && s <= cond.above) return false;
+          if (cond.below != null && s >= cond.below) return false;
+          return true;
+        });
+        if (results.includes(null)) return null;
+        return results.every(Boolean);
+      }
+      case "and": return (cond.conditions || []).every((c) => this._evalConditionWithMocks(c, mocks));
+      case "or": return (cond.conditions || []).some((c) => this._evalConditionWithMocks(c, mocks));
+      case "not": return !(cond.conditions || []).some((c) => this._evalConditionWithMocks(c, mocks));
+      default: return null;
+    }
+  }
+
+  _evalTriggerWithMocks(trig, mocks) {
+    const p = trig.platform || trig.trigger || "";
+    switch (p) {
+      case "time": return true;
+      case "homeassistant": return true;
+      case "state": {
+        const eid = Array.isArray(trig.entity_id) ? trig.entity_id[0] : trig.entity_id;
+        const mockState = mocks[eid] ?? this._hass?.states[eid]?.state ?? null;
+        if (trig.to != null) return mockState !== null ? String(mockState) === String(trig.to) : null;
+        return true;
+      }
+      case "numeric_state": {
+        const eid = Array.isArray(trig.entity_id) ? trig.entity_id[0] : trig.entity_id;
+        const s = parseFloat(mocks[eid] ?? this._hass?.states[eid]?.state);
+        if (isNaN(s)) return null;
+        if (trig.above != null && s <= trig.above) return false;
+        if (trig.below != null && s >= trig.below) return false;
+        return true;
+      }
+      default: return null;
+    }
+  }
+
+  _getChangedSections(original, modified) {
+    const changed = new Set();
+    if (!original || !modified) return changed;
+    ["trigger", "condition", "action"].forEach((section) => {
+      if (JSON.stringify(original[section] || []) !== JSON.stringify(modified[section] || [])) {
+        changed.add(section);
+      }
+    });
+    return changed;
+  }
+
+  _buildAutomationRow(item, section, idx, changedSections, onDelete) {
+    const row = document.createElement("div");
+    row.className = "ae-row";
+    row.draggable = true;
+    row.dataset.idx = idx;
+    const descFn = section === "trigger" ? this._describeTrigger.bind(this)
+      : section === "condition" ? this._describeCondition.bind(this)
+      : this._describeAction.bind(this);
+    const desc = descFn(item);
+    const isChanged = changedSections.has(section);
+    row.innerHTML = `
+      <span class="ae-drag-handle" title="Sleep om te herschikken">⠿</span>
+      <span class="ae-row-desc${isChanged ? " changed" : ""}">${this._escapeHtml(desc)}</span>
+      <button class="ae-row-delete" title="Verwijder">🗑</button>
+    `;
+    row.querySelector(".ae-row-delete").addEventListener("click", (e) => {
+      e.stopPropagation();
+      onDelete();
+    });
+    return row;
+  }
+
+  _setupDragAndDrop(container, array, onChange) {
+    let dragSrcIdx = null;
+    container.addEventListener("dragstart", (e) => {
+      const row = e.target.closest(".ae-row");
+      if (!row) return;
+      dragSrcIdx = parseInt(row.dataset.idx, 10);
+      row.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    });
+    container.addEventListener("dragend", () => {
+      container.querySelectorAll(".ae-row").forEach((r) => r.classList.remove("dragging", "drag-over"));
+      dragSrcIdx = null;
+    });
+    container.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      const row = e.target.closest(".ae-row");
+      container.querySelectorAll(".ae-row").forEach((r) => r.classList.remove("drag-over"));
+      if (row) row.classList.add("drag-over");
+      e.dataTransfer.dropEffect = "move";
+    });
+    container.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const row = e.target.closest(".ae-row");
+      if (!row || dragSrcIdx === null) return;
+      const destIdx = parseInt(row.dataset.idx, 10);
+      if (dragSrcIdx === destIdx) return;
+      const [moved] = array.splice(dragSrcIdx, 1);
+      array.splice(destIdx, 0, moved);
+      onChange();
+    });
+  }
+
+  _buildAutomationTester(config, _automationId, container) {
+    const allEntityIds = this._extractEntityIds(config);
+    const mocks = {};
+    const currentStates = {};
+    allEntityIds.forEach((eid) => {
+      currentStates[eid] = this._hass?.states[eid]?.state ?? "?";
+    });
+
+    const buildMockUI = () => {
+      container.innerHTML = `
+        <div class="ae-tester-header">🧪 Automation simulatie</div>
+        ${allEntityIds.length ? `
+          <div class="ae-tester-desc">Overschrijf waarden om te simuleren:</div>
+          <div class="ae-tester-mocks"></div>
+        ` : ""}
+        <button class="ae-tester-run">▶ Simuleer</button>
+        <div class="ae-tester-results"></div>
+      `;
+      const mocksEl = container.querySelector(".ae-tester-mocks");
+      if (mocksEl) {
+        allEntityIds.forEach((eid) => {
+          const row = document.createElement("div");
+          row.className = "ae-mock-row";
+          row.innerHTML = `
+            <span class="ae-mock-eid">${this._escapeHtml(eid)}</span>
+            <span class="ae-mock-live">live: ${this._escapeHtml(currentStates[eid])}</span>
+            <input class="ae-mock-input" data-eid="${this._escapeHtml(eid)}"
+                   placeholder="${this._escapeHtml(currentStates[eid])}"
+                   value="${this._escapeHtml(mocks[eid] || "")}">
+          `;
+          mocksEl.appendChild(row);
+        });
+      }
+      container.querySelector(".ae-tester-run").addEventListener("click", () => {
+        container.querySelectorAll(".ae-mock-input").forEach((inp) => {
+          const val = inp.value.trim();
+          if (val) mocks[inp.dataset.eid] = val;
+          else delete mocks[inp.dataset.eid];
+        });
+        runSimulation();
+      });
+    };
+
+    const runSimulation = () => {
+      const resultsEl = container.querySelector(".ae-tester-results");
+      resultsEl.innerHTML = "";
+      const triggers = config.trigger || config.triggers || [];
+      const conditions = config.condition || config.conditions || [];
+      const actions = config.action || config.actions || [];
+
+      let anyTriggerFires = triggers.length === 0;
+      const trigSection = document.createElement("div");
+      trigSection.className = "ae-sim-section";
+      trigSection.innerHTML = `<div class="ae-sim-label">TRIGGERS</div>`;
+      triggers.forEach((t) => {
+        const result = this._evalTriggerWithMocks(t, mocks);
+        if (result === true) anyTriggerFires = true;
+        const item = document.createElement("div");
+        item.className = "ae-sim-item";
+        item.textContent = `${result === true ? "✅" : result === false ? "❌" : "❓"} ${this._describeTrigger(t)}`;
+        if (result === null) item.style.opacity = "0.6";
+        trigSection.appendChild(item);
+      });
+      resultsEl.appendChild(trigSection);
+
+      let allConditionsPass = true;
+      if (conditions.length) {
+        const condSection = document.createElement("div");
+        condSection.className = "ae-sim-section";
+        condSection.innerHTML = `<div class="ae-sim-label">CONDITIONS</div>`;
+        conditions.forEach((c) => {
+          const result = this._evalConditionWithMocks(c, mocks);
+          if (result === false) allConditionsPass = false;
+          const item = document.createElement("div");
+          item.className = "ae-sim-item";
+          item.textContent = `${result === true ? "✅" : result === false ? "❌" : "❓"} ${this._describeCondition(c)}`;
+          if (result === false) { item.style.fontWeight = "600"; item.style.color = "var(--danger, #e53935)"; }
+          condSection.appendChild(item);
+        });
+        resultsEl.appendChild(condSection);
+      }
+
+      const automationWouldRun = anyTriggerFires && allConditionsPass;
+      if (actions.length) {
+        const actSection = document.createElement("div");
+        actSection.className = "ae-sim-section";
+        actSection.innerHTML = `<div class="ae-sim-label">ACTIONS${automationWouldRun ? "" : " (overgeslagen)"}</div>`;
+        actions.forEach((a) => {
+          const item = document.createElement("div");
+          item.className = "ae-sim-item";
+          item.textContent = `${automationWouldRun ? "✅" : "⬜"} ${this._describeAction(a)}`;
+          if (!automationWouldRun) item.style.opacity = "0.5";
+          actSection.appendChild(item);
+        });
+        resultsEl.appendChild(actSection);
+      }
+
+      const resultDiv = document.createElement("div");
+      resultDiv.className = `ae-sim-result ${automationWouldRun ? "pass" : "fail"}`;
+      resultDiv.textContent = automationWouldRun
+        ? "✅ Automation ZOU draaien"
+        : `❌ Automation zou NIET draaien${!anyTriggerFires ? " (geen trigger vuurt)" : !allConditionsPass ? " (conditie faalt)" : ""}`;
+      resultsEl.appendChild(resultDiv);
+    };
+
+    buildMockUI();
+    runSimulation();
+  }
+
+  _buildAutomationSections(workingConfig, changedSections, sectionsEl, yamlPre) {
+    sectionsEl.innerHTML = "";
+    const updateYaml = () => { if (yamlPre) yamlPre.textContent = this._configToYaml(workingConfig); };
+    ["trigger", "condition", "action"].forEach((section) => {
+      const items = workingConfig[section] || [];
+      if (section === "condition" && items.length === 0) return;
+      const labelMap = { trigger: "TRIGGERS", condition: "CONDITIONS", action: "ACTIONS" };
+      const sectionDiv = document.createElement("div");
+      sectionDiv.className = "ae-section";
+      const changed = changedSections.has(section);
+      sectionDiv.innerHTML = `
+        <div class="ae-section-header${changed ? " changed" : ""}">
+          ${labelMap[section]}
+          ${section === "condition" ? `<button class="ae-btn-test-section">🧪 Test</button>` : ""}
+        </div>
+        <div class="ae-rows" data-section="${section}"></div>
+      `;
+      const rowsEl = sectionDiv.querySelector(".ae-rows");
+      items.forEach((item, idx) => {
+        const row = this._buildAutomationRow(item, section, idx, changedSections, () => {
+          workingConfig[section].splice(idx, 1);
+          updateYaml();
+          this._buildAutomationSections(workingConfig, changedSections, sectionsEl, yamlPre);
+        });
+        rowsEl.appendChild(row);
+      });
+      this._setupDragAndDrop(rowsEl, workingConfig[section], () => { updateYaml(); });
+      sectionsEl.appendChild(sectionDiv);
+    });
+  }
+
+  _buildEditAutomationCard(plan) {
+    const workingConfig = JSON.parse(JSON.stringify(plan.modified_config || plan.original_config || {}));
+    const isScript = (plan.entity_id || "").startsWith("script.");
+    const kind = isScript ? "script" : "automation";
+    const configId = plan.automation_id || (plan.entity_id || "").replace(/^(automation|script)\./, "");
+    const autoName = workingConfig.alias || plan.entity_id || "Automation";
+    const changedSections = this._getChangedSections(plan.original_config, plan.modified_config);
+
+    const card = document.createElement("div");
+    card.className = "automation-edit-card";
+    card.dataset.automationId = String(configId);
+    card.innerHTML = `
+      <div class="ae-header">
+        <span class="ae-icon">🤖</span>
+        <span class="ae-title">${this._escapeHtml(autoName)}</span>
+        <span class="ae-badge">${kind}</span>
+      </div>
+      <div class="ae-summary">${this._escapeHtml(plan.summary || "")}</div>
+      ${(plan.changes || []).length ? `
+        <ul class="ae-changes">${(plan.changes || []).map((c) => `<li>${this._escapeHtml(c)}</li>`).join("")}</ul>
+      ` : ""}
+      <div class="ae-sections" style="display:none"></div>
+      <details class="ae-yaml-details" style="display:none">
+        <summary>▼ YAML</summary>
+        <pre class="ae-yaml-preview"></pre>
+      </details>
+      <div class="ae-actions">
+        <button class="ae-btn-expand">▼ Bekijk</button>
+        <button class="ae-btn-test" style="display:none">🧪 Test</button>
+        <button class="ae-btn-apply">✓ Toepassen</button>
+        <button class="ae-btn-cancel">✕ Annuleren</button>
+      </div>
+      <div class="ae-result"></div>
+    `;
+
+    const sectionsEl = card.querySelector(".ae-sections");
+    const yamlDetails = card.querySelector(".ae-yaml-details");
+    const yamlPre = card.querySelector(".ae-yaml-preview");
+
+    card.querySelector(".ae-btn-expand").addEventListener("click", () => {
+      const expanded = sectionsEl.style.display !== "none";
+      if (expanded) {
+        sectionsEl.style.display = "none";
+        yamlDetails.style.display = "none";
+        card.querySelector(".ae-btn-expand").textContent = "▼ Bekijk";
+        card.querySelector(".ae-btn-test").style.display = "none";
+      } else {
+        sectionsEl.style.display = "";
+        yamlDetails.style.display = "";
+        this._buildAutomationSections(workingConfig, changedSections, sectionsEl, yamlPre);
+        yamlPre.textContent = this._configToYaml(workingConfig);
+        card.querySelector(".ae-btn-expand").textContent = "▲ Verberg";
+        card.querySelector(".ae-btn-test").style.display = "";
+      }
+    });
+
+    card.querySelector(".ae-btn-test").addEventListener("click", () => {
+      let testerEl = card.querySelector(".ae-tester");
+      if (!testerEl) { testerEl = document.createElement("div"); testerEl.className = "ae-tester"; sectionsEl.after(testerEl); }
+      this._buildAutomationTester(workingConfig, configId, testerEl);
+    });
+
+    card.querySelector(".ae-btn-apply").addEventListener("click", async () => {
+      const applyBtn = card.querySelector(".ae-btn-apply");
+      const cancelBtn = card.querySelector(".ae-btn-cancel");
+      const resultEl = card.querySelector(".ae-result");
+      applyBtn.disabled = true;
+      applyBtn.textContent = "Opslaan…";
+      try {
+        const apiPath = isScript ? `config/script/config/${configId}` : `config/automation/config/${configId}`;
+        const resp = await fetch(`/api/${apiPath}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${this._hass.auth.data.access_token}` },
+          body: JSON.stringify({ ...workingConfig, id: configId }),
+        });
+        if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
+        applyBtn.textContent = "✓ Opgeslagen";
+        applyBtn.style.background = "var(--success, #4caf50)";
+        cancelBtn.textContent = "↩ Ongedaan maken";
+        cancelBtn.dataset.mode = "undo";
+        cancelBtn.onclick = async () => {
+          try {
+            await fetch(`/api/${apiPath}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${this._hass.auth.data.access_token}` },
+              body: JSON.stringify({ ...(plan.original_config || workingConfig), id: configId }),
+            });
+            cancelBtn.textContent = "✓ Hersteld";
+            cancelBtn.disabled = true;
+          } catch (e) { cancelBtn.textContent = "⚠ Herstel mislukt"; }
+        };
+      } catch (err) {
+        applyBtn.disabled = false;
+        applyBtn.textContent = "✓ Toepassen";
+        resultEl.textContent = `Fout: ${err.message}`;
+        resultEl.className = "ae-result error";
+      }
+    });
+
+    card.querySelector(".ae-btn-cancel").addEventListener("click", (e) => {
+      if (e.currentTarget.dataset.mode === "undo") return; // undo handler takes over
+      card.remove();
+    });
+    return card;
+  }
+
+  _buildCreateAutomationCard(plan) {
+    const workingConfig = JSON.parse(JSON.stringify(plan.config || {}));
+    const changedSections = new Set();
+
+    const card = document.createElement("div");
+    card.className = "automation-edit-card";
+    card.dataset.automationId = "";
+    card.innerHTML = `
+      <div class="ae-header">
+        <span class="ae-icon">🤖</span>
+        <span class="ae-title">${this._escapeHtml(plan.alias || "Nieuwe automatisering")}</span>
+        <span class="ae-badge">automation</span>
+      </div>
+      <div class="ae-summary">${this._escapeHtml(plan.summary || "")}</div>
+      <div class="ae-sections" style="display:none"></div>
+      <details class="ae-yaml-details" style="display:none">
+        <summary>▼ YAML</summary>
+        <pre class="ae-yaml-preview"></pre>
+      </details>
+      <div class="ae-actions">
+        <button class="ae-btn-expand">▼ Bekijk</button>
+        <button class="ae-btn-test" style="display:none">🧪 Test</button>
+        <button class="ae-btn-apply">✓ Aanmaken</button>
+        <button class="ae-btn-cancel">✕ Annuleren</button>
+      </div>
+      <div class="ae-result"></div>
+    `;
+
+    const sectionsEl = card.querySelector(".ae-sections");
+    const yamlDetails = card.querySelector(".ae-yaml-details");
+    const yamlPre = card.querySelector(".ae-yaml-preview");
+
+    card.querySelector(".ae-btn-expand").addEventListener("click", () => {
+      const expanded = sectionsEl.style.display !== "none";
+      if (expanded) {
+        sectionsEl.style.display = "none";
+        yamlDetails.style.display = "none";
+        card.querySelector(".ae-btn-expand").textContent = "▼ Bekijk";
+        card.querySelector(".ae-btn-test").style.display = "none";
+      } else {
+        sectionsEl.style.display = "";
+        yamlDetails.style.display = "";
+        this._buildAutomationSections(workingConfig, changedSections, sectionsEl, yamlPre);
+        yamlPre.textContent = this._configToYaml(workingConfig);
+        card.querySelector(".ae-btn-expand").textContent = "▲ Verberg";
+        card.querySelector(".ae-btn-test").style.display = "";
+      }
+    });
+
+    card.querySelector(".ae-btn-test").addEventListener("click", () => {
+      let testerEl = card.querySelector(".ae-tester");
+      if (!testerEl) { testerEl = document.createElement("div"); testerEl.className = "ae-tester"; sectionsEl.after(testerEl); }
+      this._buildAutomationTester(workingConfig, null, testerEl);
+    });
+
+    card.querySelector(".ae-btn-apply").addEventListener("click", async () => {
+      const applyBtn = card.querySelector(".ae-btn-apply");
+      const resultEl = card.querySelector(".ae-result");
+      applyBtn.disabled = true;
+      applyBtn.textContent = "Aanmaken…";
+      try {
+        const newId = String(Date.now());
+        const configToSave = { ...workingConfig, id: newId };
+        if (!configToSave.alias) configToSave.alias = plan.alias || "New Automation";
+        const resp = await fetch(`/api/config/automation/config/${newId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${this._hass.auth.data.access_token}` },
+          body: JSON.stringify(configToSave),
+        });
+        if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
+        applyBtn.textContent = "✓ Aangemaakt";
+        applyBtn.style.background = "var(--success, #4caf50)";
+        card.querySelector(".ae-btn-cancel").textContent = "✕ Sluiten";
+      } catch (err) {
+        applyBtn.disabled = false;
+        applyBtn.textContent = "✓ Aanmaken";
+        resultEl.textContent = `Fout: ${err.message}`;
+        resultEl.className = "ae-result error";
+      }
+    });
+
+    card.querySelector(".ae-btn-cancel").addEventListener("click", () => card.remove());
+    return card;
+  }
 };

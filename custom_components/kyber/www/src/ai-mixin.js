@@ -1158,7 +1158,13 @@ export const AIMixin = (Base) => class extends Base {
 
     // Handle plan blocks
     if (plan) {
-      if (plan.open_dashboard) {
+      if (plan.edit_automation) {
+        history.appendChild(this._buildEditAutomationCard(plan));
+      } else if (plan.create_automation) {
+        history.appendChild(this._buildCreateAutomationCard(plan));
+      } else if (plan.run_simulation) {
+        this._handleRunSimulation(plan);
+      } else if (plan.open_dashboard) {
         const card = this._buildOpenDashboardPrompt(plan);
         history.appendChild(card);
         if (this._autopilot) {
@@ -1254,7 +1260,43 @@ export const AIMixin = (Base) => class extends Base {
     return card;
   }
 
-  /** Auto-execute read-only tool calls (no user approval needed) and display results. */
+  /** Apply run_simulation mocks to the most recent open automation tester in chat. */
+  _handleRunSimulation(plan) {
+    const history = this.shadowRoot?.getElementById("chat-history");
+    if (!history) return;
+    const cards = [...history.querySelectorAll(".automation-edit-card[data-automation-id]")].reverse();
+    const targetCard = cards.find((c) =>
+      !plan.automation_id || c.dataset.automationId === String(plan.automation_id)
+    );
+    if (!targetCard) return;
+
+    const applyMocksAndRun = () => {
+      const mocks = plan.mocks || {};
+      Object.entries(mocks).forEach(([eid, val]) => {
+        const inp = targetCard.querySelector(`.ae-mock-input[data-eid="${eid}"]`);
+        if (inp) inp.value = val;
+      });
+      targetCard.querySelector(".ae-tester-run")?.click();
+    };
+
+    const existingTester = targetCard.querySelector(".ae-tester");
+    if (existingTester) {
+      applyMocksAndRun();
+    } else {
+      // Open tester first, then apply
+      const testBtn = targetCard.querySelector(".ae-btn-test");
+      if (testBtn && testBtn.style.display !== "none") {
+        testBtn.click();
+        setTimeout(applyMocksAndRun, 100);
+      } else {
+        // Expand first, then test
+        targetCard.querySelector(".ae-btn-expand")?.click();
+        setTimeout(() => { targetCard.querySelector(".ae-btn-test")?.click(); setTimeout(applyMocksAndRun, 100); }, 100);
+      }
+    }
+  }
+
+
   async _autoExecuteToolPlan(plan, _originalPrompt) {
     const history = this.shadowRoot?.getElementById("chat-history");
     if (!history) return;
