@@ -1965,11 +1965,17 @@ def _extract_response_components(
             for a in area_reg.async_list_areas():
                 area_by_name[a.name.lower()] = a.id
                 area_by_name[a.id.lower()] = a.id
-            # Build lookup: area_id -> list of entity_ids
+            # Build lookup: area_id -> list of entity_ids (including device-inherited area)
+            device_reg_local = dr.async_get(hass)
             entities_by_area: dict = {}
             for entry in entity_reg.entities.values():
-                if entry.area_id:
-                    entities_by_area.setdefault(entry.area_id, []).append(entry.entity_id)
+                eid_area = entry.area_id
+                if not eid_area and entry.device_id:
+                    dev = device_reg_local.async_get(entry.device_id)
+                    if dev:
+                        eid_area = dev.area_id
+                if eid_area:
+                    entities_by_area.setdefault(eid_area, []).append(entry.entity_id)
 
             new_actions: list = []
             resolved_any = False

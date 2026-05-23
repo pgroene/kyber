@@ -8,6 +8,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
 
@@ -353,6 +354,26 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
     entity_reg = er.async_get(hass)
     label_reg = lr.async_get(hass)
 
+    _device_reg_cache: list = [None]
+
+    def _effective_area_id(entry: er.RegistryEntry | None) -> str | None:
+        """Return area_id for an entity, falling back to its device's area when not set directly."""
+        if entry is None:
+            return None
+        if getattr(entry, "area_id", None):
+            return entry.area_id
+        device_id = getattr(entry, "device_id", None)
+        if device_id:
+            if _device_reg_cache[0] is None:
+                try:
+                    _device_reg_cache[0] = dr.async_get(hass)
+                except Exception:  # noqa: BLE001
+                    return None
+            device = _device_reg_cache[0].async_get(device_id)
+            if device:
+                return device.area_id
+        return None
+
     state_filter = call.get("state")
 
     # `fields` lets the model request only specific properties per entity to
@@ -403,7 +424,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
                 out["domain"] = domain
             elif f in ("area", "area_name", "area_id"):
                 resolved_entry = entry if entry is not None else entity_reg.async_get(eid)
-                aid = resolved_entry.area_id if resolved_entry else None
+                aid = _effective_area_id(resolved_entry)
                 if f == "area_id":
                     out["area_id"] = aid
                 else:
@@ -482,7 +503,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
                     "error": f"Entity '{original_id}' not found — entity IDs require domain prefix (format: domain.name, e.g. 'sun.sun'). Use list_entities_by_domain or search_entities to find the correct ID."
                 })
         entry = entity_reg.async_get(entity_id)
-        area_id = entry.area_id if entry else None
+        area_id = _effective_area_id(entry)
         area_name = None
         if area_id:
             area_obj = area_reg.async_get_area(area_id)
@@ -531,7 +552,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         domain_filter = (call.get("domain") or "").strip().lower()
         results = {}
         for entry in entity_reg.entities.values():
-            if entry.area_id != area_obj.id:
+            if _effective_area_id(entry) != area_obj.id:
                 continue
             if domain_filter and entry.entity_id.split(".")[0] != domain_filter:
                 continue
@@ -655,7 +676,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         domain_filter = (call.get("domain") or "").strip().lower()
         results = {}
         for entry in entity_reg.entities.values():
-            if entry.area_id is not None:
+            if _effective_area_id(entry) is not None:
                 continue
             if domain_filter and entry.entity_id.split(".")[0] != domain_filter:
                 continue
@@ -967,8 +988,6 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         return json.dumps(data, default=str)
 
     if name == "list_integrations":
-        from homeassistant.helpers import device_registry as dr
-        device_reg = dr.async_get(hass)
         integrations: dict[str, dict] = {}
         for entry in entity_reg.entities.values():
             platform = entry.platform or "unknown"
