@@ -218,7 +218,7 @@ def _tool_result_summary(call: dict[str, Any], result: Any) -> str:
     if isinstance(result, dict) and "error" in result:
         return f"error: {result['error']}"
     if name == "list_entities_by_domain":
-        count = len(result) if isinstance(result, dict) else 0
+        count = len(result) if isinstance(result, dict) and "info" not in result and "error" not in result else 0
         domain = call.get("domain", "?")
         return f"{count} {domain} entities"
     if name == "get_entity_state":
