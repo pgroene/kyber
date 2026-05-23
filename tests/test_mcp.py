@@ -410,44 +410,35 @@ def test_mcp_log_evicts_oldest():
 
 
 # ---------------------------------------------------------------------------
-# Rate limiter: check() then record() (not check_and_record)
+# Rate limiter: atomic check_and_record
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_kyber_ask_rate_limiter_uses_check_and_record_separately(mcp_view):
-    """_handle_kyber_ask must call check() and record() separately."""
+async def test_kyber_ask_rate_limiter_uses_check_and_record(mcp_view):
+    """_dispatch routes kyber_ask to _handle_kyber_ask which uses check_and_record."""
     hass = _make_hass()
     hass.data["kyber_config"] = {"ai_task_entity_id": "conversation.mock"}
 
-    mock_rl = MagicMock()
-    mock_rl.check.return_value = (True, 0)
-
-    with patch("custom_components.kyber.mcp._rate_limiter", mock_rl), \
-         patch("custom_components.kyber.mcp._handle_kyber_ask", new_callable=AsyncMock) as mock_ask:
+    with patch("custom_components.kyber.mcp._handle_kyber_ask", new_callable=AsyncMock) as mock_ask:
         mock_ask.return_value = {"response": "ok", "actions_executed": 0, "token_usage": {}}
         await mcp_view._dispatch(hass, {
             "jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": {"name": "kyber_ask", "arguments": {"prompt": "test"}},
         }, "user-1", True)
 
-    # Verify check_and_record does NOT exist (was the bug) and the right methods are used
-    assert not hasattr(mock_rl, "check_and_record") or not mock_rl.check_and_record.called
+    mock_ask.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_handle_kyber_ask_rate_limit_check_then_record():
-    """When rate limit allows, check() is called before record()."""
+    """When rate limit allows, check_and_record() is called and request proceeds."""
     from custom_components.kyber.mcp import _handle_kyber_ask
 
     hass = _make_hass()
     hass.data["kyber_config"] = {}
 
     mock_rl = MagicMock()
-    mock_rl.check.return_value = (True, 0)
-
-    call_order = []
-    mock_rl.check.side_effect = lambda *a: (call_order.append("check"), (True, 0))[1]
-    mock_rl.record.side_effect = lambda *a: call_order.append("record")
+    mock_rl.check_and_record.return_value = (True, 0)
 
     with patch("custom_components.kyber.mcp._rate_limiter", mock_rl), \
          patch("custom_components.kyber.http_api._run_ai_loop", new_callable=AsyncMock) as mock_loop, \
@@ -467,18 +458,18 @@ async def test_handle_kyber_ask_rate_limit_check_then_record():
             hass, {"prompt": "hello"}, {"ai_task_entity_id": "conversation.mock"}, "user-1", True
         )
 
-    assert call_order == ["check", "record"], f"Wrong order: {call_order}"
+    mock_rl.check_and_record.assert_called_once()
     assert result["response"] == "response"
 
 
 @pytest.mark.asyncio
 async def test_handle_kyber_ask_rate_limit_blocked():
-    """When rate limit blocks, record() must NOT be called."""
+    """When rate limit blocks, request is rejected immediately."""
     from custom_components.kyber.mcp import _handle_kyber_ask
 
     hass = _make_hass()
     mock_rl = MagicMock()
-    mock_rl.check.return_value = (False, 42)
+    mock_rl.check_and_record.return_value = (False, 42)
 
     with patch("custom_components.kyber.mcp._rate_limiter", mock_rl):
         result = await _handle_kyber_ask(
@@ -487,7 +478,7 @@ async def test_handle_kyber_ask_rate_limit_blocked():
 
     assert "error" in result
     assert "42" in result["error"]
-    mock_rl.record.assert_not_called()
+    mock_rl.check_and_record.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

@@ -633,10 +633,9 @@ async def _handle_kyber_ask(
 
     # Rate limiting
     max_rpm = int(config.get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE))
-    allowed, retry_after = _rate_limiter.check(user_id, max_rpm)
+    allowed, retry_after = _rate_limiter.check_and_record(user_id, max_rpm)
     if not allowed:
         return {"error": f"Rate limit exceeded. Retry after {retry_after}s"}
-    _rate_limiter.record(user_id)
 
     entity_id: str = str(config.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
     if not entity_id:
