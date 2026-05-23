@@ -1,5 +1,5 @@
 /**
- * Kyber â€” AI-powered Smart Home Assistant Panel
+ * Kyber — AI-powered Smart Home Assistant Panel
  *
  * A Home Assistant custom panel web component that provides:
  *   - Automation selector (loads from HA state machine)
@@ -37,7 +37,7 @@ import { getT } from "./src/i18n.js?v=2";
 import { UtilsMixin } from "./src/utils-mixin.js?v=101";
 import { SessionMixin } from "./src/session-mixin.js?v=88";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=89";
-import { DebugMixin } from "./src/debug-mixin.js?v=104";
+import { DebugMixin } from "./src/debug-mixin.js?v=103";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=96";
 import { EditorMixin } from "./src/editor-mixin.js?v=95";
 import { AIMixin } from "./src/ai-mixin.js?v=110";
@@ -70,13 +70,13 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     // Input history navigation (like a shell: Up/Down when no autocomplete)
     this._historyNav = -1; // -1 = not browsing
     this._historyDraft = ""; // saves the current draft when browsing starts
-    // Autopilot mode â€” auto-executes proposals without user clicking Execute
+    // Autopilot mode — auto-executes proposals without user clicking Execute
     this._autopilot = false;
     // Editor mode: "automation" | "dashboard"
     this._editorMode = "automation";
-    // Cached list of dashboards [{title, url_path, mode}] â€” fetched lazily
+    // Cached list of dashboards [{title, url_path, mode}] — fetched lazily
     this._dashboardList = null;
-    // Cached list of custom Lovelace resource URLs â€” fetched lazily
+    // Cached list of custom Lovelace resource URLs — fetched lazily
     this._lovelaceResources = undefined;
     this._historyRestored = false;
     this._actionHistory = [];
@@ -94,7 +94,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     if (!this._rendered) {
       this._DEFAULT_GREETING = this._t("greeting");
       this._render();
-      // Run once after first render â€” auth is already present in normal HA flow
+      // Run once after first render — auth is already present in normal HA flow
       if (hass?.auth?.data?.access_token) {
         this._loadMemoryCount();
         this._loadActionHistory();
@@ -139,7 +139,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     if (!this._rendered) {
       this._render();
     } else if (this._mode === "debug") {
-      // HA reuses panel elements across navigation â€” re-fetch live backend data
+      // HA reuses panel elements across navigation — re-fetch live backend data
       // so memory/last-turn/status are always fresh when the user arrives.
       this._renderDebugTab(this._debugTab || "memory");
     }
@@ -175,21 +175,21 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <span class="session-label" id="session-indicator"></span>
             <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
             <span class="narrator-progress" id="narrator-progress" hidden title="AI narrator is building entity descriptions in the background"></span>
-            <button class="memory-badge" id="memory-badge" title="${this._t("memory_badge_title")}">ðŸ§  <span id="memory-count">â€¦</span></button>
-            <button class="token-badge" id="token-badge" title="Daily token usage">ðŸª™ <span id="token-count">0</span></button>
-            <button class="history-badge" id="btn-history-toggle" title="Show applied action history">ðŸ•˜ History</button>
-            <button class="update-badge" id="update-badge" hidden title="Update available â€” click to install">â¬†ï¸ <span id="update-badge-label">${this._t("update_badge")}</span></button>
-            <button class="autopilot-badge" id="autopilot-badge" title="Toggle autopilot â€” auto-executes safe proposals">${this._t("autopilot_badge")}</button>
+            <button class="memory-badge" id="memory-badge" title="${this._t("memory_badge_title")}">🧠 <span id="memory-count">…</span></button>
+            <button class="token-badge" id="token-badge" title="Daily token usage">🪙 <span id="token-count">0</span></button>
+            <button class="history-badge" id="btn-history-toggle" title="Show applied action history">🕘 History</button>
+            <button class="update-badge" id="update-badge" hidden title="Update available — click to install">⬆️ <span id="update-badge-label">${this._t("update_badge")}</span></button>
+            <button class="autopilot-badge" id="autopilot-badge" title="Toggle autopilot — auto-executes safe proposals">${this._t("autopilot_badge")}</button>
             <button class="btn-clear-history" id="btn-clear-history" title="${this._t("btn_clear_history")}">${this._t("btn_clear_history")}</button>
-            <button class="btn-debug" id="btn-debug" title="${this._t("btn_debug_title")}">ðŸž</button>
+            <button class="btn-debug" id="btn-debug" title="${this._t("btn_debug_title")}">🐞</button>
           </div>
-          <div id="warning-banner" class="warning-banner" style="display:none"><span id="warning-banner-text"></span><button id="warning-banner-close" title="Dismiss">âœ•</button></div>
-          <div id="explorer-banner" class="explorer-banner" style="display:none">ðŸ” <span id="explorer-banner-text">${this._t("exploring")}</span></div>
+          <div id="warning-banner" class="warning-banner" style="display:none"><span id="warning-banner-text"></span><button id="warning-banner-close" title="Dismiss">✕</button></div>
+          <div id="explorer-banner" class="explorer-banner" style="display:none">🔍 <span id="explorer-banner-text">${this._t("exploring")}</span></div>
           <div id="chat-review-queue" class="chat-review-queue"></div>
           <div class="action-history-panel" id="action-history-panel" hidden>
             <div class="action-history-panel-header">
               <strong>History</strong>
-              <button class="action-history-refresh" id="btn-history-refresh" title="Refresh history">â†»</button>
+              <button class="action-history-refresh" id="btn-history-refresh" title="Refresh history">↻</button>
             </div>
             <div class="action-history-list" id="action-history-list">
               <div class="action-history-empty">No applied actions yet.</div>
@@ -213,9 +213,10 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
               <button class="debug-tab" data-debug-tab="status">${this._t("debug_tab_status")}</button>
               <button class="debug-tab" data-debug-tab="logs">${this._t("debug_tab_logs")}</button>
               <button class="debug-tab" data-debug-tab="tests">${this._t("debug_tab_tests")}</button>
+              <button class="debug-tab" data-debug-tab="mcp">${this._t("debug_tab_mcp")}</button>
             </nav>
-            <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">â†»</button>
-            <button class="btn-debug-close" id="btn-debug-close" title="Back to chat">âœ•</button>
+            <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">↻</button>
+            <button class="btn-debug-close" id="btn-debug-close" title="Back to chat">✕</button>
           </div>
           <div class="debug-body" id="debug-body"><em>${this._t("debug_loading")}</em></div>
         </div>
@@ -367,8 +368,8 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       this._updateAutopilotBadge();
       this._appendMessage(
         this._autopilot
-          ? "âš¡ Autopilot is now ON â€” proposals will execute automatically."
-          : "Autopilot is now OFF â€” you'll review proposals before executing.",
+          ? "⚡ Autopilot is now ON — proposals will execute automatically."
+          : "Autopilot is now OFF — you'll review proposals before executing.",
         "assistant",
       );
     });
@@ -385,9 +386,9 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       const pop = document.createElement("div");
       pop.id = "update-badge-popover";
       pop.innerHTML = `
-        <div class="ubp-title">Kyber update${installed && latest ? `: v${installed} â†’ v${latest}` : ""}</div>
-        <button class="ubp-btn" id="ubp-update">â¬†ï¸ Update</button>
-        <button class="ubp-btn ubp-restart" id="ubp-update-restart">â¬†ï¸ Update &amp; Restart</button>
+        <div class="ubp-title">Kyber update${installed && latest ? `: v${installed} → v${latest}` : ""}</div>
+        <button class="ubp-btn" id="ubp-update">⬆️ Update</button>
+        <button class="ubp-btn ubp-restart" id="ubp-update-restart">⬆️ Update &amp; Restart</button>
       `;
       // Position below the badge
       const rect = badge.getBoundingClientRect();
@@ -477,7 +478,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
         this._askAI();
       }
 
-      // â”€â”€ Shell-style input history (Up/Down when no autocomplete) â”€â”€â”€â”€â”€â”€
+      // ── Shell-style input history (Up/Down when no autocomplete) ──────
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         const userMsgs = this._chatHistory
           .filter((m) => m.role === "user")
@@ -501,7 +502,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
           e.preventDefault();
           if (this._historyNav === -1) return;
           if (this._historyNav >= userMsgs.length - 1) {
-            // Reached the end â€” restore draft
+            // Reached the end — restore draft
             this._historyNav = -1;
             textarea.value = this._historyDraft;
             this._historyDraft = "";
@@ -595,37 +596,37 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
           narratorSpan.removeAttribute("hidden");
         }
         if (banner && bannerText) {
-          bannerText.textContent = `Narry is exploring your homeâ€¦ ${pct}%`;
+          bannerText.textContent = `Narry is exploring your home… ${pct}%`;
           banner.style.display = "";
-          if (banner.firstChild) banner.firstChild.textContent = "âœï¸ ";
+          if (banner.firstChild) banner.firstChild.textContent = "✍️ ";
         }
       } else if (status === "deep_learning") {
         const done = ep.deep_done ?? 0;
         const total = ep.deep_total ?? 0;
-        const cur = ep.deep_current ? ` â€” ${ep.deep_current}` : "";
+        const cur = ep.deep_current ? ` — ${ep.deep_current}` : "";
         if (narratorSpan) {
-          narratorSpan.textContent = `ðŸ§  ${done}/${total}`;
+          narratorSpan.textContent = `🧠 ${done}/${total}`;
           narratorSpan.removeAttribute("hidden");
         }
         if (banner && bannerText) {
-          bannerText.textContent = `Analyzing automationsâ€¦ ${done}/${total}${cur}`;
+          bannerText.textContent = `Analyzing automations… ${done}/${total}${cur}`;
           banner.style.display = "";
-          if (banner.firstChild) banner.firstChild.textContent = "ðŸ§  ";
+          if (banner.firstChild) banner.firstChild.textContent = "🧠 ";
         }
       } else if (status === "phase1_summaries" || status === "phase2_entities" || status === "starting") {
         const done = ep.done ?? 0;
         const total = ep.total ?? 0;
         if (narratorSpan) {
-          narratorSpan.textContent = `ðŸ” ${done}/${total}`;
+          narratorSpan.textContent = `🔍 ${done}/${total}`;
           narratorSpan.removeAttribute("hidden");
         }
         if (banner && bannerText) {
-          bannerText.textContent = `Exploring your homeâ€¦ ${done}/${total}`;
+          bannerText.textContent = `Exploring your home… ${done}/${total}`;
           banner.style.display = "";
-          if (banner.firstChild) banner.firstChild.textContent = "ðŸ” ";
+          if (banner.firstChild) banner.firstChild.textContent = "🔍 ";
         }
       } else {
-        // idle / done / unknown â€” hide everything
+        // idle / done / unknown — hide everything
         if (narratorSpan) narratorSpan.setAttribute("hidden", "");
         if (banner) banner.style.display = "none";
         // Self-stop when no active exploration

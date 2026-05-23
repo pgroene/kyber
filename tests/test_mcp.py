@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,10 +11,13 @@ pytest.importorskip("pytest_homeassistant_custom_component", reason="requires py
 
 from custom_components.kyber.mcp import (
     KyberMCPView,
+    KyberMcpLogView,
     MCP_PROTOCOL_VERSION,
+    _MCP_LOG_KEY,
     _handle_get_entity_state,
     _handle_list_entities,
     _handle_call_service,
+    _mcp_log,
     _ok,
     _err,
 )
@@ -364,3 +368,31 @@ async def test_kyber_ask_success(mcp_view):
     content = json.loads(result["result"]["content"][0]["text"])
     assert content["response"] == "Done! Turned on the bedroom light."
     assert content["actions_executed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# MCP call logging
+# ---------------------------------------------------------------------------
+
+def test_mcp_log_appends_entry():
+    """_mcp_log appends to hass.data ring buffer."""
+    hass = _make_hass()
+    _mcp_log(hass, {"ts": 1.0, "method": "tools/call", "tool": "get_entity_state", "outcome": "ok"})
+    _mcp_log(hass, {"ts": 2.0, "method": "ping", "tool": None, "outcome": "ok"})
+    buf = hass.data[_MCP_LOG_KEY]
+    assert len(buf) == 2
+    assert buf[0]["method"] == "tools/call"
+    assert buf[1]["method"] == "ping"
+
+
+def test_mcp_log_evicts_oldest():
+    """Ring buffer evicts oldest entries once _MCP_LOG_MAX is exceeded."""
+    from custom_components.kyber.mcp import _MCP_LOG_MAX
+    hass = _make_hass()
+    for i in range(_MCP_LOG_MAX + 5):
+        _mcp_log(hass, {"ts": float(i), "method": "ping", "tool": None, "outcome": "ok"})
+    buf = hass.data[_MCP_LOG_KEY]
+    assert len(buf) == _MCP_LOG_MAX
+    # The oldest entries (ts=0..4) should be gone; newest survives
+    assert buf[-1]["ts"] == float(_MCP_LOG_MAX + 4)
+

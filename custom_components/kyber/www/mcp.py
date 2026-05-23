@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
 from http import HTTPStatus
 from typing import Any
@@ -40,6 +41,18 @@ _LOGGER = logging.getLogger(__name__)
 
 MCP_PROTOCOL_VERSION = "2024-11-05"
 _SERVER_INFO = {"name": "kyber", "version": "1.0.0"}
+
+# hass.data key for the MCP call log ring buffer
+_MCP_LOG_KEY = "kyber_mcp_call_log"
+_MCP_LOG_MAX = 200  # keep last 200 calls
+
+
+def _mcp_log(hass: HomeAssistant, entry: dict) -> None:
+    """Append an entry to the MCP call log ring buffer."""
+    buf: list[dict] = hass.data.setdefault(_MCP_LOG_KEY, [])
+    buf.append(entry)
+    if len(buf) > _MCP_LOG_MAX:
+        del buf[: len(buf) - _MCP_LOG_MAX]
 
 
 # ---------------------------------------------------------------------------
@@ -417,7 +430,42 @@ class KyberMCPView(HomeAssistantView):
             if not isinstance(rpc, dict):
                 responses.append(_err(None, -32600, "Invalid Request"))
                 continue
+            t0 = time.monotonic()
             resp = await self._dispatch(hass, rpc, user_id, is_admin)
+            latency_ms = round((time.monotonic() - t0) * 1000)
+
+            method: str = rpc.get("method", "")
+            params: dict = rpc.get("params") or {}
+            tool_name: str | None = params.get("name") if method == "tools/call" else None
+
+            # Determine outcome for the log
+            is_notification = resp is None
+            if is_notification:
+                outcome = "notification"
+            elif "error" in resp:
+                outcome = "error"
+            elif method == "tools/call" and resp.get("result", {}).get("isError"):
+                outcome = "tool_error"
+            else:
+                outcome = "ok"
+
+            _mcp_log(hass, {
+                "ts": time.time(),
+                "method": method,
+                "tool": tool_name,
+                "user_id": user_id,
+                "latency_ms": latency_ms,
+                "outcome": outcome,
+                "error": resp.get("error", {}).get("message") if resp and "error" in resp else None,
+            })
+            _LOGGER.debug(
+                "MCP %s%s → %s (%dms)",
+                method,
+                f"/{tool_name}" if tool_name else "",
+                outcome,
+                latency_ms,
+            )
+
             if resp is not None:
                 responses.append(resp)
 
@@ -508,3 +556,29 @@ class KyberMCPView(HomeAssistantView):
             "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}],
             "isError": False,
         })
+
+
+# ---------------------------------------------------------------------------
+# MCP call log view
+# ---------------------------------------------------------------------------
+
+class KyberMcpLogView(HomeAssistantView):
+    """Expose the MCP call log ring buffer.
+
+    GET    /api/kyber/mcp/log  → {"calls": [...], "total": N}
+    DELETE /api/kyber/mcp/log  → {"cleared": true}
+    """
+
+    url = "/api/kyber/mcp/log"
+    name = "api:kyber:mcp:log"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        buf: list[dict] = list(hass.data.get(_MCP_LOG_KEY) or [])
+        return self.json({"calls": buf, "total": len(buf)})
+
+    async def delete(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        hass.data[_MCP_LOG_KEY] = []
+        return self.json({"cleared": True})

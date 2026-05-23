@@ -31,6 +31,8 @@ export const DebugMixin = (Base) => class extends Base {
         await this._renderDebugLogs(body);
       } else if (tab === "tests") {
         await this._renderDebugTests(body);
+      } else if (tab === "mcp") {
+        await this._renderDebugMcp(body);
       }
     } catch (err) {
       body.innerHTML = `<div class="debug-error">Error: ${this._escapeHtml(err.message)}</div>`;
@@ -1507,5 +1509,213 @@ export const DebugMixin = (Base) => class extends Base {
     const nums = responseText.match(/\b\d+(?:[.,]\d+)?(?:\s*[°%])?/g) || [];
     keywords.push(...nums.slice(0, 2));
     return [...new Set(keywords)].slice(0, 5);
+  }
+
+  // ---------------------------------------------------------------------------
+  // MCP debug tab: call log + side-by-side compare
+  // ---------------------------------------------------------------------------
+
+  async _renderDebugMcp(body) {
+    const token = this._hass.auth.data.access_token;
+
+    // Load the call log
+    let calls = [];
+    try {
+      const r = await fetch("/api/kyber/mcp/log", { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) {
+        const d = await r.json();
+        calls = d.calls || [];
+      }
+    } catch (_) { /* ignore */ }
+
+    body.innerHTML = `
+      <!-- ── Compare tool ─────────────────────────────────────────── -->
+      <details class="debug-section" open>
+        <summary style="font-weight:600;cursor:pointer;padding:6px 0">🔬 Side-by-side compare</summary>
+        <div style="margin-top:10px">
+          <div style="display:flex;gap:8px;margin-bottom:10px">
+            <input id="mcp-cmp-input" type="text" placeholder="Ask a question…"
+              style="flex:1;padding:7px 11px;border-radius:6px;border:1px solid var(--divider-color);
+                     background:var(--secondary-background-color);color:var(--primary-text-color);font-size:0.9rem">
+            <button id="mcp-cmp-btn" class="btn-primary" style="padding:7px 18px;white-space:nowrap">▶ Compare</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px" id="mcp-cmp-cols">
+            <div>
+              <div style="font-size:0.82rem;font-weight:600;color:var(--secondary-text-color);margin-bottom:6px">
+                🏠 Direct Kyber  <code style="font-weight:400;font-size:0.78rem">/api/kyber/complete</code>
+              </div>
+              <div id="mcp-cmp-direct" style="min-height:80px;padding:10px;border-radius:6px;
+                   border:1px solid var(--divider-color);background:var(--secondary-background-color);
+                   font-size:0.88rem;white-space:pre-wrap;color:var(--secondary-text-color)">—</div>
+            </div>
+            <div>
+              <div style="font-size:0.82rem;font-weight:600;color:var(--secondary-text-color);margin-bottom:6px">
+                🔌 Via MCP  <code style="font-weight:400;font-size:0.78rem">/api/kyber/mcp</code>
+              </div>
+              <div id="mcp-cmp-mcp" style="min-height:80px;padding:10px;border-radius:6px;
+                   border:1px solid var(--divider-color);background:var(--secondary-background-color);
+                   font-size:0.88rem;white-space:pre-wrap;color:var(--secondary-text-color)">—</div>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <!-- ── Call log ─────────────────────────────────────────────── -->
+      <details class="debug-section" open style="margin-top:14px">
+        <summary style="font-weight:600;cursor:pointer;padding:6px 0">
+          📋 MCP call log
+          <span style="font-size:0.8rem;font-weight:400;color:var(--secondary-text-color);margin-left:8px"
+                id="mcp-log-count">${calls.length} calls</span>
+        </summary>
+        <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap">
+          <button id="mcp-log-refresh" style="font-size:0.85rem;padding:4px 12px">🔄 Refresh</button>
+          <button id="mcp-log-clear" style="font-size:0.85rem;padding:4px 12px;color:var(--error-color)">🗑 Clear</button>
+        </div>
+        <div id="mcp-log-table"></div>
+      </details>
+    `;
+
+    this._renderMcpLogTable(body, calls);
+
+    // Compare button
+    body.querySelector("#mcp-cmp-btn").addEventListener("click", () => this._runMcpCompare(body, token));
+    body.querySelector("#mcp-cmp-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") this._runMcpCompare(body, token);
+    });
+
+    // Log controls
+    body.querySelector("#mcp-log-refresh").addEventListener("click", () => this._renderDebugMcp(body));
+    body.querySelector("#mcp-log-clear").addEventListener("click", async () => {
+      await fetch("/api/kyber/mcp/log", { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      this._renderDebugMcp(body);
+    });
+  }
+
+  _renderMcpLogTable(body, calls) {
+    const tableEl = body.querySelector("#mcp-log-table");
+    if (!tableEl) return;
+    if (!calls.length) {
+      tableEl.innerHTML = `<em style="color:var(--secondary-text-color);font-size:0.88rem">No MCP calls recorded yet.</em>`;
+      return;
+    }
+    const OUTCOME_COLOR = { ok: "var(--success-color,#4caf50)", error: "var(--error-color)", tool_error: "var(--warning-color,#ff9800)", notification: "var(--secondary-text-color)" };
+    const rows = calls.slice().reverse().map((c) => {
+      const ts = c.ts ? new Date(c.ts * 1000).toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+      const method = this._escapeHtml(c.method || "");
+      const tool = c.tool ? `<code style="font-size:0.8rem">${this._escapeHtml(c.tool)}</code>` : "—";
+      const user = this._escapeHtml((c.user_id || "").slice(0, 8) + (c.user_id && c.user_id.length > 8 ? "…" : ""));
+      const latency = c.latency_ms != null ? `${c.latency_ms}ms` : "—";
+      const outcome = c.outcome || "—";
+      const color = OUTCOME_COLOR[outcome] || "inherit";
+      const errMsg = c.error ? `<span title="${this._escapeAttr(c.error)}" style="color:var(--error-color);cursor:help">⚠</span>` : "";
+      return `<tr style="border-bottom:1px solid var(--divider-color)">
+        <td style="padding:4px 8px 4px 0;font-size:0.8rem;white-space:nowrap;color:var(--secondary-text-color)">${ts}</td>
+        <td style="padding:4px 8px 4px 0;font-size:0.83rem;font-family:monospace">${method}</td>
+        <td style="padding:4px 8px 4px 0">${tool}</td>
+        <td style="padding:4px 8px 4px 0;font-size:0.8rem;color:var(--secondary-text-color)">${user}</td>
+        <td style="padding:4px 8px 4px 0;font-size:0.8rem;white-space:nowrap">${latency}</td>
+        <td style="padding:4px 0;font-size:0.8rem;font-weight:600;color:${color}">${outcome} ${errMsg}</td>
+      </tr>`;
+    }).join("");
+    tableEl.innerHTML = `
+      <div style="overflow-x:auto;max-height:50vh">
+        <table style="width:100%;border-collapse:collapse;font-family:monospace">
+          <thead><tr style="font-size:0.78rem;color:var(--secondary-text-color);border-bottom:2px solid var(--divider-color)">
+            <th style="text-align:left;padding:2px 8px 4px 0">Time</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">Method</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">Tool</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">User</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">Latency</th>
+            <th style="text-align:left;padding:2px 0 4px 0">Outcome</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  async _runMcpCompare(body, token) {
+    const input = body.querySelector("#mcp-cmp-input");
+    const prompt = (input?.value || "").trim();
+    if (!prompt) return;
+
+    const directEl = body.querySelector("#mcp-cmp-direct");
+    const mcpEl = body.querySelector("#mcp-cmp-mcp");
+    const btn = body.querySelector("#mcp-cmp-btn");
+
+    btn.disabled = true;
+    btn.textContent = "⏳ Asking…";
+    directEl.textContent = "⏳ waiting…";
+    mcpEl.textContent = "⏳ waiting…";
+
+    const requestId = `mcp-cmp-${Date.now()}`;
+
+    const directPromise = (async () => {
+      const t0 = performance.now();
+      try {
+        const r = await fetch("/api/kyber/complete", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, yaml: "", history: [], request_id: requestId }),
+        });
+        const ms = Math.round(performance.now() - t0);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        const tokens = d.token_usage?.total_tokens;
+        const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""}`;
+        directEl.textContent = (d.response || "(no response)") + footer;
+      } catch (e) {
+        directEl.textContent = `❌ ${e.message}`;
+      }
+    })();
+
+    const mcpPromise = (async () => {
+      const t0 = performance.now();
+      try {
+        const r = await fetch("/api/kyber/mcp", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0", id: 1, method: "tools/call",
+            params: { name: "kyber_ask", arguments: { prompt } },
+          }),
+        });
+        const ms = Math.round(performance.now() - t0);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        if (d.error) throw new Error(d.error.message || "RPC error");
+        const content = d.result?.content?.[0]?.text || "";
+        let text = content;
+        try {
+          const parsed = JSON.parse(content);
+          text = parsed.response || content;
+          const tokens = parsed.token_usage?.total_tokens;
+          const actions = parsed.actions_executed;
+          const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""}${actions != null ? ` · ${actions} action(s)` : ""}`;
+          text += footer;
+        } catch (_) {
+          text += `\n\n─── ${ms}ms`;
+        }
+        if (d.result?.isError) text = `⚠️ Tool error:\n${text}`;
+        mcpEl.textContent = text;
+      } catch (e) {
+        mcpEl.textContent = `❌ ${e.message}`;
+      }
+    })();
+
+    await Promise.all([directPromise, mcpPromise]);
+
+    btn.disabled = false;
+    btn.textContent = "▶ Compare";
+
+    // Refresh the log table after compare
+    try {
+      const r = await fetch("/api/kyber/mcp/log", { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) {
+        const d = await r.json();
+        this._renderMcpLogTable(body, d.calls || []);
+        const countEl = body.querySelector("#mcp-log-count");
+        if (countEl) countEl.textContent = `${(d.calls || []).length} calls`;
+      }
+    } catch (_) { /* ignore */ }
   }
 };
