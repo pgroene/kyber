@@ -517,6 +517,38 @@ class KyberOptionsFlow(OptionsFlow):
                     errors={CONF_AI_TASK_ENTITY_ID: "entity_not_found"},
                 )
 
+            # If the cloud provider just changed to a non-None value and the user
+            # hasn't provided credentials yet, re-render the form so the
+            # provider-specific credential fields become visible.
+            selected_provider = str(cloud.get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER)).strip()
+            stored_provider = _get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER)
+            _needs_creds = {
+                CLOUD_PROVIDER_OPENAI:    not cloud.get(CONF_OPENAI_API_KEY, "").strip(),
+                CLOUD_PROVIDER_AZURE:     not cloud.get(CONF_AZURE_API_KEY, "").strip(),
+                CLOUD_PROVIDER_ANTHROPIC: not cloud.get(CONF_ANTHROPIC_API_KEY, "").strip(),
+            }
+            if (
+                selected_provider != CLOUD_PROVIDER_NONE
+                and selected_provider != stored_provider
+                and _needs_creds.get(selected_provider, False)
+            ):
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=_build_options_schema(
+                        ai_entity=_get(CONF_AI_TASK_ENTITY_ID, ""),
+                        include_entity=True,
+                        max_tokens=int(model.get(CONF_MAX_TOKENS, _get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS))),
+                        max_requests_per_minute=int(developer.get(CONF_MAX_REQUESTS_PER_MINUTE, _get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE))),
+                        max_daily_tokens=int(model.get(CONF_MAX_DAILY_TOKENS, _get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS))),
+                        narrator_ai_entity=str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, _get(CONF_NARRATOR_AI_TASK_ENTITY_ID, ""))),
+                        narrator_max_tokens=int(model.get(CONF_NARRATOR_MAX_TOKENS, _get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS))),
+                        cloud_provider=selected_provider,
+                        cloud_use_for_chat=bool(cloud.get(CONF_CLOUD_USE_FOR_CHAT, _get(CONF_CLOUD_USE_FOR_CHAT, DEFAULT_CLOUD_USE_FOR_CHAT))),
+                        collapsed=False,
+                    ),
+                    description_placeholders={"info": f"Enter credentials for {selected_provider}"},
+                )
+
             data: dict[str, Any] = {
                 CONF_MAX_TOKENS: int(model.get(CONF_MAX_TOKENS, _get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS))),
                 CONF_MAX_DAILY_TOKENS: int(model.get(CONF_MAX_DAILY_TOKENS, _get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS))),

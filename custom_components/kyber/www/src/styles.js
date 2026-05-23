@@ -204,6 +204,29 @@ export const STYLES = `
     max-width: 100%;
   }
 
+  /* Markdown-rendered content inside assistant messages */
+  .chat-message.assistant ul,
+  .chat-message.assistant ol {
+    margin: 4px 0;
+    padding-left: 18px;
+  }
+  .chat-message.assistant li { margin: 2px 0; line-height: 1.4; }
+  .chat-message.assistant ul li::marker { color: var(--primary-color, #03a9f4); }
+  .chat-message.assistant li > ul,
+  .chat-message.assistant li > ol { margin: 2px 0; }
+  .chat-message.assistant p { margin: 4px 0; line-height: 1.5; }
+  .chat-message.assistant p:first-child { margin-top: 0; }
+  .chat-message.assistant p:last-child  { margin-bottom: 0; }
+  .chat-message.assistant h4,
+  .chat-message.assistant h5,
+  .chat-message.assistant h6 {
+    margin: 8px 0 2px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--primary-text-color);
+  }
+  .chat-message.assistant strong { font-weight: 600; }
+
   .chat-message.error {
     background: var(--danger);
     color: white;

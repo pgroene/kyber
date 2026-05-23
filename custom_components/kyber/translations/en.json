@@ -100,6 +100,27 @@
             "data": {
               "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)"
             }
+          },
+          "cloud_config": {
+            "name": "Cloud AI Provider",
+            "data": {
+              "cloud_provider": "Cloud Provider",
+              "cloud_use_for_chat": "Use cloud provider for chat",
+              "azure_endpoint": "Azure Endpoint URL",
+              "azure_api_key": "Azure API Key",
+              "azure_deployment": "Azure Deployment Name",
+              "azure_api_version": "Azure API Version",
+              "openai_api_key": "OpenAI / Compatible API Key",
+              "openai_model": "Model name",
+              "openai_base_url": "API Base URL (leave blank for OpenAI default)",
+              "anthropic_api_key": "Anthropic API Key",
+              "anthropic_model": "Anthropic Model"
+            },
+            "data_description": {
+              "cloud_provider": "Select a cloud AI provider. Provider credentials appear after saving and re-opening options.",
+              "openai_base_url": "e.g. https://api.groq.com/openai/v1 for Groq, https://openrouter.ai/api/v1 for OpenRouter",
+              "azure_endpoint": "e.g. https://my-resource.openai.azure.com/"
+            }
           }
         }
       }

@@ -615,6 +615,93 @@ export const AIMixin = (Base) => class extends Base {
     }
   }
 
+  /**
+   * Lightweight markdown-to-DOM renderer.
+   * Handles: headings, bullet lists (*, -, +, nested), numbered lists,
+   * **bold** inline (as clickable choice buttons when onChoiceClick is provided),
+   * and paragraphs. Appends rendered nodes directly into `container`.
+   */
+  _renderMarkdown(text, container, onChoiceClick = null) {
+    const lines = text.split("\n");
+    let i = 0;
+
+    const appendInline = (parent, str) => {
+      if (!str) return;
+      const parts = str.split(/(\*\*[^*\n]+\*\*)/g);
+      parts.forEach((part) => {
+        const m = part.match(/^\*\*([^*]+)\*\*$/);
+        if (m && onChoiceClick) {
+          const btn = document.createElement("button");
+          btn.className = "inline-choice";
+          btn.textContent = m[1];
+          btn.addEventListener("click", () => {
+            const msg = btn.closest(".chat-message");
+            if (msg) msg.querySelectorAll(".inline-choice").forEach((b) => b.classList.add("used"));
+            onChoiceClick(m[1]);
+          });
+          parent.appendChild(btn);
+        } else if (m) {
+          const strong = document.createElement("strong");
+          strong.textContent = m[1];
+          parent.appendChild(strong);
+        } else {
+          parent.appendChild(document.createTextNode(part));
+        }
+      });
+    };
+
+    const buildList = (startIndent, ordered) => {
+      const list = document.createElement(ordered ? "ol" : "ul");
+      const bulletRe = /^(\s*)[*\-+]\s+(.*)$/;
+      const numberedRe = /^(\s*)\d+\.\s+(.*)$/;
+      while (i < lines.length) {
+        const line = lines[i];
+        const bm = bulletRe.exec(line);
+        const nm = numberedRe.exec(line);
+        const match = bm || nm;
+        if (!match) break;
+        const indent = match[1].length;
+        if (indent < startIndent) break;
+        if (indent > startIndent) {
+          const lastLi = list.lastElementChild || list.appendChild(document.createElement("li"));
+          lastLi.appendChild(buildList(indent, !!nm));
+          continue;
+        }
+        const li = document.createElement("li");
+        appendInline(li, match[2]);
+        list.appendChild(li);
+        i++;
+      }
+      return list;
+    };
+
+    while (i < lines.length) {
+      const line = lines[i];
+
+      const hm = line.match(/^(#{1,4})\s+(.+)/);
+      if (hm) {
+        const level = Math.min(hm[1].length + 3, 6);
+        const h = document.createElement(`h${level}`);
+        appendInline(h, hm[2]);
+        container.appendChild(h);
+        i++;
+        continue;
+      }
+
+      if (/^\s*[*\-+]\s/.test(line)) { container.appendChild(buildList(0, false)); continue; }
+      if (/^\s*\d+\.\s/.test(line))  { container.appendChild(buildList(0, true));  continue; }
+      if (!line.trim()) { i++; continue; }
+
+      const p = document.createElement("p");
+      while (i < lines.length && lines[i].trim() && !/^[#]|^\s*[*\-+]\s|^\s*\d+\./.test(lines[i])) {
+        appendInline(p, lines[i].trim());
+        p.appendChild(document.createTextNode(" "));
+        i++;
+      }
+      container.appendChild(p);
+    }
+  }
+
   _renderTextWithAdornments(text, onChoiceClick) {
     const frag = document.createDocumentFragment();
     // Split on **bold** markers, keeping delimiters
@@ -900,17 +987,12 @@ export const AIMixin = (Base) => class extends Base {
       const isChoiceContext = /\b(choose|pick|select|which (?:one|option)|what would you (?:like|prefer)|do you want|I can:?|options?:|confirm|proceed|sure)\b/i.test(textOnly)
         || /\b(welk|welke|welke van|which of|meerdere|multiple|disambig)\b/i.test(textOnly);
 
-      if (hasBold) {
-        // Render **bold** words as inline adornment buttons
-        const onChoiceClick = (label) => {
-          const input = this.shadowRoot.getElementById("prompt-input");
-          if (input) input.value = label;
-          this._askAI();
-        };
-        msg.appendChild(this._renderTextWithAdornments(textOnly, onChoiceClick));
-      } else {
-        msg.textContent = textOnly;
-      }
+      const onChoiceClick = (label) => {
+        const input = this.shadowRoot.getElementById("prompt-input");
+        if (input) input.value = label;
+        this._askAI();
+      };
+      this._renderMarkdown(textOnly, msg, onChoiceClick);
 
       // Replace backtick entity IDs (e.g. `media_player.tv`) with rich entity chips
       this._injectEntityChips(msg);
