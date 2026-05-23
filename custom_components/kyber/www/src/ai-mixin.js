@@ -512,11 +512,12 @@ export const AIMixin = (Base) => class extends Base {
     const stateVal = state?.state || "";
     const stateClass = this._stateClass(stateVal);
     const domainClass = `domain-${domain.replace(/_/g, "-")}`;
+    const missingClass = state ? "" : "entity-chip-missing";
     const span = document.createElement("span");
-    span.className = `entity-chip ${stateClass} ${domainClass}`.trim();
+    span.className = `entity-chip ${stateClass} ${domainClass} ${missingClass}`.trim();
     span.dataset.entityId = entityId;
-    span.title = entityId;
-    span.innerHTML = `<span class="entity-chip-icon">${icon}</span><span class="entity-chip-name">${this._escapeHTML(name)}</span>${stateVal ? `<span class="entity-chip-state">${this._escapeHTML(stateVal)}</span>` : ""}`;
+    span.title = state ? entityId : `${entityId} (not found in Home Assistant)`;
+    span.innerHTML = `<span class="entity-chip-icon">${icon}</span><span class="entity-chip-name">${this._escapeHTML(name)}</span>${stateVal ? `<span class="entity-chip-state">${this._escapeHTML(stateVal)}</span>` : ""}${!state ? `<span class="entity-chip-warn" title="Entity not found">?</span>` : ""}`;
     return span;
   }
 
@@ -544,34 +545,67 @@ export const AIMixin = (Base) => class extends Base {
       chip.classList.remove("state-on", "state-off", "state-unavailable");
       const sc = this._stateClass(stateVal);
       if (sc) chip.classList.add(sc);
+      // Entity is now known — remove missing indicator if present
+      if (chip.classList.contains("entity-chip-missing")) {
+        chip.classList.remove("entity-chip-missing");
+        chip.title = entityId;
+        chip.querySelector(".entity-chip-warn")?.remove();
+      }
     });
   }
 
   _injectEntityChips(container) {
-    // Walk text nodes and replace `backtick entity IDs` with live chips
-    const ENTITY_ID_RE = /`([a-z_]+\.[a-z0-9_]+)`/g;
-    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-    const replacements = [];
-    let node;
-    while ((node = walker.nextNode())) {
-      if (!ENTITY_ID_RE.test(node.textContent)) continue;
-      ENTITY_ID_RE.lastIndex = 0;
-      replacements.push(node);
-    }
-    replacements.forEach((textNode) => {
-      const frag = document.createDocumentFragment();
-      let last = 0;
-      const text = textNode.textContent;
-      ENTITY_ID_RE.lastIndex = 0;
-      let m;
-      while ((m = ENTITY_ID_RE.exec(text)) !== null) {
-        if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
-        frag.appendChild(this._entityChip(m[1]));
-        last = m.index + m[0].length;
+    // Walk text nodes and replace entity IDs with live chips.
+    // Pass 1: backtick-wrapped `entity.id` — always replaced (hyphens allowed)
+    // Pass 2: bare entity.id — only replaced when entity exists in hass.states
+    const BACKTICK_RE = /`([a-z_]+\.[a-z0-9_-]+)`/g;
+    const BARE_RE = /\b([a-z_]+\.[a-z0-9_-]+)\b/g;
+
+    // Skip text nodes inside code/pre blocks to preserve literal code display
+    const SKIP_TAGS = new Set(["CODE", "PRE", "SCRIPT", "STYLE"]);
+    const _insideSkip = (textNode) => {
+      let p = textNode.parentElement;
+      while (p && p !== container) {
+        if (SKIP_TAGS.has(p.tagName)) return true;
+        p = p.parentElement;
       }
+      return false;
+    };
+
+    const _collectNodes = (re) => {
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+      const nodes = [];
+      let n;
+      while ((n = walker.nextNode())) {
+        re.lastIndex = 0;
+        if (!_insideSkip(n) && re.test(n.textContent)) nodes.push(n);
+      }
+      return nodes;
+    };
+
+    const _replaceInNode = (textNode, re, mustExist) => {
+      const text = textNode.textContent;
+      re.lastIndex = 0;
+      const frag = document.createDocumentFragment();
+      let last = 0, anyReplaced = false;
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const entityId = m[1];
+        if (mustExist && !this._hass?.states?.[entityId]) continue;
+        if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+        frag.appendChild(this._entityChip(entityId));
+        last = m.index + m[0].length;
+        anyReplaced = true;
+      }
+      if (!anyReplaced) return;
       if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
       textNode.parentNode.replaceChild(frag, textNode);
-    });
+    };
+
+    // Pass 1: backtick entity IDs (always chip, even if unknown)
+    _collectNodes(BACKTICK_RE).forEach((n) => _replaceInNode(n, BACKTICK_RE, false));
+    // Pass 2: bare entity IDs (chip only when known to hass.states)
+    _collectNodes(BARE_RE).forEach((n) => _replaceInNode(n, BARE_RE, true));
   }
 
   // Convert bullet lists where ≥4 items each contain an entity chip into a compact grid
