@@ -1790,7 +1790,9 @@ export const DebugMixin = (Base) => class extends Base {
         const d = await r.json();
         const tokens = d.call_tokens || d.token_usage?.total_tokens;
         const actions = (d.tool_log || []).filter(e => e.type === "tool_call").length;
-        const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""} · ${actions} ⚙`;
+        const mem = (d.knowledge_used || []).length;
+        const memStr = mem > 0 ? ` · 🧠 ${mem} memory` : "";
+        const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""} · ${actions} ⚙${memStr}`;
         directEl.textContent = (d.response || "(no response)") + footer;
       } catch (e) {
         directEl.textContent = `❌ ${e.message}`;
@@ -1821,7 +1823,9 @@ export const DebugMixin = (Base) => class extends Base {
           text = parsed.response || content;
           const tokens = parsed.token_usage?.total_tokens;
           const actions = parsed.actions_executed;
-          const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""}${actions != null ? ` · ${actions} action(s)` : ""}`;
+          const mem = (parsed.knowledge_used || []).length;
+          const memStr = mem > 0 ? ` · 🧠 ${mem} memory` : "";
+          const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""}${actions != null ? ` · ${actions} action(s)` : ""}${memStr}`;
           text += footer;
         } catch (_) {
           text += `\n\n─── ${ms}ms`;
