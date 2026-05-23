@@ -317,11 +317,15 @@ async def _handle_kyber_ask(
     if mode == "quick":
         # Minimal instructions — no entity context injection, no knowledge base.
         # Saves ~70 % of tokens for simple factual questions.
+        # Still include the tool-call format so the AI can fetch live data correctly.
         instructions = (
             "You are a Home Assistant AI assistant (Kyber). "
-            "Answer the user's question concisely and accurately. "
-            "Use available tools to fetch live data if needed. "
-            "Do not make up device names, entity IDs, or states."
+            "Answer the user's question concisely and accurately.\n"
+            "NEVER guess time, date, or device states — always use a tool.\n"
+            "To call a tool, output exactly: [TOOL_CALL:{\"name\":\"tool_name\", ...}]\n"
+            "Available tools: get_datetime, get_entity_state, list_entities_by_domain, "
+            "get_area_entities, search_entities, get_areas.\n"
+            "Do not make up device names, entity IDs, states, or the current time."
         )
         intent = prompt
     else:
@@ -373,9 +377,9 @@ async def _handle_kyber_ask(
     # Build a compact tool_calls list for the MCP call log
     tool_calls_log = [
         {
-            "tool": e.get("tool") or e.get("name", "?"),
-            "input": str(e.get("input") or e.get("arguments") or "")[:300],
-            "output": str(e.get("output") or e.get("result") or "")[:300],
+            "tool": e.get("name", "?"),
+            "input": json.dumps(e.get("args") or {})[:300],
+            "output": str(e.get("result") or e.get("summary") or "")[:300],
         }
         for e in (tool_log or [])
         if e.get("type") == "tool_call"

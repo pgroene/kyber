@@ -1775,7 +1775,7 @@ export const DebugMixin = (Base) => class extends Base {
         const ms = Math.round(performance.now() - t0);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const d = await r.json();
-        const tokens = d.token_usage?.total_tokens;
+        const tokens = d.call_tokens || d.token_usage?.total_tokens;
         const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""}`;
         directEl.textContent = (d.response || "(no response)") + footer;
       } catch (e) {

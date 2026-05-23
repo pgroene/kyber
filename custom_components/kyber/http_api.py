@@ -1598,9 +1598,11 @@ async def _run_ai_loop(
             summary = _tool_result_summary(call, tool_result_data)
             args_display = {k: v for k, v in call.items() if k != "name"}
             tool_log.append({
+                "type": "tool_call",
                 "name": call.get("name", ""),
                 "args": args_display,
                 "summary": summary,
+                "result": tool_result_str[:300],
             })
             # Build a short preview of the result for the live UI
             preview = tool_result_str
@@ -2515,15 +2517,27 @@ class KyberView(HomeAssistantView):
                 except Exception as _prop2_err:  # noqa: BLE001
                     _LOGGER.debug("Kyber: plan proposal save failed (non-critical): %s", _prop2_err)
 
+        _call_tokens = int(call_token_usage.get("total_tokens", 0) or 0)
+        _call_tool_calls = [
+            {
+                "tool": e.get("name", "?"),
+                "input": json.dumps(e.get("args") or {})[:300],
+                "output": str(e.get("result") or e.get("summary") or "")[:300],
+            }
+            for e in (tool_log or [])
+            if e.get("type") == "tool_call"
+        ]
         _classic_call_log(hass, {
             "ts": _turn_started_at,
             "prompt": (user_prompt or "")[:120],
+            "response": str(response_text or "")[:300],
             "user_id": str(getattr(request.get("hass_user"), "id", "") or ""),
             "latency_ms": _total_ms,
-            "actions_executed": len([e for e in (tool_log or []) if e.get("type") == "tool_call"]),
-            "token_total": int((token_usage or {}).get("total_tokens") or 0),
+            "actions_executed": len(_call_tool_calls),
+            "token_total": _call_tokens,
             "intent": intent or "",
             "outcome": "ok",
+            "tool_calls": _call_tool_calls,
         })
 
         return self.json({
@@ -2542,6 +2556,7 @@ class KyberView(HomeAssistantView):
             "area_suggestions": area_suggestions or None,
             "aliases_saved": _aliases_saved or None,
             "token_usage": token_usage,
+            "call_tokens": _call_tokens,
             "budget_warning": True if token_usage.get("warning") else None,
         })
 
