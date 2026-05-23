@@ -352,7 +352,8 @@ async def _handle_kyber_ask(
 
     try:
         response_text, tool_log, _exchange, _cache, _intent, _loop_instr, _aliases, token_usage = \
-            await _run_ai_loop(hass, entity_id, instructions, kstore, prompt, request_id, [], intent, config=config)
+            await _run_ai_loop(hass, entity_id, instructions, kstore, prompt, request_id, [], intent, config=config,
+                               user_id=user_id, is_admin=is_admin)
     except Exception as err:  # noqa: BLE001
         _LOGGER.exception("Kyber MCP: AI loop error: %s", err)
         await token_budget_store.async_record(budget_provider, 0, max_daily_tokens)

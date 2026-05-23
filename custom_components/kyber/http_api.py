@@ -978,6 +978,8 @@ async def _run_ai_loop(
     history: list,
     intent: str,
     config: dict | None = None,
+    user_id: str | None = None,
+    is_admin: bool = False,
 ) -> tuple:
     """Run the AI tool-calling loop; return (response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, aliases_saved).
 
@@ -1434,8 +1436,8 @@ async def _run_ai_loop(
             # Resolve aliases before deciding sync vs async path
             call = {
                 **call,
-                "user_id": str(getattr(request.get("hass_user"), "id", "") or "") or None,
-                "is_admin": bool(getattr(request.get("hass_user"), "is_admin", False)),
+                "user_id": user_id,
+                "is_admin": is_admin,
             }
             call = resolve_tool_call(call)
             tool_name = call.get("name", "")
@@ -1497,8 +1499,8 @@ async def _run_ai_loop(
                             kstore,
                             _q,
                             _primary_eids,
-                            owner_id=str(getattr(request.get("hass_user"), "id", "") or "") or None,
-                            is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)),
+                            owner_id=user_id,
+                            is_admin=is_admin,
                         )
                         if _saved:
                             _aliases_saved.append(_saved)
@@ -1586,8 +1588,8 @@ async def _run_ai_loop(
                             kstore,
                             _alias_q,
                             [_eid],
-                            owner_id=str(getattr(request.get("hass_user"), "id", "") or "") or None,
-                            is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)),
+                            owner_id=user_id,
+                            is_admin=is_admin,
                         )
                         if _saved2:
                             _aliases_saved.append(_saved2)
@@ -2248,7 +2250,9 @@ class KyberView(HomeAssistantView):
 
         try:
             response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved, call_token_usage = \
-                await _run_ai_loop(hass, entity_id, instructions, kstore, user_prompt, request_id, history, intent, config=self._config)
+                await _run_ai_loop(hass, entity_id, instructions, kstore, user_prompt, request_id, history, intent, config=self._config,
+                                   user_id=str(getattr(request.get("hass_user"), "id", "") or "") or None,
+                                   is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)))
         except HomeAssistantError as err:
             await token_budget_store.async_record(
                 budget_provider,
