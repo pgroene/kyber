@@ -1756,13 +1756,15 @@ export const DebugMixin = (Base) => class extends Base {
     const btn = body.querySelector("#mcp-cmp-btn");
 
     btn.disabled = true;
-    btn.textContent = "⏳ Asking…";
     directEl.textContent = "⏳ waiting…";
     mcpEl.textContent = "⏳ waiting…";
 
     const requestId = `mcp-cmp-${Date.now()}`;
 
-    const directPromise = (async () => {
+    // Run Direct Kyber first, then MCP — sequential so timing is comparable
+    btn.textContent = "⏳ 1/2 Direct…";
+    directEl.textContent = "⏳ asking…";
+    {
       const t0 = performance.now();
       try {
         const r = await fetch("/api/kyber/complete", {
@@ -1774,14 +1776,17 @@ export const DebugMixin = (Base) => class extends Base {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const d = await r.json();
         const tokens = d.call_tokens || d.token_usage?.total_tokens;
-        const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""}`;
+        const actions = (d.tool_log || []).filter(e => e.type === "tool_call").length;
+        const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""}${actions ? ` · ${actions} action(s)` : ""}`;
         directEl.textContent = (d.response || "(no response)") + footer;
       } catch (e) {
         directEl.textContent = `❌ ${e.message}`;
       }
-    })();
+    }
 
-    const mcpPromise = (async () => {
+    btn.textContent = "⏳ 2/2 MCP…";
+    mcpEl.textContent = "⏳ asking…";
+    {
       const t0 = performance.now();
       try {
         const r = await fetch("/api/kyber/mcp", {
@@ -1813,9 +1818,7 @@ export const DebugMixin = (Base) => class extends Base {
       } catch (e) {
         mcpEl.textContent = `❌ ${e.message}`;
       }
-    })();
-
-    await Promise.all([directPromise, mcpPromise]);
+    }
 
     btn.disabled = false;
     btn.textContent = "▶ Compare";
