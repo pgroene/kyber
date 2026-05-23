@@ -2,9 +2,9 @@
 
 Scans existing HA automations, scenes, and scripts to infer relationships
 that aren't in the registries:
-- Entities frequently controlled together â†’ likely same area or scene group
-- Trigger â†’ action pairs that reveal device dependencies (turn on switch.X
-  then turn on light.Y â†’ switch.X powers light.Y)
+- Entities frequently controlled together → likely same area or scene group
+- Trigger → action pairs that reveal device dependencies (turn on switch.X
+  then turn on light.Y → switch.X powers light.Y)
 - Area inferences from automation/scene names mentioning rooms
 
 Each inferred fact is returned as a KnowledgeStore-shaped dict (NOT yet
@@ -97,7 +97,7 @@ def analyze_automations(hass: HomeAssistant) -> dict[str, Any]:
         elif domain == "script":
             scripts.append(state)
 
-    # â”€â”€ Scene analysis: entities in same scene â†’ likely same area / grouping
+    # ── Scene analysis: entities in same scene → likely same area / grouping
     for scene in scenes:
         entities_state = scene.attributes.get("entity_id") or []
         if isinstance(entities_state, str):
@@ -129,7 +129,7 @@ def analyze_automations(hass: HomeAssistant) -> dict[str, Any]:
             for b in entities[i + 1:]:
                 co_occurrence[frozenset({a, b})] += 1
 
-    # â”€â”€ Automation analysis: trigger entity â†’ action entity reveals dependencies
+    # ── Automation analysis: trigger entity → action entity reveals dependencies
     for autom in automations:
         name = autom.attributes.get("friendly_name") or autom.entity_id
         # HA exposes trigger/action through attributes only on some setups,
@@ -138,7 +138,7 @@ def analyze_automations(hass: HomeAssistant) -> dict[str, Any]:
         if isinstance(related, str):
             related = [related]
         related = [str(e) for e in related if isinstance(e, str)]
-        # Look for switchâ†’light pairs in the same automation (potential power chain)
+        # Look for switch→light pairs in the same automation (potential power chain)
         switches = [e for e in related if e.startswith("switch.")]
         downstream = [e for e in related if e.startswith(("light.", "media_player.", "climate."))]
         for sw in switches:
@@ -174,11 +174,11 @@ def analyze_automations(hass: HomeAssistant) -> dict[str, Any]:
                         "confidence": 0.4,
                     })
 
-    # â”€â”€ Script analysis: similar to automations
+    # ── Script analysis: similar to automations
     for script in scripts:
         name = script.attributes.get("friendly_name") or script.entity_id
         toks = _tokens(name)
-        # Scripts often encode procedures â€” propose a procedure entry per script
+        # Scripts often encode procedures — propose a procedure entry per script
         if toks:
             proposals.append({
                 "category": "procedure",
@@ -193,7 +193,7 @@ def analyze_automations(hass: HomeAssistant) -> dict[str, Any]:
                 "confidence": 0.55,
             })
 
-    # â”€â”€ Strong co-occurrence (3+ groups) â†’ likely-same-area entries
+    # ── Strong co-occurrence (3+ groups) → likely-same-area entries
     for pair, count in co_occurrence.items():
         if count < 3:
             continue

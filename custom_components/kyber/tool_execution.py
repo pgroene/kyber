@@ -209,6 +209,10 @@ def resolve_tool_call(call: dict[str, Any]) -> dict[str, Any]:
             if alt in call:
                 call = {**call, "area": call[alt]}
                 break
+    # Normalise area to lowercase so "Zitkamer" and "zitkamer" share the same
+    # dedup signature and avoid redundant back-to-back tool calls.
+    if name == "get_area_entities" and "area" in call:
+        call = {**call, "area": str(call["area"]).strip().lower()}
     return call
 
 

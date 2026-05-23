@@ -347,6 +347,18 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
     label_reg = lr.async_get(hass)
 
     areas = area_reg.async_list_areas()
+    # Deduplicate areas whose names are identical when lowercased (e.g. "Zitkamer" vs "zitkamer").
+    # Keep the one with the most-capitalised / longer name; drop pure-lowercase duplicates.
+    _seen_area_names: dict[str, Any] = {}
+    for _a in areas:
+        _key = _a.name.lower().replace(" ", "_")
+        if _key not in _seen_area_names:
+            _seen_area_names[_key] = _a
+        else:
+            # Prefer the area whose name contains uppercase (i.e. the "display" name)
+            if _a.name != _a.name.lower():
+                _seen_area_names[_key] = _a
+    areas = list(_seen_area_names.values())
     area_list = "\n".join(
         f"- {_sanitize_prompt_value(a.name, max_len=60)} → {_sanitize_prompt_value(a.id, max_len=60)}"
         for a in areas
