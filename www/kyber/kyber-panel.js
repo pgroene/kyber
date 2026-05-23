@@ -32,16 +32,16 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=112";
+import { STYLES } from "./src/styles.js?v=116";
 import { getT } from "./src/i18n.js?v=2";
 import { UtilsMixin } from "./src/utils-mixin.js?v=101";
 import { SessionMixin } from "./src/session-mixin.js?v=88";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=89";
-import { DebugMixin } from "./src/debug-mixin.js?v=103";
+import { DebugMixin } from "./src/debug-mixin.js?v=109";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=96";
 import { EditorMixin } from "./src/editor-mixin.js?v=95";
-import { AIMixin } from "./src/ai-mixin.js?v=110";
-import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=96";
+import { AIMixin } from "./src/ai-mixin.js?v=114";
+import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=97";
 
 // ---------------------------------------------------------------------------
 // Custom Element
@@ -213,6 +213,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
               <button class="debug-tab" data-debug-tab="status">${this._t("debug_tab_status")}</button>
               <button class="debug-tab" data-debug-tab="logs">${this._t("debug_tab_logs")}</button>
               <button class="debug-tab" data-debug-tab="tests">${this._t("debug_tab_tests")}</button>
+              <button class="debug-tab" data-debug-tab="mcp">${this._t("debug_tab_mcp")}</button>
             </nav>
             <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">↻</button>
             <button class="btn-debug-close" id="btn-debug-close" title="Back to chat">✕</button>

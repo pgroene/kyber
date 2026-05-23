@@ -75,6 +75,7 @@ try:
     # Import all kyber sub-modules that stub test files corrupt, so we capture
     # their real objects before any test file is imported.
     import custom_components.kyber as _kyber_pkg
+    import custom_components.kyber.action_execution as _kyber_action_execution
     import custom_components.kyber.analyzer as _kyber_analyzer
     import custom_components.kyber.api_utilities as _kyber_api_utilities
     import custom_components.kyber.const as _kyber_const_mod
@@ -113,6 +114,7 @@ try:
     # that use patch() on kyber modules legitimately.
     _STUB_REPLACED_KYBER_MODULES = {
         "custom_components.kyber":                          _kyber_pkg,
+        "custom_components.kyber.action_execution":         _kyber_action_execution,
         "custom_components.kyber.analyzer":                 _kyber_analyzer,
         "custom_components.kyber.api_utilities":            _kyber_api_utilities,
         "custom_components.kyber.const":                    _kyber_const_mod,
@@ -132,6 +134,8 @@ try:
     # include attributes that are confirmed to exist in the current codebase.
     _REAL_KYBER_ATTRS = [
         entry for entry in [
+            (_kyber_action_execution, "get_knowledge_store",
+             getattr(_kyber_action_execution, "get_knowledge_store", None)),
             (_kyber_analyzer, "analyze_automations",
              getattr(_kyber_analyzer, "analyze_automations", None)),
             (_kyber_ie, "IntegrationExplorer",
@@ -140,6 +144,11 @@ try:
              getattr(_kyber_knowledge, "CATEGORIES", None)),
             (_kyber_knowledge, "get_store",
              getattr(_kyber_knowledge, "get_store", None)),
+            # Restore Store on knowledge module — stub test files replace
+            # homeassistant.helpers.storage.Store with _Stub at module scope,
+            # which can corrupt knowledge.py's local binding across tests.
+            (_kyber_knowledge, "Store",
+             getattr(_kyber_knowledge, "Store", None)),
             (_kyber_source, "read_automations",
              getattr(_kyber_source, "read_automations", None)),
             (_kyber_source, "read_scenes",
@@ -173,6 +182,11 @@ if _HA_AVAILABLE:
         # Restore kyber module attributes overwritten on the real objects
         for mod, attr, real_val in _REAL_KYBER_ATTRS:
             setattr(mod, attr, real_val)
+        # Rebind any test-module-level imports that captured a stub's function
+        # (e.g. test_http_api.py captures get_knowledge_store at import time)
+        _test_http_api = sys.modules.get("tests.test_http_api")
+        if _test_http_api is not None and _kyber_knowledge is not None:
+            _test_http_api.get_knowledge_store = _kyber_knowledge.get_store
 
     @pytest.fixture(autouse=True)
     def auto_enable_custom_integrations(enable_custom_integrations):
@@ -211,8 +225,13 @@ if _HA_AVAILABLE:
         # Patch _async_explore_integrations to prevent lingering background tasks.
         # The function awaits an AI task that doesn't exist in tests, so it would
         # hang indefinitely if not mocked.
-        with patch("custom_components.kyber._async_explore_integrations", new_callable=AsyncMock):
+        with patch("custom_components.kyber._async_run_initial_learning", new_callable=AsyncMock), \
+             patch("custom_components.kyber._async_explore_integrations", new_callable=AsyncMock), \
+             patch("custom_components.kyber._async_seed_language_hints", new_callable=AsyncMock):
             await async_setup_entry(hass, mock_config_entry)
-            # Give the event loop one tick so the mock task completes immediately.
+            # Give the event loop one tick so the mock tasks complete immediately.
             await _asyncio.sleep(0)
+        # Background tasks are mocked so the knowledge store is never auto-created.
+        # Explicitly initialize it so tests that call get_knowledge_store(hass) directly work.
+        _kyber_knowledge.get_store(hass)
         yield mock_config_entry

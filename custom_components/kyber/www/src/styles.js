@@ -204,6 +204,29 @@ export const STYLES = `
     max-width: 100%;
   }
 
+  /* Markdown-rendered content inside assistant messages */
+  .chat-message.assistant ul,
+  .chat-message.assistant ol {
+    margin: 4px 0;
+    padding-left: 18px;
+  }
+  .chat-message.assistant li { margin: 2px 0; line-height: 1.4; }
+  .chat-message.assistant ul li::marker { color: var(--primary-color, #03a9f4); }
+  .chat-message.assistant li > ul,
+  .chat-message.assistant li > ol { margin: 2px 0; }
+  .chat-message.assistant p { margin: 4px 0; line-height: 1.5; }
+  .chat-message.assistant p:first-child { margin-top: 0; }
+  .chat-message.assistant p:last-child  { margin-bottom: 0; }
+  .chat-message.assistant h4,
+  .chat-message.assistant h5,
+  .chat-message.assistant h6 {
+    margin: 8px 0 2px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--primary-text-color);
+  }
+  .chat-message.assistant strong { font-weight: 600; }
+
   .chat-message.error {
     background: var(--danger);
     color: white;
@@ -555,12 +578,19 @@ export const STYLES = `
   .dbg-turn-feedback .tf-status.ok { color: var(--success-color, #4caf50); }
   .dbg-turn-feedback .tf-status.flag { color: var(--warning-color, #ff9800); }
 
+  /* Wrapper for AI message + its action row (enables hover-to-reveal) */
+  .ai-message-wrap {
+    display: flex; flex-direction: column; align-items: flex-start;
+  }
+
   /* Inline chat feedback row (thumbs up/down under AI responses) */
   .chat-feedback-row {
     display: flex; align-items: center; gap: 4px;
-    margin: 2px 0 6px 4px; opacity: 0.55;
+    margin: 2px 0 6px 4px; opacity: 0;
     transition: opacity 0.15s;
+    align-self: flex-start;
   }
+  .ai-message-wrap:hover .chat-feedback-row { opacity: 1; }
   .chat-feedback-row:hover { opacity: 1; }
   .chat-feedback-row .tf-btn-rate {
     background: none; border: none; cursor: pointer;
@@ -697,6 +727,21 @@ export const STYLES = `
 
   /* ── Review flow (compact rv-* classes) ── */
   .chat-review-queue { border-bottom: 1px solid var(--divider-color, #3a3a3c); }
+
+  /* ── Area approval bar (pinned above chat history) ─────────────────── */
+  .area-approval-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--divider-color, #3a3a3c);
+    background: var(--secondary-background-color, #1e1e1e);
+  }
+  .area-approval-bar:empty { display: none; }
+  .area-approval-bar .kyber-area-suggestion-chip {
+    margin: 2px 0;
+    border-radius: 8px;
+  }
   .rv-wrap {
     background: var(--card-background-color, var(--secondary-background-color));
     border-left: 3px solid var(--warning-color, #ff9800);

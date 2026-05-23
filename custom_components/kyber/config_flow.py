@@ -46,6 +46,10 @@ from .const import (
     CONF_ANTHROPIC_MODEL,
     DEFAULT_ANTHROPIC_MODEL,
     CONF_ENABLE_DEBUG_VIEWS,
+    CONF_ENABLE_MCP,
+    CONF_ENABLE_MCP_IN_CHAT,
+    CONF_MCP_ALLOW_STATE_CHANGES,
+    CONF_MCP_CLIENT_SERVERS,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_MAX_DAILY_TOKENS,
     CONF_MAX_TOKENS,
@@ -60,6 +64,10 @@ from .const import (
     CONF_AREA_ASSIGNMENT_MODE,
     CONF_LABEL_ASSIGNMENT_MODE,
     DEFAULT_ENABLE_DEBUG_VIEWS,
+    DEFAULT_ENABLE_MCP,
+    DEFAULT_ENABLE_MCP_IN_CHAT,
+    DEFAULT_MCP_ALLOW_STATE_CHANGES,
+    DEFAULT_MCP_CLIENT_SERVERS,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
     DEFAULT_MAX_DAILY_TOKENS,
     DEFAULT_MAX_TOKENS,
@@ -194,6 +202,7 @@ def _build_options_schema(
     max_daily_tokens: int = DEFAULT_MAX_DAILY_TOKENS,
     chat_max_limit: int = 2_000_000,
     enable_debug: bool = DEFAULT_ENABLE_DEBUG_VIEWS,
+    enable_mcp: bool = DEFAULT_ENABLE_MCP,
     run_initial_analyze: bool = DEFAULT_RUN_INITIAL_ANALYZE,
     deep_learning_interval_days: int = DEFAULT_DEEP_LEARNING_INTERVAL_DAYS,
     deep_learning_max_batch: int = DEFAULT_DEEP_LEARNING_MAX_BATCH,
@@ -216,6 +225,9 @@ def _build_options_schema(
     openai_base_url: str = "",
     anthropic_api_key: str = "",
     anthropic_model: str = DEFAULT_ANTHROPIC_MODEL,
+    enable_mcp_in_chat: bool = DEFAULT_ENABLE_MCP_IN_CHAT,
+    mcp_allow_state_changes: bool = DEFAULT_MCP_ALLOW_STATE_CHANGES,
+    mcp_client_servers: str = DEFAULT_MCP_CLIENT_SERVERS,
 ) -> vol.Schema:
     """Options schema grouped into sections."""
     model_fields: dict = {}
@@ -247,7 +259,7 @@ def _build_options_schema(
         )
     )
 
-    # Cloud provider fields — select provider, optionally use for chat, then provider-specific credentials
+    # Cloud provider fields — only show credentials for the selected provider
     _azure_endpoint_key = vol.Optional(CONF_AZURE_ENDPOINT, default=azure_endpoint) if azure_endpoint else vol.Optional(CONF_AZURE_ENDPOINT)
     _azure_key_key = vol.Optional(CONF_AZURE_API_KEY, default=azure_api_key) if azure_api_key else vol.Optional(CONF_AZURE_API_KEY)
     _azure_dep_key = vol.Optional(CONF_AZURE_DEPLOYMENT, default=azure_deployment) if azure_deployment else vol.Optional(CONF_AZURE_DEPLOYMENT)
@@ -268,16 +280,15 @@ def _build_options_schema(
             )
         ),
         vol.Optional(CONF_CLOUD_USE_FOR_CHAT, default=cloud_use_for_chat): selector.BooleanSelector(),
-        # Azure AI Foundry credentials
+        # All credential fields are always present so provider + credentials can be submitted in one step.
+        # The UI hides irrelevant fields via cloud_provider selection; voluptuous accepts them as Optional.
         _azure_endpoint_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
         _azure_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
         _azure_dep_key: selector.TextSelector(),
         vol.Optional(CONF_AZURE_API_VERSION, default=azure_api_version): selector.TextSelector(),
-        # OpenAI credentials (also works for Groq, Mistral, OpenRouter etc. via base URL)
         _openai_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
         vol.Optional(CONF_OPENAI_MODEL, default=openai_model): selector.TextSelector(),
         _openai_base_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.URL)),
-        # Anthropic (Claude) credentials
         _anthropic_key_key: selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
         vol.Optional(CONF_ANTHROPIC_MODEL, default=anthropic_model): selector.TextSelector(),
     }
@@ -370,6 +381,12 @@ def _build_options_schema(
                 vol.Schema(
                     {
                         vol.Optional(CONF_ENABLE_DEBUG_VIEWS, default=enable_debug): selector.BooleanSelector(),
+                        vol.Optional(CONF_ENABLE_MCP, default=enable_mcp): selector.BooleanSelector(),
+                        vol.Optional(CONF_ENABLE_MCP_IN_CHAT, default=enable_mcp_in_chat): selector.BooleanSelector(),
+                        vol.Optional(CONF_MCP_ALLOW_STATE_CHANGES, default=mcp_allow_state_changes): selector.BooleanSelector(),
+                        vol.Optional(CONF_MCP_CLIENT_SERVERS, default=mcp_client_servers): selector.TextSelector(
+                            selector.TextSelectorConfig(multiline=True)
+                        ),
                         vol.Optional(CONF_MAX_REQUESTS_PER_MINUTE, default=max_requests_per_minute): selector.NumberSelector(
                             selector.NumberSelectorConfig(
                                 min=0, max=600, step=1, mode=selector.NumberSelectorMode.BOX
@@ -502,6 +519,38 @@ class KyberOptionsFlow(OptionsFlow):
                     errors={CONF_AI_TASK_ENTITY_ID: "entity_not_found"},
                 )
 
+            # If the cloud provider just changed to a non-None value and the user
+            # hasn't provided credentials yet, re-render the form so the
+            # provider-specific credential fields become visible.
+            selected_provider = str(cloud.get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER)).strip()
+            stored_provider = _get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER)
+            _needs_creds = {
+                CLOUD_PROVIDER_OPENAI:    not cloud.get(CONF_OPENAI_API_KEY, "").strip(),
+                CLOUD_PROVIDER_AZURE:     not cloud.get(CONF_AZURE_API_KEY, "").strip(),
+                CLOUD_PROVIDER_ANTHROPIC: not cloud.get(CONF_ANTHROPIC_API_KEY, "").strip(),
+            }
+            if (
+                selected_provider != CLOUD_PROVIDER_NONE
+                and selected_provider != stored_provider
+                and _needs_creds.get(selected_provider, False)
+            ):
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=_build_options_schema(
+                        ai_entity=_get(CONF_AI_TASK_ENTITY_ID, ""),
+                        include_entity=True,
+                        max_tokens=int(model.get(CONF_MAX_TOKENS, _get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS))),
+                        max_requests_per_minute=int(developer.get(CONF_MAX_REQUESTS_PER_MINUTE, _get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE))),
+                        max_daily_tokens=int(model.get(CONF_MAX_DAILY_TOKENS, _get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS))),
+                        narrator_ai_entity=str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, _get(CONF_NARRATOR_AI_TASK_ENTITY_ID, ""))),
+                        narrator_max_tokens=int(model.get(CONF_NARRATOR_MAX_TOKENS, _get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS))),
+                        cloud_provider=selected_provider,
+                        cloud_use_for_chat=bool(cloud.get(CONF_CLOUD_USE_FOR_CHAT, _get(CONF_CLOUD_USE_FOR_CHAT, DEFAULT_CLOUD_USE_FOR_CHAT))),
+                        collapsed=False,
+                    ),
+                    description_placeholders={"info": f"Enter credentials for {selected_provider}"},
+                )
+
             data: dict[str, Any] = {
                 CONF_MAX_TOKENS: int(model.get(CONF_MAX_TOKENS, _get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS))),
                 CONF_MAX_DAILY_TOKENS: int(model.get(CONF_MAX_DAILY_TOKENS, _get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS))),
@@ -516,6 +565,9 @@ class KyberOptionsFlow(OptionsFlow):
                 CONF_AREA_ASSIGNMENT_MODE: str(area.get(CONF_AREA_ASSIGNMENT_MODE, _get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE))),
                 CONF_LABEL_ASSIGNMENT_MODE: str(area.get(CONF_LABEL_ASSIGNMENT_MODE, _get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE))),
                 CONF_ENABLE_DEBUG_VIEWS: bool(developer.get(CONF_ENABLE_DEBUG_VIEWS, _get(CONF_ENABLE_DEBUG_VIEWS, False))),
+                CONF_ENABLE_MCP: bool(developer.get(CONF_ENABLE_MCP, _get(CONF_ENABLE_MCP, DEFAULT_ENABLE_MCP))),
+                CONF_ENABLE_MCP_IN_CHAT: bool(developer.get(CONF_ENABLE_MCP_IN_CHAT, _get(CONF_ENABLE_MCP_IN_CHAT, DEFAULT_ENABLE_MCP_IN_CHAT))),
+                CONF_MCP_CLIENT_SERVERS: str(developer.get(CONF_MCP_CLIENT_SERVERS, _get(CONF_MCP_CLIENT_SERVERS, DEFAULT_MCP_CLIENT_SERVERS))),
                 CONF_MAX_REQUESTS_PER_MINUTE: int(developer.get(CONF_MAX_REQUESTS_PER_MINUTE, _get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE))),
                 CONF_CLOUD_PROVIDER: str(cloud.get(CONF_CLOUD_PROVIDER, _get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER))).strip(),
                 CONF_CLOUD_USE_FOR_CHAT: bool(cloud.get(CONF_CLOUD_USE_FOR_CHAT, _get(CONF_CLOUD_USE_FOR_CHAT, DEFAULT_CLOUD_USE_FOR_CHAT))),
@@ -557,6 +609,7 @@ class KyberOptionsFlow(OptionsFlow):
             max_daily_tokens=int(current_daily_tokens),
             chat_max_limit=chat_max_limit,
             enable_debug=bool(_get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)),
+            enable_mcp=bool(_get(CONF_ENABLE_MCP, DEFAULT_ENABLE_MCP)),
             run_initial_analyze=bool(_get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),
             deep_learning_interval_days=int(_get(CONF_DEEP_LEARNING_INTERVAL_DAYS, DEFAULT_DEEP_LEARNING_INTERVAL_DAYS)),
             deep_learning_max_batch=int(_get(CONF_DEEP_LEARNING_MAX_BATCH, DEFAULT_DEEP_LEARNING_MAX_BATCH)),
@@ -579,6 +632,9 @@ class KyberOptionsFlow(OptionsFlow):
             openai_base_url=str(_get(CONF_OPENAI_BASE_URL, "")),
             anthropic_api_key=str(_get(CONF_ANTHROPIC_API_KEY, "")),
             anthropic_model=str(_get(CONF_ANTHROPIC_MODEL, DEFAULT_ANTHROPIC_MODEL)),
+            enable_mcp_in_chat=bool(_get(CONF_ENABLE_MCP_IN_CHAT, DEFAULT_ENABLE_MCP_IN_CHAT)),
+            mcp_allow_state_changes=bool(_get(CONF_MCP_ALLOW_STATE_CHANGES, DEFAULT_MCP_ALLOW_STATE_CHANGES)),
+            mcp_client_servers=str(_get(CONF_MCP_CLIENT_SERVERS, DEFAULT_MCP_CLIENT_SERVERS)),
         )
 
         from .model_stats import format_stats as _fmt_stats, format_run_stats as _fmt_run_stats

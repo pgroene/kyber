@@ -16,9 +16,18 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   async _renderDebugTab(tab) {
-    this._debugTab = tab;
     const body = this.shadowRoot.getElementById("debug-body");
     if (!body) return;
+    // Persist open/closed state keyed by "tab:sid" so it survives tab switches
+    // and background re-renders triggered by AI turns.
+    if (!this._debugSectionOpenState) this._debugSectionOpenState = {};
+    const prevTab = this._debugTab;
+    if (prevTab) {
+      body.querySelectorAll("details[data-sid]").forEach((d) => {
+        this._debugSectionOpenState[`${prevTab}:${d.dataset.sid}`] = d.open;
+      });
+    }
+    this._debugTab = tab;
     body.innerHTML = `<em>${this._t ? this._t("debug_loading") : "Loading…"}</em>`;
     try {
       if (tab === "memory") {
@@ -31,10 +40,17 @@ export const DebugMixin = (Base) => class extends Base {
         await this._renderDebugLogs(body);
       } else if (tab === "tests") {
         await this._renderDebugTests(body);
+      } else if (tab === "mcp") {
+        await this._renderDebugMcp(body);
       }
     } catch (err) {
       body.innerHTML = `<div class="debug-error">Error: ${this._escapeHtml(err.message)}</div>`;
     }
+    // Restore persisted open/closed state for this tab
+    body.querySelectorAll("details[data-sid]").forEach((d) => {
+      const key = `${tab}:${d.dataset.sid}`;
+      if (key in this._debugSectionOpenState) d.open = this._debugSectionOpenState[key];
+    });
   }
 
   async _renderDebugMemory(body) {
@@ -727,23 +743,23 @@ export const DebugMixin = (Base) => class extends Base {
         · prompt: ${snap.char_count?.toLocaleString() ?? "?"} chars (~${snap.approx_tokens?.toLocaleString() ?? "?"} tokens)
         · auto_rating: ${snap.auto_rating ? `⚠ ${snap.auto_rating}/5` : "—"}
       </div>
-      <details class="debug-section" open>
+      <details class="debug-section" data-sid="user-prompt" open>
         <summary><strong>User prompt</strong></summary>
         <pre class="dbg-pre">${this._escapeHtml(snap.user_prompt || "")}</pre>
       </details>
-      <details class="debug-section" open>
+      <details class="debug-section" data-sid="knowledge" open>
         <summary><strong>📌 Knowledge entries used this turn (${picked.length})</strong></summary>
         ${picked.length === 0 ? '<em>None injected.</em>' : '<div class="kn-list" id="dbg-picked-list"></div>'}
       </details>
-      <details class="debug-section">
+      <details class="debug-section" data-sid="tool-calls">
         <summary><strong>🔧 Tool calls (${(snap.tool_log || []).length})</strong></summary>
         ${toolRows ? `<table class="dbg-tools"><thead><tr><th>tool</th><th>args</th><th>status</th><th>ms</th></tr></thead><tbody>${toolRows}</tbody></table>` : '<em>No tool calls.</em>'}
       </details>
-      <details class="debug-section">
+      <details class="debug-section" data-sid="system-prompt">
         <summary><strong>📜 Expanded system prompt</strong> (what the model actually saw)</summary>
         <pre class="dbg-pre">${this._escapeHtml(snap.expanded_prompt || "")}</pre>
       </details>
-      <details class="debug-section">
+      <details class="debug-section" data-sid="response">
         <summary><strong>💬 Response text</strong></summary>
         <pre class="dbg-pre">${this._escapeHtml(snap.response_text || "")}</pre>
       </details>
@@ -1507,5 +1523,343 @@ export const DebugMixin = (Base) => class extends Base {
     const nums = responseText.match(/\b\d+(?:[.,]\d+)?(?:\s*[°%])?/g) || [];
     keywords.push(...nums.slice(0, 2));
     return [...new Set(keywords)].slice(0, 5);
+  }
+
+  // ---------------------------------------------------------------------------
+  // MCP debug tab: call log + side-by-side compare
+  // ---------------------------------------------------------------------------
+
+  async _renderDebugMcp(body) {
+    const token = this._hass.auth.data.access_token;
+
+    // Load both call logs in parallel
+    let mcpCalls = [], classicCalls = [];
+    try {
+      const [mcpResp, classicResp] = await Promise.all([
+        fetch("/api/kyber/mcp/log", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/kyber/classic/log", { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (mcpResp.ok) mcpCalls = (await mcpResp.json()).calls || [];
+      if (classicResp.ok) classicCalls = (await classicResp.json()).calls || [];
+    } catch (_) { /* ignore */ }
+
+    // Merge and tag with source
+    const allCalls = [
+      ...mcpCalls.map(c => ({ ...c, source: "mcp" })),
+      ...classicCalls.map(c => ({ ...c, source: "classic" })),
+    ].sort((a, b) => (a.ts || 0) - (b.ts || 0));
+
+    const total = allCalls.length;
+
+    body.innerHTML = `
+      <!-- ── Compare tool ─────────────────────────────────────────── -->
+      <details class="debug-section" data-sid="mcp-compare" open>
+        <div style="margin-top:10px">
+          <div style="display:flex;gap:8px;margin-bottom:10px">
+            <input id="mcp-cmp-input" type="text" placeholder="Ask a question…"
+              style="flex:1;padding:7px 11px;border-radius:6px;border:1px solid var(--divider-color);
+                     background:var(--secondary-background-color);color:var(--primary-text-color);font-size:0.9rem">
+            <button id="mcp-cmp-btn" class="btn-primary" style="padding:7px 18px;white-space:nowrap">▶ Compare</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px" id="mcp-cmp-cols">
+            <div>
+              <div style="font-size:0.82rem;font-weight:600;color:var(--secondary-text-color);margin-bottom:6px">
+                🏠 Direct Kyber  <code style="font-weight:400;font-size:0.78rem">/api/kyber/complete</code>
+              </div>
+              <div id="mcp-cmp-direct" style="min-height:80px;padding:10px;border-radius:6px;
+                   border:1px solid var(--divider-color);background:var(--secondary-background-color);
+                   font-size:0.88rem;white-space:pre-wrap;color:var(--secondary-text-color)">—</div>
+            </div>
+            <div>
+              <div style="font-size:0.82rem;font-weight:600;color:var(--secondary-text-color);margin-bottom:6px">
+                🔌 Via MCP  <code style="font-weight:400;font-size:0.78rem">/api/kyber/mcp</code>
+              </div>
+              <div id="mcp-cmp-mcp" style="min-height:80px;padding:10px;border-radius:6px;
+                   border:1px solid var(--divider-color);background:var(--secondary-background-color);
+                   font-size:0.88rem;white-space:pre-wrap;color:var(--secondary-text-color)">—</div>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <!-- ── Unified call log ──────────────────────────────────────── -->
+      <details class="debug-section" data-sid="mcp-calllog" open style="margin-top:14px">
+        <summary style="font-weight:600;cursor:pointer;padding:6px 0">
+          📋 Call log — MCP &amp; Classic
+          <span style="font-size:0.8rem;font-weight:400;color:var(--secondary-text-color);margin-left:8px"
+                id="mcp-log-count">${total} calls (${mcpCalls.length} MCP · ${classicCalls.length} classic)</span>
+        </summary>
+        <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap;align-items:center">
+          <button id="mcp-log-refresh" style="font-size:0.85rem;padding:4px 12px">🔄 Refresh</button>
+          <button id="mcp-log-clear-mcp" style="font-size:0.85rem;padding:4px 12px;color:var(--error-color)">🗑 Clear MCP</button>
+          <button id="mcp-log-clear-classic" style="font-size:0.85rem;padding:4px 12px;color:var(--error-color)">🗑 Clear Classic</button>
+          <label style="font-size:0.82rem;margin-left:auto">
+            Filter:
+            <select id="mcp-log-filter" style="font-size:0.82rem;padding:2px 6px">
+              <option value="all">All</option>
+              <option value="mcp">🔌 MCP only</option>
+              <option value="classic">🏠 Classic only</option>
+            </select>
+          </label>
+        </div>
+        <div id="mcp-log-table"></div>
+      </details>
+    `;
+
+    this._renderMcpLogTable(body, allCalls, "all");
+
+    // Filter dropdown
+    body.querySelector("#mcp-log-filter").addEventListener("change", () => this._refreshMcpLogTable(body, token));
+
+    // Compare button
+    body.querySelector("#mcp-cmp-btn").addEventListener("click", () => this._runMcpCompare(body, token));
+    body.querySelector("#mcp-cmp-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") this._runMcpCompare(body, token);
+    });
+
+    // Log controls
+    body.querySelector("#mcp-log-refresh").addEventListener("click", () => this._refreshMcpLogTable(body, token));
+    body.querySelector("#mcp-log-clear-mcp").addEventListener("click", async () => {
+      await fetch("/api/kyber/mcp/log", { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      this._refreshMcpLogTable(body, token);
+    });
+    body.querySelector("#mcp-log-clear-classic").addEventListener("click", async () => {
+      await fetch("/api/kyber/classic/log", { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      this._refreshMcpLogTable(body, token);
+    });
+  }
+
+  _renderMcpLogTable(body, allCalls, filter = "all") {
+    const tableEl = body.querySelector("#mcp-log-table");
+    if (!tableEl) return;
+
+    const filtered = filter === "all" ? allCalls : allCalls.filter(c => c.source === filter);
+    if (!filtered.length) {
+      tableEl.innerHTML = `<em style="color:var(--secondary-text-color);font-size:0.88rem">No calls recorded yet.</em>`;
+      return;
+    }
+
+    const OUTCOME_COLOR = { ok: "var(--success-color,#4caf50)", error: "var(--error-color)", tool_error: "var(--warning-color,#ff9800)", notification: "var(--secondary-text-color)" };
+    const SOURCE_BADGE = {
+      mcp:     `<span style="font-size:0.75rem;padding:1px 5px;border-radius:9px;background:#6366f122;color:#6366f1;font-weight:600">MCP</span>`,
+      classic: `<span style="font-size:0.75rem;padding:1px 5px;border-radius:9px;background:#22c55e22;color:#16a34a;font-weight:600">Classic</span>`,
+    };
+
+    const rows = filtered.slice().reverse().map((c, i) => {
+      const rowId = `mcp-row-${i}`;
+      const ts = c.ts ? new Date(c.ts * 1000).toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+      const source = SOURCE_BADGE[c.source] || c.source;
+
+      // Summary line
+      let detail = "";
+      if (c.source === "mcp") {
+        const method = this._escapeHtml(c.method || "");
+        const tool = c.tool ? ` / <code style="font-size:0.78rem">${this._escapeHtml(c.tool)}</code>` : "";
+        const prompt = c.prompt ? ` <span style="color:var(--secondary-text-color);font-size:0.78rem">"${this._escapeHtml(c.prompt.slice(0, 50))}${c.prompt.length > 50 ? "…" : ""}"</span>` : "";
+        detail = `<span style="font-family:monospace;font-size:0.82rem">${method}${tool}</span>${prompt}`;
+      } else {
+        const prompt = this._escapeHtml((c.prompt || "").slice(0, 60) + (c.prompt && c.prompt.length > 60 ? "…" : ""));
+        const intent = c.intent ? ` <span style="color:var(--secondary-text-color);font-size:0.78rem">[${this._escapeHtml(c.intent)}]</span>` : "";
+        detail = `<span style="font-size:0.83rem">${prompt}${intent}</span>`;
+      }
+
+      const user = this._escapeHtml((c.user_id || "").slice(0, 8) + (c.user_id && c.user_id.length > 8 ? "…" : ""));
+      const latency = c.latency_ms != null ? `${c.latency_ms}ms` : "—";
+      const tokens = c.token_total ? `${c.token_total}t` : (c.token_usage?.total_tokens ? `${c.token_usage.total_tokens}t` : "—");
+      const actions = c.actions_executed != null ? `${c.actions_executed}⚙` : "—";
+      const outcome = c.outcome || "—";
+      const color = OUTCOME_COLOR[outcome] || "inherit";
+      const errMsg = c.error ? `<span title="${this._escapeAttr(c.error)}" style="color:var(--error-color);cursor:help">⚠</span>` : "";
+
+      // Build expandable detail panel
+      const hasDetail = c.response || c.tool_calls?.length || c.input || c.output;
+      const expandBtn = hasDetail ? `<button data-expand="${rowId}" style="font-size:0.72rem;padding:1px 5px;margin-left:6px;cursor:pointer;border-radius:4px">▶</button>` : "";
+
+      // Detail panel HTML
+      let detailPanel = "";
+      if (hasDetail) {
+        let detailHtml = "";
+
+        if (c.prompt) {
+          detailHtml += `<div style="margin-bottom:6px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">PROMPT</strong><div style="margin-top:2px;padding:6px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px;font-size:0.82rem;white-space:pre-wrap">${this._escapeHtml(c.prompt)}</div></div>`;
+        }
+
+        if (c.tool_calls?.length) {
+          const callsHtml = c.tool_calls.map(tc => `
+            <div style="border:1px solid var(--divider-color);border-radius:4px;margin-bottom:4px;overflow:hidden">
+              <div style="padding:3px 8px;background:var(--secondary-background-color);font-size:0.78rem;font-weight:600;font-family:monospace">🔧 ${this._escapeHtml(tc.tool || "?")}</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+                <div style="padding:4px 8px;border-right:1px solid var(--divider-color)">
+                  <div style="font-size:0.72rem;color:var(--secondary-text-color);margin-bottom:2px">IN</div>
+                  <pre style="margin:0;font-size:0.75rem;white-space:pre-wrap;word-break:break-all">${this._escapeHtml(tc.input || "—")}</pre>
+                </div>
+                <div style="padding:4px 8px">
+                  <div style="font-size:0.72rem;color:var(--secondary-text-color);margin-bottom:2px">OUT</div>
+                  <pre style="margin:0;font-size:0.75rem;white-space:pre-wrap;word-break:break-all">${this._escapeHtml(tc.output || "—")}</pre>
+                </div>
+              </div>
+            </div>`).join("");
+          detailHtml += `<div style="margin-bottom:6px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">TOOL CALLS (${c.tool_calls.length})</strong><div style="margin-top:4px">${callsHtml}</div></div>`;
+        }
+
+        if (c.response) {
+          detailHtml += `<div style="margin-bottom:6px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">RESPONSE</strong><div style="margin-top:2px;padding:6px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px;font-size:0.82rem;white-space:pre-wrap">${this._escapeHtml(c.response)}</div></div>`;
+        }
+
+        if (c.input && !c.tool_calls?.length) {
+          detailHtml += `<div style="margin-bottom:4px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">INPUT</strong><pre style="margin:2px 0 0;font-size:0.78rem;white-space:pre-wrap;padding:4px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px">${this._escapeHtml(c.input)}</pre></div>`;
+          detailHtml += `<div><strong style="font-size:0.78rem;color:var(--secondary-text-color)">OUTPUT</strong><pre style="margin:2px 0 0;font-size:0.78rem;white-space:pre-wrap;padding:4px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px">${this._escapeHtml(c.output || "—")}</pre></div>`;
+        }
+
+        detailPanel = `<tr id="${rowId}" style="display:none">
+          <td colspan="8" style="padding:6px 0 10px 20px">
+            <div style="border-left:3px solid var(--divider-color);padding-left:10px;max-width:100%">${detailHtml}</div>
+          </td>
+        </tr>`;
+      }
+
+      return `<tr style="border-bottom:1px solid var(--divider-color)">
+        <td style="padding:4px 8px 4px 0;font-size:0.79rem;white-space:nowrap;color:var(--secondary-text-color)">${ts}</td>
+        <td style="padding:4px 8px 4px 0">${source}</td>
+        <td style="padding:4px 8px 4px 0;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${detail}${expandBtn}</td>
+        <td style="padding:4px 8px 4px 0;font-size:0.79rem;color:var(--secondary-text-color)">${user}</td>
+        <td style="padding:4px 8px 4px 0;font-size:0.79rem;white-space:nowrap">${latency}</td>
+        <td style="padding:4px 8px 4px 0;font-size:0.79rem;white-space:nowrap;color:var(--secondary-text-color)">${tokens}</td>
+        <td style="padding:4px 8px 4px 0;font-size:0.79rem;white-space:nowrap">${actions}</td>
+        <td style="padding:4px 0;font-size:0.79rem;font-weight:600;color:${color}">${outcome} ${errMsg}</td>
+      </tr>${detailPanel}`;
+    }).join("");
+
+    tableEl.innerHTML = `
+      <div style="overflow-x:auto;max-height:60vh">
+        <table style="width:100%;border-collapse:collapse;font-family:monospace">
+          <thead><tr style="font-size:0.77rem;color:var(--secondary-text-color);border-bottom:2px solid var(--divider-color)">
+            <th style="text-align:left;padding:2px 8px 4px 0">Time</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">Source</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">Detail</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">User</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">Latency</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">Tokens</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">Actions</th>
+            <th style="text-align:left;padding:2px 0 4px 0">Outcome</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+
+    // Expand/collapse toggle
+    tableEl.querySelectorAll("button[data-expand]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const row = tableEl.querySelector(`#${btn.dataset.expand}`);
+        if (!row) return;
+        const open = row.style.display !== "none";
+        row.style.display = open ? "none" : "table-row";
+        btn.textContent = open ? "▶" : "▼";
+      });
+    });
+  }
+
+  async _runMcpCompare(body, token) {
+    const input = body.querySelector("#mcp-cmp-input");
+    const prompt = (input?.value || "").trim();
+    if (!prompt) return;
+
+    const directEl = body.querySelector("#mcp-cmp-direct");
+    const mcpEl = body.querySelector("#mcp-cmp-mcp");
+    const btn = body.querySelector("#mcp-cmp-btn");
+
+    btn.disabled = true;
+    directEl.textContent = "⏳ waiting…";
+    mcpEl.textContent = "⏳ waiting…";
+
+    const requestId = `mcp-cmp-${Date.now()}`;
+
+    // Run Direct Kyber first, then MCP — sequential so timing is comparable
+    btn.textContent = "⏳ 1/2 Direct…";
+    directEl.textContent = "⏳ asking…";
+    {
+      const t0 = performance.now();
+      try {
+        const r = await fetch("/api/kyber/complete", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, yaml: "", history: [], request_id: requestId }),
+        });
+        const ms = Math.round(performance.now() - t0);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        const tokens = d.call_tokens || d.token_usage?.total_tokens;
+        const actions = (d.tool_log || []).filter(e => e.type === "tool_call").length;
+        const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""} · ${actions} ⚙`;
+        directEl.textContent = (d.response || "(no response)") + footer;
+      } catch (e) {
+        directEl.textContent = `❌ ${e.message}`;
+      }
+    }
+
+    btn.textContent = "⏳ 2/2 MCP…";
+    mcpEl.textContent = "⏳ asking…";
+    {
+      const t0 = performance.now();
+      try {
+        const r = await fetch("/api/kyber/mcp", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0", id: 1, method: "tools/call",
+            params: { name: "kyber_ask", arguments: { prompt } },
+          }),
+        });
+        const ms = Math.round(performance.now() - t0);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        if (d.error) throw new Error(d.error.message || "RPC error");
+        const content = d.result?.content?.[0]?.text || "";
+        let text = content;
+        try {
+          const parsed = JSON.parse(content);
+          text = parsed.response || content;
+          const tokens = parsed.token_usage?.total_tokens;
+          const actions = parsed.actions_executed;
+          const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""}${actions != null ? ` · ${actions} action(s)` : ""}`;
+          text += footer;
+        } catch (_) {
+          text += `\n\n─── ${ms}ms`;
+        }
+        if (d.result?.isError) text = `⚠️ Tool error:\n${text}`;
+        mcpEl.textContent = text;
+      } catch (e) {
+        mcpEl.textContent = `❌ ${e.message}`;
+      }
+    }
+
+    btn.disabled = false;
+    btn.textContent = "▶ Compare";
+
+    // Refresh the log table after compare
+    try {
+      await this._refreshMcpLogTable(body, token);
+    } catch (_) { /* ignore */ }
+  }
+
+  async _refreshMcpLogTable(body, token) {
+    let mcpCalls = [], classicCalls = [];
+    try {
+      const [r1, r2] = await Promise.all([
+        fetch("/api/kyber/mcp/log", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/kyber/classic/log", { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (r1.ok) mcpCalls = (await r1.json()).calls || [];
+      if (r2.ok) classicCalls = (await r2.json()).calls || [];
+    } catch (_) { /* ignore */ }
+    const allCalls = [
+      ...mcpCalls.map(c => ({ ...c, source: "mcp" })),
+      ...classicCalls.map(c => ({ ...c, source: "classic" })),
+    ].sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    const filter = body.querySelector("#mcp-log-filter")?.value || "all";
+    this._renderMcpLogTable(body, allCalls, filter);
+    const countEl = body.querySelector("#mcp-log-count");
+    if (countEl) countEl.textContent = `${allCalls.length} calls (${mcpCalls.length} MCP · ${classicCalls.length} classic)`;
+    return allCalls;
   }
 };

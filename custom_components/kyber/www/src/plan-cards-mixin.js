@@ -31,14 +31,15 @@ export const PlanCardsMixin = (Base) => class extends Base {
       || learnedFact.summary?.match(/'(.+?)'/)?.[1]
       || "?";
     const haTerm = action.subject || learnedFact.summary?.match(/→ '(.+?)'/)?.[1] || "?";
+    const contentText = action.content || learnedFact.summary || "";
 
     const card = document.createElement("div");
     card.className = "memory-card";
     card.innerHTML = `
       <div class="memory-card-header">🧠 Suggested memory</div>
       <div class="memory-card-content">
-        "${userTerm}" → <strong>${haTerm}</strong><br>
-        <small style="opacity:0.75">${action.content || learnedFact.summary || ""}</small>
+        "${this._escapeHtml(userTerm)}" → <strong>${this._escapeHtml(haTerm)}</strong><br>
+        <small style="opacity:0.75">${this._escapeHtml(contentText)}</small>
       </div>
       <button class="btn-remember">💾 Remember</button>
     `;

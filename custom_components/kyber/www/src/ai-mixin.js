@@ -512,11 +512,12 @@ export const AIMixin = (Base) => class extends Base {
     const stateVal = state?.state || "";
     const stateClass = this._stateClass(stateVal);
     const domainClass = `domain-${domain.replace(/_/g, "-")}`;
+    const missingClass = state ? "" : "entity-chip-missing";
     const span = document.createElement("span");
-    span.className = `entity-chip ${stateClass} ${domainClass}`.trim();
+    span.className = `entity-chip ${stateClass} ${domainClass} ${missingClass}`.trim();
     span.dataset.entityId = entityId;
-    span.title = entityId;
-    span.innerHTML = `<span class="entity-chip-icon">${icon}</span><span class="entity-chip-name">${this._escapeHTML(name)}</span>${stateVal ? `<span class="entity-chip-state">${this._escapeHTML(stateVal)}</span>` : ""}`;
+    span.title = state ? entityId : `${entityId} (not found in Home Assistant)`;
+    span.innerHTML = `<span class="entity-chip-icon">${icon}</span><span class="entity-chip-name">${this._escapeHTML(name)}</span>${stateVal ? `<span class="entity-chip-state">${this._escapeHTML(stateVal)}</span>` : ""}${!state ? `<span class="entity-chip-warn" title="Entity not found">?</span>` : ""}`;
     return span;
   }
 
@@ -544,34 +545,86 @@ export const AIMixin = (Base) => class extends Base {
       chip.classList.remove("state-on", "state-off", "state-unavailable");
       const sc = this._stateClass(stateVal);
       if (sc) chip.classList.add(sc);
+      // Entity is now known — remove missing indicator if present
+      if (chip.classList.contains("entity-chip-missing")) {
+        chip.classList.remove("entity-chip-missing");
+        chip.title = entityId;
+        chip.querySelector(".entity-chip-warn")?.remove();
+      }
     });
   }
 
   _injectEntityChips(container) {
-    // Walk text nodes and replace `backtick entity IDs` with live chips
-    const ENTITY_ID_RE = /`([a-z_]+\.[a-z0-9_]+)`/g;
-    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-    const replacements = [];
-    let node;
-    while ((node = walker.nextNode())) {
-      if (!ENTITY_ID_RE.test(node.textContent)) continue;
-      ENTITY_ID_RE.lastIndex = 0;
-      replacements.push(node);
-    }
-    replacements.forEach((textNode) => {
-      const frag = document.createDocumentFragment();
-      let last = 0;
-      const text = textNode.textContent;
-      ENTITY_ID_RE.lastIndex = 0;
-      let m;
-      while ((m = ENTITY_ID_RE.exec(text)) !== null) {
-        if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
-        frag.appendChild(this._entityChip(m[1]));
-        last = m.index + m[0].length;
+    // Walk the rendered HTML and replace entity IDs with live chips.
+    //
+    // Pass 1 — inline <code> elements: markdown converts `entity.id` to
+    //   <code>entity.id</code>. Backtick chars are gone by the time we run,
+    //   so we match <code> elements whose full text is a valid entity ID.
+    //   These are always chipped (even if unknown), mirroring backtick intent.
+    //   Block-level code (<pre><code>) is skipped to preserve code examples.
+    //
+    // Pass 2 — raw backtick text nodes: catches any `entity.id` that the
+    //   markdown parser left as literal text (rare). Always chipped.
+    //
+    // Pass 3 — bare entity IDs in plain text: only chipped when the entity
+    //   actually exists in hass.states, to avoid false positives.
+
+    const ENTITY_RE = /^[a-z_]+\.[a-z0-9_-]+$/;
+    const BACKTICK_RE = /`([a-z_]+\.[a-z0-9_-]+)`/g;
+    const BARE_RE = /\b([a-z_]+\.[a-z0-9_-]+)\b/g;
+    const BLOCK_SKIP = new Set(["PRE", "SCRIPT", "STYLE"]);
+    const ALL_SKIP = new Set(["CODE", "PRE", "SCRIPT", "STYLE"]);
+
+    const _insideAny = (node, skipSet) => {
+      let p = node.parentElement;
+      while (p && p !== container) {
+        if (skipSet.has(p.tagName)) return true;
+        p = p.parentElement;
       }
+      return false;
+    };
+
+    // Pass 1: inline <code> from markdown (`entity.id`)
+    Array.from(container.querySelectorAll("code")).forEach((codeEl) => {
+      if (_insideAny(codeEl, BLOCK_SKIP)) return;
+      const text = codeEl.textContent.trim();
+      if (ENTITY_RE.test(text)) codeEl.parentNode.replaceChild(this._entityChip(text), codeEl);
+    });
+
+    const _collectNodes = (re, skipSet) => {
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+      const nodes = [];
+      let n;
+      while ((n = walker.nextNode())) {
+        re.lastIndex = 0;
+        if (!_insideAny(n, skipSet) && re.test(n.textContent)) nodes.push(n);
+      }
+      return nodes;
+    };
+
+    const _replaceInNode = (textNode, re, mustExist) => {
+      const text = textNode.textContent;
+      re.lastIndex = 0;
+      const frag = document.createDocumentFragment();
+      let last = 0, anyReplaced = false;
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const entityId = m[1];
+        if (mustExist && !this._hass?.states?.[entityId]) continue;
+        if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+        frag.appendChild(this._entityChip(entityId));
+        last = m.index + m[0].length;
+        anyReplaced = true;
+      }
+      if (!anyReplaced) return;
       if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
       textNode.parentNode.replaceChild(frag, textNode);
-    });
+    };
+
+    // Pass 2: raw backtick text (always chip, skip block code only)
+    _collectNodes(BACKTICK_RE, BLOCK_SKIP).forEach((n) => _replaceInNode(n, BACKTICK_RE, false));
+    // Pass 3: bare entity IDs (chip only when entity exists in hass.states)
+    _collectNodes(BARE_RE, ALL_SKIP).forEach((n) => _replaceInNode(n, BARE_RE, true));
   }
 
   // Convert bullet lists where ≥4 items each contain an entity chip into a compact grid
@@ -612,6 +665,93 @@ export const AIMixin = (Base) => class extends Base {
       return grid;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Lightweight markdown-to-DOM renderer.
+   * Handles: headings, bullet lists (*, -, +, nested), numbered lists,
+   * **bold** inline (as clickable choice buttons when onChoiceClick is provided),
+   * and paragraphs. Appends rendered nodes directly into `container`.
+   */
+  _renderMarkdown(text, container, onChoiceClick = null) {
+    const lines = text.split("\n");
+    let i = 0;
+
+    const appendInline = (parent, str) => {
+      if (!str) return;
+      const parts = str.split(/(\*\*[^*\n]+\*\*)/g);
+      parts.forEach((part) => {
+        const m = part.match(/^\*\*([^*]+)\*\*$/);
+        if (m && onChoiceClick) {
+          const btn = document.createElement("button");
+          btn.className = "inline-choice";
+          btn.textContent = m[1];
+          btn.addEventListener("click", () => {
+            const msg = btn.closest(".chat-message");
+            if (msg) msg.querySelectorAll(".inline-choice").forEach((b) => b.classList.add("used"));
+            onChoiceClick(m[1]);
+          });
+          parent.appendChild(btn);
+        } else if (m) {
+          const strong = document.createElement("strong");
+          strong.textContent = m[1];
+          parent.appendChild(strong);
+        } else {
+          parent.appendChild(document.createTextNode(part));
+        }
+      });
+    };
+
+    const buildList = (startIndent, ordered) => {
+      const list = document.createElement(ordered ? "ol" : "ul");
+      const bulletRe = /^(\s*)[*\-+]\s+(.*)$/;
+      const numberedRe = /^(\s*)\d+\.\s+(.*)$/;
+      while (i < lines.length) {
+        const line = lines[i];
+        const bm = bulletRe.exec(line);
+        const nm = numberedRe.exec(line);
+        const match = bm || nm;
+        if (!match) break;
+        const indent = match[1].length;
+        if (indent < startIndent) break;
+        if (indent > startIndent) {
+          const lastLi = list.lastElementChild || list.appendChild(document.createElement("li"));
+          lastLi.appendChild(buildList(indent, !!nm));
+          continue;
+        }
+        const li = document.createElement("li");
+        appendInline(li, match[2]);
+        list.appendChild(li);
+        i++;
+      }
+      return list;
+    };
+
+    while (i < lines.length) {
+      const line = lines[i];
+
+      const hm = line.match(/^(#{1,4})\s+(.+)/);
+      if (hm) {
+        const level = Math.min(hm[1].length + 3, 6);
+        const h = document.createElement(`h${level}`);
+        appendInline(h, hm[2]);
+        container.appendChild(h);
+        i++;
+        continue;
+      }
+
+      if (/^\s*[*\-+]\s/.test(line)) { container.appendChild(buildList(0, false)); continue; }
+      if (/^\s*\d+\.\s/.test(line))  { container.appendChild(buildList(0, true));  continue; }
+      if (!line.trim()) { i++; continue; }
+
+      const p = document.createElement("p");
+      while (i < lines.length && lines[i].trim() && !/^[#]|^\s*[*\-+]\s|^\s*\d+\./.test(lines[i])) {
+        appendInline(p, lines[i].trim());
+        p.appendChild(document.createTextNode(" "));
+        i++;
+      }
+      container.appendChild(p);
     }
   }
 
@@ -891,6 +1031,10 @@ export const AIMixin = (Base) => class extends Base {
       .replace(/\bUser:\s*$/gm, "")
       .trim();
     if (textOnly) {
+      // Wrap message + feedback row so hover on the bubble reveals the action row
+      const aiWrap = document.createElement("div");
+      aiWrap.className = "ai-message-wrap";
+
       const msg = document.createElement("div");
       msg.className = "chat-message assistant";
 
@@ -900,24 +1044,19 @@ export const AIMixin = (Base) => class extends Base {
       const isChoiceContext = /\b(choose|pick|select|which (?:one|option)|what would you (?:like|prefer)|do you want|I can:?|options?:|confirm|proceed|sure)\b/i.test(textOnly)
         || /\b(welk|welke|welke van|which of|meerdere|multiple|disambig)\b/i.test(textOnly);
 
-      if (hasBold) {
-        // Render **bold** words as inline adornment buttons
-        const onChoiceClick = (label) => {
-          const input = this.shadowRoot.getElementById("prompt-input");
-          if (input) input.value = label;
-          this._askAI();
-        };
-        msg.appendChild(this._renderTextWithAdornments(textOnly, onChoiceClick));
-      } else {
-        msg.textContent = textOnly;
-      }
+      const onChoiceClick = (label) => {
+        const input = this.shadowRoot.getElementById("prompt-input");
+        if (input) input.value = label;
+        this._askAI();
+      };
+      this._renderMarkdown(textOnly, msg, onChoiceClick);
 
       // Replace backtick entity IDs (e.g. `media_player.tv`) with rich entity chips
       this._injectEntityChips(msg);
       // Promote large entity lists (≥4 chips) to compact grid
       this._promoteEntityListsToGrid(msg);
 
-      history.appendChild(msg);
+      aiWrap.appendChild(msg);
 
       // Action row: copy + thumbs up/down
       const actionRow = document.createElement("div");
@@ -974,7 +1113,8 @@ export const AIMixin = (Base) => class extends Base {
         actionRow.appendChild(statusSpan);
       }
 
-      history.appendChild(actionRow);
+      aiWrap.appendChild(actionRow);
+      history.appendChild(aiWrap);
 
       // Fallback chips for non-bold question responses (e.g. Yes/No or entity disambiguation).
       // Only shown when the AI is explicitly asking the user to pick an option.
@@ -1441,9 +1581,28 @@ export const AIMixin = (Base) => class extends Base {
     this.shadowRoot?.getElementById("kyber-thinking-bubble")?.remove();
   }
 
+  /**
+   * Returns (or lazily creates) the area-approval bar above the chat history.
+   * The bar is a flex column of pending area-assignment chips.
+   */
+  _getOrCreateAreaBar() {
+    const shadow = this.shadowRoot;
+    if (!shadow) return null;
+    let bar = shadow.getElementById("area-approval-bar");
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "area-approval-bar";
+      bar.className = "area-approval-bar";
+      const history = shadow.getElementById("chat-history");
+      if (history) history.parentNode.insertBefore(bar, history);
+      else shadow.querySelector(".chat-pane")?.appendChild(bar);
+    }
+    return bar;
+  }
+
   _renderAreaSuggestionChip(suggestion) {
-    const history = this.shadowRoot?.getElementById("chat-history");
-    if (!history) return;
+    const bar = this._getOrCreateAreaBar();
+    if (!bar) return;
 
     const chip = document.createElement("div");
     chip.className = "kyber-area-suggestion-chip";
@@ -1451,6 +1610,15 @@ export const AIMixin = (Base) => class extends Base {
 
     const name = this._escapeHtml(suggestion.friendly_name || suggestion.entity_id);
     const area = this._escapeHtml(suggestion.suggested_area_name);
+
+    /** Remove this chip and clean up bar when all chips are done. */
+    const _maybeHideBar = () => {
+      if (!bar.querySelector(".kyber-area-suggestion-chip:not(.area-chip-done)")) {
+        setTimeout(() => {
+          bar.querySelectorAll(".area-chip-done").forEach((c) => c.remove());
+        }, 1800);
+      }
+    };
 
     if (suggestion.applied) {
       chip.innerHTML = `
@@ -1470,6 +1638,7 @@ export const AIMixin = (Base) => class extends Base {
           await this._hass.callApi("POST", "kyber/area_suggestions/dismiss", { id: suggestion.id });
           chip.innerHTML = `<span class="area-chip-icon">↩</span><span class="area-chip-text">Moved <strong>${name}</strong> back</span>`;
           chip.classList.add("area-chip-done");
+          _maybeHideBar();
         } catch (err) {
           btn.textContent = "⚠ Error"; btn.disabled = false;
         }
@@ -1477,7 +1646,7 @@ export const AIMixin = (Base) => class extends Base {
     } else {
       chip.innerHTML = `
         <span class="area-chip-icon">🏠</span>
-        <span class="area-chip-text"><strong>${name}</strong> has no area — assign to <strong>${area}</strong>?</span>
+        <span class="area-chip-text"><strong>${name}</strong> → assign to <strong>${area}</strong>?</span>
         <button class="kyber-area-apply-btn">✓ Assign</button>
         <button class="kyber-area-dismiss-btn">✕</button>
       `;
@@ -1493,6 +1662,7 @@ export const AIMixin = (Base) => class extends Base {
           await this._hass.callApi("POST", "kyber/area_suggestions/dismiss", { id: suggestion.id });
           chip.innerHTML = `<span class="area-chip-icon">✓</span><span class="area-chip-text"><strong>${name}</strong> assigned to <strong>${area}</strong></span>`;
           chip.classList.add("area-chip-done");
+          _maybeHideBar();
         } catch (err) {
           btn.textContent = "⚠ Error"; btn.disabled = false;
         }
@@ -1503,11 +1673,11 @@ export const AIMixin = (Base) => class extends Base {
           await this._hass.callApi("POST", "kyber/area_suggestions/dismiss", { id: suggestion.id });
         } catch (_) { /* non-critical */ }
         chip.remove();
+        _maybeHideBar();
       });
     }
 
-    history.appendChild(chip);
-    history.scrollTop = history.scrollHeight;
+    bar.appendChild(chip);
   }
 
   /**

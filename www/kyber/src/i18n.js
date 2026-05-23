@@ -43,6 +43,7 @@ export const EN = {
   debug_tab_status:   "⚙️ Status",
   debug_tab_logs:     "📋 Logs",
   debug_tab_tests:    "🧪 Tests",
+  debug_tab_mcp:      "🔌 MCP",
   debug_loading:      "Loading…",
 
   // Memory popover
@@ -120,6 +121,7 @@ export const NL = {
   debug_tab_status:   "⚙️ Status",
   debug_tab_logs:     "📋 Logboek",
   debug_tab_tests:    "🧪 Tests",
+  debug_tab_mcp:      "🔌 MCP",
   debug_loading:      "Laden…",
 
   // Memory popover
@@ -197,6 +199,7 @@ export const DE = {
   debug_tab_status: "?? Status",
   debug_tab_logs: "?? Protokolle",
   debug_tab_tests: "?? Tests",
+  debug_tab_mcp: "?? MCP",
   debug_loading: "Wird geladen?",
 
   // Memory popover
@@ -274,6 +277,7 @@ export const FR = {
   debug_tab_status: "?? Statut",
   debug_tab_logs: "?? Journaux",
   debug_tab_tests: "?? Tests",
+  debug_tab_mcp: "?? MCP",
   debug_loading: "Chargement?",
 
   // Memory popover

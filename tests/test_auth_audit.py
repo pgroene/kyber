@@ -36,6 +36,9 @@ _ADMIN_ENDPOINTS = [
     ("post", "/api/kyber/prompt_tests/run", {}),
     ("post", "/api/kyber/prompt_tests/capture", {}),
     ("post", "/api/kyber/prompt_tests/regenerate", {}),
+    ("get", "/api/kyber/self_update", None),
+    ("post", "/api/kyber/self_update", None),
+    ("post", "/api/kyber/proposals/approve", None),
 ]
 
 
@@ -113,6 +116,27 @@ async def test_admin_endpoints_reject_non_admins(
     assert response.status == 403
     body = json.loads(response.text)
     assert body["message"] == "Admin required"
+
+
+@pytest.mark.parametrize(("method", "path"), [
+    ("get", "/api/kyber/self_update"),
+    ("post", "/api/kyber/self_update"),
+    ("post", "/api/kyber/proposals/approve"),
+])
+async def test_admin_http_views_reject_non_admins(
+    hass,
+    setup_integration,
+    hass_client,
+    hass_read_only_access_token: str,
+    method: str,
+    path: str,
+) -> None:
+    """Verify that non-admin authenticated requests to admin-only views return 403."""
+    client = await hass_client(hass_read_only_access_token)
+    resp = await getattr(client, method)(path)
+    assert resp.status == 403
+    body = await resp.json()
+    assert body.get("message") == "Admin required"
 
 
 async def test_execute_action_errors_do_not_leak_exception_details(

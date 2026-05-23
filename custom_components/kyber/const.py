@@ -74,6 +74,10 @@ CONF_MAX_TOKENS = "max_tokens"
 CONF_MAX_REQUESTS_PER_MINUTE = "max_requests_per_minute"
 CONF_MAX_DAILY_TOKENS = "max_daily_tokens"
 CONF_ENABLE_DEBUG_VIEWS = "enable_debug_views"
+CONF_ENABLE_MCP = "enable_mcp"
+CONF_ENABLE_MCP_IN_CHAT = "enable_mcp_in_chat"
+CONF_MCP_ALLOW_STATE_CHANGES = "mcp_allow_state_changes"
+CONF_MCP_CLIENT_SERVERS = "mcp_client_servers"
 CONF_USER_NAME = "user_name"
 CONF_RUN_INITIAL_ANALYZE = "run_initial_analyze"
 CONF_INITIAL_DEEP_LEARNING_RUNS = "initial_deep_learning_runs"
@@ -111,6 +115,10 @@ DEFAULT_MAX_TOKENS = 20_000
 DEFAULT_MAX_REQUESTS_PER_MINUTE = 30
 DEFAULT_MAX_DAILY_TOKENS = 0
 DEFAULT_ENABLE_DEBUG_VIEWS = False
+DEFAULT_ENABLE_MCP = True
+DEFAULT_ENABLE_MCP_IN_CHAT = False
+DEFAULT_MCP_ALLOW_STATE_CHANGES = False
+DEFAULT_MCP_CLIENT_SERVERS = ""
 DEFAULT_RUN_INITIAL_ANALYZE = True
 DEFAULT_INITIAL_DEEP_LEARNING_RUNS = 10
 DEFAULT_NARRATOR_MAX_BATCH = 20
@@ -313,7 +321,7 @@ For entity IDs (like light.xyz) or current states (on/off/temperature), ALWAYS c
 - User names a device/entity/script/automation ("it's called X", "named X", "the entity X") → `search_entities(query: "X")` IMMEDIATELY before anything else
 - "How do I control / turn on / use [device]?" → `search_entities(query: "<device name>")` first, then act on result
 - Entities in a room / what is in an area → `get_area_entities`
-- "How many X" / "list all X" → `list_entities_by_domain`
+- "How many X" / "list all X" / "show me all X" / "laat me X zien" → `list_entities_by_domain(domain="<X_domain>")` — translate the user's term to the HA domain: "media players" → `media_player`, "lights" → `light`, "switches" → `switch`, "sensors" → `sensor`, "cameras" → `camera`, "covers" → `cover`, "climate/thermostats" → `climate`, "locks" → `lock`. ❌ NEVER use `search_entities` for domain-level listing — it searches entity names, not domains.
 - Unknown device name / partial match → `search_entities`
 - Area or room management only → `get_areas` (do NOT call it for unrelated questions)
 - Where is someone / who is home / who is at work → person locations are shown in context below; use `get_zone_occupants(zone: "<name>")` for live detail or to confirm
@@ -356,7 +364,7 @@ The user may refer to entities, areas, or labels in any language or with partial
 If you inferred the match, mention it briefly in the plan `summary`. Only ask if two candidates are equally plausible and the wrong choice would be harmful.
 
 ### Multi-turn context — never forget prior entity matches
-When a user adds a naming hint about a device already discussed, **combine** it: search `search_entities("onoff espresso")` not just `search_entities("onoff")`. Never abandon a confirmed match.
+When a user adds a naming hint about a device already discussed, **combine** it: e.g. if you searched `search_entities("lamp")` before and user now says "the kitchen one", search `search_entities("kitchen lamp")` — not just `search_entities("lamp")` again. Never abandon a confirmed match.
 If `search_entities` returns >10 results, refine immediately with area name or domain keyword — do NOT present all results.
 
 ### "Is X on?" — pick the switch, not the lamp

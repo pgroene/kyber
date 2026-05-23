@@ -57,6 +57,10 @@ from .const import (
     CONF_MAX_REQUESTS_PER_MINUTE,
     DEFAULT_MAX_REQUESTS_PER_MINUTE,
     CONF_LABEL_ASSIGNMENT_MODE,
+    CONF_ENABLE_MCP_IN_CHAT,
+    CONF_MCP_CLIENT_SERVERS,
+    DEFAULT_ENABLE_MCP_IN_CHAT,
+    DEFAULT_MCP_CLIENT_SERVERS,
     DOMAIN,
     KNOWLEDGE_BUDGET_CHARS,
     LABEL_ASSIGNMENT_OFF,
@@ -95,6 +99,7 @@ from .intent_and_context import (
     _build_home_state_by_area, _build_context,
 )
 from .tool_execution import _tool_result_summary, _state_matches, _execute_tool, _async_execute_tool, _ASYNC_TOOLS, TOOL_ALIASES, resolve_tool_call
+from .mcp_client import MCPClientManager, parse_servers_config, is_mcp_tool
 from .session_and_storage import (
     _CHAT_HISTORY_STORE_VERSION, _CHAT_HISTORY_STORE_KEY,
     _CHAT_HISTORY_MAX_MESSAGES, _CHAT_MESSAGE_MAX_CHARS, _CHAT_SUMMARY_MAX_CHARS,
@@ -141,6 +146,16 @@ _LOGGER = logging.getLogger(__name__)
 # Key in hass.data: set True while a user chat request is in progress so the
 # background narrator pauses between batches instead of blocking the AI queue.
 _CHAT_BUSY_KEY = "kyber_chat_busy"
+_CLASSIC_LOG_KEY = "kyber_classic_call_log"
+_CLASSIC_LOG_MAX = 200
+
+
+def _classic_call_log(hass: HomeAssistant, entry: dict) -> None:
+    """Append an entry to the classic call log ring buffer."""
+    buf: list[dict] = hass.data.setdefault(_CLASSIC_LOG_KEY, [])
+    buf.append(entry)
+    if len(buf) > _CLASSIC_LOG_MAX:
+        del buf[: len(buf) - _CLASSIC_LOG_MAX]
 
 def _sanitize_prompt_value(text: str, max_len: int = 0) -> str:
     """Sanitize a user-supplied string before embedding it in the system prompt.
@@ -372,7 +387,7 @@ _RESPONSE_MODE_INFORMATIONAL = (
     "- After tool result (entity LIST): list EVERY SINGLE entity from the result. If result has 83 items, output 83 bullets. NEVER stop at 5/10/20. NEVER write '...' or 'and more'.\n"
     "- After tool result (single entity state): extract ONLY the attribute(s) the user asked about. Do NOT dump all attributes. E.g. for 'what time does the sun set?' â†’ show only next_setting, NOT next_dawn/noon/elevation/azimuth.\n"
     "- Show times in the local timezone from context ('Timezone'), not UTC. Convert if needed.\n"
-    "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, get_zones, get_zone_occupants, list_integrations, get_integration_entities, search_automations, get_automation.\n"
+    "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, get_zones, get_zone_occupants, list_integrations, get_integration_entities, search_automations, get_automation, get_datetime, get_todo_items.\n"
     "- For questions about WHEN/WHAT TIME/SCHEDULE something happens (e.g. 'what time do the lights turn on', 'when does X trigger', 'what happens at sunrise'), use search_automations(query='<keyword>') â€” NOT search_entities. Then call get_automation(id='...') for details.\n"
     "- For questions about integration-specific data (energy prices, weather, solar/inverter, P1 meter, etc.): "
     "call list_integrations ONCE, scan the result for a matching platform name and sample_entities, "
@@ -393,7 +408,7 @@ _RESPONSE_MODE_ACTION = (
     "- Entity IDs already in context or tool results? â†’ output plan block directly.\n"
     "- If user says 'those'/'them'/'it' â†’ use the entities from the conversation history above.\n"
     "- Control devices via plan/actions block (call_service). Editing areas/labels/names uses assign_area/rename_entity/assign_label actions. NOT open_editor.\n"
-    "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, get_zones, get_zone_occupants, list_integrations, get_integration_entities, search_automations, get_automation.\n"
+    "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, get_zones, get_zone_occupants, list_integrations, get_integration_entities, search_automations, get_automation, get_datetime, get_todo_items.\n"
     "- For 'fix/organise/order my entities': call list_entities_without_area, then propose a plan with assign_area actions.\n"
     "- No preamble. No footer.\n"
     "<</RULES>>\n\n"
@@ -963,6 +978,8 @@ async def _run_ai_loop(
     history: list,
     intent: str,
     config: dict | None = None,
+    user_id: str | None = None,
+    is_admin: bool = False,
 ) -> tuple:
     """Run the AI tool-calling loop; return (response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, aliases_saved).
 
@@ -1135,6 +1152,26 @@ async def _run_ai_loop(
     _ctx_warn_tokens: int = int(_ctx_window * 0.85)   # 85 % fill â†’ warn
     _ctx_hint_tokens: int = int(_ctx_window * 0.75)   # 75 % fill â†’ inject brief-reply hint
 
+
+    # -- MCP client -- load external tools if feature flag is on
+    _mcp_client = None
+    _mcp_tools = {}
+    _enable_mcp_in_chat = bool(_cfg.get(CONF_ENABLE_MCP_IN_CHAT, DEFAULT_ENABLE_MCP_IN_CHAT))
+    if _enable_mcp_in_chat:
+        _servers_raw = str(_cfg.get(CONF_MCP_CLIENT_SERVERS, DEFAULT_MCP_CLIENT_SERVERS))
+        _servers = parse_servers_config(_servers_raw)
+        if _servers:
+            _mcp_client = MCPClientManager(_servers)
+            try:
+                _mcp_tools = await _mcp_client.async_get_tools()
+                _LOGGER.debug('Kyber MCP client: loaded %d external tools', len(_mcp_tools))
+                _progress_emit(hass, request_id, {
+                    'type': 'debug',
+                    'message': f'[MCP] {len(_mcp_tools)} external tool(s) loaded',
+                })
+            except Exception as _mcp_err:  # noqa: BLE001
+                _LOGGER.warning('Kyber MCP client: failed to load tools: %s', _mcp_err)
+
     # Tool-calling loop â€” the AI may request live HA data via [TOOL_CALL: {...}]
     # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
     tool_exchange = ""  # accumulated tool call/result pairs appended to instructions
@@ -1146,6 +1183,11 @@ async def _run_ai_loop(
     _loop_redirect_given = False  # allow one redirect hint before falling back to synthesis
     _auto_plan_rescued = False    # set when call_service tool call is auto-converted to plan
     loop_instructions = instructions  # default if the loop never runs
+    # Append MCP tool descriptions to instructions if external tools are available
+    if _mcp_tools and _mcp_client is not None:
+        _mcp_block = _mcp_client.build_prompt_block(_mcp_tools)
+        if _mcp_block:
+            instructions = instructions + "\n\n" + _mcp_block
 
     # â”€â”€ Quick-intent shortcut â€” skip the AI for trivially parseable requests
     # like "create an area outside". Small local models loop on get_areas
@@ -1394,11 +1436,16 @@ async def _run_ai_loop(
             # Resolve aliases before deciding sync vs async path
             call = {
                 **call,
-                "user_id": str(getattr(request.get("hass_user"), "id", "") or "") or None,
-                "is_admin": bool(getattr(request.get("hass_user"), "is_admin", False)),
+                "user_id": user_id,
+                "is_admin": is_admin,
             }
             call = resolve_tool_call(call)
-            if call.get("name") in _ASYNC_TOOLS:
+            tool_name = call.get("name", "")
+            # Route MCP client tools to the external server
+            if is_mcp_tool(tool_name) and _mcp_client is not None:
+                args = {k: v for k, v in call.items() if k not in ("name", "user_id", "is_admin")}
+                result = await _mcp_client.async_call_tool(tool_name, args)
+            elif call.get("name") in _ASYNC_TOOLS:
                 result = await _async_execute_tool(hass, call)
             else:
                 result = await hass.async_add_executor_job(_execute_tool, hass, call)
@@ -1452,8 +1499,8 @@ async def _run_ai_loop(
                             kstore,
                             _q,
                             _primary_eids,
-                            owner_id=str(getattr(request.get("hass_user"), "id", "") or "") or None,
-                            is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)),
+                            owner_id=user_id,
+                            is_admin=is_admin,
                         )
                         if _saved:
                             _aliases_saved.append(_saved)
@@ -1541,8 +1588,8 @@ async def _run_ai_loop(
                             kstore,
                             _alias_q,
                             [_eid],
-                            owner_id=str(getattr(request.get("hass_user"), "id", "") or "") or None,
-                            is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)),
+                            owner_id=user_id,
+                            is_admin=is_admin,
                         )
                         if _saved2:
                             _aliases_saved.append(_saved2)
@@ -1551,9 +1598,11 @@ async def _run_ai_loop(
             summary = _tool_result_summary(call, tool_result_data)
             args_display = {k: v for k, v in call.items() if k != "name"}
             tool_log.append({
+                "type": "tool_call",
                 "name": call.get("name", ""),
                 "args": args_display,
                 "summary": summary,
+                "result": tool_result_str[:300],
             })
             # Build a short preview of the result for the live UI
             preview = tool_result_str
@@ -2203,8 +2252,11 @@ class KyberView(HomeAssistantView):
 
         try:
             response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved, call_token_usage = \
-                await _run_ai_loop(hass, entity_id, instructions, kstore, user_prompt, request_id, history, intent, config=self._config)
+                await _run_ai_loop(hass, entity_id, instructions, kstore, user_prompt, request_id, history, intent, config=self._config,
+                                   user_id=str(getattr(request.get("hass_user"), "id", "") or "") or None,
+                                   is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)))
         except HomeAssistantError as err:
+            _LOGGER.warning("Kyber: AI provider error: %s", err)
             await token_budget_store.async_record(
                 budget_provider,
                 estimated_prompt_tokens,
@@ -2215,7 +2267,7 @@ class KyberView(HomeAssistantView):
             hass.data[_CHAT_BUSY_KEY] = False
             hass.data.get("kyber_preempt_event", None) and hass.data["kyber_preempt_event"].clear()
             return self.json_message(
-                f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
+                "AI provider error. Check your AI Task configuration.", HTTPStatus.SERVICE_UNAVAILABLE
             )
         except Exception as err:  # noqa: BLE001
             _LOGGER.exception("Kyber: unexpected error during AI loop (type=%s)", type(err).__name__)
@@ -2466,6 +2518,29 @@ class KyberView(HomeAssistantView):
                 except Exception as _prop2_err:  # noqa: BLE001
                     _LOGGER.debug("Kyber: plan proposal save failed (non-critical): %s", _prop2_err)
 
+        _call_tokens = int(call_token_usage.get("total_tokens", 0) or 0)
+        _call_tool_calls = [
+            {
+                "tool": e.get("name", "?"),
+                "input": json.dumps(e.get("args") or {})[:300],
+                "output": str(e.get("result") or e.get("summary") or "")[:300],
+            }
+            for e in (tool_log or [])
+            if e.get("type") == "tool_call"
+        ]
+        _classic_call_log(hass, {
+            "ts": _turn_started_at,
+            "prompt": (user_prompt or "")[:120],
+            "response": str(response_text or "")[:300],
+            "user_id": str(getattr(request.get("hass_user"), "id", "") or ""),
+            "latency_ms": _total_ms,
+            "actions_executed": len(_call_tool_calls),
+            "token_total": _call_tokens,
+            "intent": intent or "",
+            "outcome": "ok",
+            "tool_calls": _call_tool_calls,
+        })
+
         return self.json({
             "response": response_text,
             "yaml_blocks": yaml_blocks,
@@ -2482,6 +2557,7 @@ class KyberView(HomeAssistantView):
             "area_suggestions": area_suggestions or None,
             "aliases_saved": _aliases_saved or None,
             "token_usage": token_usage,
+            "call_tokens": _call_tokens,
             "budget_warning": True if token_usage.get("warning") else None,
         })
 
@@ -2535,6 +2611,14 @@ class KyberSelfUpdateView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:
         """Return current and latest version without installing."""
+        ha_user = request.get("hass_user")
+        if not ha_user or not ha_user.is_admin:
+            return web.Response(
+                text=json.dumps({"message": "Admin required"}),
+                content_type="application/json",
+                status=403,
+            )
+
         hass: HomeAssistant = request.app["hass"]
         from pathlib import Path as _Path
         import importlib.metadata as _meta
@@ -2566,6 +2650,14 @@ class KyberSelfUpdateView(HomeAssistantView):
 
     async def post(self, request: web.Request) -> web.Response:
         """Download latest release zip and extract over /config/custom_components/kyber/."""
+        ha_user = request.get("hass_user")
+        if not ha_user or not ha_user.is_admin:
+            return web.Response(
+                text=json.dumps({"message": "Admin required"}),
+                content_type="application/json",
+                status=403,
+            )
+
         hass: HomeAssistant = request.app["hass"]
         import io, zipfile, shutil, tempfile
         from pathlib import Path as _Path
@@ -2818,6 +2910,14 @@ class KyberProposalApproveView(HomeAssistantView):
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
+        ha_user = request.get("hass_user")
+        if not ha_user or not ha_user.is_admin:
+            return web.Response(
+                text=json.dumps({"message": "Admin required"}),
+                content_type="application/json",
+                status=403,
+            )
+
         hass: HomeAssistant = request.app["hass"]
         try:
             body = await request.json()
@@ -2893,3 +2993,26 @@ class KyberProposalApproveView(HomeAssistantView):
         await kstore._persist()  # noqa: SLF001
 
         return self.json({"status": "ok", "executed": result_msg, "memory": memory_content})
+
+
+class KyberClassicLogView(HomeAssistantView):
+    """Expose the classic /api/kyber/complete call log.
+
+    GET    /api/kyber/classic/log  → {"calls": [...], "total": N}
+    DELETE /api/kyber/classic/log  → {"cleared": true}
+    """
+
+    url = "/api/kyber/classic/log"
+    name = "api:kyber:classic:log"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        buf: list[dict] = list(hass.data.get(_CLASSIC_LOG_KEY) or [])
+        return self.json({"calls": buf, "total": len(buf)})
+
+    async def delete(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        hass.data[_CLASSIC_LOG_KEY] = []
+        return self.json({"cleared": True})
+

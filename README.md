@@ -1,11 +1,10 @@
 # Kyber — AI-Powered Smart Home Assistant for Home Assistant
 
-> ⚠️ **ALPHA SOFTWARE — Use at your own risk**
+> ⚠️ **Your AI now has a key to the house. Literally.**
 >
-> Kyber is in early alpha. Not all features are working and breaking changes may occur between releases.
-> **The AI can modify your Home Assistant configuration** — automations, scripts, entities and dashboards.
-> Always review proposals before executing them.
-> **Make a full backup of your Home Assistant instance before installing or experimenting with Kyber.**
+> Kyber lets an AI control your lights, thermostats, automations, scripts, and dashboards — in natural language, no confirmation required (in Autopilot Mode).
+> It won't judge you for having 47 automations that do the same thing, but it might just clean them up if you ask.
+> **Always review proposals before executing them. Back up your Home Assistant before installing. We are not responsible for your living room turning into a disco at 3am.**
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 
@@ -37,6 +36,8 @@ Or use the quick-add button:
 - 🤖 **AI Entity Narrator** — on startup, Kyber batches all entities and generates rich descriptions and natural-language search aliases (e.g. "koffiezetapparaat" → `switch.onoff_keuken_espresso`). Alias quality is filtered for plausibility. See [docs/narrator.md](docs/narrator.md)
 - 📍 **Proactive Area Suggestions** — when you mention a room and nearby entities have no area assigned, Kyber shows a one-click assignment card. See [docs/area-suggestions.md](docs/area-suggestions.md)
 - 🔒 **100% Local** — all AI inference runs on your own Ollama instance; nothing leaves your network
+- ☁️ **Cloud AI support** — optionally route through Azure AI Foundry, OpenAI (or compatible: Groq, Mistral, OpenRouter), or Anthropic (Claude) instead of a local model
+- 🔌 **MCP Server** — expose Kyber as an [MCP](https://modelcontextprotocol.io) tool so ChatGPT, Claude Desktop, Cursor and other AI clients can control your home. See [docs/mcp.md](docs/mcp.md)
 - 🔌 **Integration Explorer** — on startup Kyber automatically indexes every loaded HA integration: sensor names, entity IDs, and natural-language capability descriptions as searchable knowledge facts
 - 🔬 **Deep Analyzer** — on-demand AI extraction of durable home facts across **8 analytical lenses**: daily routines, device inventory, occupancy patterns, time/location triggers, energy usage, safety rules, entity relationships & dependencies, and automation purpose & use case
 - 🧠 **Hybrid memory retrieval** — in-memory TF-IDF embedding with cosine similarity + keyword overlap blending; selected facts streamed to the live progress card
