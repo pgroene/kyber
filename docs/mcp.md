@@ -124,6 +124,32 @@ List entities in your Home Assistant, optionally filtered by domain.
 
 ---
 
+### `get_datetime`
+Get the current date, time, day of week, and timezone from Home Assistant.
+
+```json
+{ "name": "get_datetime", "arguments": {} }
+```
+
+Returns `datetime`, `date`, `time`, `day_of_week`, `timezone`, and `utc`.
+
+---
+
+### `get_todo_items`
+Fetch items from Home Assistant todo list entities (shopping lists, task lists, etc.).
+
+```json
+{
+  "name": "get_todo_items",
+  "arguments": {
+    "entity_ids": ["todo.shopping"],   // optional — omit for all lists
+    "status": "needs_action"           // needs_action | completed | all
+  }
+}
+```
+
+---
+
 ### `call_service`
 Call any Home Assistant service directly.
 

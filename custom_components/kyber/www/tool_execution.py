@@ -1081,6 +1081,67 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             ),
         })
 
+    # ── DateTime tool ────────────────────────────────────────────────────────
+    if name == "get_datetime":
+        from datetime import datetime, timezone  # noqa: PLC0415
+        from homeassistant.util import dt as ha_dt  # noqa: PLC0415
+        now_utc = datetime.now(tz=timezone.utc)
+        now_local = ha_dt.as_local(now_utc)
+        tz_name = str(hass.config.time_zone or "UTC")
+        return json.dumps({
+            "datetime": now_local.isoformat(),
+            "date": now_local.strftime("%Y-%m-%d"),
+            "time": now_local.strftime("%H:%M:%S"),
+            "day_of_week": now_local.strftime("%A"),
+            "timezone": tz_name,
+            "utc": now_utc.isoformat(),
+        })
+
+    # ── Todo items tool ──────────────────────────────────────────────────────
+    if name == "get_todo_items":
+        from homeassistant.components.todo import TodoItemStatus  # noqa: PLC0415
+        entity_ids_arg: list[str] = call.get("entity_ids") or []
+        status_filter: str = str(call.get("status") or "needs_action").lower()
+
+        if entity_ids_arg:
+            todo_ids = [e for e in entity_ids_arg if hass.states.get(e)]
+            not_found = [e for e in entity_ids_arg if not hass.states.get(e)]
+        else:
+            todo_ids = [s.entity_id for s in hass.states.async_all("todo")]
+            not_found = []
+
+        if not todo_ids:
+            return json.dumps({"error": "No todo entities found", "not_found": not_found})
+
+        all_items: list[dict] = []
+        for eid in todo_ids:
+            state = hass.states.get(eid)
+            if not state:
+                continue
+            # Items are stored as state attributes under 'items' key on some integrations,
+            # but reliably we read via the entity registry attributes
+            items_raw = state.attributes.get("items") or []
+            for item in items_raw:
+                item_status = str(item.get("status") or "needs_action").lower()
+                if status_filter == "all" or item_status == status_filter:
+                    all_items.append({
+                        "todo_list": eid,
+                        "todo_list_name": state.attributes.get("friendly_name", eid),
+                        "summary": item.get("summary") or item.get("name") or "",
+                        "status": item_status,
+                        "due": item.get("due"),
+                        "description": item.get("description"),
+                        "uid": item.get("uid"),
+                    })
+
+        return json.dumps({
+            "items": all_items,
+            "count": len(all_items),
+            "status_filter": status_filter,
+            "todo_lists": todo_ids,
+            **({"not_found": not_found} if not_found else {}),
+        })
+
     valid_tools = [
         "list_entities_by_domain", "get_entity_state", "get_area_entities",
         "list_entities_by_label", "search_entities", "list_entities_without_area",
@@ -1092,6 +1153,8 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "list_integrations", "get_integration_entities", "explore_integration",
         "run_ai_task",
         "get_domain_docs",
+        "get_datetime",
+        "get_todo_items",
     ]
     # If the bogus "tool" name looks like a word from a user request (e.g.
     # they typed "create an area outside" and the model called tool

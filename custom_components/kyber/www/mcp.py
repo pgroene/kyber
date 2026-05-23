@@ -128,6 +128,40 @@ _TOOLS: list[dict] = [
         },
     },
     {
+        "name": "get_datetime",
+        "description": (
+            "Get the current date, time, day of week, and timezone from Home Assistant. "
+            "Call this whenever you need to know the current time for scheduling, "
+            "calendar queries, or time-aware responses."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "get_todo_items",
+        "description": (
+            "Get items from Home Assistant todo list entities (shopping lists, task lists, etc.). "
+            "Returns items filtered by status."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Todo list entity IDs, e.g. ['todo.shopping', 'todo.tasks']. If omitted, all todo lists are queried.",
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["needs_action", "completed", "all"],
+                    "description": "Filter by status. Defaults to 'needs_action'.",
+                },
+            },
+        },
+    },
+    {
         "name": "calendar_get_events",
         "description": (
             "Get calendar events from Home Assistant calendar entities. "
@@ -487,6 +521,78 @@ async def _handle_calendar_get_events(hass: HomeAssistant, params: dict) -> dict
     }
 
 
+async def _handle_get_datetime(hass: HomeAssistant, params: dict) -> dict:  # noqa: ARG001
+    """Return current date/time and timezone from HA config."""
+    from datetime import datetime, timezone
+    from homeassistant.util import dt as ha_dt
+
+    now_utc = datetime.now(tz=timezone.utc)
+    now_local = ha_dt.as_local(now_utc)
+    return {
+        "datetime": now_local.isoformat(),
+        "date": now_local.strftime("%Y-%m-%d"),
+        "time": now_local.strftime("%H:%M:%S"),
+        "day_of_week": now_local.strftime("%A"),
+        "timezone": str(hass.config.time_zone or "UTC"),
+        "utc": now_utc.isoformat(),
+    }
+
+
+async def _handle_get_todo_items(hass: HomeAssistant, params: dict) -> dict:
+    """Get items from HA todo list entities."""
+    entity_ids_arg: list[str] = params.get("entity_ids") or []
+    status_filter: str = str(params.get("status") or "needs_action").lower()
+
+    if entity_ids_arg:
+        todo_ids = [e for e in entity_ids_arg if hass.states.get(e)]
+        not_found = [e for e in entity_ids_arg if not hass.states.get(e)]
+    else:
+        todo_ids = [s.entity_id for s in hass.states.async_all("todo")]
+        not_found = []
+
+    if not todo_ids:
+        return {"error": "No todo entities found", "not_found": not_found}
+
+    all_items: list[dict] = []
+    errors: list[str] = []
+
+    for eid in todo_ids:
+        try:
+            result = await hass.services.async_call(
+                "todo",
+                "get_items",
+                {"entity_id": eid},
+                blocking=True,
+                return_response=True,
+            )
+            raw_items = (result or {}).get(eid, {}).get("items", [])
+            state = hass.states.get(eid)
+            list_name = state.attributes.get("friendly_name", eid) if state else eid
+            for item in raw_items:
+                item_status = str(item.get("status") or "needs_action").lower()
+                if status_filter == "all" or item_status == status_filter:
+                    all_items.append({
+                        "todo_list": eid,
+                        "todo_list_name": list_name,
+                        "summary": item.get("summary") or "",
+                        "status": item_status,
+                        "due": item.get("due"),
+                        "description": item.get("description"),
+                        "uid": item.get("uid"),
+                    })
+        except Exception as err:  # noqa: BLE001
+            errors.append(f"{eid}: {err}")
+
+    return {
+        "items": all_items,
+        "count": len(all_items),
+        "status_filter": status_filter,
+        "todo_lists": todo_ids,
+        **({"not_found": not_found} if not_found else {}),
+        **({"errors": errors} if errors else {}),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main MCP view
 # ---------------------------------------------------------------------------
@@ -668,6 +774,10 @@ class KyberMCPView(HomeAssistantView):
                 result = await _handle_call_service(hass, args)
             elif name == "calendar_get_events":
                 result = await _handle_calendar_get_events(hass, args)
+            elif name == "get_datetime":
+                result = await _handle_get_datetime(hass, args)
+            elif name == "get_todo_items":
+                result = await _handle_get_todo_items(hass, args)
             else:
                 return _err(req_id, -32602, f"Unknown tool: {name}")
         except Exception as err:  # noqa: BLE001
