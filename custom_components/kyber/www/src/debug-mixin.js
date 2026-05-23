@@ -1596,9 +1596,7 @@ export const DebugMixin = (Base) => class extends Base {
     this._renderMcpLogTable(body, allCalls, "all");
 
     // Filter dropdown
-    body.querySelector("#mcp-log-filter").addEventListener("change", (e) => {
-      this._renderMcpLogTable(body, allCalls, e.target.value);
-    });
+    body.querySelector("#mcp-log-filter").addEventListener("change", () => this._refreshMcpLogTable(body, token));
 
     // Compare button
     body.querySelector("#mcp-cmp-btn").addEventListener("click", () => this._runMcpCompare(body, token));
@@ -1607,14 +1605,14 @@ export const DebugMixin = (Base) => class extends Base {
     });
 
     // Log controls
-    body.querySelector("#mcp-log-refresh").addEventListener("click", () => this._renderDebugMcp(body));
+    body.querySelector("#mcp-log-refresh").addEventListener("click", () => this._refreshMcpLogTable(body, token));
     body.querySelector("#mcp-log-clear-mcp").addEventListener("click", async () => {
       await fetch("/api/kyber/mcp/log", { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
-      this._renderDebugMcp(body);
+      this._refreshMcpLogTable(body, token);
     });
     body.querySelector("#mcp-log-clear-classic").addEventListener("click", async () => {
       await fetch("/api/kyber/classic/log", { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
-      this._renderDebugMcp(body);
+      this._refreshMcpLogTable(body, token);
     });
   }
 
@@ -1824,13 +1822,28 @@ export const DebugMixin = (Base) => class extends Base {
 
     // Refresh the log table after compare
     try {
-      const r = await fetch("/api/kyber/mcp/log", { headers: { Authorization: `Bearer ${token}` } });
-      if (r.ok) {
-        const d = await r.json();
-        this._renderMcpLogTable(body, d.calls || []);
-        const countEl = body.querySelector("#mcp-log-count");
-        if (countEl) countEl.textContent = `${(d.calls || []).length} calls`;
-      }
+      await this._refreshMcpLogTable(body, token);
     } catch (_) { /* ignore */ }
+  }
+
+  async _refreshMcpLogTable(body, token) {
+    let mcpCalls = [], classicCalls = [];
+    try {
+      const [r1, r2] = await Promise.all([
+        fetch("/api/kyber/mcp/log", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/kyber/classic/log", { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (r1.ok) mcpCalls = (await r1.json()).calls || [];
+      if (r2.ok) classicCalls = (await r2.json()).calls || [];
+    } catch (_) { /* ignore */ }
+    const allCalls = [
+      ...mcpCalls.map(c => ({ ...c, source: "mcp" })),
+      ...classicCalls.map(c => ({ ...c, source: "classic" })),
+    ].sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    const filter = body.querySelector("#mcp-log-filter")?.value || "all";
+    this._renderMcpLogTable(body, allCalls, filter);
+    const countEl = body.querySelector("#mcp-log-count");
+    if (countEl) countEl.textContent = `${allCalls.length} calls (${mcpCalls.length} MCP · ${classicCalls.length} classic)`;
+    return allCalls;
   }
 };
