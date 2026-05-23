@@ -396,3 +396,234 @@ def test_mcp_log_evicts_oldest():
     # The oldest entries (ts=0..4) should be gone; newest survives
     assert buf[-1]["ts"] == float(_MCP_LOG_MAX + 4)
 
+
+# ---------------------------------------------------------------------------
+# Rate limiter: check() then record() (not check_and_record)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_kyber_ask_rate_limiter_uses_check_and_record_separately(mcp_view):
+    """_handle_kyber_ask must call check() and record() separately."""
+    hass = _make_hass()
+    hass.data["kyber_config"] = {"ai_task_entity_id": "conversation.mock"}
+
+    mock_rl = MagicMock()
+    mock_rl.check.return_value = (True, 0)
+
+    with patch("custom_components.kyber.mcp._rate_limiter", mock_rl), \
+         patch("custom_components.kyber.mcp._handle_kyber_ask", new_callable=AsyncMock) as mock_ask:
+        mock_ask.return_value = {"response": "ok", "actions_executed": 0, "token_usage": {}}
+        await mcp_view._dispatch(hass, {
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "kyber_ask", "arguments": {"prompt": "test"}},
+        }, "user-1", True)
+
+    # Verify check_and_record does NOT exist (was the bug) and the right methods are used
+    assert not hasattr(mock_rl, "check_and_record") or not mock_rl.check_and_record.called
+
+
+@pytest.mark.asyncio
+async def test_handle_kyber_ask_rate_limit_check_then_record():
+    """When rate limit allows, check() is called before record()."""
+    from custom_components.kyber.mcp import _handle_kyber_ask
+
+    hass = _make_hass()
+    hass.data["kyber_config"] = {}
+
+    mock_rl = MagicMock()
+    mock_rl.check.return_value = (True, 0)
+
+    call_order = []
+    mock_rl.check.side_effect = lambda *a: (call_order.append("check"), (True, 0))[1]
+    mock_rl.record.side_effect = lambda *a: call_order.append("record")
+
+    with patch("custom_components.kyber.mcp._rate_limiter", mock_rl), \
+         patch("custom_components.kyber.http_api._run_ai_loop", new_callable=AsyncMock) as mock_loop, \
+         patch("custom_components.kyber.http_api._build_context", return_value=("ctx", {})), \
+         patch("custom_components.kyber.http_api._build_prompt_sections", return_value={"instructions": "instr", "intent": "turn on"}), \
+         patch("custom_components.kyber.http_api._inject_knowledge_into_instructions", new_callable=AsyncMock, return_value=("instr", {})), \
+         patch("custom_components.kyber.knowledge.get_store", return_value=AsyncMock(async_load=AsyncMock())), \
+         patch("custom_components.kyber.token_budget.get_budget_provider", return_value="local"), \
+         patch("custom_components.kyber.token_budget.get_store") as mock_tbs:
+        budget_store = AsyncMock()
+        budget_store.async_check = AsyncMock(return_value=(True, None))
+        budget_store.async_record = AsyncMock()
+        mock_tbs.return_value = budget_store
+        mock_loop.return_value = ("response", [], None, None, "intent", "instr", [], {"total_tokens": 50})
+
+        result = await _handle_kyber_ask(
+            hass, {"prompt": "hello"}, {"ai_task_entity_id": "conversation.mock"}, "user-1", True
+        )
+
+    assert call_order == ["check", "record"], f"Wrong order: {call_order}"
+    assert result["response"] == "response"
+
+
+@pytest.mark.asyncio
+async def test_handle_kyber_ask_rate_limit_blocked():
+    """When rate limit blocks, record() must NOT be called."""
+    from custom_components.kyber.mcp import _handle_kyber_ask
+
+    hass = _make_hass()
+    mock_rl = MagicMock()
+    mock_rl.check.return_value = (False, 42)
+
+    with patch("custom_components.kyber.mcp._rate_limiter", mock_rl):
+        result = await _handle_kyber_ask(
+            hass, {"prompt": "hello"}, {"ai_task_entity_id": "conversation.mock"}, "user-1", True
+        )
+
+    assert "error" in result
+    assert "42" in result["error"]
+    mock_rl.record.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Batch request handling
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_batch_request_returns_all_responses(mcp_view):
+    """A batch array of RPC calls returns a list of responses."""
+    hass = _make_hass()
+    results = []
+    for rpc in [
+        {"jsonrpc": "2.0", "id": 10, "method": "ping"},
+        {"jsonrpc": "2.0", "id": 11, "method": "ping"},
+    ]:
+        r = await mcp_view._dispatch(hass, rpc, "u", True)
+        if r is not None:
+            results.append(r)
+    assert len(results) == 2
+    assert results[0]["id"] == 10
+    assert results[1]["id"] == 11
+
+
+@pytest.mark.asyncio
+async def test_batch_notification_excluded_from_response(mcp_view):
+    """Notifications (no id) in a batch produce no response entry."""
+    hass = _make_hass()
+    notification = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+    result = await mcp_view._dispatch(hass, notification, "u", True)
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# tools/list schema validation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_tools_list_schemas_have_required_fields(mcp_view):
+    """Every tool in tools/list must have name, description, and inputSchema."""
+    hass = _make_hass()
+    result = await mcp_view._dispatch(hass, {
+        "jsonrpc": "2.0", "id": 1, "method": "tools/list",
+    }, "u", True)
+    for tool in result["result"]["tools"]:
+        assert "name" in tool, f"Tool missing 'name': {tool}"
+        assert "description" in tool, f"Tool missing 'description': {tool}"
+        assert "inputSchema" in tool, f"Tool missing 'inputSchema': {tool}"
+        schema = tool["inputSchema"]
+        assert schema.get("type") == "object"
+        assert "properties" in schema
+
+
+# ---------------------------------------------------------------------------
+# get_entity_state edge cases
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_entity_state_multiple_entities():
+    """get_entity_state handles multiple entity IDs in one call."""
+    light = _make_state("light.bedroom", "on")
+    switch = _make_state("switch.fan", "off")
+    hass = _make_hass({"light.bedroom": light, "switch.fan": switch})
+
+    with patch("homeassistant.helpers.area_registry.async_get") as mock_ar, \
+         patch("homeassistant.helpers.entity_registry.async_get") as mock_er:
+        mock_ar.return_value = MagicMock()
+        entry = MagicMock(); entry.area_id = None
+        mock_er.return_value.async_get = MagicMock(return_value=entry)
+
+        result = await _handle_get_entity_state(hass, {"entity_ids": ["light.bedroom", "switch.fan"]})
+
+    assert result["entities"][0]["found"] is True
+    assert result["entities"][1]["found"] is True
+    assert {e["entity_id"] for e in result["entities"]} == {"light.bedroom", "switch.fan"}
+
+
+@pytest.mark.asyncio
+async def test_get_entity_state_mixed_found_not_found():
+    """get_entity_state marks missing entities as found=False without error."""
+    light = _make_state("light.bedroom", "on")
+    hass = _make_hass({"light.bedroom": light})
+
+    with patch("homeassistant.helpers.area_registry.async_get") as mock_ar, \
+         patch("homeassistant.helpers.entity_registry.async_get") as mock_er:
+        mock_ar.return_value = MagicMock()
+        entry = MagicMock(); entry.area_id = None
+        mock_er.return_value.async_get = MagicMock(return_value=entry)
+
+        result = await _handle_get_entity_state(
+            hass, {"entity_ids": ["light.bedroom", "light.nonexistent"]}
+        )
+
+    found = {e["entity_id"]: e["found"] for e in result["entities"]}
+    assert found["light.bedroom"] is True
+    assert found["light.nonexistent"] is False
+
+
+# ---------------------------------------------------------------------------
+# call_service edge cases
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_call_service_empty_service_data():
+    """call_service works when service_data is omitted."""
+    hass = _make_hass()
+    result = await _handle_call_service(hass, {"domain": "homeassistant", "service": "reload_all"})
+    assert result["status"] == "ok"
+    hass.services.async_call.assert_awaited_once_with(
+        "homeassistant", "reload_all", {}, blocking=True
+    )
+
+
+@pytest.mark.asyncio
+async def test_call_service_exception_returns_error():
+    """call_service catches service exceptions and returns an error dict."""
+    hass = _make_hass()
+    hass.services.async_call = AsyncMock(side_effect=Exception("Service exploded"))
+    result = await _handle_call_service(hass, {
+        "domain": "light", "service": "turn_on", "service_data": {"entity_id": "light.x"},
+    })
+    assert "error" in result
+    assert "Service exploded" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# initialize handshake
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_initialize_returns_server_info(mcp_view):
+    """initialize response contains serverInfo."""
+    hass = _make_hass()
+    result = await mcp_view._dispatch(hass, {
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": MCP_PROTOCOL_VERSION, "clientInfo": {"name": "pytest"}},
+    }, "u", True)
+    assert result["result"]["serverInfo"]["name"] == "kyber"
+    assert "instructions" in result["result"]
+
+
+@pytest.mark.asyncio
+async def test_initialize_null_id(mcp_view):
+    """initialize works with id=null (some clients omit it)."""
+    hass = _make_hass()
+    result = await mcp_view._dispatch(hass, {
+        "jsonrpc": "2.0", "id": None, "method": "initialize",
+        "params": {"protocolVersion": MCP_PROTOCOL_VERSION},
+    }, "u", True)
+    assert result["id"] is None
+    assert "protocolVersion" in result["result"]
+

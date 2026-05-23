@@ -36,6 +36,7 @@ from .const import (
     DOMAIN,
     _sanitize_user_input,
 )
+from .rate_limiter import _rate_limiter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -173,7 +174,6 @@ async def _handle_kyber_ask(
         _inject_knowledge_into_instructions,
     )
     from .knowledge import get_store as get_knowledge_store
-    from .rate_limiter import _rate_limiter
     from .token_budget import get_budget_provider, get_store as get_token_budget_store
     from .const import CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS
 
@@ -185,9 +185,10 @@ async def _handle_kyber_ask(
 
     # Rate limiting
     max_rpm = int(config.get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE))
-    allowed, retry_after = _rate_limiter.check_and_record(user_id, max_rpm)
+    allowed, retry_after = _rate_limiter.check(user_id, max_rpm)
     if not allowed:
         return {"error": f"Rate limit exceeded. Retry after {retry_after}s"}
+    _rate_limiter.record(user_id)
 
     entity_id: str = str(config.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
     if not entity_id:
@@ -257,16 +258,13 @@ async def _handle_kyber_ask(
             await _run_ai_loop(hass, entity_id, instructions, kstore, prompt, request_id, [], intent, config=config)
     except Exception as err:  # noqa: BLE001
         _LOGGER.exception("Kyber MCP: AI loop error: %s", err)
-        await token_budget_store.async_record(
-            budget_provider, 0, max_daily_tokens, estimated_tokens=estimated_tokens
-        )
+        await token_budget_store.async_record(budget_provider, 0, max_daily_tokens)
         return {"error": f"AI error: {err}"}
 
     await token_budget_store.async_record(
         budget_provider,
         int(token_usage.get("total_tokens", 0) or 0),
         max_daily_tokens,
-        estimated_tokens=estimated_tokens,
     )
 
     actions_executed = [

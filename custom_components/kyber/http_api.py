@@ -141,6 +141,16 @@ _LOGGER = logging.getLogger(__name__)
 # Key in hass.data: set True while a user chat request is in progress so the
 # background narrator pauses between batches instead of blocking the AI queue.
 _CHAT_BUSY_KEY = "kyber_chat_busy"
+_CLASSIC_LOG_KEY = "kyber_classic_call_log"
+_CLASSIC_LOG_MAX = 200
+
+
+def _classic_call_log(hass: HomeAssistant, entry: dict) -> None:
+    """Append an entry to the classic call log ring buffer."""
+    buf: list[dict] = hass.data.setdefault(_CLASSIC_LOG_KEY, [])
+    buf.append(entry)
+    if len(buf) > _CLASSIC_LOG_MAX:
+        del buf[: len(buf) - _CLASSIC_LOG_MAX]
 
 def _sanitize_prompt_value(text: str, max_len: int = 0) -> str:
     """Sanitize a user-supplied string before embedding it in the system prompt.
@@ -2466,6 +2476,17 @@ class KyberView(HomeAssistantView):
                 except Exception as _prop2_err:  # noqa: BLE001
                     _LOGGER.debug("Kyber: plan proposal save failed (non-critical): %s", _prop2_err)
 
+        _classic_call_log(hass, {
+            "ts": _turn_started_at,
+            "prompt": (user_prompt or "")[:120],
+            "user_id": str(getattr(request.get("hass_user"), "id", "") or ""),
+            "latency_ms": _total_ms,
+            "actions_executed": len([e for e in (tool_log or []) if e.get("type") == "tool_call"]),
+            "token_total": int((token_usage or {}).get("total_tokens") or 0),
+            "intent": intent or "",
+            "outcome": "ok",
+        })
+
         return self.json({
             "response": response_text,
             "yaml_blocks": yaml_blocks,
@@ -2893,3 +2914,26 @@ class KyberProposalApproveView(HomeAssistantView):
         await kstore._persist()  # noqa: SLF001
 
         return self.json({"status": "ok", "executed": result_msg, "memory": memory_content})
+
+
+class KyberClassicLogView(HomeAssistantView):
+    """Expose the classic /api/kyber/complete call log.
+
+    GET    /api/kyber/classic/log  → {"calls": [...], "total": N}
+    DELETE /api/kyber/classic/log  → {"cleared": true}
+    """
+
+    url = "/api/kyber/classic/log"
+    name = "api:kyber:classic:log"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        buf: list[dict] = list(hass.data.get(_CLASSIC_LOG_KEY) or [])
+        return self.json({"calls": buf, "total": len(buf)})
+
+    async def delete(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        hass.data[_CLASSIC_LOG_KEY] = []
+        return self.json({"cleared": True})
+
