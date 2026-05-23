@@ -32,6 +32,7 @@ from homeassistant.core import HomeAssistant
 from .const import (
     CONF_AI_TASK_ENTITY_ID,
     CONF_MAX_REQUESTS_PER_MINUTE,
+    CONF_MCP_ALLOW_STATE_CHANGES,
     DEFAULT_MAX_REQUESTS_PER_MINUTE,
     DOMAIN,
     _sanitize_user_input,
@@ -297,6 +298,27 @@ _TOOLS: list[dict] = [
         },
     },
 ]
+
+_EXECUTE_PLAN_TOOL: dict = {
+    "name": "kyber_execute_plan",
+    "description": (
+        "Execute a plan produced by kyber_ask. "
+        "Pass the 'actions' array from the plan JSON to execute each action against Home Assistant. "
+        "Only available when 'MCP can change state of home' is enabled in Kyber settings. "
+        "TOKEN COST: Low — no AI call, direct HA service execution."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "actions": {
+                "type": "array",
+                "description": "Array of action objects from the kyber_ask plan response.",
+                "items": {"type": "object"},
+            },
+        },
+        "required": ["actions"],
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -646,7 +668,31 @@ async def _handle_kyber_recall(hass: HomeAssistant, params: dict) -> dict:
     return {"facts": facts, "count": len(facts), "query": query}
 
 
+async def _handle_kyber_execute_plan(
+    hass: HomeAssistant,
+    params: dict,
+    user_id: str | None,
+    is_admin: bool,
+) -> dict:
+    """Execute a plan's actions against Home Assistant (MCP-callable, approved=True)."""
+    from .action_execution import async_execute_actions
 
+    actions: list[dict] = params.get("actions", [])
+    if not actions:
+        return {"error": "actions array is required and must not be empty"}
+
+    result = await async_execute_actions(
+        hass,
+        actions,
+        user_id,
+        is_admin,
+        plan_summary="MCP execute_plan",
+        approved=True,
+    )
+    return result
+
+
+async def _handle_call_service(hass: HomeAssistant, params: dict) -> dict:
     """Call a HA service directly."""
     domain: str = str(params.get("domain", "")).strip()
     service: str = str(params.get("service", "")).strip()
@@ -964,7 +1010,10 @@ class KyberMCPView(HomeAssistantView):
             })
 
         if method == "tools/list":
-            return _ok(req_id, {"tools": _TOOLS})
+            tools = list(_TOOLS)
+            if self._config.get(CONF_MCP_ALLOW_STATE_CHANGES, False):
+                tools.append(_EXECUTE_PLAN_TOOL)
+            return _ok(req_id, {"tools": tools})
 
         if method == "tools/call":
             tool_name: str = str(params.get("name", ""))
@@ -1063,6 +1112,10 @@ class KyberMCPView(HomeAssistantView):
                 result = await _handle_get_datetime(hass, args)
             elif name == "get_todo_items":
                 result = await _handle_get_todo_items(hass, args)
+            elif name == "kyber_execute_plan":
+                if not self._config.get(CONF_MCP_ALLOW_STATE_CHANGES, False):
+                    return _err(req_id, -32602, "kyber_execute_plan is disabled. Enable 'MCP can change state of home' in Kyber settings.")
+                result = await _handle_kyber_execute_plan(hass, args, user_id, is_admin)
             else:
                 return _err(req_id, -32602, f"Unknown tool: {name}")
         except Exception as err:  # noqa: BLE001

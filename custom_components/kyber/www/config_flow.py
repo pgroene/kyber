@@ -48,6 +48,7 @@ from .const import (
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_ENABLE_MCP,
     CONF_ENABLE_MCP_IN_CHAT,
+    CONF_MCP_ALLOW_STATE_CHANGES,
     CONF_MCP_CLIENT_SERVERS,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
     CONF_MAX_DAILY_TOKENS,
@@ -65,6 +66,7 @@ from .const import (
     DEFAULT_ENABLE_DEBUG_VIEWS,
     DEFAULT_ENABLE_MCP,
     DEFAULT_ENABLE_MCP_IN_CHAT,
+    DEFAULT_MCP_ALLOW_STATE_CHANGES,
     DEFAULT_MCP_CLIENT_SERVERS,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
     DEFAULT_MAX_DAILY_TOKENS,
@@ -224,6 +226,7 @@ def _build_options_schema(
     anthropic_api_key: str = "",
     anthropic_model: str = DEFAULT_ANTHROPIC_MODEL,
     enable_mcp_in_chat: bool = DEFAULT_ENABLE_MCP_IN_CHAT,
+    mcp_allow_state_changes: bool = DEFAULT_MCP_ALLOW_STATE_CHANGES,
     mcp_client_servers: str = DEFAULT_MCP_CLIENT_SERVERS,
 ) -> vol.Schema:
     """Options schema grouped into sections."""
@@ -380,6 +383,7 @@ def _build_options_schema(
                         vol.Optional(CONF_ENABLE_DEBUG_VIEWS, default=enable_debug): selector.BooleanSelector(),
                         vol.Optional(CONF_ENABLE_MCP, default=enable_mcp): selector.BooleanSelector(),
                         vol.Optional(CONF_ENABLE_MCP_IN_CHAT, default=enable_mcp_in_chat): selector.BooleanSelector(),
+                        vol.Optional(CONF_MCP_ALLOW_STATE_CHANGES, default=mcp_allow_state_changes): selector.BooleanSelector(),
                         vol.Optional(CONF_MCP_CLIENT_SERVERS, default=mcp_client_servers): selector.TextSelector(
                             selector.TextSelectorConfig(multiline=True)
                         ),
@@ -629,6 +633,7 @@ class KyberOptionsFlow(OptionsFlow):
             anthropic_api_key=str(_get(CONF_ANTHROPIC_API_KEY, "")),
             anthropic_model=str(_get(CONF_ANTHROPIC_MODEL, DEFAULT_ANTHROPIC_MODEL)),
             enable_mcp_in_chat=bool(_get(CONF_ENABLE_MCP_IN_CHAT, DEFAULT_ENABLE_MCP_IN_CHAT)),
+            mcp_allow_state_changes=bool(_get(CONF_MCP_ALLOW_STATE_CHANGES, DEFAULT_MCP_ALLOW_STATE_CHANGES)),
             mcp_client_servers=str(_get(CONF_MCP_CLIENT_SERVERS, DEFAULT_MCP_CLIENT_SERVERS)),
         )
 
