@@ -721,6 +721,21 @@ export const STYLES = `
 
   /* ── Review flow (compact rv-* classes) ── */
   .chat-review-queue { border-bottom: 1px solid var(--divider-color, #3a3a3c); }
+
+  /* ── Area approval bar (pinned above chat history) ─────────────────── */
+  .area-approval-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--divider-color, #3a3a3c);
+    background: var(--secondary-background-color, #1e1e1e);
+  }
+  .area-approval-bar:empty { display: none; }
+  .area-approval-bar .kyber-area-suggestion-chip {
+    margin: 2px 0;
+    border-radius: 8px;
+  }
   .rv-wrap {
     background: var(--card-background-color, var(--secondary-background-color));
     border-left: 3px solid var(--warning-color, #ff9800);

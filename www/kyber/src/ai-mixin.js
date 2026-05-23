@@ -1523,9 +1523,28 @@ export const AIMixin = (Base) => class extends Base {
     this.shadowRoot?.getElementById("kyber-thinking-bubble")?.remove();
   }
 
+  /**
+   * Returns (or lazily creates) the area-approval bar above the chat history.
+   * The bar is a flex column of pending area-assignment chips.
+   */
+  _getOrCreateAreaBar() {
+    const shadow = this.shadowRoot;
+    if (!shadow) return null;
+    let bar = shadow.getElementById("area-approval-bar");
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "area-approval-bar";
+      bar.className = "area-approval-bar";
+      const history = shadow.getElementById("chat-history");
+      if (history) history.parentNode.insertBefore(bar, history);
+      else shadow.querySelector(".chat-pane")?.appendChild(bar);
+    }
+    return bar;
+  }
+
   _renderAreaSuggestionChip(suggestion) {
-    const history = this.shadowRoot?.getElementById("chat-history");
-    if (!history) return;
+    const bar = this._getOrCreateAreaBar();
+    if (!bar) return;
 
     const chip = document.createElement("div");
     chip.className = "kyber-area-suggestion-chip";
@@ -1533,6 +1552,15 @@ export const AIMixin = (Base) => class extends Base {
 
     const name = this._escapeHtml(suggestion.friendly_name || suggestion.entity_id);
     const area = this._escapeHtml(suggestion.suggested_area_name);
+
+    /** Remove this chip and clean up bar when all chips are done. */
+    const _maybeHideBar = () => {
+      if (!bar.querySelector(".kyber-area-suggestion-chip:not(.area-chip-done)")) {
+        setTimeout(() => {
+          bar.querySelectorAll(".area-chip-done").forEach((c) => c.remove());
+        }, 1800);
+      }
+    };
 
     if (suggestion.applied) {
       chip.innerHTML = `
@@ -1552,6 +1580,7 @@ export const AIMixin = (Base) => class extends Base {
           await this._hass.callApi("POST", "kyber/area_suggestions/dismiss", { id: suggestion.id });
           chip.innerHTML = `<span class="area-chip-icon">↩</span><span class="area-chip-text">Moved <strong>${name}</strong> back</span>`;
           chip.classList.add("area-chip-done");
+          _maybeHideBar();
         } catch (err) {
           btn.textContent = "⚠ Error"; btn.disabled = false;
         }
@@ -1559,7 +1588,7 @@ export const AIMixin = (Base) => class extends Base {
     } else {
       chip.innerHTML = `
         <span class="area-chip-icon">🏠</span>
-        <span class="area-chip-text"><strong>${name}</strong> has no area — assign to <strong>${area}</strong>?</span>
+        <span class="area-chip-text"><strong>${name}</strong> → assign to <strong>${area}</strong>?</span>
         <button class="kyber-area-apply-btn">✓ Assign</button>
         <button class="kyber-area-dismiss-btn">✕</button>
       `;
@@ -1575,6 +1604,7 @@ export const AIMixin = (Base) => class extends Base {
           await this._hass.callApi("POST", "kyber/area_suggestions/dismiss", { id: suggestion.id });
           chip.innerHTML = `<span class="area-chip-icon">✓</span><span class="area-chip-text"><strong>${name}</strong> assigned to <strong>${area}</strong></span>`;
           chip.classList.add("area-chip-done");
+          _maybeHideBar();
         } catch (err) {
           btn.textContent = "⚠ Error"; btn.disabled = false;
         }
@@ -1585,11 +1615,11 @@ export const AIMixin = (Base) => class extends Base {
           await this._hass.callApi("POST", "kyber/area_suggestions/dismiss", { id: suggestion.id });
         } catch (_) { /* non-critical */ }
         chip.remove();
+        _maybeHideBar();
       });
     }
 
-    history.appendChild(chip);
-    history.scrollTop = history.scrollHeight;
+    bar.appendChild(chip);
   }
 
   /**
