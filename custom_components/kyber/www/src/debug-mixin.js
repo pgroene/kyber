@@ -1634,20 +1634,24 @@ export const DebugMixin = (Base) => class extends Base {
       classic: `<span style="font-size:0.75rem;padding:1px 5px;border-radius:9px;background:#22c55e22;color:#16a34a;font-weight:600">Classic</span>`,
     };
 
-    const rows = filtered.slice().reverse().map((c) => {
+    const rows = filtered.slice().reverse().map((c, i) => {
+      const rowId = `mcp-row-${i}`;
       const ts = c.ts ? new Date(c.ts * 1000).toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
       const source = SOURCE_BADGE[c.source] || c.source;
-      // MCP calls: show method/tool. Classic calls: show truncated prompt + intent
+
+      // Summary line
       let detail = "";
       if (c.source === "mcp") {
         const method = this._escapeHtml(c.method || "");
         const tool = c.tool ? ` / <code style="font-size:0.78rem">${this._escapeHtml(c.tool)}</code>` : "";
-        detail = `<span style="font-family:monospace;font-size:0.82rem">${method}${tool}</span>`;
+        const prompt = c.prompt ? ` <span style="color:var(--secondary-text-color);font-size:0.78rem">"${this._escapeHtml(c.prompt.slice(0, 50))}${c.prompt.length > 50 ? "…" : ""}"</span>` : "";
+        detail = `<span style="font-family:monospace;font-size:0.82rem">${method}${tool}</span>${prompt}`;
       } else {
         const prompt = this._escapeHtml((c.prompt || "").slice(0, 60) + (c.prompt && c.prompt.length > 60 ? "…" : ""));
         const intent = c.intent ? ` <span style="color:var(--secondary-text-color);font-size:0.78rem">[${this._escapeHtml(c.intent)}]</span>` : "";
         detail = `<span style="font-size:0.83rem">${prompt}${intent}</span>`;
       }
+
       const user = this._escapeHtml((c.user_id || "").slice(0, 8) + (c.user_id && c.user_id.length > 8 ? "…" : ""));
       const latency = c.latency_ms != null ? `${c.latency_ms}ms` : "—";
       const tokens = c.token_total ? `${c.token_total}t` : (c.token_usage?.total_tokens ? `${c.token_usage.total_tokens}t` : "—");
@@ -1655,20 +1659,68 @@ export const DebugMixin = (Base) => class extends Base {
       const outcome = c.outcome || "—";
       const color = OUTCOME_COLOR[outcome] || "inherit";
       const errMsg = c.error ? `<span title="${this._escapeAttr(c.error)}" style="color:var(--error-color);cursor:help">⚠</span>` : "";
+
+      // Build expandable detail panel
+      const hasDetail = c.response || c.tool_calls?.length || c.input || c.output;
+      const expandBtn = hasDetail ? `<button data-expand="${rowId}" style="font-size:0.72rem;padding:1px 5px;margin-left:6px;cursor:pointer;border-radius:4px">▶</button>` : "";
+
+      // Detail panel HTML
+      let detailPanel = "";
+      if (hasDetail) {
+        let detailHtml = "";
+
+        if (c.prompt) {
+          detailHtml += `<div style="margin-bottom:6px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">PROMPT</strong><div style="margin-top:2px;padding:6px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px;font-size:0.82rem;white-space:pre-wrap">${this._escapeHtml(c.prompt)}</div></div>`;
+        }
+
+        if (c.tool_calls?.length) {
+          const callsHtml = c.tool_calls.map(tc => `
+            <div style="border:1px solid var(--divider-color);border-radius:4px;margin-bottom:4px;overflow:hidden">
+              <div style="padding:3px 8px;background:var(--secondary-background-color);font-size:0.78rem;font-weight:600;font-family:monospace">🔧 ${this._escapeHtml(tc.tool || "?")}</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+                <div style="padding:4px 8px;border-right:1px solid var(--divider-color)">
+                  <div style="font-size:0.72rem;color:var(--secondary-text-color);margin-bottom:2px">IN</div>
+                  <pre style="margin:0;font-size:0.75rem;white-space:pre-wrap;word-break:break-all">${this._escapeHtml(tc.input || "—")}</pre>
+                </div>
+                <div style="padding:4px 8px">
+                  <div style="font-size:0.72rem;color:var(--secondary-text-color);margin-bottom:2px">OUT</div>
+                  <pre style="margin:0;font-size:0.75rem;white-space:pre-wrap;word-break:break-all">${this._escapeHtml(tc.output || "—")}</pre>
+                </div>
+              </div>
+            </div>`).join("");
+          detailHtml += `<div style="margin-bottom:6px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">TOOL CALLS (${c.tool_calls.length})</strong><div style="margin-top:4px">${callsHtml}</div></div>`;
+        }
+
+        if (c.response) {
+          detailHtml += `<div style="margin-bottom:6px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">RESPONSE</strong><div style="margin-top:2px;padding:6px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px;font-size:0.82rem;white-space:pre-wrap">${this._escapeHtml(c.response)}</div></div>`;
+        }
+
+        if (c.input && !c.tool_calls?.length) {
+          detailHtml += `<div style="margin-bottom:4px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">INPUT</strong><pre style="margin:2px 0 0;font-size:0.78rem;white-space:pre-wrap;padding:4px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px">${this._escapeHtml(c.input)}</pre></div>`;
+          detailHtml += `<div><strong style="font-size:0.78rem;color:var(--secondary-text-color)">OUTPUT</strong><pre style="margin:2px 0 0;font-size:0.78rem;white-space:pre-wrap;padding:4px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px">${this._escapeHtml(c.output || "—")}</pre></div>`;
+        }
+
+        detailPanel = `<tr id="${rowId}" style="display:none">
+          <td colspan="8" style="padding:6px 0 10px 20px">
+            <div style="border-left:3px solid var(--divider-color);padding-left:10px;max-width:100%">${detailHtml}</div>
+          </td>
+        </tr>`;
+      }
+
       return `<tr style="border-bottom:1px solid var(--divider-color)">
         <td style="padding:4px 8px 4px 0;font-size:0.79rem;white-space:nowrap;color:var(--secondary-text-color)">${ts}</td>
         <td style="padding:4px 8px 4px 0">${source}</td>
-        <td style="padding:4px 8px 4px 0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${detail}</td>
+        <td style="padding:4px 8px 4px 0;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${detail}${expandBtn}</td>
         <td style="padding:4px 8px 4px 0;font-size:0.79rem;color:var(--secondary-text-color)">${user}</td>
         <td style="padding:4px 8px 4px 0;font-size:0.79rem;white-space:nowrap">${latency}</td>
         <td style="padding:4px 8px 4px 0;font-size:0.79rem;white-space:nowrap;color:var(--secondary-text-color)">${tokens}</td>
         <td style="padding:4px 8px 4px 0;font-size:0.79rem;white-space:nowrap">${actions}</td>
         <td style="padding:4px 0;font-size:0.79rem;font-weight:600;color:${color}">${outcome} ${errMsg}</td>
-      </tr>`;
+      </tr>${detailPanel}`;
     }).join("");
 
     tableEl.innerHTML = `
-      <div style="overflow-x:auto;max-height:50vh">
+      <div style="overflow-x:auto;max-height:60vh">
         <table style="width:100%;border-collapse:collapse;font-family:monospace">
           <thead><tr style="font-size:0.77rem;color:var(--secondary-text-color);border-bottom:2px solid var(--divider-color)">
             <th style="text-align:left;padding:2px 8px 4px 0">Time</th>
@@ -1683,6 +1735,17 @@ export const DebugMixin = (Base) => class extends Base {
           <tbody>${rows}</tbody>
         </table>
       </div>`;
+
+    // Expand/collapse toggle
+    tableEl.querySelectorAll("button[data-expand]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const row = tableEl.querySelector(`#${btn.dataset.expand}`);
+        if (!row) return;
+        const open = row.style.display !== "none";
+        row.style.display = open ? "none" : "table-row";
+        btn.textContent = open ? "▶" : "▼";
+      });
+    });
   }
 
   async _runMcpCompare(body, token) {

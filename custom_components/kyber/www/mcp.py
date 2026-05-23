@@ -272,10 +272,23 @@ async def _handle_kyber_ask(
         if entry.get("type") == "tool_call"
     ]
 
+    # Build a compact tool_calls list for the MCP call log
+    tool_calls_log = [
+        {
+            "tool": e.get("tool") or e.get("name", "?"),
+            "input": str(e.get("input") or e.get("arguments") or "")[:300],
+            "output": str(e.get("output") or e.get("result") or "")[:300],
+        }
+        for e in (tool_log or [])
+        if e.get("type") == "tool_call"
+    ]
+
     return {
         "response": response_text,
         "actions_executed": len(actions_executed),
         "token_usage": token_usage,
+        "_tool_calls": tool_calls_log,
+        "_prompt": prompt[:200],
     }
 
 
@@ -447,6 +460,29 @@ class KyberMCPView(HomeAssistantView):
             else:
                 outcome = "ok"
 
+            # Extract extra detail for kyber_ask calls
+            log_extras: dict = {}
+            if method == "tools/call" and resp and "result" in resp:
+                try:
+                    content_text = resp["result"].get("content", [{}])[0].get("text", "{}")
+                    data = json.loads(content_text) if content_text.startswith("{") else {}
+                    if tool_name == "kyber_ask":
+                        log_extras = {
+                            "prompt": data.pop("_prompt", str(params.get("arguments", {}).get("prompt", ""))[:200]),
+                            "response": str(data.get("response", ""))[:300],
+                            "actions_executed": data.get("actions_executed", 0),
+                            "token_total": (data.get("token_usage") or {}).get("total_tokens"),
+                            "tool_calls": data.pop("_tool_calls", []),
+                        }
+                    else:
+                        args = params.get("arguments") or {}
+                        log_extras = {
+                            "input": json.dumps(args, ensure_ascii=False)[:300],
+                            "output": content_text[:300],
+                        }
+                except Exception:  # noqa: BLE001
+                    pass
+
             _mcp_log(hass, {
                 "ts": time.time(),
                 "method": method,
@@ -455,6 +491,7 @@ class KyberMCPView(HomeAssistantView):
                 "latency_ms": latency_ms,
                 "outcome": outcome,
                 "error": resp.get("error", {}).get("message") if resp and "error" in resp else None,
+                **log_extras,
             })
             _LOGGER.debug(
                 "MCP %s%s → %s (%dms)",
