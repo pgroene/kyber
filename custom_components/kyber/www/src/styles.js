@@ -583,6 +583,7 @@ export const STYLES = `
     display: flex; align-items: center; gap: 4px;
     margin: 2px 0 6px 4px; opacity: 0.55;
     transition: opacity 0.15s;
+    align-self: flex-start;
   }
   .chat-feedback-row:hover { opacity: 1; }
   .chat-feedback-row .tf-btn-rate {

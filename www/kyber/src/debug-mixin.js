@@ -19,6 +19,11 @@ export const DebugMixin = (Base) => class extends Base {
     this._debugTab = tab;
     const body = this.shadowRoot.getElementById("debug-body");
     if (!body) return;
+    // Preserve user-toggled open/closed state of named sections before wipe
+    const sectionState = {};
+    body.querySelectorAll("details[data-sid]").forEach((d) => {
+      sectionState[d.dataset.sid] = d.open;
+    });
     body.innerHTML = `<em>${this._t ? this._t("debug_loading") : "Loading…"}</em>`;
     try {
       if (tab === "memory") {
@@ -36,6 +41,13 @@ export const DebugMixin = (Base) => class extends Base {
       }
     } catch (err) {
       body.innerHTML = `<div class="debug-error">Error: ${this._escapeHtml(err.message)}</div>`;
+    }
+    // Restore user-toggled open/closed state of named sections after re-render
+    if (Object.keys(sectionState).length > 0) {
+      body.querySelectorAll("details[data-sid]").forEach((d) => {
+        const sid = d.dataset.sid;
+        if (sid in sectionState) d.open = sectionState[sid];
+      });
     }
   }
 
@@ -729,23 +741,23 @@ export const DebugMixin = (Base) => class extends Base {
         · prompt: ${snap.char_count?.toLocaleString() ?? "?"} chars (~${snap.approx_tokens?.toLocaleString() ?? "?"} tokens)
         · auto_rating: ${snap.auto_rating ? `⚠ ${snap.auto_rating}/5` : "—"}
       </div>
-      <details class="debug-section" open>
+      <details class="debug-section" data-sid="user-prompt" open>
         <summary><strong>User prompt</strong></summary>
         <pre class="dbg-pre">${this._escapeHtml(snap.user_prompt || "")}</pre>
       </details>
-      <details class="debug-section" open>
+      <details class="debug-section" data-sid="knowledge" open>
         <summary><strong>📌 Knowledge entries used this turn (${picked.length})</strong></summary>
         ${picked.length === 0 ? '<em>None injected.</em>' : '<div class="kn-list" id="dbg-picked-list"></div>'}
       </details>
-      <details class="debug-section">
+      <details class="debug-section" data-sid="tool-calls">
         <summary><strong>🔧 Tool calls (${(snap.tool_log || []).length})</strong></summary>
         ${toolRows ? `<table class="dbg-tools"><thead><tr><th>tool</th><th>args</th><th>status</th><th>ms</th></tr></thead><tbody>${toolRows}</tbody></table>` : '<em>No tool calls.</em>'}
       </details>
-      <details class="debug-section">
+      <details class="debug-section" data-sid="system-prompt">
         <summary><strong>📜 Expanded system prompt</strong> (what the model actually saw)</summary>
         <pre class="dbg-pre">${this._escapeHtml(snap.expanded_prompt || "")}</pre>
       </details>
-      <details class="debug-section">
+      <details class="debug-section" data-sid="response">
         <summary><strong>💬 Response text</strong></summary>
         <pre class="dbg-pre">${this._escapeHtml(snap.response_text || "")}</pre>
       </details>
@@ -1539,8 +1551,7 @@ export const DebugMixin = (Base) => class extends Base {
 
     body.innerHTML = `
       <!-- ── Compare tool ─────────────────────────────────────────── -->
-      <details class="debug-section" open>
-        <summary style="font-weight:600;cursor:pointer;padding:6px 0">🔬 Side-by-side compare</summary>
+      <details class="debug-section" data-sid="mcp-compare" open>
         <div style="margin-top:10px">
           <div style="display:flex;gap:8px;margin-bottom:10px">
             <input id="mcp-cmp-input" type="text" placeholder="Ask a question…"
@@ -1570,7 +1581,7 @@ export const DebugMixin = (Base) => class extends Base {
       </details>
 
       <!-- ── Unified call log ──────────────────────────────────────── -->
-      <details class="debug-section" open style="margin-top:14px">
+      <details class="debug-section" data-sid="mcp-calllog" open style="margin-top:14px">
         <summary style="font-weight:600;cursor:pointer;padding:6px 0">
           📋 Call log — MCP &amp; Classic
           <span style="font-size:0.8rem;font-weight:400;color:var(--secondary-text-color);margin-left:8px"
