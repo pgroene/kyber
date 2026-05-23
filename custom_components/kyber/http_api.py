@@ -434,7 +434,7 @@ async def _auto_record_search_alias(
 ) -> str | None:
     """Silently save a search query → entity mapping as a knowledge alias.
 
-    Called fire-and-forget after search_entities returns 1â€“3 results so future
+    Called fire-and-forget after search_entities returns 1–3 results so future
     turns can recall the mapping without searching again.  Skips if an identical
     fact (same subject) already exists.  Returns the alias string if newly saved,
     None if skipped.
@@ -462,9 +462,9 @@ async def _auto_record_search_alias(
             confidence=0.7,
             owner_id=owner_id,
         )
-        _LOGGER.debug("Kyber: auto-saved search alias '%s' â†’ %s", query, entity_str)
-        return f"'{query}' â†’ {entity_str}"
-    except BaseException as err:  # noqa: BLE001 â€” catch CancelledError too
+        _LOGGER.debug("Kyber: auto-saved search alias '%s' → %s", query, entity_str)
+        return f"'{query}' → {entity_str}"
+    except BaseException as err:  # noqa: BLE001 – catch CancelledError too
         _LOGGER.debug("Kyber: auto-record search alias failed (non-critical): %s", err)
         return None
 
@@ -2333,11 +2333,11 @@ class KyberView(HomeAssistantView):
             )
             for fact in facts:
                 _LOGGER.info(
-                    "Kyber: extracted learned fact: %s â†’ %s",
+                    "Kyber: extracted learned fact: %s → %s",
                     fact.get("user_term"), fact.get("subject"),
                 )
                 learned_facts.append({
-                    "summary": f"Remember: '{fact['user_term']}' â†’ '{fact['subject']}'",
+                    "summary": f"Remember: '{fact['user_term']}' → '{fact['subject']}'",
                     "actions": [{
                         "type": "add_knowledge",
                         "category": fact["category"],
@@ -2346,7 +2346,7 @@ class KyberView(HomeAssistantView):
                         "tags": fact["tags"],
                         "current_state": "(not learned)",
                         "new_state": "Remembered for next time",
-                        "description": f"Save {fact['category']}: {fact['user_term']} â†’ {fact['subject']}",
+                        "description": f"Save {fact['category']}: {fact['user_term']} → {fact['subject']}",
                     }],
                 })
         # backward compat: single field (first fact or None)
