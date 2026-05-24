@@ -741,21 +741,22 @@ export const EditorMixin = (Base) => class extends Base {
       setTimeout(() => { diag.scrollLeft = diag.scrollWidth; }, 10);
     };
 
-    // Render a condition item (non-clickable)
-    const renderCondItem = (cond) => {
+    // Render a condition item — clickable if onClickFn is provided
+    const renderCondItem = (cond, onClickFn) => {
       const c = cond.condition || "";
       const entityId = (Array.isArray(cond.entity_id) ? cond.entity_id[0] : cond.entity_id) || "";
       const condSub = entityId.includes(".") ? entityId.split(".")[1] : (entityId || (cond.value_template || "").slice(0, 25));
-      const el = document.createElement("div"); el.className = "adg-cond-item";
+      const el = document.createElement("div"); el.className = "adg-cond-item" + (onClickFn ? " adg-cond-clickable" : "");
       el.innerHTML = `<span class="adg-icon">${COND_ICONS[c] || "❓"}</span><span class="adg-title">${this._escH(c || "condition")}</span>${condSub ? `<span class="adg-sub">${this._escH(condSub)}</span>` : ""}`;
+      if (onClickFn) el.addEventListener("click", (e) => { onClickFn(); e.stopPropagation(); });
       return el;
     };
 
     const mkHeader = (text) => Object.assign(document.createElement("div"), { className: "adg-opt-header", textContent: text });
 
-    // Render an option tile shown in the choose-column (level 1)
-    // optBlock: { from_line, to_line, actions: [{from_line, to_line}...] } from _parseChooseBlocks
-    const renderOptionTile = (optItem, chooseNodeEl, optBlock) => {
+    // Render an option tile shown in a choose-column.
+    // colLevel: the column level this tile lives in (default 1). Seq actions go into colLevel+1.
+    const renderOptionTile = (optItem, chooseNodeEl, optBlock, colLevel = 1) => {
       const seq = optItem.sequence || []; const conds = optItem._conditions || [];
       const wrapper = document.createElement("div"); wrapper.className = "adg-node-wrapper";
       const nodeEl = document.createElement("div");
@@ -765,7 +766,6 @@ export const EditorMixin = (Base) => class extends Base {
       const seqStr = seq.length ? `${seq.length} action${seq.length !== 1 ? "s" : ""}${condStr}` : (conds.length ? `${conds.length} cond` : "");
       nodeEl.innerHTML = `<span class="adg-icon">${optItem._isDefault ? "↩" : "📋"}</span><span class="adg-title">${this._escH(optItem._label)}</span>${seqStr ? `<span class="adg-sub">${seqStr}</span>` : ""}`;
       nodeEl.addEventListener("click", (e) => {
-        console.log("[kyber] option tile click", optItem._label, "optBlock=", optBlock);
         const col1NodesEl = wrapper.parentElement;
         col1NodesEl?.querySelectorAll(".adg-node").forEach((n) => n.classList.remove("adg-selected"));
         const wasSelected = nodeEl.classList.contains("adg-selected"); // already deselected above
@@ -773,25 +773,21 @@ export const EditorMixin = (Base) => class extends Base {
           nodeEl.classList.add("adg-selected");
           // Jump editor to this option's line
           if (optBlock?.from_line) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true);
-          // Build actions column
+          // Build actions column — conditions are clickable (jump to option start)
           const nodes = [];
-          if (conds.length) { nodes.push(mkHeader("when:")); conds.forEach((c) => nodes.push(renderCondItem(c))); }
+          const condClick = optBlock?.from_line ? () => this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true) : null;
+          if (conds.length) { nodes.push(mkHeader("when:")); conds.forEach((c) => nodes.push(renderCondItem(c, condClick))); }
           if (seq.length) {
             if (conds.length) nodes.push(mkHeader("then:"));
             seq.forEach((a, i) => {
               const lb = optBlock?.actions?.[i];
-            if (lb) {
-              nodes.push(renderActionNode(a, "adg-action", lb.from_line, lb.to_line, 0, null));
-            } else {
-              // No line block found — render without line sync (node is visible but clicking won't jump)
-              nodes.push(renderActionNode(a, "adg-action", optBlock?.from_line || 0, optBlock?.to_line || 0, 0, null));
-            }
+              nodes.push(renderActionNode(a, "adg-action", lb?.from_line || 0, lb?.to_line || 0, 0, null, colLevel + 1));
             });
           }
-          addDrilldownCol(2, optItem._label, nodes);
+          addDrilldownCol(colLevel + 1, optItem._label, nodes);
           if (chooseNodeEl) chooseNodeEl.classList.add("adg-has-expanded-child");
         } else {
-          removeDrilldownCols(2);
+          removeDrilldownCols(colLevel + 1);
           if (chooseNodeEl) chooseNodeEl.classList.remove("adg-has-expanded-child");
         }
         e.stopPropagation();
@@ -800,15 +796,16 @@ export const EditorMixin = (Base) => class extends Base {
       return wrapper;
     };
 
-    // Render a single action node with optional inline expandable children (repeat/parallel)
-    const renderActionNode = (item, cls, fromLine, toLine, depth, parentNodeEl) => {
+    // Render a single action node. colLevel is the Miller-column level this node lives in.
+    const renderActionNode = (item, cls, fromLine, toLine, depth, parentNodeEl, colLevel = 0) => {
       const { icon, title, sub } = this._blockMetaFromJson("actions", item);
       const safeTitle = this._escH(title);
       const safeSub = this._escH(sub);
       const indent = depth ? `margin-left:${depth * 14}px;` : "";
       const children = this._getActionChildren(item);
-      // choose/if use column drill-down; repeat/parallel use inline expansion
-      const usesColumns = item.choose !== undefined || item.if !== undefined;
+      // choose/if AND repeat/parallel use column drill-down
+      const isChooseIf = item.choose !== undefined || item.if !== undefined;
+      const usesColumns = isChooseIf || item.repeat !== undefined || item.parallel !== undefined;
       const isExpandable = children.length > 0;
 
       const wrapper = document.createElement("div"); wrapper.className = "adg-node-wrapper";
@@ -819,37 +816,37 @@ export const EditorMixin = (Base) => class extends Base {
       nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}${isExpandable ? " — click to expand" : ""}`);
       nodeEl.innerHTML = `<span class="adg-icon">${icon}</span><span class="adg-title">${safeTitle}</span>${sub ? `<span class="adg-sub">${safeSub}</span>` : ""}${isExpandable ? `<span class="adg-expand-btn">▶</span>` : ""}`;
 
-      // Inline toggle (repeat / parallel)
-      const toggleExpand = () => {
-        const childrenEl = wrapper.querySelector(":scope > .adg-children");
-        if (!childrenEl) return;
-        const open = !childrenEl.hidden;
-        childrenEl.hidden = open;
-        const btn = nodeEl.querySelector(".adg-expand-btn");
-        if (btn) btn.textContent = open ? "▶" : "▼";
-        nodeEl.classList.toggle("adg-expanded", !open);
-        if (parentNodeEl) parentNodeEl.classList.toggle("adg-has-expanded-child", !open);
-      };
-
       nodeEl.addEventListener("click", (e) => {
         if (isExpandable && usesColumns) {
-          // Toggle choose/if: show options column or close it
           const wasSelected = nodeEl.classList.contains("adg-selected");
-          diag.querySelectorAll(".adg-selected").forEach((n) => n.classList.remove("adg-selected", "adg-has-expanded-child"));
-          removeDrilldownCols(1);
+          // Deselect items in the same column only
+          const mySection = nodeEl.closest(".adg-section");
+          (mySection || diag).querySelectorAll(".adg-selected").forEach((n) => n.classList.remove("adg-selected", "adg-has-expanded-child"));
+          removeDrilldownCols(colLevel + 1);
           if (!wasSelected) {
             nodeEl.classList.add("adg-selected");
-            // Jump editor to the choose block line
             if (fromLine || toLine) this._jumpEditorToBlock(fromLine, toLine, true);
-            // Parse YAML for per-option and per-action line numbers
-            const chooseBlocks = this._parseChooseBlocks(fromLine, toLine);
-            console.log("[kyber] choose click fromLine=" + fromLine + " toLine=" + toLine + " blocks=" + chooseBlocks.length);
-            addDrilldownCol(1, title, children.map((opt, i) => renderOptionTile(opt, nodeEl, chooseBlocks[i])));
+            if (isChooseIf) {
+              const chooseBlocks = this._parseChooseBlocks(fromLine, toLine);
+              addDrilldownCol(colLevel + 1, title, children.map((opt, i) => renderOptionTile(opt, nodeEl, chooseBlocks[i], colLevel + 1)));
+            } else {
+              // repeat/parallel: show sub-actions directly in next column
+              addDrilldownCol(colLevel + 1, title, children.map((child) => renderActionNode(child, "adg-action", fromLine, toLine, 0, null, colLevel + 1)));
+            }
           }
           e.stopPropagation(); return;
         }
-        if (isExpandable) { toggleExpand(); e.stopPropagation(); return; }
-        // Leaf node: highlight selection + jump editor
+        if (isExpandable) {
+          // fallback inline toggle (depth > 0 sub-nodes)
+          const childrenEl = wrapper.querySelector(":scope > .adg-children");
+          if (childrenEl) {
+            const open = !childrenEl.hidden; childrenEl.hidden = open;
+            const btn = nodeEl.querySelector(".adg-expand-btn"); if (btn) btn.textContent = open ? "▶" : "▼";
+            nodeEl.classList.toggle("adg-expanded", !open);
+          }
+          e.stopPropagation(); return;
+        }
+        // Leaf node: highlight + jump editor
         diag.querySelectorAll(".adg-node.adg-leaf-selected").forEach((n) => n.classList.remove("adg-leaf-selected"));
         nodeEl.classList.add("adg-leaf-selected");
         if (fromLine || toLine) this._jumpEditorToBlock(fromLine, toLine);
@@ -860,7 +857,7 @@ export const EditorMixin = (Base) => class extends Base {
       if (isExpandable && !usesColumns) {
         const childrenEl = document.createElement("div");
         childrenEl.className = "adg-children"; childrenEl.hidden = true;
-        children.forEach((child) => childrenEl.appendChild(renderActionNode(child, cls, 0, 0, depth + 1, nodeEl)));
+        children.forEach((child) => childrenEl.appendChild(renderActionNode(child, cls, 0, 0, depth + 1, nodeEl, colLevel)));
         wrapper.appendChild(childrenEl);
       }
       return wrapper;
