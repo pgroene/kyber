@@ -781,7 +781,7 @@ export const EditorMixin = (Base) => class extends Base {
           if (!this._suppressEditorJump && optBlock?.from_line) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true);
           // Build actions column — conditions are clickable (jump to option start)
           const nodes = [];
-          const condClick = optBlock?.from_line ? () => this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true) : null;
+          const condClick = optBlock?.from_line != null ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true); } : null;
           if (conds.length) { nodes.push(mkHeader("when:")); conds.forEach((c) => nodes.push(renderCondItem(c, condClick))); }
           if (seq.length) {
             if (conds.length) nodes.push(mkHeader("then:"));
@@ -840,6 +840,8 @@ export const EditorMixin = (Base) => class extends Base {
               const nodes = [];
               const whileConds = [].concat(item.repeat.while || []);
               const untilConds = [].concat(item.repeat.until || []);
+              // Condition items jump to repeat block start
+              const repeatJump = (fromLine || toLine) ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(fromLine, fromLine + 3, true); } : null;
               if (item.repeat.count !== undefined) {
                 nodes.push(mkHeader(`count: ${item.repeat.count}`));
               } else if (item.repeat.for_each !== undefined) {
@@ -847,13 +849,18 @@ export const EditorMixin = (Base) => class extends Base {
                 nodes.push(mkHeader(`for_each: ${n} items`));
               } else if (whileConds.length) {
                 nodes.push(mkHeader("while:"));
-                whileConds.forEach((c) => nodes.push(renderCondItem(c)));
+                whileConds.forEach((c) => nodes.push(renderCondItem(c, repeatJump)));
               } else if (untilConds.length) {
                 nodes.push(mkHeader("until:"));
-                untilConds.forEach((c) => nodes.push(renderCondItem(c)));
+                untilConds.forEach((c) => nodes.push(renderCondItem(c, repeatJump)));
               }
               if (children.length) nodes.push(mkHeader("sequence:"));
-              children.forEach((child) => nodes.push(renderActionNode(child, "adg-action", fromLine, toLine, 0, null, colLevel + 1)));
+              // Parse per-action line ranges inside the repeat's sequence
+              const seqBlocks = this._parseRepeatBlocks(fromLine, toLine);
+              children.forEach((child, i) => {
+                const lb = seqBlocks[i];
+                nodes.push(renderActionNode(child, "adg-action", lb?.from_line ?? fromLine, lb?.to_line ?? toLine, 0, null, colLevel + 1));
+              });
               addDrilldownCol(colLevel + 1, title, nodes);
             } else {
               // parallel: each element is a {sequence:[]} wrapper — flatten all sequences
@@ -1059,8 +1066,41 @@ export const EditorMixin = (Base) => class extends Base {
       }
     }
     pushOpt(parentToLine || endLine);
-    console.log("[kyber] _parseChooseBlocks", { parentFromLine, chooseIndent, optsCount: opts.length, opts: opts.map(o => ({ fl: o.from_line, tl: o.to_line, acts: o.actions.length })) });
     return opts;
+  }
+
+  // Parse per-action line numbers within a repeat's sequence block.
+  // Returns [{from_line, to_line}, ...] for each action item.
+  _parseRepeatBlocks(parentFromLine, parentToLine) {
+    if (!this._editor || parentFromLine == null) return [];
+    const lines = this._editor.state.doc.toString().split("\n");
+    const endLine = Math.min((parentToLine || parentFromLine) + 200, lines.length - 1);
+    const actions = [];
+    let inSeq = false;
+    let seqIndent = -1;
+    let actIndent = -1;
+    let curAct = null;
+    for (let i = parentFromLine + 1; i <= endLine; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+      if (/^\s*[\{\[]/.test(line)) continue;
+      const lineIndent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (!inSeq) {
+        if (/^\s*sequence\s*:/.test(line)) { inSeq = true; seqIndent = lineIndent; }
+        continue;
+      }
+      if (lineIndent <= seqIndent) break; // past sequence block
+      if (actIndent < 0) {
+        if (/^\s*-\s/.test(line)) { actIndent = lineIndent; curAct = { from_line: i, to_line: i }; }
+      } else if (lineIndent === actIndent && /^\s*-\s/.test(line)) {
+        if (curAct) { curAct.to_line = i - 1; actions.push(curAct); }
+        curAct = { from_line: i, to_line: i };
+      } else if (lineIndent < actIndent) {
+        break;
+      }
+    }
+    if (curAct) { curAct.to_line = parentToLine || endLine; actions.push(curAct); }
+    return actions;
   }
 
   _flattenActionsForDiagram(actions, output, depth) {
