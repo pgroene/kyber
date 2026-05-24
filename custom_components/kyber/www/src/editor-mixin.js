@@ -966,9 +966,8 @@ export const EditorMixin = (Base) => class extends Base {
   // Returns an array of { from_line, to_line, actions: [{from_line, to_line}] } — one entry per option.
   // Indent levels are detected dynamically so any YAML formatting works.
   _parseChooseBlocks(parentFromLine, parentToLine) {
-    const view = this._currentEditorView;
-    if (!view || !parentFromLine) return [];
-    const lines = view.state.doc.toString().split("\n");
+    if (!this._editor || parentFromLine == null) return [];
+    const lines = this._editor.state.doc.toString().split("\n");
 
     const chooseLine = lines[parentFromLine] || "";
     const chooseIndent = (chooseLine.match(/^(\s*)-/) || ["", ""])[1].length;
