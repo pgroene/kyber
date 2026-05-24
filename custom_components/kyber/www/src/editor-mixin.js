@@ -2188,7 +2188,8 @@ export const EditorMixin = (Base) => class extends Base {
 
   _clearErrorLine() {
     this._errorLineNum = null;
-    const overlay = this._editor?.dom?.querySelector(".cm-error-overlay");
+    if (!this._editor) return;
+    const overlay = this._editor.dom.querySelector(".cm-error-overlay");
     if (overlay) overlay.remove();
   }
 
@@ -2201,24 +2202,19 @@ export const EditorMixin = (Base) => class extends Base {
       if (lineNum < 1 || lineNum > doc.lines) return;
       const lineObj = doc.line(lineNum);
       const block = this._editor.lineBlockAt(lineObj.from);
-      // Ensure the editor wrapper is position:relative for absolute overlay
-      const editorDom = this._editor.dom;
-      if (getComputedStyle(editorDom).position === "static") editorDom.style.position = "relative";
-      // Remove old overlay
-      let overlay = editorDom.querySelector(".cm-error-overlay");
+      // Place overlay inside .cm-scroller so it scrolls with content
+      const scroller = this._editor.dom.querySelector(".cm-scroller");
+      if (!scroller) return;
+      if (getComputedStyle(scroller).position === "static") scroller.style.position = "relative";
+      let overlay = scroller.querySelector(".cm-error-overlay");
       if (!overlay) {
         overlay = document.createElement("div");
         overlay.className = "cm-error-overlay";
-        editorDom.appendChild(overlay);
+        scroller.appendChild(overlay);
       }
-      // Position the overlay on top of the error line
-      const scrollDom = editorDom.querySelector(".cm-scroller");
-      const scrollTop = scrollDom ? scrollDom.scrollTop : 0;
-      const scrollerRect = scrollDom ? scrollDom.getBoundingClientRect() : editorDom.getBoundingClientRect();
-      const editorRect = editorDom.getBoundingClientRect();
-      const top = block.top - scrollTop + (scrollerRect.top - editorRect.top);
-      overlay.style.cssText = `position:absolute;left:0;right:0;top:${top}px;height:${block.height}px;pointer-events:none;z-index:5;`;
-    } catch { /* ignore — line may be off-screen */ }
+      // block.top is relative to scroll content top — no offset needed inside scroller
+      overlay.style.cssText = `position:absolute;left:0;right:0;top:${block.top}px;height:${block.height}px;pointer-events:none;z-index:5;`;
+    } catch { /* ignore */ }
   }
 
   async _aiAutofix(errMsg, yamlText) {
