@@ -1085,7 +1085,7 @@ export const EditorMixin = (Base) => class extends Base {
     this._entityListParentKeyLine = parentKeyLine;
     this._entityListParentHasInlineValue = parentKeyHasInlineValue;
 
-    // Position picker near cursor (follow x, clamp to pane bounds)
+    // Position picker on the right side of the editor pane (avoids covering code)
     if (this._editor && cursorPos !== undefined) {
       try {
         const coords = this._editor.coordsAtPos(cursorPos);
@@ -1093,12 +1093,10 @@ export const EditorMixin = (Base) => class extends Base {
         if (coords && pane) {
           const paneRect = pane.getBoundingClientRect();
           const relTop = coords.top - paneRect.top + pane.scrollTop;
-          const relLeft = coords.left - paneRect.left;
           const maxTop = pane.clientHeight - 320;
-          const maxLeft = pane.clientWidth - 250;
-          picker.style.top = `${Math.min(Math.max(relTop + 20, 60), maxTop)}px`;
-          picker.style.left = `${Math.min(Math.max(relLeft - 120, 8), maxLeft)}px`;
-          picker.style.right = "auto";
+          picker.style.top = `${Math.min(Math.max(relTop - 40, 60), maxTop)}px`;
+          picker.style.left = "auto";
+          picker.style.right = "8px";
         }
       } catch (e) { /* */ }
     }

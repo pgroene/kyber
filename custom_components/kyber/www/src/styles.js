@@ -261,7 +261,8 @@ export const STYLES = `
   /* ── Entity list picker (floating add-entity widget) ────── */
   .entity-list-picker {
     position: absolute;
-    left: 50%;
+    right: 8px;
+    left: auto;
     top: 80px;
     width: 240px;
     max-height: 300px;
