@@ -284,7 +284,7 @@ export const STYLES = `
     right: 8px;
     left: auto;
     top: 80px;
-    width: 280px;
+    width: 340px;
     max-height: 320px;
     background: var(--sidebar-bg, #1e1e2e);
     border: 1px solid var(--border-color, #444);
@@ -312,7 +312,9 @@ export const STYLES = `
     font-family: monospace;
     font-size: 11px;
     color: #e0e0e0;
-    word-break: break-all;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
     line-height: 1.4;
   }
   .ti-expr code { color: #ffcc80; }
