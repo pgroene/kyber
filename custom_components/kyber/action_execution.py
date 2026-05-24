@@ -14,6 +14,7 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .action_history import get_store as get_action_history_store
 from .const import CONF_AI_TASK_ENTITY_ID, DOMAIN
@@ -212,11 +213,13 @@ class KyberExecuteView(HomeAssistantView):
         plan_summary: str = str(body.get("summary", "") or body.get("plan_summary", "")).strip()
         approved: bool = bool(body.get("approved", False))
         is_admin: bool = bool(getattr(ha_user, "is_admin", False))
+        auth_header: str = request.headers.get("Authorization", "")
 
         result = await async_execute_actions(
             hass, actions, user_id, is_admin,
             plan_summary=plan_summary,
             approved=approved,
+            access_token=auth_header.removeprefix("Bearer ").strip() or None,
         )
         if result.get("status") == "approval_required":
             return self.json(result, status_code=HTTPStatus.FORBIDDEN)
@@ -230,6 +233,7 @@ async def async_execute_actions(
     is_admin: bool,
     plan_summary: str = "",
     approved: bool = True,
+    access_token: str | None = None,
 ) -> dict:
     """Execute a list of plan actions programmatically (used by both HTTP view and MCP tool).
 
@@ -409,6 +413,63 @@ async def async_execute_actions(
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error("delete_area '%s' failed: %s", area_id, err)
                 results.append({"status": "error", "message": "Internal error"})
+            continue
+
+        # ── Automation / script config actions ────────────────────────
+        if action_type in ("create_automation", "update_automation", "create_script", "update_script"):
+            _is_script = action_type in ("create_script", "update_script")
+            _config_domain = "script" if _is_script else "automation"
+            _automation_id = (
+                action.get("automation_id") or action.get("script_id") or action.get("id") or ""
+            ).strip()
+            _config: dict = action.get("config") or action.get("modified_config") or {}
+            if not _config:
+                results.append({"status": "error", "message": f"Missing 'config' for {action_type}"})
+                continue
+            if not _automation_id:
+                if action_type in ("update_automation", "update_script"):
+                    results.append({"status": "error", "message": f"Missing 'automation_id' / 'id' for {action_type}"})
+                    continue
+                import time as _time
+                _automation_id = str(int(_time.time() * 1000))
+            _config_with_id = {**_config, "id": _automation_id}
+            if not access_token:
+                results.append({"status": "error", "message": "No auth token available for automation config API"})
+                continue
+            try:
+                session = async_get_clientsession(hass)
+                _port = 8123
+                try:
+                    _port = hass.config.api.port  # type: ignore[union-attr]
+                except Exception:
+                    pass
+                _url = f"http://127.0.0.1:{_port}/api/config/{_config_domain}/config/{_automation_id}"
+                _headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {access_token}",
+                }
+                async with session.post(_url, json=_config_with_id, headers=_headers) as resp:
+                    if not resp.ok:
+                        _body = await resp.text()
+                        results.append({"status": "error", "message": f"HA API {resp.status}: {_body[:200]}"})
+                        continue
+                alias = _config.get("alias") or _automation_id
+                results.append({
+                    "status": "ok",
+                    "type": action_type,
+                    f"{_config_domain}_id": _automation_id,
+                    "alias": alias,
+                    "undo_action": {
+                        "type": f"delete_{_config_domain}",
+                        f"{_config_domain}_id": _automation_id,
+                        "current_state": alias,
+                        "new_state": "(deleted)",
+                        "description": f"Delete {_config_domain} '{alias}' (undo create)",
+                    } if action_type in ("create_automation", "create_script") else None,
+                })
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error("%s '%s' failed: %s", action_type, _automation_id, err)
+                results.append({"status": "error", "message": f"Internal error: {err}"})
             continue
 
         # ── Service call actions ───────────────────────────────────────
