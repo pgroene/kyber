@@ -320,7 +320,13 @@ export const STYLES = `
     border-radius: 4px;
     margin: 4px 6px;
   }
-  .ti-expr code { color: #f8fafc !important; }
+  .ti-expr code {
+    color: #f8fafc !important;
+    display: block;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
   .ti-entities {
     display: flex;
     flex-wrap: wrap;

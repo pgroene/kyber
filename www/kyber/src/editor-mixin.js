@@ -1570,28 +1570,9 @@ export const EditorMixin = (Base) => class extends Base {
       item.classList.toggle("adg-cond-selected", active);
     });
 
-    // Auto-collapse: deselect expanded nodes whose range no longer contains cursor
-    const suppressCollapse =
-      this._suppressDiagramAutoCollapseUntil &&
-      Date.now() < this._suppressDiagramAutoCollapseUntil;
-    if (depth === 0 && !suppressCollapse) {
-      let collapseFromLevel = Infinity;
-      diag.querySelectorAll(".adg-node.adg-selected.adg-expandable").forEach((node) => {
-        const from = parseInt(node.dataset.from, 10);
-        const to = parseInt(node.dataset.to, 10);
-        if (!isNaN(from) && !isNaN(to) && (cursorLine < from || cursorLine > to)) {
-          node.classList.remove("adg-selected", "adg-has-expanded-child");
-          const sec = node.closest(".adg-section.adg-dd");
-          const nodeLevel = sec ? parseInt(sec.dataset.level || "0") : 0;
-          collapseFromLevel = Math.min(collapseFromLevel, nodeLevel + 1);
-        }
-      });
-      if (collapseFromLevel < Infinity) {
-        diag.querySelectorAll(".adg-dd").forEach((el) => {
-          if (parseInt(el.dataset.level || "0") >= collapseFromLevel) el.remove();
-        });
-      }
-    }
+    // Do not auto-collapse expanded drilldowns on cursor changes.
+    // Collapsing is user-driven (clicking nodes/columns), which avoids losing context
+    // while editing nested choose/repeat sequences.
 
     // Auto-expand: click the best unselected expandable node (max 3 levels deep)
     if (depth < 3 && bestNode &&
@@ -1720,8 +1701,17 @@ export const EditorMixin = (Base) => class extends Base {
       exprEl.style.setProperty("line-height", "1.55", "important");
       exprEl.style.setProperty("padding", "10px 12px", "important");
       exprEl.style.setProperty("border", "1px solid #334155", "important");
+      exprEl.style.setProperty("white-space", "pre-wrap", "important");
+      exprEl.style.setProperty("word-break", "break-word", "important");
+      exprEl.style.setProperty("overflow-wrap", "anywhere", "important");
     }
-    if (exprCodeEl) exprCodeEl.style.setProperty("color", "#f8fafc", "important");
+    if (exprCodeEl) {
+      exprCodeEl.style.setProperty("color", "#f8fafc", "important");
+      exprCodeEl.style.setProperty("display", "block", "important");
+      exprCodeEl.style.setProperty("white-space", "pre-wrap", "important");
+      exprCodeEl.style.setProperty("word-break", "break-word", "important");
+      exprCodeEl.style.setProperty("overflow-wrap", "anywhere", "important");
+    }
     if (previewLabelEl) previewLabelEl.style.setProperty("color", "#cbd5e1", "important");
     tplInsp.querySelector(".ti-close").addEventListener("click", () => {
       tplInsp.hidden = true;
@@ -2269,9 +2259,10 @@ export const EditorMixin = (Base) => class extends Base {
         return;
       }
       const lineObj = doc.line(lineNum);
-      const block = this._editor.lineBlockAt(lineObj.from);
+      const startCoords = this._editor.coordsAtPos(lineObj.from);
+      const endCoords = this._editor.coordsAtPos(Math.max(lineObj.from, lineObj.to));
       const scroller = this._editor.dom.querySelector(".cm-scroller");
-      if (!block || !scroller || !this.shadowRoot) {
+      if (!startCoords || !scroller || !this.shadowRoot) {
         this._clearErrorDecorations();
         return;
       }
@@ -2294,8 +2285,12 @@ export const EditorMixin = (Base) => class extends Base {
       }
       if (badge.parentElement !== scroller) scroller.appendChild(badge);
 
-      const top = Math.round(block.top - scroller.scrollTop);
-      const height = Math.max(18, Math.round(block.height || 20));
+      const scrollerRect = scroller.getBoundingClientRect();
+      const top = Math.round(startCoords.top - scrollerRect.top);
+      const height = Math.max(
+        18,
+        Math.round(((endCoords && endCoords.bottom) ? endCoords.bottom : startCoords.bottom) - startCoords.top),
+      );
       const width = Math.max(40, scroller.clientWidth || this._editor.dom.clientWidth || 200);
       // Line not visible in viewport: hide marker for now.
       if (top + height < 0 || top > scroller.clientHeight) {
