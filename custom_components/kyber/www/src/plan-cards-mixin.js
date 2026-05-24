@@ -916,23 +916,14 @@ export const PlanCardsMixin = (Base) => class extends Base {
       applyBtn.textContent = "Opslaan…";
       try {
         const apiPath = isScript ? `config/script/config/${configId}` : `config/automation/config/${configId}`;
-        const resp = await fetch(`/api/${apiPath}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${this._hass.auth.data.access_token}` },
-          body: JSON.stringify({ ...workingConfig, id: configId }),
-        });
-        if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
+        await this._hass.callApi("POST", apiPath, { ...workingConfig, id: configId });
         applyBtn.textContent = "✓ Opgeslagen";
         applyBtn.style.background = "var(--success, #4caf50)";
         cancelBtn.textContent = "↩ Ongedaan maken";
         cancelBtn.dataset.mode = "undo";
         cancelBtn.onclick = async () => {
           try {
-            await fetch(`/api/${apiPath}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${this._hass.auth.data.access_token}` },
-              body: JSON.stringify({ ...(plan.original_config || workingConfig), id: configId }),
-            });
+            await this._hass.callApi("POST", apiPath, { ...(plan.original_config || workingConfig), id: configId });
             cancelBtn.textContent = "✓ Hersteld";
             cancelBtn.disabled = true;
           } catch (e) { cancelBtn.textContent = "⚠ Herstel mislukt"; }
@@ -1016,12 +1007,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
         const newId = String(Date.now());
         const configToSave = { ...workingConfig, id: newId };
         if (!configToSave.alias) configToSave.alias = plan.alias || "New Automation";
-        const resp = await fetch(`/api/config/automation/config/${newId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${this._hass.auth.data.access_token}` },
-          body: JSON.stringify(configToSave),
-        });
-        if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
+        await this._hass.callApi("POST", `config/automation/config/${newId}`, configToSave);
         applyBtn.textContent = "✓ Aangemaakt";
         applyBtn.style.background = "var(--success, #4caf50)";
         card.querySelector(".ae-btn-cancel").textContent = "✕ Sluiten";

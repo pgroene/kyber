@@ -41,7 +41,7 @@ import { DebugMixin } from "./src/debug-mixin.js?v=111";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=96";
 import { EditorMixin } from "./src/editor-mixin.js?v=95";
 import { AIMixin } from "./src/ai-mixin.js?v=116";
-import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=99";
+import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=100";
 
 // ---------------------------------------------------------------------------
 // Custom Element
@@ -263,17 +263,6 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       if (closeBtn) closeBtn.style.display = "";
     }
 
-    let debugEnabled = true;
-    try {
-      const token = this._hass?.auth?.data?.access_token;
-      if (token && isAdmin) {
-        const resp = await fetch("/api/kyber/debug/mode", { headers: { Authorization: `Bearer ${token}` } });
-        if (resp.ok) {
-          const data = await resp.json();
-          debugEnabled = !!data.enabled;
-        }
-      }
-    } catch (e) { /* keep default */ }
     const btnDebug = shadow.getElementById("btn-debug");
     if (!isAdmin) {
       if (btnDebug) btnDebug.style.display = "none";
@@ -289,19 +278,22 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       }
       return;
     }
-    const canRenderDebug = debugEnabled && isAdmin;
-    this._debugEnabled = canRenderDebug;
-    if (btnDebug) btnDebug.style.display = canRenderDebug ? "" : "none";
-    if (!canRenderDebug && pane) {
-      pane.setAttribute("hidden", "");
-      pane.classList.remove("debug-pane--standalone");
-    }
-    if (!canRenderDebug && chat) {
-      chat.style.display = "";
-    }
+
+    // Always show the debug button for admins so they can access it even if debug mode was toggled off.
+    if (btnDebug) btnDebug.style.display = "";
+    this._debugEnabled = true;
+
+    let debugAutoOpen = true;
+    try {
+      if (isAdmin) {
+        const data = await this._hass.callApi("GET", "kyber/debug/mode");
+        debugAutoOpen = !!data.enabled;
+      }
+    } catch (e) { /* keep default */ }
+
     this._loadMemoryCount();
 
-    if (canRenderDebug) {
+    if (debugAutoOpen) {
       if (this._mode === "debug") {
         this._renderDebugTab(this._debugTab);
       } else {
@@ -310,6 +302,9 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
         this._debugTab = this._debugTab || "last_turn";
         this._renderDebugTab(this._debugTab);
       }
+    } else if (this._mode === "debug") {
+      // In standalone debug mode, always render the tab regardless of the toggle setting
+      this._renderDebugTab(this._debugTab);
     }
     if (this._mode !== "debug") {
       this._startStatusPolling();
