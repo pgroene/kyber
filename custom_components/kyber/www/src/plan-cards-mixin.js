@@ -926,8 +926,16 @@ export const PlanCardsMixin = (Base) => class extends Base {
             await this._hass.callApi("POST", apiPath, { ...(plan.original_config || workingConfig), id: configId });
             cancelBtn.textContent = "✓ Hersteld";
             cancelBtn.disabled = true;
+            // Sync editor & diagram after undo
+            if (this._currentAutomationId === String(configId) && this._loadAutomation) {
+              this._loadAutomation(String(configId)).catch(() => {});
+            }
           } catch (e) { cancelBtn.textContent = "⚠ Herstel mislukt"; }
         };
+        // If this automation is currently open in the editor, reload it to sync YAML + diagram
+        if (this._currentAutomationId === String(configId) && this._loadAutomation) {
+          await this._loadAutomation(String(configId)).catch(() => {});
+        }
       } catch (err) {
         applyBtn.disabled = false;
         applyBtn.textContent = "✓ Toepassen";

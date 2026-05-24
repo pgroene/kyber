@@ -51,6 +51,11 @@ export const EditorMixin = (Base) => class extends Base {
           self._diagramDebounce = setTimeout(() => {
             self._renderAutomationDiagram(update.state.doc.toString());
           }, 350);
+          // Persist draft so navigating away and returning restores unsaved edits
+          clearTimeout(self._draftSaveDebounce);
+          self._draftSaveDebounce = setTimeout(() => {
+            self._saveEditorDraft(update.state.doc.toString());
+          }, 800);
         }
         if (update.selectionSet || update.docChanged) {
           const cursorLine = update.state.doc.lineAt(update.state.selection.main.head).number - 1;
@@ -132,6 +137,7 @@ export const EditorMixin = (Base) => class extends Base {
     this._editorTitle = friendlyName;
     this._editorMode = isScript ? "script" : "automation";
     this.shadowRoot.getElementById("btn-save").textContent = isScript ? "Save script" : "Save automation";
+    this._saveEditorSession(configId, isScript ? "script" : "automation", friendlyName);
     await this._loadAutomation(configId);
 
     if (this._editor) {
@@ -163,6 +169,7 @@ export const EditorMixin = (Base) => class extends Base {
     this._editorMode = "automation";
     this._dirty = false;
     this._setStatus("");
+    this._clearEditorSession();
     // Hide diagram and inspector
     const diag = this.shadowRoot.getElementById("automation-diagram");
     if (diag) diag.hidden = true;
@@ -798,6 +805,7 @@ export const EditorMixin = (Base) => class extends Base {
       }
 
       this._dirty = false;
+      this._clearEditorDraft(); // draft is now saved to HA
       const kind = isScript ? "script" : "automation";
       this._addChatHistory("user", `I saved the YAML for ${this._currentAutomationId}.`);
       this._addChatHistory("assistant", `[CHANGE] ${kind} YAML saved: ${this._currentAutomationId}`);
@@ -817,5 +825,82 @@ export const EditorMixin = (Base) => class extends Base {
         insert: text,
       },
     });
+  }
+
+  // ── Session persistence ──────────────────────────────────────────────────────
+
+  _saveEditorSession(id, mode, title) {
+    try {
+      sessionStorage.setItem("kyber_editor_open", JSON.stringify({ id: String(id), mode, title }));
+    } catch (_) {}
+  }
+
+  _saveEditorDraft(yaml) {
+    if (!this._currentAutomationId) return;
+    try {
+      sessionStorage.setItem("kyber_editor_draft", JSON.stringify({ id: String(this._currentAutomationId), yaml }));
+    } catch (_) {}
+  }
+
+  _clearEditorDraft() {
+    try { sessionStorage.removeItem("kyber_editor_draft"); } catch (_) {}
+  }
+
+  _clearEditorSession() {
+    try {
+      sessionStorage.removeItem("kyber_editor_open");
+      sessionStorage.removeItem("kyber_editor_draft");
+    } catch (_) {}
+  }
+
+  async _restoreEditorState() {
+    if (this._editorRestored) return;
+    this._editorRestored = true;
+    let saved;
+    try {
+      const raw = sessionStorage.getItem("kyber_editor_open");
+      if (!raw) return;
+      saved = JSON.parse(raw);
+    } catch (_) { return; }
+    if (!saved?.id || !this._hass) return;
+
+    // Reopen the editor with the saved ID
+    const editorPane = this.shadowRoot.getElementById("editor-container");
+    if (!editorPane) return;
+    if (!this._editor) this._initEditor(editorPane);
+
+    const isScript = saved.mode === "script";
+    this._currentAutomationId = saved.id;
+    this._editorTitle = saved.title || saved.id;
+    this._editorMode = saved.mode || "automation";
+
+    const container = this.shadowRoot.getElementById("app-container");
+    container.classList.add("editor-open");
+    editorPane.classList.add("open");
+    this.shadowRoot.querySelectorAll(".editor-controls").forEach((el) => { el.style.display = "block"; });
+    this._setEditorContextLabel(isScript ? "script" : "automation", this._editorTitle);
+    const saveBtn = this.shadowRoot.getElementById("btn-save");
+    if (saveBtn) saveBtn.textContent = isScript ? "Save script" : "Save automation";
+
+    // Check for an unsaved draft from the previous session
+    let draft = null;
+    try {
+      const rawDraft = sessionStorage.getItem("kyber_editor_draft");
+      if (rawDraft) {
+        const d = JSON.parse(rawDraft);
+        if (d.id === String(saved.id) && d.yaml) draft = d.yaml;
+      }
+    } catch (_) {}
+
+    if (draft) {
+      // Load the draft — show unsaved state so user knows this isn't from HA
+      this._setEditorContent(draft);
+      this._dirty = true;
+      if (saveBtn) saveBtn.disabled = false;
+      this._setStatus("Restored unsaved draft — review and save to apply", "warning");
+      this._renderAutomationDiagram(draft);
+    } else {
+      await this._loadAutomation(saved.id).catch(() => {});
+    }
   }
 };
