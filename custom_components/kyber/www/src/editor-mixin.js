@@ -825,7 +825,9 @@ export const EditorMixin = (Base) => class extends Base {
       return [...then, ...els];
     }
     if (item.choose !== undefined) {
-      return (item.choose || []).flatMap((opt) => opt.sequence || opt.then || []);
+      const branches = (item.choose || []).flatMap((opt) => opt.sequence || opt.then || []);
+      const def = [].concat(item.default || []);
+      return [...branches, ...def];
     }
     if (item.repeat !== undefined) {
       return [].concat(item.repeat?.sequence || []);
@@ -886,11 +888,19 @@ export const EditorMixin = (Base) => class extends Base {
     // actions
     if (item.if !== undefined) {
       const condCount = [].concat(item.if || []).length;
-      return { icon: "🔀", title: "if/then", sub: `${condCount} condition${condCount !== 1 ? "s" : ""}` };
+      const actCount = [].concat(item.then || []).length + [].concat(item.else || []).length;
+      return { icon: "🔀", title: "if/then", sub: `${condCount} condition${condCount !== 1 ? "s" : ""} · ${actCount} actions ▶` };
     }
-    if (item.choose !== undefined) return { icon: "🔀", title: "choose", sub: `${(item.choose || []).length} options` };
+    if (item.choose !== undefined) {
+      const totalActions = (item.choose || []).reduce((n, opt) => n + ([].concat(opt.sequence || opt.then || [])).length, 0)
+        + [].concat(item.default || []).length;
+      return { icon: "🔀", title: "choose", sub: `${(item.choose || []).length} options · ${totalActions} actions ▶` };
+    }
     if (item.parallel !== undefined) return { icon: "⚡", title: "parallel", sub: `${(item.parallel || []).length} actions` };
-    if (item.repeat !== undefined) return { icon: "🔁", title: "repeat", sub: item.repeat?.count ? `${item.repeat.count}×` : "" };
+    if (item.repeat !== undefined) {
+      const seqCount = [].concat(item.repeat?.sequence || []).length;
+      return { icon: "🔁", title: "repeat", sub: item.repeat?.count ? `${item.repeat.count}× · ${seqCount} actions ▶` : `${seqCount} actions ▶` };
+    }
     if (item.wait_template !== undefined || item.wait_for_trigger !== undefined) return { icon: "⏳", title: "wait", sub: "" };
     if (item.delay !== undefined) return { icon: "⏱", title: "delay", sub: String(item.delay) };
     if (item.stop !== undefined) return { icon: "🛑", title: "stop", sub: String(item.stop || "") };
