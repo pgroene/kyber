@@ -307,8 +307,13 @@ export const STYLES = `
     font-size: 12px;
     vertical-align: middle;
     white-space: nowrap;
-    cursor: default;
+    cursor: pointer;
     line-height: 1.6;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .entity-chip:hover {
+    background: color-mix(in srgb, var(--primary-color, #03a9f4) 20%, var(--card-background-color, #1e2530));
+    border-color: color-mix(in srgb, var(--primary-color, #03a9f4) 55%, transparent);
   }
   .entity-chip .entity-chip-icon { font-size: 13px; }
   .entity-chip .entity-chip-name { font-weight: 600; color: var(--primary-text-color, #e0e0e0); }
@@ -335,9 +340,15 @@ export const STYLES = `
     padding: 6px 10px;
     font-size: 12px;
     overflow: hidden;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .entity-result-card:hover {
+    background: color-mix(in srgb, var(--primary-color, #03a9f4) 14%, var(--card-background-color, #1e2530));
+    border-color: color-mix(in srgb, var(--primary-color, #03a9f4) 45%, transparent);
   }
   .entity-result-card .erc-icon { font-size: 18px; flex-shrink: 0; }
-  .entity-result-card .erc-body { overflow: hidden; }
+  .entity-result-card .erc-body { overflow: hidden; min-width: 0; flex: 1; }
   .entity-result-card .erc-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .entity-result-card .erc-id { font-size: 10px; opacity: 0.55; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .entity-result-card .erc-state { font-size: 11px; opacity: 0.75; margin-top: 1px; }

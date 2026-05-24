@@ -516,8 +516,12 @@ export const AIMixin = (Base) => class extends Base {
     const span = document.createElement("span");
     span.className = `entity-chip ${stateClass} ${domainClass} ${missingClass}`.trim();
     span.dataset.entityId = entityId;
-    span.title = state ? entityId : `${entityId} (not found in Home Assistant)`;
+    span.title = state ? `${name}\n${entityId}` : `${entityId} (not found in Home Assistant)`;
+    span.style.cursor = "pointer";
     span.innerHTML = `<span class="entity-chip-icon">${icon}</span><span class="entity-chip-name">${this._escapeHTML(name)}</span>${stateVal ? `<span class="entity-chip-state">${this._escapeHTML(stateVal)}</span>` : ""}${!state ? `<span class="entity-chip-warn" title="Entity not found">?</span>` : ""}`;
+    span.addEventListener("click", () => {
+      this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId } }));
+    });
     return span;
   }
 
@@ -659,7 +663,11 @@ export const AIMixin = (Base) => class extends Base {
         const stateVal = liveState?.state || info.state || "";
         const card = document.createElement("div");
         card.className = "entity-result-card";
+        card.title = `${name}\n${entityId}`;
         card.innerHTML = `<div class="erc-icon">${icon}</div><div class="erc-body"><div class="erc-name">${this._escapeHTML(name)}</div><div class="erc-id">${this._escapeHTML(entityId)}</div>${stateVal ? `<div class="erc-state">${this._escapeHTML(stateVal)}</div>` : ""}</div>`;
+        card.addEventListener("click", () => {
+          this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId } }));
+        });
         grid.appendChild(card);
       });
       return grid;
