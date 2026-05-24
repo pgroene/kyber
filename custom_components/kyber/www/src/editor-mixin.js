@@ -870,7 +870,7 @@ export const EditorMixin = (Base) => class extends Base {
         if (!wasSelected) {
           nodeEl.classList.add("adg-selected");
           // Jump editor to this option's line
-          if (!this._suppressEditorJump && optBlock?.from_line != null) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true);
+          if (!this._suppressEditorJump && optBlock?.from_line != null) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line);
           // Build actions column — conditions are clickable (jump to specific condition line)
           const nodes = [];
           if (conds.length) {
@@ -878,8 +878,8 @@ export const EditorMixin = (Base) => class extends Base {
            conds.forEach((c, ci) => {
              const condBlock = optBlock?.conditions?.[ci];
              const condClickFn = condBlock?.from_line != null
-               ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(condBlock.from_line, condBlock.to_line, true); }
-               : (optBlock?.from_line != null ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true); } : null);
+               ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(condBlock.from_line, condBlock.to_line); }
+               : (optBlock?.from_line != null ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line); } : null);
              nodes.push(renderCondItem(c, condClickFn, condBlock?.from_line, condBlock?.to_line));
            });
           }
@@ -952,8 +952,8 @@ export const EditorMixin = (Base) => class extends Base {
                 whileConds.forEach((c, ci) => {
                   const cb = condBlocks[ci];
                   const condClickFn = cb?.from_line != null
-                    ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(cb.from_line, cb.to_line, true); }
-                    : (fromLine != null ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(fromLine, toLine, true); } : null);
+                    ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(cb.from_line, cb.to_line); }
+                    : (fromLine != null ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(fromLine, toLine); } : null);
                   nodes.push(renderCondItem(c, condClickFn, cb?.from_line, cb?.to_line));
                 });
               } else if (untilConds.length) {
@@ -962,8 +962,8 @@ export const EditorMixin = (Base) => class extends Base {
                 untilConds.forEach((c, ci) => {
                   const cb = condBlocks[ci];
                   const condClickFn = cb?.from_line != null
-                    ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(cb.from_line, cb.to_line, true); }
-                    : (fromLine != null ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(fromLine, toLine, true); } : null);
+                    ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(cb.from_line, cb.to_line); }
+                    : (fromLine != null ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(fromLine, toLine); } : null);
                   nodes.push(renderCondItem(c, condClickFn, cb?.from_line, cb?.to_line));
                 });
               }
