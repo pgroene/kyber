@@ -189,8 +189,12 @@ export const STYLES = `
   .adg-condition.adg-active{ border-color: #ff9800; background: rgba(255,152,0,0.18); box-shadow: 0 0 0 2px rgba(255,152,0,0.3); }
   .adg-action.adg-active   { border-color: #2196f3; background: rgba(33,150,243,0.18); box-shadow: 0 0 0 2px rgba(33,150,243,0.3); }
   .adg-action.adg-has-expanded-child { border-color: #64b5f6; background: rgba(33,150,243,0.12); box-shadow: 0 0 0 2px rgba(100,181,246,0.4); }
+  .adg-action.adg-selected  { border-color: #2196f3; background: rgba(33,150,243,0.22); box-shadow: 0 0 0 2px rgba(33,150,243,0.5); }
   .adg-option        { border-left: 3px solid #7c4dff; opacity: 0.9; }
   .adg-option-default{ border-left: 3px solid #78909c; opacity: 0.9; }
+  .adg-option.adg-selected { opacity: 1; border-color: #7c4dff; background: rgba(124,77,255,0.18); box-shadow: 0 0 0 2px rgba(124,77,255,0.4); }
+  .adg-opt-header { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted, #999); padding: 2px 4px 1px; margin-top: 2px; }
+  .adg-cond-item { display: flex; flex-direction: column; padding: 4px 8px; background: var(--card-bg, #1e1e2e); border-left: 2px solid #ff9800; border-radius: 4px; margin: 2px 0; opacity: 0.85; }
   .adg-sub-node { opacity: 0.85; border-left-width: 2px; border-left-style: dashed; padding: 5px 8px; }
   .adg-expandable { cursor: pointer; }
   .adg-icon  { font-size: 14px; line-height: 1; margin-bottom: 4px; }

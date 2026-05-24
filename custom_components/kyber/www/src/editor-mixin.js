@@ -716,65 +716,95 @@ export const EditorMixin = (Base) => class extends Base {
     }
     diag.hidden = false;
 
-    // Render a single action node with optional expandable children
-    // parentNodeEl: the parent .adg-node to highlight when this node expands
-    const renderActionNode = (item, cls, fromLine, toLine, depth, parentNodeEl) => {
-      // ── Synthetic option node (choose option or if-branch) ──────────────
-      if (item._isOption || item._isDefault) {
-        const seq = item.sequence || [];
-        const isExpandable = seq.length > 0;
-        const wrapper = document.createElement("div");
-        wrapper.className = "adg-node-wrapper";
-        const nodeEl = document.createElement("div");
-        const optCls = item._isDefault ? "adg-option-default" : "adg-option";
-        nodeEl.className = `adg-node ${cls} ${optCls}${depth ? " adg-sub-node" : ""}${isExpandable ? " adg-expandable" : ""}`;
-        nodeEl.setAttribute("style", depth ? `margin-left:${depth * 14}px;` : "");
-        const condStr = item._condCount ? ` · ${item._condCount} cond` : "";
-        const seqStr = seq.length ? `${seq.length} action${seq.length !== 1 ? "s" : ""}${condStr}` : "";
-        nodeEl.setAttribute("title", `${item._label}${seqStr ? ": " + seqStr : ""}${isExpandable ? " — click to expand" : ""}`);
-        nodeEl.innerHTML = `<span class="adg-icon">${item._isDefault ? "↩" : "📋"}</span><span class="adg-title">${this._escH(item._label)}</span>${seqStr ? `<span class="adg-sub">${seqStr}</span>` : ""}${isExpandable ? `<span class="adg-expand-btn">▶</span>` : ""}`;
-        const toggleOption = () => {
-          const childrenEl = wrapper.querySelector(":scope > .adg-children");
-          if (!childrenEl) return;
-          const open = !childrenEl.hidden;
-          childrenEl.hidden = open;
-          const btn = nodeEl.querySelector(".adg-expand-btn");
-          if (btn) btn.textContent = open ? "▶" : "▼";
-          nodeEl.classList.toggle("adg-expanded", !open);
-          // Highlight parent choose/if node when any child option is expanded
-          if (parentNodeEl) parentNodeEl.classList.toggle("adg-has-expanded-child", !open);
-        };
-        nodeEl.addEventListener("click", (e) => { if (isExpandable) { toggleOption(); e.stopPropagation(); } });
-        wrapper.appendChild(nodeEl);
-        if (isExpandable) {
-          const childrenEl = document.createElement("div");
-          childrenEl.className = "adg-children";
-          childrenEl.hidden = true;
-          seq.forEach((child) => childrenEl.appendChild(renderActionNode(child, cls, 0, 0, depth + 1, null)));
-          wrapper.appendChild(childrenEl);
-        }
-        return wrapper;
-      }
+    // ── Miller-column helpers ────────────────────────────────────────────────
+    const COND_ICONS = { state: "✅", template: "📋", time: "⏰", numeric_state: "🔢", zone: "📍", and: "🔗", or: "🔀", not: "❌", device: "📱", trigger: "⚡" };
 
-      // ── Regular action node ──────────────────────────────────────────────
+    // Remove all drilldown columns at level >= `fromLevel`
+    const removeDrilldownCols = (fromLevel) => {
+      diag.querySelectorAll(".adg-dd").forEach((el) => {
+        if (parseInt(el.dataset.level || "0") >= fromLevel) el.remove();
+      });
+    };
+
+    // Append a new drilldown column (arrow + section) to the diagram
+    const addDrilldownCol = (level, label, nodes) => {
+      removeDrilldownCols(level);
+      const arrow = document.createElement("div");
+      arrow.className = "adg-arrow adg-dd"; arrow.dataset.level = String(level); arrow.textContent = "→";
+      const section = document.createElement("div");
+      section.className = "adg-section adg-dd"; section.dataset.level = String(level);
+      const lbl = document.createElement("div"); lbl.className = "adg-label"; lbl.textContent = label;
+      const nodesEl = document.createElement("div"); nodesEl.className = "adg-nodes";
+      nodes.forEach((n) => nodesEl.appendChild(n));
+      section.appendChild(lbl); section.appendChild(nodesEl);
+      diag.appendChild(arrow); diag.appendChild(section);
+      setTimeout(() => { diag.scrollLeft = diag.scrollWidth; }, 10);
+    };
+
+    // Render a condition item (non-clickable)
+    const renderCondItem = (cond) => {
+      const c = cond.condition || "";
+      const entityId = (Array.isArray(cond.entity_id) ? cond.entity_id[0] : cond.entity_id) || "";
+      const condSub = entityId.includes(".") ? entityId.split(".")[1] : (entityId || (cond.value_template || "").slice(0, 25));
+      const el = document.createElement("div"); el.className = "adg-cond-item";
+      el.innerHTML = `<span class="adg-icon">${COND_ICONS[c] || "❓"}</span><span class="adg-title">${this._escH(c || "condition")}</span>${condSub ? `<span class="adg-sub">${this._escH(condSub)}</span>` : ""}`;
+      return el;
+    };
+
+    const mkHeader = (text) => Object.assign(document.createElement("div"), { className: "adg-opt-header", textContent: text });
+
+    // Render an option tile shown in the choose-column (level 1)
+    const renderOptionTile = (optItem, chooseNodeEl) => {
+      const seq = optItem.sequence || []; const conds = optItem._conditions || [];
+      const wrapper = document.createElement("div"); wrapper.className = "adg-node-wrapper";
+      const nodeEl = document.createElement("div");
+      const optCls = optItem._isDefault ? "adg-option-default" : "adg-option";
+      nodeEl.className = `adg-node adg-action ${optCls} adg-expandable`;
+      const condStr = conds.length ? ` · ${conds.length} cond` : "";
+      const seqStr = seq.length ? `${seq.length} action${seq.length !== 1 ? "s" : ""}${condStr}` : (conds.length ? `${conds.length} cond` : "");
+      nodeEl.innerHTML = `<span class="adg-icon">${optItem._isDefault ? "↩" : "📋"}</span><span class="adg-title">${this._escH(optItem._label)}</span>${seqStr ? `<span class="adg-sub">${seqStr}</span>` : ""}`;
+      nodeEl.addEventListener("click", (e) => {
+        const col1NodesEl = wrapper.parentElement;
+        col1NodesEl?.querySelectorAll(".adg-node").forEach((n) => n.classList.remove("adg-selected"));
+        const wasSelected = nodeEl.classList.contains("adg-selected"); // already deselected above
+        if (!wasSelected) {
+          nodeEl.classList.add("adg-selected");
+          // Build actions column
+          const nodes = [];
+          if (conds.length) { nodes.push(mkHeader("when:")); conds.forEach((c) => nodes.push(renderCondItem(c))); }
+          if (seq.length) { if (conds.length) nodes.push(mkHeader("then:")); seq.forEach((a) => nodes.push(renderActionNode(a, "adg-action", 0, 0, 0, null))); }
+          addDrilldownCol(2, optItem._label, nodes);
+          if (chooseNodeEl) chooseNodeEl.classList.add("adg-has-expanded-child");
+        } else {
+          removeDrilldownCols(2);
+          if (chooseNodeEl) chooseNodeEl.classList.remove("adg-has-expanded-child");
+        }
+        e.stopPropagation();
+      });
+      wrapper.appendChild(nodeEl);
+      return wrapper;
+    };
+
+    // Render a single action node with optional inline expandable children (repeat/parallel)
+    const renderActionNode = (item, cls, fromLine, toLine, depth, parentNodeEl) => {
       const { icon, title, sub } = this._blockMetaFromJson("actions", item);
       const safeTitle = this._escH(title);
       const safeSub = this._escH(sub);
       const indent = depth ? `margin-left:${depth * 14}px;` : "";
       const children = this._getActionChildren(item);
+      // choose/if use column drill-down; repeat/parallel use inline expansion
+      const usesColumns = item.choose !== undefined || item.if !== undefined;
       const isExpandable = children.length > 0;
 
-      const wrapper = document.createElement("div");
-      wrapper.className = "adg-node-wrapper";
-
+      const wrapper = document.createElement("div"); wrapper.className = "adg-node-wrapper";
       const nodeEl = document.createElement("div");
       nodeEl.className = `adg-node ${cls}${depth ? " adg-sub-node" : ""}${isExpandable ? " adg-expandable" : ""}`;
-      nodeEl.dataset.from = String(fromLine);
-      nodeEl.dataset.to = String(toLine);
+      nodeEl.dataset.from = String(fromLine); nodeEl.dataset.to = String(toLine);
       nodeEl.setAttribute("style", indent);
       nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}${isExpandable ? " — click to expand" : ""}`);
       nodeEl.innerHTML = `<span class="adg-icon">${icon}</span><span class="adg-title">${safeTitle}</span>${sub ? `<span class="adg-sub">${safeSub}</span>` : ""}${isExpandable ? `<span class="adg-expand-btn">▶</span>` : ""}`;
 
+      // Inline toggle (repeat / parallel)
       const toggleExpand = () => {
         const childrenEl = wrapper.querySelector(":scope > .adg-children");
         if (!childrenEl) return;
@@ -787,26 +817,28 @@ export const EditorMixin = (Base) => class extends Base {
       };
 
       nodeEl.addEventListener("click", (e) => {
-        if (isExpandable) {
-          toggleExpand();
-          e.stopPropagation();
-          return;
+        if (isExpandable && usesColumns) {
+          // Toggle choose/if: show options column or close it
+          const wasSelected = nodeEl.classList.contains("adg-selected");
+          diag.querySelectorAll(".adg-selected").forEach((n) => n.classList.remove("adg-selected", "adg-has-expanded-child"));
+          removeDrilldownCols(1);
+          if (!wasSelected) {
+            nodeEl.classList.add("adg-selected");
+            addDrilldownCol(1, title, children.map((opt) => renderOptionTile(opt, nodeEl)));
+          }
+          e.stopPropagation(); return;
         }
+        if (isExpandable) { toggleExpand(); e.stopPropagation(); return; }
         if (fromLine || toLine) this._jumpEditorToBlock(fromLine, toLine);
       });
 
       wrapper.appendChild(nodeEl);
-
-      if (isExpandable) {
+      if (isExpandable && !usesColumns) {
         const childrenEl = document.createElement("div");
-        childrenEl.className = "adg-children";
-        childrenEl.hidden = true;
-        children.forEach((child) => {
-          childrenEl.appendChild(renderActionNode(child, cls, 0, 0, depth + 1, nodeEl));
-        });
+        childrenEl.className = "adg-children"; childrenEl.hidden = true;
+        children.forEach((child) => childrenEl.appendChild(renderActionNode(child, cls, 0, 0, depth + 1, nodeEl)));
         wrapper.appendChild(childrenEl);
       }
-
       return wrapper;
     };
 
@@ -882,20 +914,25 @@ export const EditorMixin = (Base) => class extends Base {
     if (item.if !== undefined) {
       const thenSeq = [].concat(item.then || []);
       const elseSeq = [].concat(item.else || []);
+      const ifConds = [].concat(item.if || []);
       const opts = [];
-      if (thenSeq.length) opts.push({ _isOption: true, _label: "then", sequence: thenSeq, _condCount: [].concat(item.if || []).length });
-      if (elseSeq.length) opts.push({ _isOption: true, _label: "else", sequence: elseSeq, _condCount: 0 });
+      if (thenSeq.length) opts.push({ _isOption: true, _label: "then", sequence: thenSeq, _condCount: ifConds.length, _conditions: ifConds });
+      if (elseSeq.length) opts.push({ _isOption: true, _label: "else", sequence: elseSeq, _condCount: 0, _conditions: [] });
       return opts;
     }
     if (item.choose !== undefined) {
-      const opts = (item.choose || []).map((opt, i) => ({
-        _isOption: true,
-        _label: `option ${i + 1}`,
-        _condCount: [].concat(opt.conditions || opt.condition || []).length,
-        sequence: [].concat(opt.sequence || opt.then || []),
-      }));
+      const opts = (item.choose || []).map((opt, i) => {
+        const conds = [].concat(opt.conditions || opt.condition || []);
+        return {
+          _isOption: true,
+          _label: `option ${i + 1}`,
+          _condCount: conds.length,
+          _conditions: conds,
+          sequence: [].concat(opt.sequence || opt.then || []),
+        };
+      });
       const def = [].concat(item.default || []);
-      if (def.length) opts.push({ _isDefault: true, _label: "default", sequence: def, _condCount: 0 });
+      if (def.length) opts.push({ _isDefault: true, _label: "default", sequence: def, _condCount: 0, _conditions: [] });
       return opts;
     }
     if (item.repeat !== undefined) {
