@@ -594,6 +594,10 @@ export const EditorMixin = (Base) => class extends Base {
           const k = inline.slice(0, ci).trim();
           const v = inline.slice(ci + 2).replace(/['"]/g, "").trim();
           if (k) currentItem.fields[k] = v;
+        } else if (inline && inline.endsWith(":")) {
+          // bare compound key: choose:, parallel:, repeat:, if:, sequence:
+          const k = inline.slice(0, -1).trim();
+          if (k) currentItem.fields[k] = true;
         } else if (inline && !inline.includes(":")) {
           // bare scalar list item
           currentItem.fields._value = inline;
@@ -627,6 +631,7 @@ export const EditorMixin = (Base) => class extends Base {
     }
     // actions
     if (fields.choose !== undefined) return { icon: "🔀", title: "choose", sub: "" };
+    if (fields.if !== undefined) return { icon: "🔀", title: "if/then", sub: "" };
     if (fields.parallel !== undefined) return { icon: "⚡", title: "parallel", sub: "" };
     if (fields.repeat !== undefined) return { icon: "🔁", title: "repeat", sub: "" };
     if (fields.wait_template !== undefined || fields.wait_for_trigger !== undefined) return { icon: "⏳", title: "wait", sub: "" };
@@ -711,17 +716,22 @@ export const EditorMixin = (Base) => class extends Base {
       nodeEl.dataset.from = String(fromLine);
       nodeEl.dataset.to = String(toLine);
       nodeEl.setAttribute("style", indent);
-      nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}`);
-      nodeEl.innerHTML = `<span class="adg-icon">${icon}</span><span class="adg-title">${safeTitle}</span>${sub ? `<span class="adg-sub">${safeSub}</span>` : ""}${isExpandable ? `<span class="adg-expand-btn" title="Expand inner actions">▶</span>` : ""}`;
+      nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}${isExpandable ? " — click to expand" : ""}`);
+      nodeEl.innerHTML = `<span class="adg-icon">${icon}</span><span class="adg-title">${safeTitle}</span>${sub ? `<span class="adg-sub">${safeSub}</span>` : ""}${isExpandable ? `<span class="adg-expand-btn">▶</span>` : ""}`;
+
+      const toggleExpand = () => {
+        const childrenEl = wrapper.querySelector(":scope > .adg-children");
+        if (!childrenEl) return;
+        const open = !childrenEl.hidden;
+        childrenEl.hidden = open;
+        const btn = nodeEl.querySelector(".adg-expand-btn");
+        if (btn) btn.textContent = open ? "▶" : "▼";
+        nodeEl.classList.toggle("adg-expanded", !open);
+      };
 
       nodeEl.addEventListener("click", (e) => {
-        if (e.target.classList.contains("adg-expand-btn")) {
-          const childrenEl = wrapper.querySelector(":scope > .adg-children");
-          if (!childrenEl) return;
-          const open = !childrenEl.hidden;
-          childrenEl.hidden = open;
-          e.target.textContent = open ? "▶" : "▼";
-          nodeEl.classList.toggle("adg-expanded", !open);
+        if (isExpandable) {
+          toggleExpand();
           e.stopPropagation();
           return;
         }
