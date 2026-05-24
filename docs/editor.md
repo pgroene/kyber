@@ -80,6 +80,14 @@ The embedded editor is powered by [CodeMirror 6](https://codemirror.net/) and in
 
 While the editor is open, the current automation/script YAML is included in every AI request. The AI's suggestions apply directly to the open file — you can ask it to add a trigger, change a condition, or restructure actions and it will return an updated YAML block that can be applied to the editor.
 
+### Flow diagram
+
+Both automations and scripts show a visual flow diagram above the editor.
+
+**Automation diagram** — sections: **WHEN** (triggers) → **IF** (conditions, if any) → **THEN** (actions). Clicking any node jumps the editor cursor to that YAML block.
+
+**Script diagram** — sections: **PARAMETERS** (input fields, if any) → **DO** (sequence steps). Scripts have no triggers or conditions, so those sections are omitted. Each step in `sequence:` appears as a node with an icon derived from the action type.
+
 ---
 
 ## Dashboard Editor
@@ -217,24 +225,24 @@ All three editors (automation/script, blueprint, dashboard) share the same CodeM
 must provide the same core features. The table below is the **canonical checklist** — any new
 feature added to one editor must be added to all applicable editors:
 
-| Feature | Automation / Script | Blueprint | Dashboard |
-|---|:---:|:---:|:---:|
-| CodeMirror 6 (syntax highlight, fold, autocomplete) | ✅ | ✅ | ✅ |
-| Context breadcrumb label | ✅ | ✅ | ✅ |
-| Save button (correct label per mode) | ✅ | ✅ | ✅ |
-| Session persistence (reopen after navigation) | ✅ | ✅ | ✅ |
-| Unsaved draft restore | ✅ | — | — |
-| Floating entity inspector | ✅ | ✅ | ✅ |
-| Entity list picker (cursor in entity list) | ✅ | ✅ | ✅ |
-| Automation diagram (WHEN / IF / THEN) | ✅ | — | — |
-| "Edit blueprint" toolbar button | ✅ | — | — |
-| Debug pane (stays in left column) | ✅ | ✅ | ✅ |
+| Feature | Automation | Script | Blueprint | Dashboard |
+|---|:---:|:---:|:---:|:---:|
+| CodeMirror 6 (syntax highlight, fold, autocomplete) | ✅ | ✅ | ✅ | ✅ |
+| Context breadcrumb label | ✅ | ✅ | ✅ | ✅ |
+| Save button (correct label per mode) | ✅ | ✅ | ✅ | ✅ |
+| Session persistence (reopen after navigation) | ✅ | ✅ | ✅ | ✅ |
+| Unsaved draft restore | ✅ | ✅ | — | — |
+| Floating entity inspector | ✅ | ✅ | ✅ | ✅ |
+| Entity list picker (cursor in entity list) | ✅ | ✅ | ✅ | ✅ |
+| Flow diagram | ✅ WHEN/IF/THEN | ✅ PARAMETERS/DO | — | — |
+| "Edit blueprint" toolbar button | ✅ | ✅ | — | — |
+| Debug pane (stays in left column) | ✅ | ✅ | ✅ | ✅ |
 
 **Rules for contributors:**
-- Any feature marked ✅ for Automation/Script that you add must also work for Blueprint (where marked ✅) and Dashboard.
-- Entity inspector and entity list picker must both work in blueprint mode because blueprints reference `entity_id` inputs.
-- Dashboard mode does not show the automation diagram (wrong schema); guard with `this._editorMode === "dashboard" || this._editorMode === "blueprint"`.
-- Script editor (planned) must match Automation/Script column exactly.
+- Any feature added to the Automation editor must also be verified/added for Script (same column).
+- Entity inspector and entity list picker must work in blueprint mode (blueprints reference `entity_id` inputs).
+- Diagram is hidden for dashboard and blueprint modes (wrong schema) — guard with `this._editorMode === "dashboard" || this._editorMode === "blueprint"`.
+- Script diagram uses `sequence:` (not `trigger:/action:`) and shows PARAMETERS/DO sections instead of WHEN/IF/THEN.
 
 ---
 

@@ -549,6 +549,7 @@ export const EditorMixin = (Base) => class extends Base {
       trigger: "triggers", triggers: "triggers",
       condition: "conditions", conditions: "conditions",
       action: "actions", actions: "actions",
+      sequence: "actions",  // scripts use sequence: instead of action:
     };
 
     let currentSection = null;
@@ -651,9 +652,14 @@ export const EditorMixin = (Base) => class extends Base {
   // ── Diagram from JSON config (accurate, expanded) ─────────────────────────
 
   _renderDiagramFromJson(diag, cfg, yamlText) {
-    const triggers = [].concat(cfg.triggers || cfg.trigger || []).filter(Boolean);
-    const conditions = [].concat(cfg.conditions || cfg.condition || []).filter(Boolean);
-    const actions = [].concat(cfg.actions || cfg.action || []).filter(Boolean);
+    const isScript = this._editorMode === "script";
+
+    // Scripts use sequence: instead of trigger:/action:
+    const triggers    = isScript ? [] : [].concat(cfg.triggers || cfg.trigger || []).filter(Boolean);
+    const conditions  = isScript ? [] : [].concat(cfg.conditions || cfg.condition || []).filter(Boolean);
+    const actions     = isScript
+      ? [].concat(cfg.sequence || []).filter(Boolean)
+      : [].concat(cfg.actions || cfg.action || []).filter(Boolean);
 
     // Build YAML line-range index for cursor ↔ node sync
     this._diagLineBlocks = this._parseAutomationBlocks(yamlText);
@@ -685,14 +691,35 @@ export const EditorMixin = (Base) => class extends Base {
       return `<div class="adg-section"><div class="adg-label">${label}</div><div class="adg-nodes">${renderNodes(items, sectionKey, cls)}</div></div>`;
     };
 
+    // Script: optionally show PARAMETERS section from cfg.fields
+    let fieldsSection = "";
+    if (isScript && cfg.fields && typeof cfg.fields === "object") {
+      const fieldEntries = Object.entries(cfg.fields);
+      if (fieldEntries.length) {
+        const fieldNodes = fieldEntries.map(([name, meta]) => {
+          const desc = (meta && typeof meta === "object") ? (meta.description || meta.name || "") : String(meta || "");
+          const safeN = this._escH(name);
+          const safeD = this._escH(String(desc).slice(0, 60));
+          return `<div class="adg-node adg-trigger" data-from="0" data-to="0" title="${safeN}${safeD ? ": " + safeD : ""}">
+            <span class="adg-icon">📥</span>
+            <span class="adg-title">${safeN}</span>
+            ${safeD ? `<span class="adg-sub">${safeD}</span>` : ""}
+          </div>`;
+        }).join("");
+        fieldsSection = `<div class="adg-section"><div class="adg-label">PARAMETERS</div><div class="adg-nodes">${fieldNodes}</div></div>`;
+      }
+    }
+
     // Flatten actions: expand choose/parallel/repeat into sub-nodes
     const flatActions = [];
     this._flattenActionsForDiagram(actions, flatActions, 0);
 
+    const actionLabel = isScript ? "DO" : "THEN";
     const parts = [];
-    parts.push(renderSection(triggers, "triggers", "WHEN", "adg-trigger"));
-    if (conditions.length) parts.push(renderSection(conditions, "conditions", "IF", "adg-condition"));
-    parts.push(renderSection(flatActions, "actions", "THEN", "adg-action"));
+    if (fieldsSection) parts.push(fieldsSection);
+    if (!isScript) parts.push(renderSection(triggers, "triggers", "WHEN", "adg-trigger"));
+    if (!isScript && conditions.length) parts.push(renderSection(conditions, "conditions", "IF", "adg-condition"));
+    parts.push(renderSection(flatActions, "actions", actionLabel, "adg-action"));
 
     diag.innerHTML = parts.filter(Boolean).join('<div class="adg-arrow">→</div>');
     diag.querySelectorAll(".adg-node").forEach((node) => {
@@ -783,6 +810,7 @@ export const EditorMixin = (Base) => class extends Base {
   // ── Diagram from YAML fallback (when JSON not cached) ─────────────────────
 
   _renderDiagramFromYaml(diag, yamlText) {
+    const isScript = this._editorMode === "script";
     const blocks = this._parseAutomationBlocks(yamlText);
     const total = blocks.triggers.length + blocks.conditions.length + blocks.actions.length;
     if (!total) { diag.hidden = true; return; }
@@ -805,10 +833,11 @@ export const EditorMixin = (Base) => class extends Base {
       return `<div class="adg-section"><div class="adg-label">${label}</div><div class="adg-nodes">${nodes}</div></div>`;
     };
 
+    const actionLabel = isScript ? "DO" : "THEN";
     const parts = [];
-    parts.push(renderSection("triggers", blocks.triggers, "WHEN", "adg-trigger"));
-    if (blocks.conditions.length) parts.push(renderSection("conditions", blocks.conditions, "IF", "adg-condition"));
-    parts.push(renderSection("actions", blocks.actions, "THEN", "adg-action"));
+    if (!isScript) parts.push(renderSection("triggers", blocks.triggers, "WHEN", "adg-trigger"));
+    if (!isScript && blocks.conditions.length) parts.push(renderSection("conditions", blocks.conditions, "IF", "adg-condition"));
+    parts.push(renderSection("actions", blocks.actions, actionLabel, "adg-action"));
 
     diag.innerHTML = parts.filter(Boolean).join('<div class="adg-arrow">→</div>');
     diag.querySelectorAll(".adg-node").forEach((node) => {
