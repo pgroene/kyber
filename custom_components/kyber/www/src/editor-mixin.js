@@ -580,6 +580,7 @@ export const EditorMixin = (Base) => class extends Base {
 
     let currentSection = null;
     let currentItem = null;
+    let itemIndent = -1; // auto-detected indent level for list items in current section
 
     const pushItem = (endLine) => {
       if (currentItem && currentSection) {
@@ -591,49 +592,67 @@ export const EditorMixin = (Base) => class extends Base {
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
+      if (!line.trim()) continue;
+      // Skip inline flow values like {} or []
+      if (/^\s*[\{\[]/.test(line)) continue;
 
-      // Top-level section header
+      const indent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+
+      // Top-level section header (no indent, alphanumeric key)
       const secM = line.match(/^([a-z_]+)\s*:/);
       if (secM) {
         pushItem(i - 1);
         currentSection = sectionMap[secM[1]] || null;
+        itemIndent = -1; // reset — will auto-detect from first list item
         continue;
       }
 
       if (!currentSection) continue;
 
-      if (/^  - /.test(line)) {
-        pushItem(i - 1);
-        currentItem = { from_line: i, to_line: i, fields: {} };
-        const inline = line.replace(/^  -\s*/, "").trim();
-        if (inline.includes(": ")) {
-          const ci = inline.indexOf(": ");
-          const k = inline.slice(0, ci).trim();
-          const v = inline.slice(ci + 2).replace(/['"]/g, "").trim();
-          if (k) currentItem.fields[k] = v;
-        } else if (inline && inline.endsWith(":")) {
-          // bare compound key: choose:, parallel:, repeat:, if:, sequence:
-          const k = inline.slice(0, -1).trim();
-          if (k) currentItem.fields[k] = true;
-        } else if (inline && !inline.includes(":")) {
-          // bare scalar list item
-          currentItem.fields._value = inline;
+      // Detect list item: "- " at any indent
+      const listM = line.match(/^(\s*)-\s/);
+      if (listM) {
+        const listIndent = listM[1].length;
+        // Auto-detect item indent from first list item in section
+        if (itemIndent < 0) itemIndent = listIndent;
+        // Only treat as a new top-level item if at the detected indent level
+        if (listIndent === itemIndent) {
+          pushItem(i - 1);
+          currentItem = { from_line: i, to_line: i, fields: {} };
+          const inline = line.slice(listM[0].length).trim();
+          if (inline.includes(": ")) {
+            const ci = inline.indexOf(": ");
+            const k = inline.slice(0, ci).trim();
+            const v = inline.slice(ci + 2).replace(/['"]/g, "").trim();
+            if (k) currentItem.fields[k] = v;
+          } else if (inline && inline.endsWith(":")) {
+            const k = inline.slice(0, -1).trim();
+            if (k) currentItem.fields[k] = true;
+          } else if (inline && !inline.includes(":")) {
+            currentItem.fields._value = inline;
+          }
+          continue;
         }
-      } else if (currentItem && /^    \S/.test(line)) {
+      }
+
+      // Field lines: deeper than item indent, contain key: value
+      if (currentItem && indent > itemIndent) {
         const trimmed = line.trim();
-        const ci = trimmed.indexOf(":");
-        if (ci > 0) {
-          const k = trimmed.slice(0, ci).trim();
-          const v = trimmed.slice(ci + 1).trim().replace(/['"]/g, "");
-          currentItem.fields[k] = v;
-          currentItem._lastKey = k; // track for list-value capture
+        // Only capture direct child key-value pairs (one indent level deeper)
+        if (indent <= itemIndent + 4) {
+          const ci = trimmed.indexOf(":");
+          if (ci > 0) {
+            const k = trimmed.slice(0, ci).trim();
+            const rawV = trimmed.slice(ci + 1).trim();
+            const v = rawV.replace(/['"]/g, "");
+            currentItem.fields[k] = v;
+            currentItem._lastKey = k;
+          }
         }
-      } else if (currentItem && /^      - /.test(line)) {
-        // 6-space list items: first item fills in empty parent key (e.g., entity_id: \n  - sensor.x)
-        const val = line.replace(/^      -\s*/, "").trim().replace(/['"]/g, "");
-        const lk = currentItem._lastKey;
-        if (lk && currentItem.fields[lk] === "") {
-          currentItem.fields[lk] = val; // use first list item as display value
+        // Sub-list items: fill in empty parent key with first value
+        if (/^\s*-\s/.test(line) && currentItem._lastKey && currentItem.fields[currentItem._lastKey] === "") {
+          const val = line.replace(/^\s*-\s*/, "").trim().replace(/['"]/g, "");
+          currentItem.fields[currentItem._lastKey] = val;
         }
       }
     }
@@ -703,13 +722,19 @@ export const EditorMixin = (Base) => class extends Base {
 
     // Scripts use sequence: instead of trigger:/action:
     const triggers    = isScript ? [] : [].concat(cfg.triggers || cfg.trigger || []).filter(Boolean);
-    const conditions  = isScript ? [] : [].concat(cfg.conditions || cfg.condition || []).filter(Boolean);
+    let   conditions  = isScript ? [] : [].concat(cfg.conditions || cfg.condition || []).filter(Boolean);
     const actions     = isScript
       ? [].concat(cfg.sequence || []).filter(Boolean)
       : [].concat(cfg.actions || cfg.action || []).filter(Boolean);
 
     // Build YAML line-range index for cursor ↔ node sync
     this._diagLineBlocks = this._parseAutomationBlocks(yamlText);
+
+    // Fallback: if JSON config has no conditions but YAML parser found some,
+    // use YAML-parsed fields (handles stale config when yaml.safe_load fails on HA's {} syntax)
+    if (!conditions.length && this._diagLineBlocks.conditions.length) {
+      conditions = this._diagLineBlocks.conditions.map((b) => ({ ...b.fields }));
+    }
 
     const total = triggers.length + conditions.length + actions.length;
     if (!total) {
