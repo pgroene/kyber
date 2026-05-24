@@ -1790,6 +1790,45 @@ export const STYLES = `
   .status-bar.success { color: var(--success); }
   .status-bar.error   { color: var(--danger); }
 
+  /* ── YAML error bar (AI fix) ────── */
+  .yaml-error-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    grid-column: 1 / -1;
+    background: rgba(255,82,82,0.1);
+    border-top: 2px solid #ff5252;
+    font-size: 12px;
+    color: #ff8a80;
+    min-height: 28px;
+    animation: yeb-slide-in 0.2s ease-out;
+  }
+  @keyframes yeb-slide-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  .yeb-icon { font-size: 16px; flex-shrink: 0; }
+  .yeb-msg { flex: 1; font-family: monospace; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .yeb-btn {
+    padding: 3px 10px;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 4px;
+    background: rgba(255,255,255,0.08);
+    color: #fff;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+  }
+  .yeb-btn:hover { background: rgba(255,255,255,0.16); }
+  .yeb-autofix { border-color: #4caf50; color: #4caf50; }
+  .yeb-autofix:hover { background: rgba(76,175,80,0.15); }
+  .yeb-guided { border-color: #42a5f5; color: #42a5f5; }
+  .yeb-guided:hover { background: rgba(66,165,245,0.15); }
+  .yeb-apply { border-color: #4caf50; color: #4caf50; }
+  .yeb-apply:hover { background: rgba(76,175,80,0.2); }
+  .yeb-reject { border-color: #ff5252; color: #ff5252; }
+  .yeb-reject:hover { background: rgba(255,82,82,0.15); }
+  .yeb-close { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 14px; padding: 0 2px; flex-shrink: 0; }
+
   .autopilot-badge {
     display: flex;
     align-items: center;

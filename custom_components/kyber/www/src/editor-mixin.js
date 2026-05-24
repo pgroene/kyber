@@ -2012,6 +2012,7 @@ export const EditorMixin = (Base) => class extends Base {
   // Called debounced (1.2s) after editor changes so the diagram reflects edits.
   async _reparseEditorConfig(yamlText) {
     if (!this._hass || !yamlText?.trim()) return;
+    const errorBar = this.shadowRoot.getElementById("yaml-error-bar");
     try {
       const token = this._hass.auth.data.access_token;
       const resp = await fetch("/api/kyber/parse_yaml", {
@@ -2019,13 +2020,149 @@ export const EditorMixin = (Base) => class extends Base {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ yaml: yamlText }),
       });
-      if (!resp.ok) return; // invalid YAML — diagram stays on stale config
+      if (!resp.ok) {
+        // YAML parse error — show error banner with AI fix button
+        const errText = await resp.text();
+        let errMsg = errText;
+        try { const j = JSON.parse(errText); errMsg = j.error || j.message || errText; } catch (_) {}
+        this._showYamlError(errMsg, yamlText);
+        return;
+      }
+      // Valid YAML — hide error bar and update diagram
+      if (errorBar) errorBar.hidden = true;
+      this._lastYamlError = null;
       const { config } = await resp.json();
       if (config) {
         this._currentAutomationConfig = config;
         this._renderAutomationDiagram(yamlText);
       }
-    } catch { /* silent — diagram uses previous config */ }
+    } catch {
+      /* silent — diagram uses previous config */
+    }
+  }
+
+  _showYamlError(errMsg, yamlText) {
+    this._lastYamlError = errMsg;
+    let errorBar = this.shadowRoot.getElementById("yaml-error-bar");
+    if (!errorBar) {
+      errorBar = document.createElement("div");
+      errorBar.id = "yaml-error-bar";
+      errorBar.className = "yaml-error-bar";
+      const statusBar = this.shadowRoot.getElementById("status-bar");
+      if (statusBar) statusBar.parentElement.insertBefore(errorBar, statusBar);
+      else return;
+    }
+    errorBar.hidden = false;
+    errorBar.innerHTML = `
+      <span class="yeb-icon">⚠</span>
+      <span class="yeb-msg">${this._escH(errMsg).slice(0, 120)}</span>
+      <button class="yeb-btn yeb-autofix" title="Ask AI to fix this error">🤖 Auto-fix</button>
+      <button class="yeb-btn yeb-guided" title="Guided error resolution">💡 Guide me</button>
+      <button class="yeb-close" title="Dismiss">✕</button>
+    `;
+    errorBar.querySelector(".yeb-autofix").addEventListener("click", () => {
+      this._aiAutofix(errMsg, yamlText);
+    });
+    errorBar.querySelector(".yeb-guided").addEventListener("click", () => {
+      this._aiGuidedFix(errMsg, yamlText);
+    });
+    errorBar.querySelector(".yeb-close").addEventListener("click", () => {
+      errorBar.hidden = true;
+    });
+  }
+
+  async _aiAutofix(errMsg, yamlText) {
+    if (!this._hass) return;
+    const errorBar = this.shadowRoot.getElementById("yaml-error-bar");
+
+    // Show progress in the error bar
+    const autofixBtn = errorBar?.querySelector(".yeb-autofix");
+    if (autofixBtn) { autofixBtn.disabled = true; autofixBtn.textContent = "🤖 Fixing…"; }
+
+    const prompt = `Fix this YAML syntax error automatically. Return ONLY the corrected YAML, no explanation, no markdown fences.
+
+Error: ${errMsg}
+
+YAML:
+${yamlText}`;
+
+    try {
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch("/api/kyber/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          prompt,
+          context: "yaml_fix",
+          history: [],
+        }),
+      });
+      if (!resp.ok) throw new Error(`AI request failed: ${resp.status}`);
+      const data = await resp.json();
+      const aiText = (data.response || data.text || "").trim();
+
+      // Extract YAML from the AI response (strip markdown fences if present)
+      let fixedYaml = aiText;
+      const fenceMatch = aiText.match(/```(?:yaml)?\n([\s\S]*?)```/);
+      if (fenceMatch) fixedYaml = fenceMatch[1].trim();
+
+      if (!fixedYaml) {
+        this._setStatus("AI returned empty fix", "error");
+        if (autofixBtn) { autofixBtn.disabled = false; autofixBtn.textContent = "🤖 Auto-fix"; }
+        return;
+      }
+
+      // Show a diff-like preview before applying
+      this._showFixPreview(fixedYaml, yamlText, errMsg);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this._setStatus(`Auto-fix failed: ${msg}`, "error");
+      if (autofixBtn) { autofixBtn.disabled = false; autofixBtn.textContent = "🤖 Auto-fix"; }
+    }
+  }
+
+  _showFixPreview(fixedYaml, originalYaml, errMsg) {
+    const errorBar = this.shadowRoot.getElementById("yaml-error-bar");
+    if (!errorBar) return;
+
+    // Count changed lines
+    const origLines = originalYaml.split("\n");
+    const fixLines = fixedYaml.split("\n");
+    let changedCount = 0;
+    const maxLines = Math.max(origLines.length, fixLines.length);
+    for (let i = 0; i < maxLines; i++) {
+      if ((origLines[i] || "") !== (fixLines[i] || "")) changedCount++;
+    }
+
+    errorBar.innerHTML = `
+      <span class="yeb-icon">🔧</span>
+      <span class="yeb-msg">AI fix ready — ${changedCount} line${changedCount !== 1 ? "s" : ""} changed</span>
+      <button class="yeb-btn yeb-apply">✅ Apply fix</button>
+      <button class="yeb-btn yeb-reject">❌ Reject</button>
+    `;
+    errorBar.querySelector(".yeb-apply").addEventListener("click", () => {
+      this._setEditorContent(fixedYaml);
+      errorBar.hidden = true;
+      this._setStatus("AI fix applied ✓", "success");
+    });
+    errorBar.querySelector(".yeb-reject").addEventListener("click", () => {
+      errorBar.hidden = true;
+      this._setStatus("Fix rejected");
+    });
+  }
+
+  _aiGuidedFix(errMsg, yamlText) {
+    // Send the error to the chat as a guided conversation
+    const promptInput = this.shadowRoot.getElementById("prompt-input");
+    if (promptInput) {
+      promptInput.value = `I have a YAML error in my ${this._editorMode || "automation"}: "${errMsg}". Can you help me understand what's wrong and guide me through fixing it step by step?`;
+      // Trigger the AI ask
+      const askBtn = this.shadowRoot.getElementById("btn-ask");
+      if (askBtn) askBtn.click();
+    }
+    // Hide the error bar
+    const errorBar = this.shadowRoot.getElementById("yaml-error-bar");
+    if (errorBar) errorBar.hidden = true;
   }
 
   async _loadAutomation(configId) {
@@ -2130,6 +2267,10 @@ export const EditorMixin = (Base) => class extends Base {
       btn.disabled = false;
       const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
       this._setStatus(`Save failed: ${msg}`, "error");
+      // Show error bar with AI fix options for YAML errors
+      if (msg.includes("YAML") || msg.includes("parse") || msg.includes("invalid")) {
+        this._showYamlError(msg, yamlText);
+      }
     }
   }
 
