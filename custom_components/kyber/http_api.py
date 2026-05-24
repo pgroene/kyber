@@ -479,6 +479,10 @@ def _parse_request_body(body: dict, request: "web.Request") -> dict:
     history: list = body.get("history", [])
     compacted_summary: str = body.get("compacted_summary", "").strip()
     editor_mode: str = body.get("editor_mode", "automation")
+    editor_id: str = str(body.get("editor_id") or "").strip()
+    editor_title: str = str(body.get("editor_title") or "").strip()
+    raw_sel = body.get("editor_selection")
+    editor_selection: dict | None = raw_sel if isinstance(raw_sel, dict) else None
     request_id: str = str(body.get("request_id", "")).strip()
     # Sanitize to safe alphanumeric + hyphen/underscore only.
     # request_id is used as a dict key and appears in debug filenames,
@@ -494,6 +498,9 @@ def _parse_request_body(body: dict, request: "web.Request") -> dict:
         "history": history,
         "compacted_summary": compacted_summary,
         "editor_mode": editor_mode,
+        "editor_id": editor_id,
+        "editor_title": editor_title,
+        "editor_selection": editor_selection,
         "request_id": request_id,
         "dashboards": dashboards,
         "lovelace_resources": lovelace_resources,
@@ -517,6 +524,9 @@ def _build_prompt_sections(body_fields: dict, context: str, request: "web.Reques
     history: list = body_fields["history"]
     compacted_summary: str = body_fields["compacted_summary"]
     editor_mode: str = body_fields["editor_mode"]
+    editor_id: str = body_fields.get("editor_id") or ""
+    editor_title: str = body_fields.get("editor_title") or ""
+    editor_selection: dict | None = body_fields.get("editor_selection")
     dashboards: list = body_fields["dashboards"]
     lovelace_resources: list = body_fields["lovelace_resources"]
 
@@ -562,6 +572,32 @@ def _build_prompt_sections(body_fields: dict, context: str, request: "web.Reques
                 "## \u26a0\ufe0f DASHBOARD EDITOR IS CURRENTLY OPEN (empty/no config yet)\n"
                 "**You MUST respond with a ```yaml block containing the new full dashboard YAML \u2014 do NOT use a plan block or open_dashboard.**\n\n"
             )
+    elif editor_mode in ("automation", "script") and editor_id:
+        kind = "script" if editor_mode == "script" else "automation"
+        title_str = f' \u2014 "{editor_title}"' if editor_title else ""
+        yaml_block = f"```yaml\n{escaped_user_yaml}\n```\n\n" if user_yaml.strip() else "(no YAML loaded yet)\n\n"
+        # Selection block (optional)
+        selection_block = ""
+        if editor_selection and isinstance(editor_selection, dict):
+            sel_text = str(editor_selection.get("text", "")).strip()
+            from_line = editor_selection.get("from_line")
+            to_line = editor_selection.get("to_line")
+            if sel_text:
+                line_ref = f" (lines {from_line}–{to_line})" if from_line and to_line and from_line != to_line else (f" (line {from_line})" if from_line else "")
+                safe_sel = _escape_fenced_block_content(sel_text)
+                selection_block = (
+                    f"**The user has selected the following text{line_ref} in the editor:**\n"
+                    f"```yaml\n{safe_sel}\n```\n"
+                    f"Take this selection as the focus of the user\u2019s question or edit request.\n\n"
+                )
+        yaml_section = (
+            f"## \u26a0\ufe0f {kind.upper()} EDITOR IS CURRENTLY OPEN{title_str}\n"
+            f"ID: `{editor_id}`\n"
+            f"The user has this {kind} open in the side panel. "
+            f"If they ask to change it, use an `edit_{kind}` plan block \u2014 do NOT emit `open_editor`.\n\n"
+            f"**Current {kind} YAML:**\n{yaml_block}"
+            f"{selection_block}"
+        )
     else:
         yaml_section = (
             f"## Current automation YAML\n```yaml\n{escaped_user_yaml}\n```\n\n"
@@ -605,7 +641,7 @@ def _build_prompt_sections(body_fields: dict, context: str, request: "web.Reques
     # Lazy-load sections: inject only when relevant to save prompt budget.
     automation_guidance = (
         AUTOMATION_EDITOR_GUIDANCE
-        if user_yaml.strip() or _AUTOMATION_EDIT_RE.search(user_prompt)
+        if user_yaml.strip() or editor_id or _AUTOMATION_EDIT_RE.search(user_prompt)
         else ""
     )
     lovelace_ref = LOVELACE_CARDS_REFERENCE if editor_mode == "dashboard" else ""

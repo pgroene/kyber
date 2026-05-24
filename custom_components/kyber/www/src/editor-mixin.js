@@ -103,6 +103,7 @@ export const EditorMixin = (Base) => class extends Base {
     if (newDashBtn) newDashBtn.style.display = "none";
 
     this._currentAutomationId = configId;
+    this._editorTitle = friendlyName;
     this._editorMode = isScript ? "script" : "automation";
     this.shadowRoot.getElementById("btn-save").textContent = isScript ? "Save script" : "Save automation";
     await this._loadAutomation(configId);
@@ -131,6 +132,7 @@ export const EditorMixin = (Base) => class extends Base {
     if (ctxLabel) ctxLabel.textContent = "";
 
     this._currentAutomationId = null;
+    this._editorTitle = null;
     this._currentDashboardPath = null;
     this._editorMode = "automation";
     this._dirty = false;

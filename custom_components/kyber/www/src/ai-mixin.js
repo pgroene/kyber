@@ -255,6 +255,22 @@ export const AIMixin = (Base) => class extends Base {
     // ─────────────────────────────────────────────────────────────
 
     const yamlText = this._editor ? this._editor.state.doc.toString() : "";
+
+    // Capture the current editor selection (if any non-empty text is selected)
+    let editorSelection = null;
+    if (this._editor) {
+      const sel = this._editor.state.selection.main;
+      if (sel.from !== sel.to) {
+        const selectedText = this._editor.state.sliceDoc(sel.from, sel.to);
+        if (selectedText.trim()) {
+          const doc = this._editor.state.doc;
+          const fromLine = doc.lineAt(sel.from).number;
+          const toLine = doc.lineAt(sel.to).number;
+          editorSelection = { text: selectedText, from_line: fromLine, to_line: toLine };
+        }
+      }
+    }
+
     const askBtn = this.shadowRoot.getElementById("btn-ask");
     askBtn.disabled = true;
     promptInput.value = "";
@@ -320,6 +336,9 @@ export const AIMixin = (Base) => class extends Base {
           yaml: yamlText,
           prompt,
           editor_mode: this._editorMode,
+          editor_id: this._currentAutomationId || null,
+          editor_title: this._editorTitle || null,
+          editor_selection: editorSelection,
           dashboards: this._dashboardList,
           lovelace_resources: this._lovelaceResources || [],
           request_id: requestId,
