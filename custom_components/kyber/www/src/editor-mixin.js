@@ -2272,6 +2272,11 @@ ${yamlText}`;
     const errorBar = this.shadowRoot.getElementById("yaml-error-bar");
     if (errorBar) errorBar.hidden = true;
   }
+
+  /** Strip standalone {} and [] lines that HA writes for empty mappings/lists. */
+  _stripEmptyYamlBlocks(yaml) {
+    return yaml.replace(/^\s*(?:\{\}|\[\])\s*$/gm, "");
+  }
 
   async _loadAutomation(configId) {
     if (!configId || !this._hass) return;
@@ -2282,7 +2287,7 @@ ${yamlText}`;
     try {
       const config = await this._hass.callApi("GET", apiPath);
       this._currentAutomationConfig = config; // store for diagram
-      const yamlText = this._configToYaml(config);
+      const yamlText = this._stripEmptyYamlBlocks(this._configToYaml(config));
       this._savedYaml = yamlText; // baseline for dirty tracking
       this._setEditorContent(yamlText);
       this._currentAutomationId = configId;
@@ -2472,6 +2477,8 @@ ${yamlText}`;
     }
 
     if (draft) {
+      // Strip any standalone {} / [] left over from old drafts
+      draft = this._stripEmptyYamlBlocks(draft);
       // Fetch fresh JSON config so diagram can use the expandable JSON path
       try {
         const cfgPath = isScript ? `config/script/config/${saved.id}` : `config/automation/config/${saved.id}`;
