@@ -665,7 +665,24 @@ export const EditorMixin = (Base) => class extends Base {
     this._diagLineBlocks = this._parseAutomationBlocks(yamlText);
 
     const total = triggers.length + conditions.length + actions.length;
-    if (!total) { diag.hidden = true; return; }
+    if (!total) {
+      // Blueprint automation — show blueprint info panel instead of hiding
+      const bp = cfg.use_blueprint;
+      if (bp) {
+        diag.hidden = false;
+        const inputs = bp.input || {};
+        const inputRows = Object.entries(inputs)
+          .map(([k, v]) => `<div class="adg-bp-row"><span class="adg-bp-key">${this._escH(k)}:</span> <span class="adg-bp-val">${this._escH(String(v))}</span></div>`)
+          .join("");
+        diag.innerHTML = `<div class="adg-blueprint-info">
+          <div class="adg-bp-header">📋 <strong>${this._escH(bp.path || "Blueprint")}</strong></div>
+          ${inputRows ? `<div class="adg-bp-inputs">${inputRows}</div>` : ""}
+        </div>`;
+        return;
+      }
+      diag.hidden = true;
+      return;
+    }
     diag.hidden = false;
 
     const renderNodes = (items, sectionKey, cls) => items.map((item, idx) => {

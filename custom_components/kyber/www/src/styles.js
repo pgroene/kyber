@@ -13,6 +13,9 @@ export const STYLES = `
     --accent: var(--primary-color, #03a9f4);
     --danger: var(--error-color, #cf6679);
     --success: var(--success-color, #4caf50);
+    --card-bg: var(--card-background-color, var(--primary-background-color, #fff));
+    --input-bg: var(--secondary-background-color, #f5f5f5);
+    --text-muted: var(--secondary-text-color, #888);
   }
 
   .container {
@@ -28,6 +31,8 @@ export const STYLES = `
   .container.editor-open {
     grid-template-columns: 1fr 1fr;
   }
+
+  .container:not(.editor-open) .editor-controls { display: none !important; }
 
   .toolbar {
     grid-column: 1 / -1;
@@ -182,6 +187,20 @@ export const STYLES = `
     padding: 28px 4px 0;
     flex-shrink: 0;
   }
+
+  /* Blueprint info panel (shown instead of diagram for use_blueprint automations) */
+  .adg-blueprint-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 4px 2px;
+    min-width: 260px;
+  }
+  .adg-bp-header { font-size: 12px; color: var(--text-color); }
+  .adg-bp-inputs { display: flex; flex-direction: column; gap: 3px; }
+  .adg-bp-row { font-size: 11px; }
+  .adg-bp-key { color: var(--text-muted, #888); }
+  .adg-bp-val { color: var(--accent); }
 
   /* ── Entity inspector (floating overlay) ────────────────── */
   .entity-inspector {
