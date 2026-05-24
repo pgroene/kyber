@@ -1784,15 +1784,6 @@ export const STYLES = `
   .status-bar.error   { color: var(--danger); }
 
   /* ── YAML error bar (AI fix) ────── */
-  .cm-error-overlay {
-    background: rgba(255,82,82,0.12);
-    border-left: 3px solid #ff5252;
-    box-sizing: border-box;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='3'%3E%3Cpath d='M0 2.5 L1.5 0.5 L3 2.5 L4.5 0.5 L6 2.5' fill='none' stroke='%23ff5252' stroke-width='1'/%3E%3C/svg%3E");
-    background-position: bottom left;
-    background-repeat: repeat-x;
-    background-size: 6px 3px;
-  }
   .yaml-error-bar {
     display: flex;
     align-items: center;

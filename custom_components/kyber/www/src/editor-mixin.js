@@ -68,7 +68,7 @@ export const EditorMixin = (Base) => class extends Base {
           const cursorLine = update.state.doc.lineAt(update.state.selection.main.head).number - 1;
           const cursorPos = update.state.selection.main.head;
           self._updateDiagramHighlight(cursorLine);
-          if (self._errorLineNum) requestAnimationFrame(() => self._applyErrorOverlay());
+          if (self._errorLineNum) requestAnimationFrame(() => self._applyErrorLineStyle());
           clearTimeout(self._inspectorDebounce);
           self._inspectorDebounce = setTimeout(() => {
             const yamlText = update.state.doc.toString();
@@ -2171,7 +2171,7 @@ export const EditorMixin = (Base) => class extends Base {
   // Highlight the error line in the editor with a red squiggly overlay
   _setErrorLine(lineNum) {
     this._errorLineNum = lineNum;
-    // Scroll to the error line first, then apply overlay after render
+    // Scroll to the error line first
     if (this._editor && lineNum > 0) {
       try {
         const doc = this._editor.state.doc;
@@ -2181,43 +2181,51 @@ export const EditorMixin = (Base) => class extends Base {
         }
       } catch { /* ignore */ }
     }
-    // Apply after a short delay so CM has rendered the scroll position
-    setTimeout(() => this._applyErrorOverlay(), 100);
+    // Apply after CM has rendered the scroll position
+    setTimeout(() => this._applyErrorLineStyle(), 150);
   }
 
   _clearErrorLine() {
     this._errorLineNum = null;
-    const overlay = this.shadowRoot?.getElementById("cm-error-overlay");
-    if (overlay) overlay.remove();
+    this._clearErrorLineStyle();
   }
 
-  // Position error overlay using coordsAtPos relative to the editor pane
-  _applyErrorOverlay() {
+  _clearErrorLineStyle() {
+    if (!this._editor) return;
+    this._editor.dom.querySelectorAll("[data-error-line]").forEach((el) => {
+      el.style.background = "";
+      el.style.borderLeft = "";
+      el.style.backgroundImage = "";
+      el.style.backgroundPosition = "";
+      el.style.backgroundRepeat = "";
+      el.style.backgroundSize = "";
+      el.style.boxSizing = "";
+      el.removeAttribute("data-error-line");
+    });
+  }
+
+  // Apply inline error styles directly to the .cm-line DOM element
+  _applyErrorLineStyle() {
     if (!this._editor || !this._errorLineNum) return;
+    this._clearErrorLineStyle();
     try {
       const doc = this._editor.state.doc;
       const lineNum = this._errorLineNum;
       if (lineNum < 1 || lineNum > doc.lines) return;
       const lineObj = doc.line(lineNum);
-      // Get pixel coordinates of the line
-      const coords = this._editor.coordsAtPos(lineObj.from);
-      if (!coords) return;
-      const lineEnd = this._editor.coordsAtPos(lineObj.to);
-      const lineHeight = lineEnd ? lineEnd.bottom - coords.top : 20;
-      // Position relative to the editor pane (same as entity inspector)
-      const editorPane = this._editor.dom.closest(".editor-pane") || this._editor.dom.parentElement;
-      if (!editorPane) return;
-      const paneRect = editorPane.getBoundingClientRect();
-      const top = coords.top - paneRect.top;
-      // Create or reuse overlay
-      let overlay = this.shadowRoot.getElementById("cm-error-overlay");
-      if (!overlay) {
-        overlay = document.createElement("div");
-        overlay.id = "cm-error-overlay";
-        overlay.className = "cm-error-overlay";
-        editorPane.appendChild(overlay);
-      }
-      overlay.style.cssText = `position:absolute;left:0;right:0;top:${top}px;height:${lineHeight}px;pointer-events:none;z-index:4;`;
+      const domPos = this._editor.domAtPos(lineObj.from);
+      if (!domPos) return;
+      const el = domPos.node.nodeType === 3 ? domPos.node.parentElement : domPos.node;
+      const cmLine = el?.closest?.(".cm-line") || el;
+      if (!cmLine) return;
+      cmLine.setAttribute("data-error-line", "true");
+      cmLine.style.background = "rgba(255,82,82,0.15)";
+      cmLine.style.borderLeft = "3px solid #ff5252";
+      cmLine.style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='3'%3E%3Cpath d='M0 2.5 L1.5 0.5 L3 2.5 L4.5 0.5 L6 2.5' fill='none' stroke='%23ff5252' stroke-width='1'/%3E%3C/svg%3E\")";
+      cmLine.style.backgroundPosition = "bottom left";
+      cmLine.style.backgroundRepeat = "repeat-x";
+      cmLine.style.backgroundSize = "6px 3px";
+      cmLine.style.boxSizing = "border-box";
     } catch { /* ignore */ }
   }
 
