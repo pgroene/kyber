@@ -743,13 +743,15 @@ export const EditorMixin = (Base) => class extends Base {
 
     // Render a condition item — clickable if onClickFn is provided
     const renderCondItem = (cond, onClickFn) => {
-      const c = cond.condition || "";
+      // Auto-detect condition type: HA may omit explicit `condition:` key
+      let c = cond.condition || "";
+      if (!c && cond.value_template) c = "template";
+      if (!c && cond.entity_id && cond.state !== undefined) c = "state";
       let condSub = "";
       let condDetail = "";
 
       if (c === "template") {
         const vt = cond.value_template || "";
-        // Parse common template patterns to show readable info
         const statesMatch = vt.match(/states\(\s*['"]([^'"]+)['"]\s*\)\s*(==|!=|>|<|>=|<=)\s*\\?["']?([^"'\\}\s]+)/);
         const isStateMatch = vt.match(/is_state\(\s*['"]([^'"]+)['"],\s*['"]([^'"]+)['"]\)/);
         if (statesMatch) {
@@ -1189,7 +1191,9 @@ export const EditorMixin = (Base) => class extends Base {
       return { icon: ICONS[p] || "⚡", title: p || "trigger", sub };
     }
     if (section === "conditions") {
-      const c = item.condition || "";
+      let c = item.condition || "";
+      if (!c && item.value_template) c = "template";
+      if (!c && item.entity_id && item.state !== undefined) c = "state";
       const ICONS = { state: "✅", template: "📋", time: "⏰", numeric_state: "🔢", zone: "📍", and: "🔗", or: "🔀", not: "❌", device: "📱", trigger: "⚡" };
       let sub = "";
       if (c === "template") {
