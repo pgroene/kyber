@@ -68,7 +68,7 @@ export const EditorMixin = (Base) => class extends Base {
           const cursorLine = update.state.doc.lineAt(update.state.selection.main.head).number - 1;
           const cursorPos = update.state.selection.main.head;
           self._updateDiagramHighlight(cursorLine);
-          if (self._errorLineNum) requestAnimationFrame(() => self._applyErrorLineStyle());
+          if (self._errorLineNum) requestAnimationFrame(() => self._applyErrorDecorations());
           clearTimeout(self._inspectorDebounce);
           self._inspectorDebounce = setTimeout(() => {
             const yamlText = update.state.doc.toString();
@@ -84,6 +84,15 @@ export const EditorMixin = (Base) => class extends Base {
       state: EditorState.create({ doc: "", extensions }),
       parent: container,
     });
+
+    const scroller = this._editor.dom.querySelector(".cm-scroller");
+    if (scroller) {
+      const onScroll = () => {
+        if (this._errorLineNum) this._applyErrorDecorations();
+      };
+      scroller.addEventListener("scroll", onScroll, { passive: true });
+      this._errorLineScrollHandler = onScroll;
+    }
 
     // Floating entity inspector — appended to editor-pane (position: relative)
     // so it can be absolutely positioned to the right of the cursor line
@@ -1675,13 +1684,25 @@ export const EditorMixin = (Base) => class extends Base {
         <span class="ti-label">📋 Template</span>
         <button class="ti-close" title="Close">✕</button>
       </div>
-      <div class="ti-expr" style="background:#1a1a2e;color:#f0f0f0;font-size:13px;padding:10px 12px;font-family:monospace;white-space:pre-wrap;word-break:break-word;line-height:1.5;border-radius:4px;margin:4px 6px"><code style="color:#ffcc80">${this._escH(cleanExpr)}</code></div>
+      <div class="ti-expr"><code>${this._escH(cleanExpr)}</code></div>
       ${entityChips ? `<div class="ti-entities">${entityChips}</div>` : ""}
       <div class="ti-preview">
         <span class="ti-preview-label">Result:</span>
         <span class="ti-preview-value" id="ti-preview-val">evaluating…</span>
       </div>
     `;
+    // Force high contrast so the expression stays readable regardless of theme/cached CSS
+    const exprEl = tplInsp.querySelector(".ti-expr");
+    const exprCodeEl = tplInsp.querySelector(".ti-expr code");
+    if (exprEl) {
+      exprEl.style.setProperty("background", "#0f172a", "important");
+      exprEl.style.setProperty("color", "#f8fafc", "important");
+      exprEl.style.setProperty("font-size", "14px", "important");
+      exprEl.style.setProperty("line-height", "1.55", "important");
+      exprEl.style.setProperty("padding", "10px 12px", "important");
+      exprEl.style.setProperty("border", "1px solid #334155", "important");
+    }
+    if (exprCodeEl) exprCodeEl.style.setProperty("color", "#f8fafc", "important");
     tplInsp.querySelector(".ti-close").addEventListener("click", () => {
       tplInsp.hidden = true;
       this._templateInspectorLine = -1;
@@ -2104,8 +2125,19 @@ export const EditorMixin = (Base) => class extends Base {
   async _reparseEditorConfig(yamlText) {
     if (!this._hass || !yamlText?.trim()) return;
     const errorBar = this.shadowRoot.getElementById("yaml-error-bar");
-    // Strip standalone {} and [] lines (HA writes empty mappings/lists this way)
-    const cleaned = yamlText.replace(/^\s*(?:\{\}|\[\])\s*$/gm, "");
+    // Strip standalone {} and [] lines (HA writes empty mappings/lists this way),
+    // and keep a mapping so parse error line numbers can be mapped back to editor lines.
+    const rawLines = yamlText.split("\n");
+    const cleanedLines = [];
+    const parseLineToEditorLine = [];
+    rawLines.forEach((line, idx) => {
+      if (!/^\s*(?:\{\}|\[\])\s*$/.test(line)) {
+        cleanedLines.push(line);
+        parseLineToEditorLine.push(idx + 1);
+      }
+    });
+    const cleaned = cleanedLines.join("\n");
+    this._parseLineToEditorLine = parseLineToEditorLine;
     try {
       const token = this._hass.auth.data.access_token;
       const resp = await fetch("/api/kyber/parse_yaml", {
@@ -2139,7 +2171,13 @@ export const EditorMixin = (Base) => class extends Base {
     this._lastYamlError = errMsg;
     // Extract error line number from YAML error message (e.g. "line 36, column 1")
     const lineMatch = errMsg.match(/line\s+(\d+)/i);
-    if (lineMatch) this._setErrorLine(parseInt(lineMatch[1], 10));
+    if (lineMatch) {
+      const parseLine = parseInt(lineMatch[1], 10);
+      const editorLine = Array.isArray(this._parseLineToEditorLine)
+        ? (this._parseLineToEditorLine[parseLine - 1] || parseLine)
+        : parseLine;
+      this._setErrorLine(editorLine);
+    }
     let errorBar = this.shadowRoot.getElementById("yaml-error-bar");
     if (!errorBar) {
       errorBar = document.createElement("div");
@@ -2168,65 +2206,97 @@ export const EditorMixin = (Base) => class extends Base {
     });
   }
 
-  // Highlight the error line in the editor with a red squiggly overlay
+  // Highlight the error line in the editor with a visible line overlay + badge
   _setErrorLine(lineNum) {
     this._errorLineNum = lineNum;
-    // Scroll to the error line first
+    // Scroll/select the error line first
     if (this._editor && lineNum > 0) {
       try {
         const doc = this._editor.state.doc;
         if (lineNum <= doc.lines) {
-          const pos = doc.line(lineNum).from;
-          this._editor.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+          const line = doc.line(lineNum);
+          this._editor.dispatch({
+            selection: { anchor: line.from, head: line.to },
+            scrollIntoView: true,
+          });
         }
       } catch { /* ignore */ }
     }
-    // Apply after CM has rendered the scroll position
-    setTimeout(() => this._applyErrorLineStyle(), 150);
+    requestAnimationFrame(() => this._applyErrorDecorations());
+    setTimeout(() => this._applyErrorDecorations(), 80);
   }
 
   _clearErrorLine() {
     this._errorLineNum = null;
-    this._clearErrorLineStyle();
+    this._clearErrorDecorations();
   }
 
-  _clearErrorLineStyle() {
-    if (!this._editor) return;
-    this._editor.dom.querySelectorAll("[data-error-line]").forEach((el) => {
-      el.style.background = "";
-      el.style.borderLeft = "";
-      el.style.backgroundImage = "";
-      el.style.backgroundPosition = "";
-      el.style.backgroundRepeat = "";
-      el.style.backgroundSize = "";
-      el.style.boxSizing = "";
-      el.removeAttribute("data-error-line");
-    });
+  _clearErrorDecorations() {
+    if (!this.shadowRoot) return;
+    const overlay = this.shadowRoot.getElementById("yaml-error-line-overlay");
+    const badge = this.shadowRoot.getElementById("yaml-error-line-badge");
+    if (overlay) overlay.hidden = true;
+    if (badge) badge.hidden = true;
   }
 
-  // Apply inline error styles directly to the .cm-line DOM element
-  _applyErrorLineStyle() {
+  _applyErrorDecorations() {
     if (!this._editor || !this._errorLineNum) return;
-    this._clearErrorLineStyle();
     try {
       const doc = this._editor.state.doc;
       const lineNum = this._errorLineNum;
-      if (lineNum < 1 || lineNum > doc.lines) return;
+      if (lineNum < 1 || lineNum > doc.lines) {
+        this._clearErrorDecorations();
+        return;
+      }
       const lineObj = doc.line(lineNum);
-      const domPos = this._editor.domAtPos(lineObj.from);
-      if (!domPos) return;
-      const el = domPos.node.nodeType === 3 ? domPos.node.parentElement : domPos.node;
-      const cmLine = el?.closest?.(".cm-line") || el;
-      if (!cmLine) return;
-      cmLine.setAttribute("data-error-line", "true");
-      cmLine.style.background = "rgba(255,82,82,0.15)";
-      cmLine.style.borderLeft = "3px solid #ff5252";
-      cmLine.style.backgroundImage = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='3'%3E%3Cpath d='M0 2.5 L1.5 0.5 L3 2.5 L4.5 0.5 L6 2.5' fill='none' stroke='%23ff5252' stroke-width='1'/%3E%3C/svg%3E\")";
-      cmLine.style.backgroundPosition = "bottom left";
-      cmLine.style.backgroundRepeat = "repeat-x";
-      cmLine.style.backgroundSize = "6px 3px";
-      cmLine.style.boxSizing = "border-box";
-    } catch { /* ignore */ }
+      const startCoords = this._editor.coordsAtPos(lineObj.from);
+      const endCoords = this._editor.coordsAtPos(Math.max(lineObj.from, lineObj.to));
+      if (!startCoords) {
+        this._clearErrorDecorations();
+        return;
+      }
+
+      const pane = this._editor.dom.closest(".editor-pane") || this._editor.dom.parentElement;
+      if (!pane || !this.shadowRoot) {
+        this._clearErrorDecorations();
+        return;
+      }
+      const paneRect = pane.getBoundingClientRect();
+      const editorRect = this._editor.dom.getBoundingClientRect();
+
+      let overlay = this.shadowRoot.getElementById("yaml-error-line-overlay");
+      if (!overlay) {
+        overlay = document.createElement("div");
+        overlay.id = "yaml-error-line-overlay";
+        overlay.className = "yaml-error-line-overlay";
+        pane.appendChild(overlay);
+      }
+      let badge = this.shadowRoot.getElementById("yaml-error-line-badge");
+      if (!badge) {
+        badge = document.createElement("div");
+        badge.id = "yaml-error-line-badge";
+        badge.className = "yaml-error-line-badge";
+        pane.appendChild(badge);
+      }
+
+      const top = Math.max(0, startCoords.top - paneRect.top);
+      const left = Math.max(0, editorRect.left - paneRect.left);
+      const height = Math.max(18, ((endCoords && endCoords.bottom) ? endCoords.bottom : startCoords.bottom) - startCoords.top);
+      const width = Math.max(40, editorRect.width);
+
+      overlay.hidden = false;
+      overlay.style.top = `${top}px`;
+      overlay.style.left = `${left}px`;
+      overlay.style.width = `${width}px`;
+      overlay.style.height = `${height}px`;
+
+      badge.hidden = false;
+      badge.textContent = `\u26a0 line ${lineNum}`;
+      badge.style.top = `${Math.max(0, top - 20)}px`;
+      badge.style.left = `${left + 6}px`;
+    } catch {
+      this._clearErrorDecorations();
+    }
   }
 
   async _aiAutofix(errMsg, yamlText) {
