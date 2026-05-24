@@ -103,9 +103,111 @@ export const STYLES = `
   }
 
   .editor-pane .cm-editor {
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     font-size: 13px;
   }
+
+  /* ── Automation diagram ─────────────────────────────────── */
+  .automation-diagram {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 10px 12px;
+    background: var(--sidebar-bg);
+    border-bottom: 2px solid var(--border-color);
+    overflow-x: auto;
+    min-height: 90px;
+    max-height: 210px;
+    scrollbar-width: thin;
+  }
+  .adg-section {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    min-width: 120px;
+    flex-shrink: 0;
+  }
+  .adg-label {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text-muted, #888);
+    text-align: center;
+    padding: 2px 4px 4px;
+  }
+  .adg-nodes { display: flex; flex-direction: column; gap: 5px; }
+  .adg-node {
+    display: flex;
+    flex-direction: column;
+    padding: 6px 9px;
+    background: var(--card-bg, #1e1e2e);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+    min-width: 110px;
+    max-width: 160px;
+    user-select: none;
+  }
+  .adg-node:hover {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--card-bg, #1e1e2e));
+  }
+  .adg-trigger  { border-left: 3px solid #4caf50; }
+  .adg-condition{ border-left: 3px solid #ff9800; }
+  .adg-action   { border-left: 3px solid #2196f3; }
+  .adg-trigger.adg-active  { border-color: #4caf50; background: rgba(76,175,80,0.18); box-shadow: 0 0 0 2px rgba(76,175,80,0.3); }
+  .adg-condition.adg-active{ border-color: #ff9800; background: rgba(255,152,0,0.18); box-shadow: 0 0 0 2px rgba(255,152,0,0.3); }
+  .adg-action.adg-active   { border-color: #2196f3; background: rgba(33,150,243,0.18); box-shadow: 0 0 0 2px rgba(33,150,243,0.3); }
+  .adg-icon  { font-size: 15px; line-height: 1; margin-bottom: 3px; }
+  .adg-title { font-size: 11px; font-weight: 600; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+  .adg-sub   { font-size: 10px; color: var(--text-muted, #999); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; margin-top: 1px; }
+  .adg-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    color: var(--text-muted, #666);
+    padding: 24px 2px 0;
+    flex-shrink: 0;
+    align-self: flex-start;
+  }
+
+  /* ── Entity inspector ───────────────────────────────────── */
+  .entity-inspector {
+    flex: 0 0 auto;
+    max-height: 170px;
+    overflow-y: auto;
+    border-top: 1px solid var(--border-color);
+    background: var(--panel-bg);
+    font-size: 12px;
+    scrollbar-width: thin;
+  }
+  .ei-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    background: var(--sidebar-bg);
+    border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .ei-entity { font-weight: 600; font-size: 12px; color: var(--accent); font-family: monospace; }
+  .ei-state  { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--border-color); }
+  .ei-on  { background: rgba(76,175,80,0.25); color: #4caf50; }
+  .ei-off { background: rgba(255,82,82,0.15); color: #ff5252; }
+  .ei-close { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 14px; padding: 0 2px; }
+  .ei-table { width: 100%; border-collapse: collapse; }
+  .ei-table td { padding: 2px 12px; vertical-align: top; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 40%, transparent); }
+  .ei-key { color: var(--text-muted); white-space: nowrap; font-family: monospace; font-size: 10px; width: 36%; }
+  .ei-val { color: var(--text-color); word-break: break-all; font-size: 11px; }
 
   .chat-pane {
     display: flex;

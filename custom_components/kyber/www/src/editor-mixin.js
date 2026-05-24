@@ -22,6 +22,14 @@ import {
 export const EditorMixin = (Base) => class extends Base {
   _initEditor(container) {
     const self = this;
+
+    // Create diagram and inspector panels as flex siblings to the CodeMirror editor
+    const diag = document.createElement("div");
+    diag.id = "automation-diagram";
+    diag.className = "automation-diagram";
+    diag.hidden = true;
+    container.appendChild(diag);
+
     const extensions = [
       lineNumbers(),
       highlightActiveLine(),
@@ -39,6 +47,18 @@ export const EditorMixin = (Base) => class extends Base {
         if (update.docChanged) {
           self._dirty = true;
           self.shadowRoot.getElementById("btn-save").disabled = false;
+          clearTimeout(self._diagramDebounce);
+          self._diagramDebounce = setTimeout(() => {
+            self._renderAutomationDiagram(update.state.doc.toString());
+          }, 350);
+        }
+        if (update.selectionSet || update.docChanged) {
+          const cursorLine = update.state.doc.lineAt(update.state.selection.main.head).number - 1;
+          self._updateDiagramHighlight(cursorLine);
+          clearTimeout(self._inspectorDebounce);
+          self._inspectorDebounce = setTimeout(() => {
+            self._updateEntityInspector(cursorLine, update.state.doc.toString());
+          }, 200);
         }
       }),
     ];
@@ -47,6 +67,12 @@ export const EditorMixin = (Base) => class extends Base {
       state: EditorState.create({ doc: "", extensions }),
       parent: container,
     });
+
+    const insp = document.createElement("div");
+    insp.id = "entity-inspector";
+    insp.className = "entity-inspector";
+    insp.hidden = true;
+    container.appendChild(insp);
 
     // Prevent HA's global keyboard shortcuts from firing while typing in the editor
     container.addEventListener("keydown", (e) => e.stopPropagation());
@@ -137,6 +163,11 @@ export const EditorMixin = (Base) => class extends Base {
     this._editorMode = "automation";
     this._dirty = false;
     this._setStatus("");
+    // Hide diagram and inspector
+    const diag = this.shadowRoot.getElementById("automation-diagram");
+    if (diag) diag.hidden = true;
+    const insp = this.shadowRoot.getElementById("entity-inspector");
+    if (insp) insp.hidden = true;
     // Restore button labels
     const saveBtn = this.shadowRoot.getElementById("btn-save");
     if (saveBtn) { saveBtn.textContent = "Save"; saveBtn.disabled = true; }
@@ -463,6 +494,218 @@ export const EditorMixin = (Base) => class extends Base {
     history.scrollTop = history.scrollHeight;
   }
 
+  // ─── Automation diagram ────────────────────────────────────────────────────
+
+  /**
+   * Parse YAML text into { alias, triggers, conditions, actions } where each
+   * item has { from_line (0-based), to_line (0-based, inclusive), fields }.
+   */
+  _parseAutomationBlocks(yamlText) {
+    const lines = yamlText.split("\n");
+    const result = { alias: "", triggers: [], conditions: [], actions: [] };
+
+    const aliasLine = lines.find((l) => /^alias\s*:/.test(l));
+    if (aliasLine) result.alias = aliasLine.replace(/^alias\s*:\s*/, "").replace(/['"]/g, "").trim();
+
+    const sectionMap = {
+      trigger: "triggers", triggers: "triggers",
+      condition: "conditions", conditions: "conditions",
+      action: "actions", actions: "actions",
+    };
+
+    let currentSection = null;
+    let currentItem = null;
+
+    const pushItem = (endLine) => {
+      if (currentItem && currentSection) {
+        currentItem.to_line = endLine;
+        result[currentSection].push(currentItem);
+        currentItem = null;
+      }
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      // Top-level section header
+      const secM = line.match(/^([a-z_]+)\s*:/);
+      if (secM) {
+        pushItem(i - 1);
+        currentSection = sectionMap[secM[1]] || null;
+        continue;
+      }
+
+      if (!currentSection) continue;
+
+      if (/^  - /.test(line)) {
+        pushItem(i - 1);
+        currentItem = { from_line: i, to_line: i, fields: {} };
+        const inline = line.replace(/^  -\s*/, "").trim();
+        if (inline.includes(": ")) {
+          const ci = inline.indexOf(": ");
+          const k = inline.slice(0, ci).trim();
+          const v = inline.slice(ci + 2).replace(/['"]/g, "").trim();
+          if (k) currentItem.fields[k] = v;
+        } else if (inline && !inline.includes(":")) {
+          // bare scalar list item
+          currentItem.fields._value = inline;
+        }
+      } else if (currentItem && /^    \S/.test(line)) {
+        const trimmed = line.trim();
+        const ci = trimmed.indexOf(":");
+        if (ci > 0) {
+          const k = trimmed.slice(0, ci).trim();
+          const v = trimmed.slice(ci + 1).trim().replace(/['"]/g, "");
+          currentItem.fields[k] = v;
+        }
+      }
+    }
+    pushItem(lines.length - 1);
+    return result;
+  }
+
+  _blockMeta(section, fields) {
+    if (section === "triggers") {
+      const p = fields.platform || fields.trigger || "";
+      const ICONS = { sun: "🌅", state: "📡", time: "⏰", homeassistant: "🏠", webhook: "🌐", event: "⚡", template: "📋", zone: "📍", numeric_state: "🔢", device: "📱", calendar: "📅", tag: "🏷", geo_location: "🗺", persistent_notification: "🔔", conversation: "💬" };
+      const sub = (fields.event || fields.entity_id || fields.at || fields.event_type || "").split(",")[0].trim();
+      return { icon: ICONS[p] || "⚡", title: p || "trigger", sub };
+    }
+    if (section === "conditions") {
+      const c = fields.condition || "";
+      const ICONS = { state: "✅", template: "📋", time: "⏰", numeric_state: "🔢", zone: "📍", and: "🔗", or: "🔀", not: "❌", device: "📱", trigger: "⚡" };
+      const sub = (fields.entity_id || fields.value_template || "").split(",")[0].trim();
+      return { icon: ICONS[c] || "❓", title: c || "condition", sub };
+    }
+    // actions
+    if (fields.choose !== undefined) return { icon: "🔀", title: "choose", sub: "" };
+    if (fields.parallel !== undefined) return { icon: "⚡", title: "parallel", sub: "" };
+    if (fields.repeat !== undefined) return { icon: "🔁", title: "repeat", sub: "" };
+    if (fields.wait_template !== undefined || fields.wait_for_trigger !== undefined) return { icon: "⏳", title: "wait", sub: "" };
+    if (fields.delay !== undefined) return { icon: "⏱", title: "delay", sub: String(fields.delay) };
+    if (fields.stop !== undefined) return { icon: "🛑", title: "stop", sub: "" };
+    if (fields.event !== undefined) return { icon: "📡", title: "fire event", sub: String(fields.event) };
+    if (fields.variables !== undefined) return { icon: "📦", title: "variables", sub: "" };
+    const svc = fields.service || fields.action || "";
+    const SVC_ICONS = { "light.turn_on": "💡", "light.turn_off": "💡", "light.toggle": "💡", "switch.turn_on": "🔌", "switch.turn_off": "🔌", "media_player": "🎵", "notify": "📢", "script": "📜", "climate": "🌡️", "homeassistant": "🏠", "automation": "⚙️", "input_boolean": "🔘", "input_number": "🔢", "input_select": "📋", "cover": "🪟", "lock": "🔒", "alarm_control_panel": "🚨", "vacuum": "🤖", "fan": "💨", "button": "🔘", "scene": "🎨" };
+    const icon = Object.keys(SVC_ICONS).find((k) => svc.startsWith(k));
+    const sub = (fields.entity_id || "").split(",")[0].trim();
+    return { icon: icon ? SVC_ICONS[icon] : "▶️", title: svc || "action", sub };
+  }
+
+  _renderAutomationDiagram(yamlText) {
+    const diag = this.shadowRoot.getElementById("automation-diagram");
+    if (!diag) return;
+    if (!yamlText?.trim() || this._editorMode === "dashboard") {
+      diag.hidden = true;
+      return;
+    }
+
+    const blocks = this._parseAutomationBlocks(yamlText);
+    const total = blocks.triggers.length + blocks.conditions.length + blocks.actions.length;
+    if (!total) { diag.hidden = true; return; }
+
+    diag.hidden = false;
+
+    const renderSection = (sectionKey, items, label, cls) => {
+      if (!items.length) return "";
+      const nodes = items.map((item, idx) => {
+        const { icon, title, sub } = this._blockMeta(sectionKey, item.fields);
+        const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const safeSub = sub.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return `<div class="adg-node ${cls}"
+            data-from="${item.from_line}" data-to="${item.to_line}"
+            title="${safeTitle}${sub ? ": " + safeSub : ""}">
+          <span class="adg-icon">${icon}</span>
+          <span class="adg-title">${safeTitle}</span>
+          ${sub ? `<span class="adg-sub">${safeSub}</span>` : ""}
+        </div>`;
+      }).join("");
+      return `<div class="adg-section"><div class="adg-label">${label}</div><div class="adg-nodes">${nodes}</div></div>`;
+    };
+
+    const parts = [];
+    parts.push(renderSection("triggers", blocks.triggers, "WHEN", "adg-trigger"));
+    if (blocks.conditions.length) parts.push(renderSection("conditions", blocks.conditions, "IF", "adg-condition"));
+    parts.push(renderSection("actions", blocks.actions, "THEN", "adg-action"));
+
+    diag.innerHTML = parts.filter(Boolean).join('<div class="adg-arrow">→</div>');
+
+    diag.querySelectorAll(".adg-node").forEach((node) => {
+      node.addEventListener("click", () => {
+        const from = parseInt(node.dataset.from, 10);
+        const to = parseInt(node.dataset.to, 10);
+        this._jumpEditorToBlock(from, to);
+      });
+    });
+  }
+
+  _jumpEditorToBlock(fromLine, toLine) {
+    if (!this._editor) return;
+    const doc = this._editor.state.doc;
+    const safeFrom = Math.max(1, fromLine + 1);
+    const safeTo = Math.min(doc.lines, toLine + 1);
+    const from = doc.line(safeFrom).from;
+    const to = doc.line(safeTo).to;
+    this._editor.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true });
+    this._editor.focus();
+  }
+
+  _updateDiagramHighlight(cursorLine) {
+    const diag = this.shadowRoot.getElementById("automation-diagram");
+    if (!diag || diag.hidden) return;
+    diag.querySelectorAll(".adg-node").forEach((node) => {
+      const from = parseInt(node.dataset.from, 10);
+      const to = parseInt(node.dataset.to, 10);
+      node.classList.toggle("adg-active", cursorLine >= from && cursorLine <= to);
+    });
+  }
+
+  _updateEntityInspector(cursorLine, yamlText) {
+    const insp = this.shadowRoot.getElementById("entity-inspector");
+    if (!insp || !this._hass) return;
+
+    const lines = yamlText.split("\n");
+    let entityId = null;
+
+    // Check current line and ±3 lines for entity_id: or list item that looks like entity.domain
+    for (let i = Math.max(0, cursorLine - 1); i <= Math.min(lines.length - 1, cursorLine + 2) && !entityId; i++) {
+      const m = lines[i].match(/entity_id\s*:\s*([a-z_]+\.[a-z0-9_]+)/);
+      if (m) { entityId = m[1].trim(); break; }
+      // Also detect bare entity IDs on list lines (e.g. "      - light.kitchen")
+      const listM = lines[i].match(/^\s*-\s+([a-z_]+\.[a-z0-9_]+)\s*$/);
+      if (listM) { entityId = listM[1].trim(); break; }
+    }
+
+    if (!entityId || !this._hass.states[entityId]) {
+      if (!entityId) insp.hidden = true;
+      return;
+    }
+
+    const stateObj = this._hass.states[entityId];
+    const attrs = stateObj.attributes || {};
+    const rows = Object.entries(attrs)
+      .map(([k, v]) => {
+        const raw = typeof v === "object" ? JSON.stringify(v) : String(v);
+        const display = raw.length > 70 ? raw.slice(0, 70) + "…" : raw;
+        return `<tr><td class="ei-key">${k}</td><td class="ei-val">${display.replace(/</g, "&lt;")}</td></tr>`;
+      }).join("");
+
+    const stateClass = stateObj.state === "on" ? "ei-on" : stateObj.state === "off" ? "ei-off" : "";
+    insp.hidden = false;
+    insp.innerHTML = `
+      <div class="ei-header">
+        <span class="ei-entity">${entityId}</span>
+        <span class="ei-state ${stateClass}">${stateObj.state}</span>
+        <button class="ei-close" title="Close">✕</button>
+      </div>
+      <div class="ei-body"><table class="ei-table">${rows || "<tr><td colspan='2' class='ei-key'>no attributes</td></tr>"}</table></div>
+    `;
+    insp.querySelector(".ei-close").addEventListener("click", () => { insp.hidden = true; });
+  }
+
+  // ─── End automation diagram ────────────────────────────────────────────────
+
   _setEditorContextLabel(mode, label) {
     const ctxLabel = this.shadowRoot.getElementById("editor-context-label");
     if (!ctxLabel) return;
@@ -483,6 +726,7 @@ export const EditorMixin = (Base) => class extends Base {
       this._dirty = false;
       this.shadowRoot.getElementById("btn-save").disabled = true;
       this._setStatus(`Loaded: ${configId}`);
+      this._renderAutomationDiagram(yamlText);
     } catch (err) {
       const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
       this._setStatus(`Error loading: ${msg}`, "error");
