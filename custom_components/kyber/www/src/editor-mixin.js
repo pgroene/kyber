@@ -609,6 +609,14 @@ export const EditorMixin = (Base) => class extends Base {
           const k = trimmed.slice(0, ci).trim();
           const v = trimmed.slice(ci + 1).trim().replace(/['"]/g, "");
           currentItem.fields[k] = v;
+          currentItem._lastKey = k; // track for list-value capture
+        }
+      } else if (currentItem && /^      - /.test(line)) {
+        // 6-space list items: first item fills in empty parent key (e.g., entity_id: \n  - sensor.x)
+        const val = line.replace(/^      -\s*/, "").trim().replace(/['"]/g, "");
+        const lk = currentItem._lastKey;
+        if (lk && currentItem.fields[lk] === "") {
+          currentItem.fields[lk] = val; // use first list item as display value
         }
       }
     }
@@ -620,7 +628,15 @@ export const EditorMixin = (Base) => class extends Base {
     if (section === "triggers") {
       const p = fields.platform || fields.trigger || "";
       const ICONS = { sun: "🌅", state: "📡", time: "⏰", homeassistant: "🏠", webhook: "🌐", event: "⚡", template: "📋", zone: "📍", numeric_state: "🔢", device: "📱", calendar: "📅", tag: "🏷", geo_location: "🗺", persistent_notification: "🔔", conversation: "💬" };
-      const sub = (fields.event || fields.entity_id || fields.at || fields.event_type || "").split(",")[0].trim();
+      let sub;
+      if (p === "state" || p === "numeric_state") {
+        const entity = (fields.entity_id || "").split(",")[0].trim();
+        const eName = entity.includes(".") ? entity.split(".")[1] : entity;
+        const toStr = fields.to ? ` → ${fields.to}` : (fields.above || fields.below ? ` ${fields.above ?? ""}…${fields.below ?? ""}` : "");
+        sub = eName + toStr;
+      } else {
+        sub = (fields.event || fields.entity_id || fields.at || fields.event_type || "").split(",")[0].trim();
+      }
       return { icon: ICONS[p] || "⚡", title: p || "trigger", sub };
     }
     if (section === "conditions") {
@@ -867,10 +883,15 @@ export const EditorMixin = (Base) => class extends Base {
       const ICONS = { sun: "🌅", state: "📡", time: "⏰", homeassistant: "🏠", webhook: "🌐", event: "⚡", template: "📋", zone: "📍", numeric_state: "🔢", device: "📱", calendar: "📅", tag: "🏷", mqtt: "📡", geo_location: "🗺", persistent_notification: "🔔", conversation: "💬" };
       let sub = "";
       if (p === "device") {
-        // Show human-readable device trigger description
         const type = (item.type || "").replace(/_/g, " ");
         const subtype = (item.subtype || "").replace(/_/g, " ");
         sub = subtype ? `${subtype}: ${type}` : type || "device";
+      } else if (p === "state" || p === "numeric_state") {
+        const entities = [].concat(item.entity_id || []);
+        const names = entities.map((e) => (e.includes(".") ? e.split(".")[1] : e));
+        const entitySub = names.length > 1 ? `${names[0]} +${names.length - 1}` : (names[0] || "");
+        const toStr = item.to !== undefined ? ` → ${item.to}` : (item.above !== undefined || item.below !== undefined ? ` ${item.above ?? ""}…${item.below ?? ""}` : "");
+        sub = entitySub + toStr;
       } else {
         const entityId = (Array.isArray(item.entity_id) ? item.entity_id[0] : item.entity_id) || "";
         const shortEntity = entityId.includes(".") ? entityId.split(".")[1] : entityId;
