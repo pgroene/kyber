@@ -68,7 +68,7 @@ export const EditorMixin = (Base) => class extends Base {
           const cursorLine = update.state.doc.lineAt(update.state.selection.main.head).number - 1;
           const cursorPos = update.state.selection.main.head;
           self._updateDiagramHighlight(cursorLine);
-          if (self._errorLineNum) self._applyErrorLineClass();
+          if (self._errorLineNum) self._applyErrorOverlay();
           clearTimeout(self._inspectorDebounce);
           self._inspectorDebounce = setTimeout(() => {
             const yamlText = update.state.doc.toString();
@@ -2168,10 +2168,10 @@ export const EditorMixin = (Base) => class extends Base {
     });
   }
 
-  // Highlight the error line in the editor with a red background
+  // Highlight the error line in the editor with a red squiggly overlay
   _setErrorLine(lineNum) {
     this._errorLineNum = lineNum;
-    this._applyErrorLineClass();
+    this._applyErrorOverlay();
     // Scroll to the error line
     if (this._editor && lineNum > 0) {
       try {
@@ -2179,6 +2179,8 @@ export const EditorMixin = (Base) => class extends Base {
         if (lineNum <= doc.lines) {
           const pos = doc.line(lineNum).from;
           this._editor.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+          // Re-apply after scroll settles
+          setTimeout(() => this._applyErrorOverlay(), 50);
         }
       } catch { /* ignore */ }
     }
@@ -2186,31 +2188,37 @@ export const EditorMixin = (Base) => class extends Base {
 
   _clearErrorLine() {
     this._errorLineNum = null;
-    if (!this._editor) return;
-    const cmContent = this._editor.dom.querySelector(".cm-content");
-    if (cmContent) cmContent.querySelectorAll(".cm-error-line").forEach((el) => el.classList.remove("cm-error-line"));
+    const overlay = this._editor?.dom?.querySelector(".cm-error-overlay");
+    if (overlay) overlay.remove();
   }
 
-  // Apply/reapply the .cm-error-line CSS class to the correct DOM element
-  _applyErrorLineClass() {
+  // Position an absolutely-placed error overlay on the error line
+  _applyErrorOverlay() {
     if (!this._editor || !this._errorLineNum) return;
     try {
       const doc = this._editor.state.doc;
       const lineNum = this._errorLineNum;
       if (lineNum < 1 || lineNum > doc.lines) return;
       const lineObj = doc.line(lineNum);
-      // Remove old markers first
-      const cmContent = this._editor.dom.querySelector(".cm-content");
-      if (cmContent) cmContent.querySelectorAll(".cm-error-line").forEach((el) => el.classList.remove("cm-error-line"));
-      // Find the DOM element for this line
-      const blockInfo = this._editor.lineBlockAt(lineObj.from);
-      if (blockInfo) {
-        const domPos = this._editor.domAtPos(lineObj.from);
-        const el = domPos.node.nodeType === 3 ? domPos.node.parentElement : domPos.node;
-        const cmLine = el?.closest?.(".cm-line") || el;
-        if (cmLine) cmLine.classList.add("cm-error-line");
+      const block = this._editor.lineBlockAt(lineObj.from);
+      // Ensure the editor wrapper is position:relative for absolute overlay
+      const editorDom = this._editor.dom;
+      if (getComputedStyle(editorDom).position === "static") editorDom.style.position = "relative";
+      // Remove old overlay
+      let overlay = editorDom.querySelector(".cm-error-overlay");
+      if (!overlay) {
+        overlay = document.createElement("div");
+        overlay.className = "cm-error-overlay";
+        editorDom.appendChild(overlay);
       }
-    } catch { /* ignore — line may be out of viewport */ }
+      // Position the overlay on top of the error line
+      const scrollDom = editorDom.querySelector(".cm-scroller");
+      const scrollTop = scrollDom ? scrollDom.scrollTop : 0;
+      const scrollerRect = scrollDom ? scrollDom.getBoundingClientRect() : editorDom.getBoundingClientRect();
+      const editorRect = editorDom.getBoundingClientRect();
+      const top = block.top - scrollTop + (scrollerRect.top - editorRect.top);
+      overlay.style.cssText = `position:absolute;left:0;right:0;top:${top}px;height:${block.height}px;pointer-events:none;z-index:5;`;
+    } catch { /* ignore — line may be off-screen */ }
   }
 
   async _aiAutofix(errMsg, yamlText) {
