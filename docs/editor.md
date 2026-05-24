@@ -167,6 +167,77 @@ If no stored config exists for a path (404), the editor pre-populates a blank st
 
 ---
 
+## Blueprint Editor
+
+Blueprints are YAML files stored in `/config/blueprints/automation/<path>`. The blueprint editor
+lets you view and edit these files directly inside Kyber — no SSH or file manager needed.
+
+### Opening the editor
+
+**From an automation that uses a blueprint:**
+
+When you open an automation that references a blueprint (i.e. it has a `use_blueprint:` key), a
+**🗺 Edit blueprint** button appears in the toolbar. Clicking it opens the blueprint YAML file
+directly in the editor, so you can refine the template without leaving the chat.
+
+**Via slash command:**
+
+```
+/blueprint open custom/my_blueprint.yaml
+```
+
+The path is relative to `/config/blueprints/automation/`.
+
+**Browsing:**
+
+```
+/blueprint browse    ← opens HA's Blueprint page in a new tab
+```
+
+### Saving
+
+1. Edit the YAML.
+2. Click **Save blueprint**.
+3. Kyber POSTs the file to `/api/kyber/blueprint` which writes it to disk.
+4. The status bar confirms: **Blueprint saved: custom/my_blueprint.yaml**.
+
+> **Note:** Saving a blueprint does **not** automatically reload existing automations that use it.
+> Reload those automations manually in HA's Automations UI, or restart HA to pick up changes.
+
+### Session persistence
+
+Like the automation editor, if you navigate away and return, Kyber reopens the same blueprint file
+automatically.
+
+---
+
+## Editor feature parity
+
+All three editors (automation/script, blueprint, dashboard) share the same CodeMirror engine and
+must provide the same core features. The table below is the **canonical checklist** — any new
+feature added to one editor must be added to all applicable editors:
+
+| Feature | Automation / Script | Blueprint | Dashboard |
+|---|:---:|:---:|:---:|
+| CodeMirror 6 (syntax highlight, fold, autocomplete) | ✅ | ✅ | ✅ |
+| Context breadcrumb label | ✅ | ✅ | ✅ |
+| Save button (correct label per mode) | ✅ | ✅ | ✅ |
+| Session persistence (reopen after navigation) | ✅ | ✅ | ✅ |
+| Unsaved draft restore | ✅ | — | — |
+| Floating entity inspector | ✅ | ✅ | ✅ |
+| Entity list picker (cursor in entity list) | ✅ | ✅ | ✅ |
+| Automation diagram (WHEN / IF / THEN) | ✅ | — | — |
+| "Edit blueprint" toolbar button | ✅ | — | — |
+| Debug pane (stays in left column) | ✅ | ✅ | ✅ |
+
+**Rules for contributors:**
+- Any feature marked ✅ for Automation/Script that you add must also work for Blueprint (where marked ✅) and Dashboard.
+- Entity inspector and entity list picker must both work in blueprint mode because blueprints reference `entity_id` inputs.
+- Dashboard mode does not show the automation diagram (wrong schema); guard with `this._editorMode === "dashboard" || this._editorMode === "blueprint"`.
+- Script editor (planned) must match Automation/Script column exactly.
+
+---
+
 ## Supported Lovelace Card Types
 
 Kyber's AI is pre-trained on all built-in HA card types. You can reference any of these by name when asking the AI to build or modify a dashboard.

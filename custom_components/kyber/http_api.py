@@ -3091,3 +3091,63 @@ class KyberClassicLogView(HomeAssistantView):
         hass.data[_CLASSIC_LOG_KEY] = []
         return self.json({"cleared": True})
 
+
+class KyberBlueprintView(HomeAssistantView):
+    """Read and write automation blueprint files.
+
+    GET  /api/kyber/blueprint?path=<relative_path>  → {"yaml": "<content>"}
+    POST /api/kyber/blueprint  body: {"path": ..., "yaml": ...}  → {"result": "ok"}
+    """
+
+    url = "/api/kyber/blueprint"
+    name = "api:kyber:blueprint"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        path = request.rel_url.query.get("path", "").strip()
+        if not path or ".." in path or path.startswith("/"):
+            return web.Response(
+                status=HTTPStatus.BAD_REQUEST,
+                text='{"error":"invalid path"}',
+                content_type="application/json",
+            )
+        from pathlib import Path as _Path
+        full = _Path(hass.config.path("blueprints", "automation", path))
+        try:
+            content = await hass.async_add_executor_job(full.read_text, "utf-8")
+        except FileNotFoundError:
+            return web.Response(
+                status=HTTPStatus.NOT_FOUND,
+                text='{"error":"not found"}',
+                content_type="application/json",
+            )
+        return web.Response(
+            text=json.dumps({"yaml": content, "path": path}),
+            content_type="application/json",
+        )
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        data = await request.json()
+        path = (data.get("path") or "").strip()
+        yaml_content = data.get("yaml", "")
+        if not path or ".." in path or path.startswith("/"):
+            return web.Response(
+                status=HTTPStatus.BAD_REQUEST,
+                text='{"error":"invalid path"}',
+                content_type="application/json",
+            )
+        from pathlib import Path as _Path
+        full = _Path(hass.config.path("blueprints", "automation", path))
+        if not full.exists():
+            return web.Response(
+                status=HTTPStatus.NOT_FOUND,
+                text='{"error":"not found"}',
+                content_type="application/json",
+            )
+        await hass.async_add_executor_job(full.write_text, yaml_content, "utf-8")
+        return web.Response(
+            text='{"result":"ok"}',
+            content_type="application/json",
+        )

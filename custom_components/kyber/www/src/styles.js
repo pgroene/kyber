@@ -94,6 +94,7 @@ export const STYLES = `
     display: none;
     flex-direction: column;
     border-left: 1px solid var(--border-color);
+    position: relative;
   }
 
   .editor-pane.open {
@@ -128,7 +129,8 @@ export const STYLES = `
     flex-direction: column;
     align-items: stretch;
     gap: 4px;
-    min-width: 120px;
+    min-width: 130px;
+    max-width: 170px;
     flex-shrink: 0;
   }
   .adg-label {
@@ -138,20 +140,22 @@ export const STYLES = `
     text-transform: uppercase;
     color: var(--text-muted, #888);
     text-align: center;
-    padding: 2px 4px 4px;
+    padding: 2px 4px 5px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 3px;
   }
   .adg-nodes { display: flex; flex-direction: column; gap: 5px; }
   .adg-node {
     display: flex;
     flex-direction: column;
-    padding: 6px 9px;
+    padding: 7px 10px;
     background: var(--card-bg, #1e1e2e);
     border: 1px solid var(--border-color);
     border-radius: 7px;
     cursor: pointer;
     transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
-    min-width: 110px;
-    max-width: 160px;
+    min-width: 120px;
+    max-width: 165px;
     user-select: none;
   }
   .adg-node:hover {
@@ -164,51 +168,108 @@ export const STYLES = `
   .adg-trigger.adg-active  { border-color: #4caf50; background: rgba(76,175,80,0.18); box-shadow: 0 0 0 2px rgba(76,175,80,0.3); }
   .adg-condition.adg-active{ border-color: #ff9800; background: rgba(255,152,0,0.18); box-shadow: 0 0 0 2px rgba(255,152,0,0.3); }
   .adg-action.adg-active   { border-color: #2196f3; background: rgba(33,150,243,0.18); box-shadow: 0 0 0 2px rgba(33,150,243,0.3); }
-  .adg-sub-node { opacity: 0.85; font-size: 10px; border-left-width: 2px; border-left-style: dashed; }
-  .adg-icon  { font-size: 15px; line-height: 1; margin-bottom: 3px; }
-  .adg-title { font-size: 11px; font-weight: 600; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
-  .adg-sub   { font-size: 10px; color: var(--text-muted, #999); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; margin-top: 1px; }
+  .adg-sub-node { opacity: 0.85; border-left-width: 2px; border-left-style: dashed; padding: 5px 8px; }
+  .adg-icon  { font-size: 14px; line-height: 1; margin-bottom: 4px; }
+  .adg-title { font-size: 11px; font-weight: 600; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 145px; }
+  .adg-sub   { font-size: 10px; color: var(--text-muted, #999); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 145px; margin-top: 2px; }
   .adg-arrow {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
-    font-size: 22px;
+    font-size: 20px;
     color: var(--text-muted, #666);
-    padding: 24px 2px 0;
+    padding: 28px 4px 0;
     flex-shrink: 0;
-    align-self: flex-start;
   }
 
-  /* ── Entity inspector ───────────────────────────────────── */
+  /* ── Entity inspector (floating overlay) ────────────────── */
   .entity-inspector {
-    flex: 0 0 auto;
-    max-height: 170px;
+    position: absolute;
+    right: 12px;
+    top: 80px;
+    width: 230px;
+    max-height: 260px;
     overflow-y: auto;
-    border-top: 1px solid var(--border-color);
-    background: var(--panel-bg);
+    background: var(--card-bg, #1e1e2e);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
     font-size: 12px;
+    z-index: 20;
     scrollbar-width: thin;
   }
   .ei-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 5px 12px;
+    gap: 6px;
+    padding: 6px 10px;
     background: var(--sidebar-bg);
     border-bottom: 1px solid var(--border-color);
+    border-radius: 8px 8px 0 0;
     position: sticky;
     top: 0;
     z-index: 1;
   }
-  .ei-entity { font-weight: 600; font-size: 12px; color: var(--accent); font-family: monospace; }
-  .ei-state  { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--border-color); }
+  .ei-header-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+  .ei-friendly { font-size: 12px; font-weight: 600; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ei-entity { font-weight: 400; font-size: 10px; color: var(--text-muted, #999); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ei-state  { font-size: 11px; padding: 2px 7px; border-radius: 10px; background: var(--border-color); flex-shrink: 0; }
   .ei-on  { background: rgba(76,175,80,0.25); color: #4caf50; }
   .ei-off { background: rgba(255,82,82,0.15); color: #ff5252; }
-  .ei-close { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 14px; padding: 0 2px; }
+  .ei-close { margin-left: 2px; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 14px; padding: 0 2px; flex-shrink: 0; }
+  .ei-body { padding: 4px 0; }
   .ei-table { width: 100%; border-collapse: collapse; }
-  .ei-table td { padding: 2px 12px; vertical-align: top; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 40%, transparent); }
-  .ei-key { color: var(--text-muted); white-space: nowrap; font-family: monospace; font-size: 10px; width: 36%; }
+  .ei-table td { padding: 2px 10px; vertical-align: top; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 40%, transparent); }
+  .ei-key { color: var(--text-muted); white-space: nowrap; font-family: monospace; font-size: 10px; width: 40%; }
   .ei-val { color: var(--text-color); word-break: break-all; font-size: 11px; }
+
+  /* ── Entity list picker (floating add-entity widget) ────── */
+  .entity-list-picker {
+    position: absolute;
+    right: 12px;
+    top: 80px;
+    width: 240px;
+    max-height: 300px;
+    display: flex;
+    flex-direction: column;
+    background: var(--card-bg, #1e1e2e);
+    border: 1px solid var(--accent, #03a9f4);
+    border-radius: 8px;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+    font-size: 12px;
+    z-index: 21;
+    overflow: hidden;
+  }
+  .elp-header {
+    display: flex;
+    align-items: center;
+    padding: 6px 10px;
+    background: var(--sidebar-bg);
+    border-bottom: 1px solid var(--border-color);
+    border-radius: 8px 8px 0 0;
+    gap: 6px;
+  }
+  .elp-title { font-size: 11px; font-weight: 700; flex: 1; color: var(--accent, #03a9f4); }
+  .elp-close { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 13px; padding: 0 2px; }
+  .elp-search {
+    width: 100%; box-sizing: border-box;
+    border: none; border-bottom: 1px solid var(--border-color);
+    background: var(--input-bg, #2a2a3e);
+    color: var(--text-color);
+    padding: 6px 10px;
+    font-size: 12px;
+    outline: none;
+  }
+  .elp-results { flex: 1; overflow-y: auto; scrollbar-width: thin; }
+  .elp-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 10px; cursor: pointer;
+    border-bottom: 1px solid color-mix(in srgb, var(--border-color) 40%, transparent);
+  }
+  .elp-item:hover { background: color-mix(in srgb, var(--accent) 12%, var(--card-bg, #1e1e2e)); }
+  .elp-name { font-weight: 500; font-size: 11px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .elp-id { font-size: 10px; color: var(--text-muted); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; }
+  .elp-empty { padding: 12px; color: var(--text-muted); font-size: 11px; text-align: center; }
 
   .chat-pane {
     display: flex;

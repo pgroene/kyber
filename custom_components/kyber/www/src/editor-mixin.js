@@ -59,11 +59,14 @@ export const EditorMixin = (Base) => class extends Base {
         }
         if (update.selectionSet || update.docChanged) {
           const cursorLine = update.state.doc.lineAt(update.state.selection.main.head).number - 1;
+          const cursorPos = update.state.selection.main.head;
           self._updateDiagramHighlight(cursorLine);
           clearTimeout(self._inspectorDebounce);
           self._inspectorDebounce = setTimeout(() => {
-            self._updateEntityInspector(cursorLine, update.state.doc.toString());
-          }, 200);
+            const yamlText = update.state.doc.toString();
+            self._updateEntityInspector(cursorLine, yamlText, cursorPos);
+            self._updateEntityListPicker(cursorLine, yamlText, cursorPos);
+          }, 250);
         }
       }),
     ];
@@ -73,13 +76,39 @@ export const EditorMixin = (Base) => class extends Base {
       parent: container,
     });
 
+    // Floating entity inspector — appended to editor-pane (position: relative)
+    // so it can be absolutely positioned to the right of the cursor line
+    const editorPane = container.closest
+      ? container.closest(".editor-pane") || container
+      : container;
     const insp = document.createElement("div");
     insp.id = "entity-inspector";
     insp.className = "entity-inspector";
     insp.hidden = true;
-    container.appendChild(insp);
+    editorPane.appendChild(insp);
 
-    // Prevent HA's global keyboard shortcuts from firing while typing in the editor
+    // Floating entity-list picker — add entities to YAML lists
+    const picker = document.createElement("div");
+    picker.id = "entity-list-picker";
+    picker.className = "entity-list-picker";
+    picker.hidden = true;
+    picker.innerHTML = `
+      <div class="elp-header">
+        <span class="elp-title">Add entity</span>
+        <button class="elp-close" title="Close">✕</button>
+      </div>
+      <input class="elp-search" id="elp-search" type="text" placeholder="Search entities…" autocomplete="off">
+      <div class="elp-results" id="elp-results"></div>
+    `;
+    editorPane.appendChild(picker);
+    picker.querySelector(".elp-close").addEventListener("click", () => {
+      picker.hidden = true;
+      this._entityListPickerOpen = false;
+    });
+    picker.querySelector(".elp-search").addEventListener("input", (e) => {
+      this._renderEntityPickerResults(e.target.value);
+    });
+    picker.querySelector(".elp-search").addEventListener("keydown", (e) => e.stopPropagation());
     container.addEventListener("keydown", (e) => e.stopPropagation());
     container.addEventListener("keyup", (e) => e.stopPropagation());
     container.addEventListener("keypress", (e) => e.stopPropagation());
@@ -166,6 +195,7 @@ export const EditorMixin = (Base) => class extends Base {
     this._currentAutomationId = null;
     this._editorTitle = null;
     this._currentDashboardPath = null;
+    this._currentBlueprintPath = null;
     this._editorMode = "automation";
     this._dirty = false;
     this._setStatus("");
@@ -178,11 +208,12 @@ export const EditorMixin = (Base) => class extends Base {
     // Restore button labels
     const saveBtn = this.shadowRoot.getElementById("btn-save");
     if (saveBtn) { saveBtn.textContent = "Save"; saveBtn.disabled = true; }
-    // Hide dashboard-specific controls
+    // Hide dashboard/blueprint-specific controls
     const sel = this.shadowRoot.getElementById("dashboard-select");
     if (sel) sel.style.display = "none";
     const newDashBtn = this.shadowRoot.getElementById("btn-new-dashboard");
     if (newDashBtn) newDashBtn.style.display = "none";
+    this._updateBlueprintButton(null);
   }
 
   async _openDashboard(targetUrlPath = null) {
@@ -603,7 +634,7 @@ export const EditorMixin = (Base) => class extends Base {
   _renderAutomationDiagram(yamlText) {
     const diag = this.shadowRoot.getElementById("automation-diagram");
     if (!diag) return;
-    if (!yamlText?.trim() || this._editorMode === "dashboard") {
+    if (!yamlText?.trim() || this._editorMode === "dashboard" || this._editorMode === "blueprint") {
       diag.hidden = true;
       return;
     }
@@ -700,31 +731,47 @@ export const EditorMixin = (Base) => class extends Base {
     if (section === "triggers") {
       const p = item.platform || item.trigger || item.triggers?.platform || "";
       const ICONS = { sun: "🌅", state: "📡", time: "⏰", homeassistant: "🏠", webhook: "🌐", event: "⚡", template: "📋", zone: "📍", numeric_state: "🔢", device: "📱", calendar: "📅", tag: "🏷", mqtt: "📡", geo_location: "🗺", persistent_notification: "🔔", conversation: "💬" };
-      const sub = (item.event || (Array.isArray(item.entity_id) ? item.entity_id[0] : item.entity_id) || item.at || item.event_type || item.device_id || "").toString().split(",")[0].trim();
+      let sub = "";
+      if (p === "device") {
+        // Show human-readable device trigger description
+        const type = (item.type || "").replace(/_/g, " ");
+        const subtype = (item.subtype || "").replace(/_/g, " ");
+        sub = subtype ? `${subtype}: ${type}` : type || "device";
+      } else {
+        const entityId = (Array.isArray(item.entity_id) ? item.entity_id[0] : item.entity_id) || "";
+        const shortEntity = entityId.includes(".") ? entityId.split(".")[1] : entityId;
+        sub = (item.event || shortEntity || item.at || item.event_type || "").toString().split(",")[0].trim();
+      }
       return { icon: ICONS[p] || "⚡", title: p || "trigger", sub };
     }
     if (section === "conditions") {
       const c = item.condition || "";
       const ICONS = { state: "✅", template: "📋", time: "⏰", numeric_state: "🔢", zone: "📍", and: "🔗", or: "🔀", not: "❌", device: "📱", trigger: "⚡" };
-      const sub = ((Array.isArray(item.entity_id) ? item.entity_id[0] : item.entity_id) || "").toString();
+      const entityId = (Array.isArray(item.entity_id) ? item.entity_id[0] : item.entity_id) || "";
+      const sub = entityId.includes(".") ? entityId.split(".")[1] : entityId;
       return { icon: ICONS[c] || "❓", title: c || "condition", sub };
     }
     // actions
-    if (item.choose !== undefined) return { icon: "🔀", title: "choose", sub: `${(item.choose || []).length} branches` };
+    if (item.choose !== undefined) return { icon: "🔀", title: "choose", sub: `${(item.choose || []).length} options` };
     if (item.parallel !== undefined) return { icon: "⚡", title: "parallel", sub: `${(item.parallel || []).length} actions` };
-    if (item.repeat !== undefined) return { icon: "🔁", title: "repeat", sub: String(item.repeat?.count || "") };
+    if (item.repeat !== undefined) return { icon: "🔁", title: "repeat", sub: item.repeat?.count ? `${item.repeat.count}×` : "" };
     if (item.wait_template !== undefined || item.wait_for_trigger !== undefined) return { icon: "⏳", title: "wait", sub: "" };
     if (item.delay !== undefined) return { icon: "⏱", title: "delay", sub: String(item.delay) };
     if (item.stop !== undefined) return { icon: "🛑", title: "stop", sub: String(item.stop || "") };
     if (item.event !== undefined) return { icon: "📡", title: "fire event", sub: String(item.event) };
     if (item.variables !== undefined) return { icon: "📦", title: "variables", sub: "" };
-    if (item.device_id !== undefined) return { icon: "📱", title: item.type || "device action", sub: String(item.device_id || "").slice(0, 20) };
+    if (item.device_id !== undefined) {
+      const type = (item.type || "device action").replace(/_/g, " ");
+      const subtype = (item.subtype || "").replace(/_/g, " ");
+      return { icon: "📱", title: type, sub: subtype };
+    }
     const svc = item.service || item.action || "";
     const SVC_ICONS = { "light.": "💡", "switch.": "🔌", "media_player.": "🎵", "notify.": "📢", "script.": "📜", "climate.": "🌡️", "homeassistant.": "🏠", "automation.": "⚙️", "input_boolean.": "🔘", "input_number.": "🔢", "input_select.": "📋", "cover.": "🪟", "lock.": "🔒", "alarm_control_panel.": "🚨", "vacuum.": "🤖", "fan.": "💨", "button.": "🔘", "scene.": "🎨", "frontend.": "🖥️" };
     const iconKey = Object.keys(SVC_ICONS).find((k) => svc.startsWith(k));
     const target = item.target?.entity_id || item.data?.entity_id || "";
     const entityList = Array.isArray(target) ? target[0] : target;
-    const sub = (entityList || (Array.isArray(item.entity_id) ? item.entity_id[0] : item.entity_id) || "").toString().split(",")[0].trim();
+    const rawEntity = (entityList || (Array.isArray(item.entity_id) ? item.entity_id[0] : item.entity_id) || "").toString().split(",")[0].trim();
+    const sub = rawEntity.includes(".") ? rawEntity.split(".")[1] : rawEntity;
     const shortSvc = svc.includes(".") ? svc.split(".").slice(1).join(".") : svc;
     return { icon: iconKey ? SVC_ICONS[iconKey] : "▶️", title: shortSvc || svc || "action", sub };
   }
@@ -794,7 +841,7 @@ export const EditorMixin = (Base) => class extends Base {
     });
   }
 
-  _updateEntityInspector(cursorLine, yamlText) {
+  _updateEntityInspector(cursorLine, yamlText, cursorPos) {
     const insp = this.shadowRoot.getElementById("entity-inspector");
     if (!insp || !this._hass) return;
 
@@ -815,9 +862,26 @@ export const EditorMixin = (Base) => class extends Base {
       return;
     }
 
+    // Position the floating inspector to the right of the cursor line
+    if (this._editor && cursorPos !== undefined) {
+      try {
+        const coords = this._editor.coordsAtPos(cursorPos);
+        const pane = insp.parentElement;
+        if (coords && pane) {
+          const paneRect = pane.getBoundingClientRect();
+          const relTop = coords.top - paneRect.top + pane.scrollTop;
+          // Keep it within visible bounds (min 60px from top, max 20px from bottom)
+          const maxTop = pane.clientHeight - 200;
+          insp.style.top = `${Math.min(Math.max(relTop - 4, 60), maxTop)}px`;
+        }
+      } catch (e) { /* coordsAtPos can fail when editor not fully laid out */ }
+    }
+
     const stateObj = this._hass.states[entityId];
     const attrs = stateObj.attributes || {};
+    const friendlyName = attrs.friendly_name || "";
     const rows = Object.entries(attrs)
+      .filter(([k]) => k !== "friendly_name")
       .map(([k, v]) => {
         const raw = typeof v === "object" ? JSON.stringify(v) : String(v);
         const display = raw.length > 70 ? raw.slice(0, 70) + "…" : raw;
@@ -828,7 +892,10 @@ export const EditorMixin = (Base) => class extends Base {
     insp.hidden = false;
     insp.innerHTML = `
       <div class="ei-header">
-        <span class="ei-entity">${entityId}</span>
+        <div class="ei-header-main">
+          ${friendlyName ? `<span class="ei-friendly">${friendlyName}</span>` : ""}
+          <span class="ei-entity">${entityId}</span>
+        </div>
         <span class="ei-state ${stateClass}">${stateObj.state}</span>
         <button class="ei-close" title="Close">✕</button>
       </div>
@@ -837,7 +904,203 @@ export const EditorMixin = (Base) => class extends Base {
     insp.querySelector(".ei-close").addEventListener("click", () => { insp.hidden = true; });
   }
 
+  // ─── Entity list picker ────────────────────────────────────────────────────
+
+  _updateEntityListPicker(cursorLine, yamlText, cursorPos) {
+    const picker = this.shadowRoot.getElementById("entity-list-picker");
+    if (!picker || !this._hass) return;
+
+    const lines = yamlText.split("\n");
+    const line = lines[cursorLine] || "";
+
+    // Detect if we're on an entity_id/entity_ids list line or its items
+    // Look backwards for the parent key
+    let listIndent = -1;
+    let isEntityList = false;
+    for (let i = cursorLine; i >= 0; i--) {
+      const l = lines[i];
+      const keyMatch = l.match(/^(\s*)(entity_ids?|entities)\s*:/);
+      if (keyMatch) {
+        isEntityList = true;
+        listIndent = keyMatch[1].length;
+        break;
+      }
+      // If we hit a line with same or less indent that isn't a list item, stop
+      const indent = l.match(/^(\s*)/)[1].length;
+      const isListItem = /^\s*-/.test(l);
+      if (!isListItem && indent <= (listIndent === -1 ? 999 : listIndent) && l.trim() && i < cursorLine) break;
+    }
+
+    if (!isEntityList) {
+      if (!picker.hidden) this._entityListPickerOpen = false;
+      picker.hidden = true;
+      return;
+    }
+
+    // Position picker near cursor
+    if (this._editor && cursorPos !== undefined) {
+      try {
+        const coords = this._editor.coordsAtPos(cursorPos);
+        const pane = picker.parentElement;
+        if (coords && pane) {
+          const paneRect = pane.getBoundingClientRect();
+          const relTop = coords.top - paneRect.top + pane.scrollTop;
+          const maxTop = pane.clientHeight - 280;
+          picker.style.top = `${Math.min(Math.max(relTop + 20, 60), maxTop)}px`;
+        }
+      } catch (e) { /* */ }
+    }
+
+    // Store context for insert
+    this._entityListInsertIndent = listIndent + 2; // indent for list items
+    this._entityListInsertLine = cursorLine;
+
+    picker.hidden = false;
+    // Don't reset search on every cursor move — only show if not already open
+    if (!this._entityListPickerOpen) {
+      this._entityListPickerOpen = true;
+      const searchEl = picker.querySelector(".elp-search");
+      if (searchEl) { searchEl.value = ""; searchEl.focus(); }
+      this._renderEntityPickerResults("");
+    }
+  }
+
+  _renderEntityPickerResults(query) {
+    const resultsEl = this.shadowRoot.getElementById("elp-results");
+    if (!resultsEl || !this._hass) return;
+
+    const q = query.toLowerCase().trim();
+    const states = Object.values(this._hass.states || {});
+    const matches = states
+      .filter((s) => {
+        if (!q) return true;
+        const name = (s.attributes?.friendly_name || "").toLowerCase();
+        return s.entity_id.includes(q) || name.includes(q);
+      })
+      .slice(0, 20);
+
+    if (!matches.length) {
+      resultsEl.innerHTML = `<div class="elp-empty">No entities found</div>`;
+      return;
+    }
+
+    resultsEl.innerHTML = matches.map((s) => {
+      const name = s.attributes?.friendly_name || s.entity_id.split(".")[1];
+      const stateClass = s.state === "on" ? "ei-on" : s.state === "off" ? "ei-off" : "";
+      return `<div class="elp-item" data-id="${s.entity_id}" title="${s.entity_id}">
+        <span class="elp-name">${name}</span>
+        <span class="elp-id">${s.entity_id}</span>
+        <span class="ei-state ${stateClass}">${s.state}</span>
+      </div>`;
+    }).join("");
+
+    resultsEl.querySelectorAll(".elp-item").forEach((item) => {
+      item.addEventListener("click", () => {
+        this._insertEntityToList(item.dataset.id);
+      });
+    });
+  }
+
+  _insertEntityToList(entityId) {
+    if (!this._editor) return;
+    const picker = this.shadowRoot.getElementById("entity-list-picker");
+    const doc = this._editor.state.doc;
+    const cursorLine = this._entityListInsertLine ?? (doc.lineAt(this._editor.state.selection.main.head).number - 1);
+    const indent = " ".repeat(this._entityListInsertIndent ?? 4);
+
+    // Insert a new list item after the cursor's current line
+    const lineNum = Math.min(cursorLine + 1, doc.lines);
+    const lineObj = doc.line(lineNum);
+    const insertText = `\n${indent}- ${entityId}`;
+    const insertPos = lineObj.to;
+
+    this._editor.dispatch({
+      changes: { from: insertPos, insert: insertText },
+      selection: { anchor: insertPos + insertText.length },
+    });
+    this._editor.focus();
+
+    // Reset search for next addition
+    const searchEl = picker?.querySelector(".elp-search");
+    if (searchEl) { searchEl.value = ""; searchEl.focus(); }
+    this._renderEntityPickerResults("");
+  }
+
   // ─── End automation diagram ────────────────────────────────────────────────
+
+  _updateBlueprintButton(blueprintPath) {
+    const btn = this.shadowRoot.getElementById("btn-edit-blueprint");
+    if (!btn) return;
+    if (blueprintPath) {
+      btn.style.display = "";
+      btn.title = `Open blueprint: ${blueprintPath}`;
+    } else {
+      btn.style.display = "none";
+    }
+  }
+
+  async _openBlueprint(path) {
+    if (!path || !this._hass) return;
+    this._setStatus(`Loading blueprint: ${path}…`);
+
+    try {
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch(`/api/kyber/blueprint?path=${encodeURIComponent(path)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
+      const data = await resp.json();
+
+      // Open editor in blueprint mode
+      const editorPane = this.shadowRoot.getElementById("editor-container");
+      if (!this._editor) this._initEditor(editorPane);
+      const container = this.shadowRoot.getElementById("app-container");
+      container.classList.add("editor-open");
+      editorPane.classList.add("open");
+      this.shadowRoot.querySelectorAll(".editor-controls").forEach((el) => { el.style.display = "block"; });
+
+      this._editorMode = "blueprint";
+      this._currentBlueprintPath = path;
+      this._currentAutomationId = null;
+      this._setEditorContextLabel("blueprint", path.split("/").pop());
+      this._setEditorContent(data.yaml);
+      this._dirty = false;
+      this.shadowRoot.getElementById("btn-save").textContent = "Save blueprint";
+      this.shadowRoot.getElementById("btn-save").disabled = false;
+      this._updateBlueprintButton(null); // hide "Edit blueprint" while editing the blueprint
+      this._setStatus(`Blueprint: ${path}`);
+      this._saveEditorSession(path, "blueprint", path.split("/").pop());
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this._setStatus(`Failed to load blueprint: ${msg}`, "error");
+    }
+  }
+
+  async _saveBlueprintYaml() {
+    if (!this._currentBlueprintPath || !this._hass) return;
+    const yamlText = this._editor.state.doc.toString();
+    const btn = this.shadowRoot.getElementById("btn-save");
+    btn.disabled = true;
+    this._setStatus("Saving blueprint…");
+
+    try {
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch("/api/kyber/blueprint", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ path: this._currentBlueprintPath, yaml: yamlText }),
+      });
+      if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
+      this._dirty = false;
+      btn.textContent = "✓ Saved";
+      this._setStatus(`Blueprint saved: ${this._currentBlueprintPath}`);
+      setTimeout(() => { btn.textContent = "Save blueprint"; btn.disabled = false; }, 2000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      btn.disabled = false;
+      this._setStatus(`Save failed: ${msg}`, "error");
+    }
+  }
 
   _setEditorContextLabel(mode, label) {
     const ctxLabel = this.shadowRoot.getElementById("editor-context-label");
@@ -861,6 +1124,10 @@ export const EditorMixin = (Base) => class extends Base {
       this.shadowRoot.getElementById("btn-save").disabled = true;
       this._setStatus(`Loaded: ${configId}`);
       this._renderAutomationDiagram(yamlText);
+      // Detect use_blueprint and show/hide the Edit blueprint button
+      const blueprintPath = config.use_blueprint?.path || null;
+      this._currentBlueprintPath = blueprintPath;
+      this._updateBlueprintButton(blueprintPath);
     } catch (err) {
       const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
       this._setStatus(`Error loading: ${msg}`, "error");
@@ -997,6 +1264,7 @@ export const EditorMixin = (Base) => class extends Base {
     if (!this._editor) this._initEditor(editorPane);
 
     const isScript = saved.mode === "script";
+    const isBlueprint = saved.mode === "blueprint";
     this._currentAutomationId = saved.id;
     this._editorTitle = saved.title || saved.id;
     this._editorMode = saved.mode || "automation";
@@ -1005,9 +1273,14 @@ export const EditorMixin = (Base) => class extends Base {
     container.classList.add("editor-open");
     editorPane.classList.add("open");
     this.shadowRoot.querySelectorAll(".editor-controls").forEach((el) => { el.style.display = "block"; });
-    this._setEditorContextLabel(isScript ? "script" : "automation", this._editorTitle);
+
+    let ctxType = "automation";
+    let saveBtnText = "Save automation";
+    if (isScript)    { ctxType = "script";    saveBtnText = "Save script"; }
+    if (isBlueprint) { ctxType = "blueprint"; saveBtnText = "Save blueprint"; }
+    this._setEditorContextLabel(ctxType, this._editorTitle);
     const saveBtn = this.shadowRoot.getElementById("btn-save");
-    if (saveBtn) saveBtn.textContent = isScript ? "Save script" : "Save automation";
+    if (saveBtn) saveBtn.textContent = saveBtnText;
 
     // Check for an unsaved draft from the previous session
     let draft = null;
@@ -1018,6 +1291,14 @@ export const EditorMixin = (Base) => class extends Base {
         if (d.id === String(saved.id) && d.yaml) draft = d.yaml;
       }
     } catch (_) {}
+
+    if (isBlueprint) {
+      // Blueprint restore: reload file from disk (drafts not yet supported for blueprints)
+      this._currentBlueprintPath = saved.id;
+      this._updateBlueprintButton(null);
+      await this._openBlueprint(saved.id).catch(() => {});
+      return; // _openBlueprint handles everything from here
+    }
 
     if (draft) {
       // Load the draft — show unsaved state so user knows this isn't from HA

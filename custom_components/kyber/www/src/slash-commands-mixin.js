@@ -24,8 +24,9 @@ const _HELP_DATA = {
     { usage: "/script new",           desc: "Open HA's script editor in a new tab" },
     { usage: "/script delete <name>", desc: "Permanently delete a script" },
   ]},
-  blueprint:  { icon: "🗺", desc: "Browse HA blueprints", cmds: [
-    { usage: "/blueprint browse", desc: "Open the HA Blueprint page in a new tab" },
+  blueprint:  { icon: "🗺", desc: "Browse or edit HA blueprints", cmds: [
+    { usage: "/blueprint open <path>",  desc: "Open a blueprint YAML file in the editor" },
+    { usage: "/blueprint browse",       desc: "Open the HA Blueprint page in a new tab" },
   ]},
   area:       { icon: "🏠", desc: "Manage Home Assistant areas", cmds: [
     { usage: "/area new <name>",            desc: "Create a new area" },
@@ -165,7 +166,7 @@ export const SlashMixin = (Base) => class extends Base {
       dashboard:  ["open", "close", "save", "new", "delete", "help"],
       automation: ["open", "close", "save", "new", "delete", "help"],
       script:     ["open", "close", "save", "new", "delete", "help"],
-      blueprint:  ["browse", "help"],
+      blueprint:  ["open", "browse", "help"],
       area:       ["new", "delete", "rename", "list", "help"],
       session:    ["new", "list", "switch", "delete", "help"],
       memory:     ["list", "search", "add", "delete", "analyze", "deep", "stats", "help"],
@@ -890,9 +891,23 @@ export const SlashMixin = (Base) => class extends Base {
 
   // ──── /blueprint ─────────────────────────────────────────────────
 
-  _cmdBlueprint(action) {
+  _cmdBlueprint(action, nameArg) {
     switch (action) {
       case "open":
+        if (nameArg) {
+          // /blueprint open <path> — open blueprint in editor directly
+          this._openBlueprint(nameArg);
+        } else {
+          this._buildCommandCard({
+            icon: "🗺", title: "Browse blueprints",
+            detail: "Opens HA's Blueprint page in a new tab",
+            onConfirm: (card) => {
+              window.open("/config/blueprint", "_blank");
+              card.querySelector(".btn-cmd-execute").textContent = "✓ Opened";
+            },
+          });
+        }
+        break;
       case "browse":
         this._buildCommandCard({
           icon: "🗺", title: "Browse blueprints",
@@ -904,7 +919,7 @@ export const SlashMixin = (Base) => class extends Base {
         });
         break;
       default:
-        this._showMsg(`/blueprint commands: browse (opens HA blueprint page)`);
+        this._showMsg(`/blueprint commands: open <path> (edit in editor), browse (opens HA blueprint page)`);
     }
   }
 

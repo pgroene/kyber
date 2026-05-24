@@ -32,14 +32,14 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=121";
+import { STYLES } from "./src/styles.js?v=124";
 import { getT } from "./src/i18n.js?v=3";
 import { UtilsMixin } from "./src/utils-mixin.js?v=101";
 import { SessionMixin } from "./src/session-mixin.js?v=88";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=89";
 import { DebugMixin } from "./src/debug-mixin.js?v=112";
-import { SlashMixin } from "./src/slash-commands-mixin.js?v=97";
-import { EditorMixin } from "./src/editor-mixin.js?v=99";
+import { SlashMixin } from "./src/slash-commands-mixin.js?v=98";
+import { EditorMixin } from "./src/editor-mixin.js?v=103";
 import { AIMixin } from "./src/ai-mixin.js?v=119";
 import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=102";
 
@@ -169,6 +169,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <button class="btn-new-dashboard editor-controls" id="btn-new-dashboard" style="display:none" title="${this._t("btn_new_dashboard")}">${this._t("btn_new_dashboard")}</button>
           </span>
           <button class="btn-save editor-controls" id="btn-save" disabled>${this._t("btn_save")}</button>
+          <button class="btn-edit-blueprint editor-controls" id="btn-edit-blueprint" style="display:none" title="Open this automation's blueprint for editing">📋 Edit blueprint</button>
           <button class="btn-close-editor editor-controls" id="btn-close-editor">${this._t("btn_close_editor")}</button>
         </div>
         <div class="chat-pane">
@@ -322,9 +323,15 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     shadow.getElementById("btn-save").addEventListener("click", () => {
       if (this._editorMode === "dashboard") {
         this._saveDashboard();
+      } else if (this._editorMode === "blueprint") {
+        this._saveBlueprintYaml();
       } else {
         this._saveAutomation();
       }
+    });
+
+    shadow.getElementById("btn-edit-blueprint").addEventListener("click", () => {
+      if (this._currentBlueprintPath) this._openBlueprint(this._currentBlueprintPath);
     });
 
     shadow.getElementById("btn-close-editor").addEventListener("click", () => {
