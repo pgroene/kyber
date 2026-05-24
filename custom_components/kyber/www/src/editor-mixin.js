@@ -842,12 +842,17 @@ export const EditorMixin = (Base) => class extends Base {
             if (fromLine || toLine) this._jumpEditorToBlock(fromLine, toLine, true);
             // Parse YAML for per-option and per-action line numbers
             const chooseBlocks = this._parseChooseBlocks(fromLine, toLine);
+            console.log("[kyber] choose click fromLine=" + fromLine + " toLine=" + toLine + " blocks=" + chooseBlocks.length);
             addDrilldownCol(1, title, children.map((opt, i) => renderOptionTile(opt, nodeEl, chooseBlocks[i])));
           }
           e.stopPropagation(); return;
         }
         if (isExpandable) { toggleExpand(); e.stopPropagation(); return; }
+        // Leaf node: highlight selection + jump editor
+        diag.querySelectorAll(".adg-node.adg-leaf-selected").forEach((n) => n.classList.remove("adg-leaf-selected"));
+        nodeEl.classList.add("adg-leaf-selected");
         if (fromLine || toLine) this._jumpEditorToBlock(fromLine, toLine);
+        e.stopPropagation();
       });
 
       wrapper.appendChild(nodeEl);
@@ -1029,6 +1034,7 @@ export const EditorMixin = (Base) => class extends Base {
       }
     }
     pushOpt(parentToLine || endLine);
+    console.log("[kyber] _parseChooseBlocks", { parentFromLine, parentToLine, chooseIndent, optIndent, actIndent, optsCount: opts.length, opts: opts.map(o => ({ fl: o.from_line, tl: o.to_line, acts: o.actions.length })) });
     return opts;
   }
 

@@ -190,6 +190,7 @@ export const STYLES = `
   .adg-action.adg-active   { border-color: #2196f3; background: rgba(33,150,243,0.18); box-shadow: 0 0 0 2px rgba(33,150,243,0.3); }
   .adg-action.adg-has-expanded-child { border-color: #64b5f6; background: rgba(33,150,243,0.12); box-shadow: 0 0 0 2px rgba(100,181,246,0.4); }
   .adg-action.adg-selected  { border-color: #2196f3; background: rgba(33,150,243,0.22); box-shadow: 0 0 0 2px rgba(33,150,243,0.5); }
+  .adg-node.adg-leaf-selected { border-color: #26c6da; background: rgba(38,198,218,0.22); box-shadow: 0 0 0 2px rgba(38,198,218,0.5); }
   .adg-option        { border-left: 3px solid #7c4dff; opacity: 0.9; }
   .adg-option-default{ border-left: 3px solid #78909c; opacity: 0.9; }
   .adg-option.adg-selected { opacity: 1; border-color: #7c4dff; background: rgba(124,77,255,0.18); box-shadow: 0 0 0 2px rgba(124,77,255,0.4); }
