@@ -325,6 +325,8 @@ export const STYLES = `
   .elp-remove { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 10px; padding: 0; line-height: 1; flex-shrink: 0; }
 
   .chat-pane {
+    grid-column: 1;
+    grid-row: 2;
     display: flex;
     flex-direction: column;
     background: var(--panel-bg);

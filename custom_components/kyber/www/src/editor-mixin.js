@@ -771,7 +771,7 @@ export const EditorMixin = (Base) => class extends Base {
         if (!wasSelected) {
           nodeEl.classList.add("adg-selected");
           // Jump editor to this option's line
-          if (optBlock?.from_line) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line);
+          if (optBlock?.from_line) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true);
           // Build actions column
           const nodes = [];
           if (conds.length) { nodes.push(mkHeader("when:")); conds.forEach((c) => nodes.push(renderCondItem(c))); }
@@ -779,7 +779,12 @@ export const EditorMixin = (Base) => class extends Base {
             if (conds.length) nodes.push(mkHeader("then:"));
             seq.forEach((a, i) => {
               const lb = optBlock?.actions?.[i];
-              nodes.push(renderActionNode(a, "adg-action", lb ? lb.from_line : (optBlock?.from_line || 0), lb ? lb.to_line : (optBlock?.to_line || 0), 0, null));
+            if (lb) {
+              nodes.push(renderActionNode(a, "adg-action", lb.from_line, lb.to_line, 0, null));
+            } else {
+              // No line block found — render without line sync (node is visible but clicking won't jump)
+              nodes.push(renderActionNode(a, "adg-action", optBlock?.from_line || 0, optBlock?.to_line || 0, 0, null));
+            }
             });
           }
           addDrilldownCol(2, optItem._label, nodes);
@@ -834,7 +839,7 @@ export const EditorMixin = (Base) => class extends Base {
           if (!wasSelected) {
             nodeEl.classList.add("adg-selected");
             // Jump editor to the choose block line
-            if (fromLine || toLine) this._jumpEditorToBlock(fromLine, toLine);
+            if (fromLine || toLine) this._jumpEditorToBlock(fromLine, toLine, true);
             // Parse YAML for per-option and per-action line numbers
             const chooseBlocks = this._parseChooseBlocks(fromLine, toLine);
             addDrilldownCol(1, title, children.map((opt, i) => renderOptionTile(opt, nodeEl, chooseBlocks[i])));
@@ -959,28 +964,46 @@ export const EditorMixin = (Base) => class extends Base {
 
   // Parse the YAML to find per-option and per-sub-action line numbers within a choose/if block.
   // Returns an array of { from_line, to_line, actions: [{from_line, to_line}] } — one entry per option.
+  // Indent levels are detected dynamically so any YAML formatting works.
   _parseChooseBlocks(parentFromLine, parentToLine) {
     const view = this._currentEditorView;
     if (!view || !parentFromLine) return [];
     const lines = view.state.doc.toString().split("\n");
 
-    // Detect the indent of the choose line (e.g. "  - choose:" → indent 2)
     const chooseLine = lines[parentFromLine] || "";
     const chooseIndent = (chooseLine.match(/^(\s*)-/) || ["", ""])[1].length;
-    // Options live at chooseIndent + 4 (e.g. "      - conditions:" when chooseIndent=2)
-    const optIndent = chooseIndent + 4;
-    // Sequence items live at optIndent + 4
-    const actIndent = optIndent + 4;
+    const endLine = Math.min((parentToLine || parentFromLine) + 120, lines.length - 1);
+
+    // Auto-detect option indent: first list item strictly deeper than chooseIndent
+    let optIndent = -1;
+    for (let i = parentFromLine + 1; i <= endLine; i++) {
+      const l = lines[i]; if (!l.trim()) continue;
+      const li = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      if (li <= chooseIndent && l.trim()) break;
+      if (/^\s*-/.test(l) && li > chooseIndent) { optIndent = li; break; }
+    }
+    if (optIndent < 0) return [];
+
+    // Auto-detect sequence-item indent: find a "sequence:" key, then first list item after it
+    let actIndent = -1;
+    let foundSeq = false;
+    for (let i = parentFromLine + 1; i <= endLine && actIndent < 0; i++) {
+      const l = lines[i]; if (!l.trim()) continue;
+      const li = (l.match(/^(\s*)/) || ["", ""])[1].length;
+      if (li <= chooseIndent && l.trim()) break;
+      if (!foundSeq && /^\s*sequence\s*:/.test(l)) { foundSeq = true; continue; }
+      if (foundSeq && /^\s*-/.test(l) && li > optIndent) { actIndent = li; }
+    }
+    if (actIndent < 0) actIndent = optIndent + 4; // fallback
 
     const optPat = new RegExp(`^\\s{${optIndent}}-`);
     const actPat = new RegExp(`^\\s{${actIndent}}-`);
-    const seqPat = new RegExp(`^\\s{${optIndent + 2}}sequence\\s*:`);
+    const seqPat = /^\s*sequence\s*:/;
 
     const opts = [];
-    let curOpt = null;   // { from_line, to_line, actions: [] }
+    let curOpt = null;
     let inSeq = false;
-    let curAct = null;   // { from_line, to_line }
-    const endLine = Math.min((parentToLine || parentFromLine) + 60, lines.length - 1);
+    let curAct = null;
 
     const pushAct = (endAt) => {
       if (curAct && curOpt) { curAct.to_line = endAt; curOpt.actions.push(curAct); curAct = null; }
@@ -994,14 +1017,13 @@ export const EditorMixin = (Base) => class extends Base {
       const line = lines[i];
       if (!line.trim()) continue;
       const lineIndent = (line.match(/^(\s*)/) || ["", ""])[1].length;
-      // Escaped the choose block
       if (lineIndent <= chooseIndent && line.trim()) break;
 
       if (optPat.test(line)) {
         pushOpt(i - 1);
         curOpt = { from_line: i, to_line: i, actions: [] };
         inSeq = false;
-      } else if (curOpt && seqPat.test(line)) {
+      } else if (curOpt && seqPat.test(line) && lineIndent > optIndent) {
         inSeq = true;
       } else if (curOpt && inSeq && actPat.test(line)) {
         pushAct(i - 1);
@@ -1147,11 +1169,11 @@ export const EditorMixin = (Base) => class extends Base {
     });
   }
 
-  _jumpEditorToBlock(fromLine, toLine) {
+  _jumpEditorToBlock(fromLine, toLine, cursorOnly = false) {
     if (!this._editor) return;
     const doc = this._editor.state.doc;
     const safeFrom = Math.max(1, fromLine + 1);
-    const safeTo = Math.min(doc.lines, toLine + 1);
+    const safeTo = cursorOnly ? safeFrom : Math.min(doc.lines, toLine + 1);
     const from = doc.line(safeFrom).from;
     const to = doc.line(safeTo).to;
     this._editor.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true });
