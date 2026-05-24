@@ -521,10 +521,10 @@ class KyberSaveView(HomeAssistantView):
         try:
             config = yaml.safe_load(yaml_text)
         except yaml.YAMLError:
-            # HA writes empty mappings as standalone {} on their own line which
-            # breaks standard YAML parsing.  Strip those lines and retry.
+            # HA writes empty mappings/lists as standalone {} or [] on their
+            # own line which breaks standard YAML parsing.  Strip and retry.
             import re
-            cleaned = re.sub(r"^\s*\{\}\s*$", "", yaml_text, flags=re.MULTILINE)
+            cleaned = re.sub(r"^\s*(\{\}|\[\])\s*$", "", yaml_text, flags=re.MULTILINE)
             try:
                 config = yaml.safe_load(cleaned)
             except yaml.YAMLError as err:
