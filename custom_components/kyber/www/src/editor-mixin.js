@@ -765,6 +765,7 @@ export const EditorMixin = (Base) => class extends Base {
       const seqStr = seq.length ? `${seq.length} action${seq.length !== 1 ? "s" : ""}${condStr}` : (conds.length ? `${conds.length} cond` : "");
       nodeEl.innerHTML = `<span class="adg-icon">${optItem._isDefault ? "↩" : "📋"}</span><span class="adg-title">${this._escH(optItem._label)}</span>${seqStr ? `<span class="adg-sub">${seqStr}</span>` : ""}`;
       nodeEl.addEventListener("click", (e) => {
+        console.log("[kyber] option tile click", optItem._label, "optBlock=", optBlock);
         const col1NodesEl = wrapper.parentElement;
         col1NodesEl?.querySelectorAll(".adg-node").forEach((n) => n.classList.remove("adg-selected"));
         const wasSelected = nodeEl.classList.contains("adg-selected"); // already deselected above
@@ -969,44 +970,26 @@ export const EditorMixin = (Base) => class extends Base {
 
   // Parse the YAML to find per-option and per-sub-action line numbers within a choose/if block.
   // Returns an array of { from_line, to_line, actions: [{from_line, to_line}] } — one entry per option.
-  // Indent levels are detected dynamically so any YAML formatting works.
+  // Uses content-based detection so inconsistent indentation (from manual edits) still works.
   _parseChooseBlocks(parentFromLine, parentToLine) {
     if (!this._editor || parentFromLine == null) return [];
     const lines = this._editor.state.doc.toString().split("\n");
 
     const chooseLine = lines[parentFromLine] || "";
     const chooseIndent = (chooseLine.match(/^(\s*)-/) || ["", ""])[1].length;
-    const endLine = Math.min((parentToLine || parentFromLine) + 120, lines.length - 1);
+    const endLine = Math.min((parentToLine || parentFromLine) + 200, lines.length - 1);
 
-    // Auto-detect option indent: first list item strictly deeper than chooseIndent
-    let optIndent = -1;
-    for (let i = parentFromLine + 1; i <= endLine; i++) {
-      const l = lines[i]; if (!l.trim()) continue;
-      const li = (l.match(/^(\s*)/) || ["", ""])[1].length;
-      if (li <= chooseIndent && l.trim()) break;
-      if (/^\s*-/.test(l) && li > chooseIndent) { optIndent = li; break; }
-    }
-    if (optIndent < 0) return [];
-
-    // Auto-detect sequence-item indent: find a "sequence:" key, then first list item after it
-    let actIndent = -1;
-    let foundSeq = false;
-    for (let i = parentFromLine + 1; i <= endLine && actIndent < 0; i++) {
-      const l = lines[i]; if (!l.trim()) continue;
-      const li = (l.match(/^(\s*)/) || ["", ""])[1].length;
-      if (li <= chooseIndent && l.trim()) break;
-      if (!foundSeq && /^\s*sequence\s*:/.test(l)) { foundSeq = true; continue; }
-      if (foundSeq && /^\s*-/.test(l) && li > optIndent) { actIndent = li; }
-    }
-    if (actIndent < 0) actIndent = optIndent + 2; // fallback
-    const optPat = new RegExp(`^\\s{${optIndent}}-`);
-    const actPat = new RegExp(`^\\s{${actIndent}}-`);
-    const seqPat = /^\s*sequence\s*:/;
+    // An option boundary: a list item starting with "- conditions:" or "- condition:" (HA choose format)
+    // This is more reliable than indent-matching because users may have inconsistent indentation.
+    const isOptBoundary = (line) => /^\s*-\s*(conditions?)\s*:/.test(line);
+    // A sequence marker: "sequence:" key anywhere inside the choose block
+    const isSeqKey = (line) => /^\s*sequence\s*:/.test(line);
 
     const opts = [];
     let curOpt = null;
     let inSeq = false;
     let curAct = null;
+    let actIndent = -1;
 
     const pushAct = (endAt) => {
       if (curAct && curOpt) { curAct.to_line = endAt; curOpt.actions.push(curAct); curAct = null; }
@@ -1020,21 +1003,32 @@ export const EditorMixin = (Base) => class extends Base {
       const line = lines[i];
       if (!line.trim()) continue;
       const lineIndent = (line.match(/^(\s*)/) || ["", ""])[1].length;
-      if (lineIndent <= chooseIndent && line.trim()) break;
+      if (lineIndent <= chooseIndent) break;
 
-      if (optPat.test(line)) {
+      if (isOptBoundary(line)) {
+        // Start of a new choose option
         pushOpt(i - 1);
-        curOpt = { from_line: i, to_line: i, actions: [] };
+        curOpt = { from_line: i, to_line: i, actions: [], _optIndent: lineIndent };
         inSeq = false;
-      } else if (curOpt && seqPat.test(line) && lineIndent >= optIndent) {
+        actIndent = -1;
+      } else if (curOpt && isSeqKey(line)) {
+        // Sequence section of the current option
         inSeq = true;
-      } else if (curOpt && inSeq && actPat.test(line)) {
-        pushAct(i - 1);
-        curAct = { from_line: i, to_line: i };
+        actIndent = -1; // will be auto-detected from first action below
+      } else if (curOpt && inSeq && /^\s*-/.test(line)) {
+        // Action list item inside sequence
+        if (actIndent < 0) actIndent = lineIndent; // first item sets the level
+        if (lineIndent === actIndent) {
+          pushAct(i - 1);
+          curAct = { from_line: i, to_line: i };
+        }
+      } else if (curOpt && inSeq && /^\s*-/.test(line) === false && lineIndent <= (curOpt._optIndent || 0) + 2) {
+        // A key at option level or shallower resets inSeq (e.g. another key after sequence)
+        // This handles edge cases where "sequence:" appears before "conditions:"
       }
     }
     pushOpt(parentToLine || endLine);
-    console.log("[kyber] _parseChooseBlocks", { parentFromLine, parentToLine, chooseIndent, optIndent, actIndent, optsCount: opts.length, opts: opts.map(o => ({ fl: o.from_line, tl: o.to_line, acts: o.actions.length })) });
+    console.log("[kyber] _parseChooseBlocks", { parentFromLine, chooseIndent, optsCount: opts.length, opts: opts.map(o => ({ fl: o.from_line, tl: o.to_line, acts: o.actions.length })) });
     return opts;
   }
 
