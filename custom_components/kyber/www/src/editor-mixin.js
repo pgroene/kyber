@@ -932,7 +932,7 @@ export const EditorMixin = (Base) => class extends Base {
           removeDrilldownCols(colLevel + 1);
           if (!wasSelected) {
             nodeEl.classList.add("adg-selected");
-            if (!this._suppressEditorJump && fromLine != null) this._jumpEditorToBlock(fromLine, toLine, true);
+            if (!this._suppressEditorJump && fromLine != null) this._jumpEditorToBlock(fromLine, toLine, false);
             if (isChooseIf) {
               const chooseBlocks = this._parseChooseBlocks(fromLine, toLine);
               addDrilldownCol(colLevel + 1, title, children.map((opt, i) => renderOptionTile(opt, nodeEl, chooseBlocks[i], colLevel + 1)));
