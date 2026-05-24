@@ -197,11 +197,15 @@ export const STYLES = `
   .adg-opt-header { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted, #999); padding: 2px 4px 1px; margin-top: 2px; }
   .adg-cond-item { display: flex; flex-direction: column; padding: 4px 8px; background: var(--card-bg, #1e1e2e); border-left: 2px solid #ff9800; border-radius: 4px; margin: 2px 0; opacity: 0.85; }
   .adg-cond-detail { font-size: 9px; color: #ff9800; font-weight: 600; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 145px; }
+  .adg-cond-group { border-left: 2px solid #666; padding-left: 6px; margin: 2px 0; }
+  .adg-cond-group-label { font-size: 9px; font-weight: 700; color: #ab47bc; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
   .adg-cond-clickable { cursor: pointer; opacity: 1; }
   .adg-cond-clickable:hover { border-left-color: #ffb74d; background: rgba(255,152,0,0.12); }
   .adg-cond-clickable.adg-cond-selected { border-left-color: #ff9800; background: rgba(255,152,0,0.22); box-shadow: 0 0 0 2px rgba(255,152,0,0.4); opacity: 1; }
   .adg-sub-node { opacity: 0.85; border-left-width: 2px; border-left-style: dashed; padding: 5px 8px; }
   .adg-expandable { cursor: pointer; }
+  .adg-dirty { border-left: 3px solid #ff9800 !important; position: relative; }
+  .adg-dirty::after { content: "●"; position: absolute; top: 2px; right: 4px; font-size: 8px; color: #ff9800; line-height: 1; }
   .adg-icon  { font-size: 14px; line-height: 1; margin-bottom: 4px; }
   .adg-title { font-size: 11px; font-weight: 600; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 145px; }
   .adg-sub   { font-size: 10px; color: var(--text-muted, #999); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 145px; margin-top: 2px; }

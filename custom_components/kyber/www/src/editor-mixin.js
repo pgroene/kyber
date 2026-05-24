@@ -51,6 +51,13 @@ export const EditorMixin = (Base) => class extends Base {
           self._diagramDebounce = setTimeout(() => {
             self._renderAutomationDiagram(update.state.doc.toString());
           }, 350);
+          // Re-parse YAML server-side so diagram reflects editor changes
+          if (self._editorMode === "automation" || self._editorMode === "script") {
+            clearTimeout(self._configReparseDebounce);
+            self._configReparseDebounce = setTimeout(() => {
+              self._reparseEditorConfig(update.state.doc.toString());
+            }, 1200);
+          }
           // Persist draft so navigating away and returning restores unsaved edits
           clearTimeout(self._draftSaveDebounce);
           self._draftSaveDebounce = setTimeout(() => {
@@ -203,6 +210,7 @@ export const EditorMixin = (Base) => class extends Base {
 
     this._currentAutomationId = null;
     this._currentAutomationConfig = null;
+    this._savedYaml = null; // original YAML from last load/save for dirty tracking
     this._editorTitle = null;
     this._currentDashboardPath = null;
     this._currentBlueprintPath = null;
@@ -717,7 +725,7 @@ export const EditorMixin = (Base) => class extends Base {
     diag.hidden = false;
 
     // ── Miller-column helpers ────────────────────────────────────────────────
-    const COND_ICONS = { state: "✅", template: "📋", time: "⏰", numeric_state: "🔢", zone: "📍", and: "🔗", or: "🔀", not: "❌", device: "📱", trigger: "⚡" };
+    const COND_ICONS = { state: "✅", template: "📋", time: "⏰", numeric_state: "🔢", zone: "📍", and: "🔗", or: "🔀", not: "❌", device: "📱", trigger: "⚡", sun: "🌅" };
 
     // Remove all drilldown columns at level >= `fromLevel`
     const removeDrilldownCols = (fromLevel) => {
@@ -741,12 +749,31 @@ export const EditorMixin = (Base) => class extends Base {
       setTimeout(() => { diag.scrollLeft = diag.scrollWidth; }, 10);
     };
 
-    // Render a condition item — clickable if onClickFn is provided
+    // Render a condition item — clickable if onClickFn is provided.
+    // For and/or/not, recursively renders sub-conditions in a group.
     const renderCondItem = (cond, onClickFn) => {
+      // Handle string shorthand (bare template)
+      if (typeof cond === "string") {
+        cond = { condition: "template", value_template: cond };
+      }
       // Auto-detect condition type: HA may omit explicit `condition:` key
       let c = cond.condition || "";
       if (!c && cond.value_template) c = "template";
       if (!c && cond.entity_id && cond.state !== undefined) c = "state";
+
+      // AND/OR/NOT: render as a group with nested conditions
+      if (c === "and" || c === "or" || c === "not") {
+        const subConds = [].concat(cond.conditions || []);
+        const group = document.createElement("div");
+        group.className = "adg-cond-group";
+        const label = document.createElement("div");
+        label.className = "adg-cond-group-label";
+        label.textContent = c.toUpperCase();
+        group.appendChild(label);
+        subConds.forEach((sc) => group.appendChild(renderCondItem(sc, onClickFn)));
+        return group;
+      }
+
       let condSub = "";
       let condDetail = "";
 
@@ -768,7 +795,7 @@ export const EditorMixin = (Base) => class extends Base {
       } else if (c === "state") {
         const entityId = (Array.isArray(cond.entity_id) ? cond.entity_id[0] : cond.entity_id) || "";
         condSub = entityId.includes(".") ? entityId.split(".")[1] : entityId;
-        if (cond.state !== undefined) condDetail = `== ${cond.state}`;
+        if (cond.state !== undefined) condDetail = `== ${Array.isArray(cond.state) ? cond.state.join("|") : cond.state}`;
       } else if (c === "numeric_state") {
         const entityId = (Array.isArray(cond.entity_id) ? cond.entity_id[0] : cond.entity_id) || "";
         condSub = entityId.includes(".") ? entityId.split(".")[1] : entityId;
@@ -780,9 +807,21 @@ export const EditorMixin = (Base) => class extends Base {
         const parts = [];
         if (cond.after) parts.push(`after ${cond.after}`);
         if (cond.before) parts.push(`before ${cond.before}`);
+        if (cond.weekday) condDetail = [].concat(cond.weekday).join(", ");
+        condSub = parts.join(", ") || "";
+      } else if (c === "sun") {
+        const parts = [];
+        if (cond.after) parts.push(`after ${cond.after}`);
+        if (cond.before) parts.push(`before ${cond.before}`);
         condSub = parts.join(", ") || "";
       } else if (c === "zone") {
-        condSub = cond.zone || "";
+        const entityId = (Array.isArray(cond.entity_id) ? cond.entity_id[0] : cond.entity_id) || "";
+        condSub = entityId.includes(".") ? entityId.split(".")[1] : entityId;
+        condDetail = cond.zone || "";
+      } else if (c === "trigger") {
+        condSub = [].concat(cond.id || []).join(", ");
+      } else if (c === "device") {
+        condSub = (cond.type || "").replace(/_/g, " ");
       } else {
         const entityId = (Array.isArray(cond.entity_id) ? cond.entity_id[0] : cond.entity_id) || "";
         condSub = entityId.includes(".") ? entityId.split(".")[1] : (entityId || (cond.value_template || "").slice(0, 25));
@@ -858,10 +897,11 @@ export const EditorMixin = (Base) => class extends Base {
 
       const wrapper = document.createElement("div"); wrapper.className = "adg-node-wrapper";
       const nodeEl = document.createElement("div");
-      nodeEl.className = `adg-node ${cls}${depth ? " adg-sub-node" : ""}${isExpandable ? " adg-expandable" : ""}`;
+      const dirty = isBlockDirty(fromLine, toLine) ? " adg-dirty" : "";
+      nodeEl.className = `adg-node ${cls}${depth ? " adg-sub-node" : ""}${isExpandable ? " adg-expandable" : ""}${dirty}`;
       nodeEl.dataset.from = String(fromLine); nodeEl.dataset.to = String(toLine);
       nodeEl.setAttribute("style", indent);
-      nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}${isExpandable ? " — click to expand" : ""}`);
+      nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}${isExpandable ? " — click to expand" : ""}${dirty ? " (modified)" : ""}`);
       nodeEl.innerHTML = `<span class="adg-icon">${icon}</span><span class="adg-title">${safeTitle}</span>${sub ? `<span class="adg-sub">${safeSub}</span>` : ""}${isExpandable ? `<span class="adg-expand-btn">▶</span>` : ""}`;
 
       nodeEl.addEventListener("click", (e) => {
@@ -944,6 +984,19 @@ export const EditorMixin = (Base) => class extends Base {
       return wrapper;
     };
 
+    // Check if a YAML block (from_line..to_line) has been modified vs saved YAML
+    const isBlockDirty = (fromLine, toLine) => {
+      if (!this._savedYaml || !this._dirty) return false;
+      const savedLines = this._savedYaml.split("\n");
+      const currentLines = yamlText.split("\n");
+      const f = Math.max(0, fromLine);
+      const t = Math.min(toLine, Math.max(savedLines.length, currentLines.length) - 1);
+      for (let i = f; i <= t; i++) {
+        if ((currentLines[i] || "") !== (savedLines[i] || "")) return true;
+      }
+      return false;
+    };
+
     const renderSection = (items, sectionKey, label, cls, lineBlocks) => {
       if (!items.length) return null;
       const section = document.createElement("div");
@@ -960,10 +1013,11 @@ export const EditorMixin = (Base) => class extends Base {
         } else {
           const { icon, title, sub } = this._blockMetaFromJson(sectionKey, item);
           const nodeEl = document.createElement("div");
-          nodeEl.className = `adg-node ${cls}`;
+          const dirty = isBlockDirty(fromLine, toLine) ? " adg-dirty" : "";
+          nodeEl.className = `adg-node ${cls}${dirty}`;
           nodeEl.dataset.from = String(fromLine);
           nodeEl.dataset.to = String(toLine);
-          nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}`);
+          nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}${dirty ? " (modified)" : ""}`);
           nodeEl.innerHTML = `<span class="adg-icon">${icon}</span><span class="adg-title">${this._escH(title)}</span>${sub ? `<span class="adg-sub">${this._escH(sub)}</span>` : ""}`;
           nodeEl.addEventListener("click", () => { if (fromLine != null) this._jumpEditorToBlock(fromLine, toLine); });
           nodesEl.appendChild(nodeEl);
@@ -1194,9 +1248,13 @@ export const EditorMixin = (Base) => class extends Base {
       let c = item.condition || "";
       if (!c && item.value_template) c = "template";
       if (!c && item.entity_id && item.state !== undefined) c = "state";
-      const ICONS = { state: "✅", template: "📋", time: "⏰", numeric_state: "🔢", zone: "📍", and: "🔗", or: "🔀", not: "❌", device: "📱", trigger: "⚡" };
+      if (!c && item.entity_id && (item.above !== undefined || item.below !== undefined)) c = "numeric_state";
+      const ICONS = { state: "✅", template: "📋", time: "⏰", numeric_state: "🔢", zone: "📍", and: "🔗", or: "🔀", not: "❌", device: "📱", trigger: "⚡", sun: "🌅" };
       let sub = "";
-      if (c === "template") {
+      if (c === "and" || c === "or" || c === "not") {
+        const nested = [].concat(item.conditions || []);
+        sub = `${nested.length} condition${nested.length !== 1 ? "s" : ""}`;
+      } else if (c === "template") {
         const vt = item.value_template || "";
         const statesMatch = vt.match(/states\(\s*['"]([^'"]+)['"]\s*\)\s*(==|!=|>|<|>=|<=)\s*\\?["']?([^"'\\}\s]+)/);
         const isStateMatch = vt.match(/is_state\(\s*['"]([^'"]+)['"],\s*['"]([^'"]+)['"]\)/);
@@ -1209,10 +1267,32 @@ export const EditorMixin = (Base) => class extends Base {
         } else {
           sub = vt.replace(/\{\{|\}\}/g, "").trim().slice(0, 40);
         }
+      } else if (c === "numeric_state") {
+        const entityId = (Array.isArray(item.entity_id) ? item.entity_id[0] : item.entity_id) || "";
+        sub = entityId.includes(".") ? entityId.split(".")[1] : entityId;
+        const parts = [];
+        if (item.above !== undefined) parts.push(`> ${item.above}`);
+        if (item.below !== undefined) parts.push(`< ${item.below}`);
+        if (parts.length) sub += ` ${parts.join(", ")}`;
+      } else if (c === "time") {
+        const parts = [];
+        if (item.after) parts.push(`after ${item.after}`);
+        if (item.before) parts.push(`before ${item.before}`);
+        sub = parts.join(", ") || "";
+        if (item.weekday) sub = (sub ? sub + " " : "") + [].concat(item.weekday).join(",");
+      } else if (c === "sun") {
+        const parts = [];
+        if (item.after) parts.push(`after ${item.after}`);
+        if (item.before) parts.push(`before ${item.before}`);
+        sub = parts.join(", ") || "";
+      } else if (c === "trigger") {
+        sub = [].concat(item.id || []).join(", ");
+      } else if (c === "device") {
+        sub = (item.type || "").replace(/_/g, " ");
       } else {
         const entityId = (Array.isArray(item.entity_id) ? item.entity_id[0] : item.entity_id) || "";
         sub = entityId.includes(".") ? entityId.split(".")[1] : entityId;
-        if (c === "state" && item.state !== undefined) sub += ` == ${item.state}`;
+        if (c === "state" && item.state !== undefined) sub += ` == ${Array.isArray(item.state) ? item.state.join("|") : item.state}`;
       }
       return { icon: ICONS[c] || "❓", title: c || "condition", sub };
     }
@@ -1757,6 +1837,26 @@ export const EditorMixin = (Base) => class extends Base {
     ctxLabel.textContent = `${mode} > ${label}`;
   }
 
+  // Re-parse editor YAML server-side to update diagram config.
+  // Called debounced (1.2s) after editor changes so the diagram reflects edits.
+  async _reparseEditorConfig(yamlText) {
+    if (!this._hass || !yamlText?.trim()) return;
+    try {
+      const token = this._hass.auth.data.access_token;
+      const resp = await fetch("/api/kyber/parse_yaml", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ yaml: yamlText }),
+      });
+      if (!resp.ok) return; // invalid YAML — diagram stays on stale config
+      const { config } = await resp.json();
+      if (config) {
+        this._currentAutomationConfig = config;
+        this._renderAutomationDiagram(yamlText);
+      }
+    } catch { /* silent — diagram uses previous config */ }
+  }
+
   async _loadAutomation(configId) {
     if (!configId || !this._hass) return;
     const isScript = this._editorMode === "script";
@@ -1767,6 +1867,7 @@ export const EditorMixin = (Base) => class extends Base {
       const config = await this._hass.callApi("GET", apiPath);
       this._currentAutomationConfig = config; // store for diagram
       const yamlText = this._configToYaml(config);
+      this._savedYaml = yamlText; // baseline for dirty tracking
       this._setEditorContent(yamlText);
       this._currentAutomationId = configId;
       this._dirty = false;
@@ -1848,6 +1949,7 @@ export const EditorMixin = (Base) => class extends Base {
       }
 
       this._dirty = false;
+      this._savedYaml = yamlText; // update baseline for dirty tracking
       this._clearEditorDraft(); // draft is now saved to HA
       const kind = isScript ? "script" : "automation";
       this._addChatHistory("user", `I saved the YAML for ${this._currentAutomationId}.`);
