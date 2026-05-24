@@ -32,14 +32,14 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=128";
+import { STYLES } from "./src/styles.js?v=130";
 import { getT } from "./src/i18n.js?v=3";
 import { UtilsMixin } from "./src/utils-mixin.js?v=101";
 import { SessionMixin } from "./src/session-mixin.js?v=88";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=89";
 import { DebugMixin } from "./src/debug-mixin.js?v=112";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=98";
-import { EditorMixin } from "./src/editor-mixin.js?v=106";
+import { EditorMixin } from "./src/editor-mixin.js?v=107";
 import { AIMixin } from "./src/ai-mixin.js?v=119";
 import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=102";
 
@@ -252,6 +252,8 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     // Standalone debug mode (/kyber-debug path)
     if (this._mode === "debug" && isAdmin) {
       if (chat) chat.classList.add("debug-standalone");
+      const container = shadow.querySelector(".container");
+      if (container) container.classList.add("debug-mode");
       if (pane) {
         pane.removeAttribute("hidden");
         pane.classList.remove("debug-pane--standalone");

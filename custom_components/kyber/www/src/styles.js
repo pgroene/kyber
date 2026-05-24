@@ -33,6 +33,10 @@ export const STYLES = `
   }
 
   .container:not(.editor-open) .editor-controls { display: none !important; }
+  /* Hide editor completely in standalone debug mode */
+  .container.debug-mode .editor-pane { display: none !important; }
+  .container.debug-mode .editor-controls { display: none !important; }
+  .container.debug-mode .status-bar { display: none !important; }
 
   .toolbar {
     grid-column: 1 / -1;
@@ -301,6 +305,15 @@ export const STYLES = `
   .elp-name { font-weight: 500; font-size: 11px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .elp-id { font-size: 10px; color: var(--text-muted); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; }
   .elp-empty { padding: 12px; color: var(--text-muted); font-size: 11px; text-align: center; }
+  .elp-current { border-bottom: 1px solid var(--border-color); padding: 4px 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .elp-current-item {
+    display: flex; align-items: center; gap: 4px;
+    background: color-mix(in srgb, var(--accent) 14%, var(--card-bg, #1e1e2e));
+    border: 1px solid var(--accent, #03a9f4); border-radius: 12px;
+    padding: 2px 6px; font-size: 10px; max-width: 180px;
+  }
+  .elp-current-item .elp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .elp-remove { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 10px; padding: 0; line-height: 1; flex-shrink: 0; }
 
   .chat-pane {
     display: flex;

@@ -1056,6 +1056,29 @@ export const EditorMixin = (Base) => class extends Base {
       return;
     }
 
+    // Close inspector — they share the same space; only one panel at a time
+    const insp = this.shadowRoot.getElementById("entity-inspector");
+    if (insp) insp.hidden = true;
+
+    // Collect current entity IDs already in this list block (for display + remove)
+    const currentEntities = [];
+    for (let i = cursorLine; i >= 0; i--) {
+      const l = lines[i];
+      if (l.match(/^(\s*)(entity_ids?|entities)\s*:/)) { break; }
+      const m = l.match(/^\s*-\s+(.+)\s*$/);
+      if (m && m[1].includes(".")) currentEntities.unshift(m[1].trim());
+    }
+    // Also scan forward
+    for (let i = cursorLine + 1; i < lines.length; i++) {
+      const l = lines[i];
+      const m = l.match(/^\s*-\s+(.+)\s*$/);
+      if (m && m[1].includes(".")) currentEntities.push(m[1].trim());
+      else if (l.trim() && !/^\s*-/.test(l)) break;
+    }
+    this._entityListCurrentEntities = [...new Set(currentEntities)];
+    this._entityListInsertIndent = listIndent + 2;
+    this._entityListInsertLine = cursorLine;
+
     // Position picker near cursor
     if (this._editor && cursorPos !== undefined) {
       try {
@@ -1064,23 +1087,70 @@ export const EditorMixin = (Base) => class extends Base {
         if (coords && pane) {
           const paneRect = pane.getBoundingClientRect();
           const relTop = coords.top - paneRect.top + pane.scrollTop;
-          const maxTop = pane.clientHeight - 280;
+          const maxTop = pane.clientHeight - 320;
           picker.style.top = `${Math.min(Math.max(relTop + 20, 60), maxTop)}px`;
         }
       } catch (e) { /* */ }
     }
 
-    // Store context for insert
-    this._entityListInsertIndent = listIndent + 2; // indent for list items
-    this._entityListInsertLine = cursorLine;
-
     picker.hidden = false;
-    // Don't reset search on every cursor move — only show if not already open
-    if (!this._entityListPickerOpen) {
+    const wasOpen = this._entityListPickerOpen;
+    if (!wasOpen) {
       this._entityListPickerOpen = true;
       const searchEl = picker.querySelector(".elp-search");
       if (searchEl) { searchEl.value = ""; searchEl.focus(); }
-      this._renderEntityPickerResults("");
+    }
+    this._renderEntityPickerCurrentList();
+    if (!wasOpen) this._renderEntityPickerResults("");
+  }
+
+  _renderEntityPickerCurrentList() {
+    const picker = this.shadowRoot.getElementById("entity-list-picker");
+    if (!picker) return;
+    let currentEl = picker.querySelector(".elp-current");
+    if (!currentEl) {
+      currentEl = document.createElement("div");
+      currentEl.className = "elp-current";
+      picker.querySelector(".elp-search").insertAdjacentElement("beforebegin", currentEl);
+    }
+    const items = this._entityListCurrentEntities || [];
+    if (!items.length) { currentEl.hidden = true; return; }
+    currentEl.hidden = false;
+    currentEl.innerHTML = items.map((eid) => {
+      const name = this._hass?.states?.[eid]?.attributes?.friendly_name || eid.split(".")[1] || eid;
+      return `<div class="elp-current-item" data-id="${eid}">
+        <span class="elp-name" title="${eid}">${name}</span>
+        <button class="elp-remove" title="Remove">✕</button>
+      </div>`;
+    }).join("");
+    currentEl.querySelectorAll(".elp-remove").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this._removeEntityFromList(btn.closest(".elp-current-item").dataset.id);
+      });
+    });
+  }
+
+  _removeEntityFromList(entityId) {
+    if (!this._editor) return;
+    const doc = this._editor.state.doc;
+    const text = doc.toString();
+    const lines = text.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^(\s*)-\s+(.+)\s*$/);
+      if (m && m[2].trim() === entityId) {
+        const lineObj = doc.line(i + 1);
+        // Delete the whole line including newline
+        const from = i === 0 ? 0 : doc.line(i).to;
+        const to = lineObj.to;
+        this._editor.dispatch({ changes: { from: i > 0 ? doc.line(i).to : 0, to: lineObj.to } });
+        // Reparse
+        const newText = this._editor.state.doc.toString();
+        const newLines = newText.split("\n");
+        this._entityListCurrentEntities = (this._entityListCurrentEntities || []).filter((e) => e !== entityId);
+        this._renderEntityPickerCurrentList();
+        return;
+      }
     }
   }
 
