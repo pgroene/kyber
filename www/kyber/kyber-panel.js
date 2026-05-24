@@ -32,7 +32,7 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=124";
+import { STYLES } from "./src/styles.js?v=125";
 import { getT } from "./src/i18n.js?v=3";
 import { UtilsMixin } from "./src/utils-mixin.js?v=101";
 import { SessionMixin } from "./src/session-mixin.js?v=88";
@@ -251,15 +251,15 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
 
     // Standalone debug mode (/kyber-debug path)
     if (this._mode === "debug" && isAdmin) {
-      if (chat) chat.style.display = "none";
+      if (chat) chat.classList.add("debug-standalone");
       if (pane) {
         pane.removeAttribute("hidden");
-        pane.classList.add("debug-pane--standalone");
+        pane.classList.remove("debug-pane--standalone");
       }
       if (closeBtn) closeBtn.style.display = "none";
       this._debugTab = this._debugTab || "memory";
     } else {
-      if (chat) chat.style.display = "";
+      if (chat) chat.classList.remove("debug-standalone");
       if (pane) pane.classList.remove("debug-pane--standalone");
       if (closeBtn) closeBtn.style.display = "";
     }

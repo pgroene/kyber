@@ -593,8 +593,9 @@ def _build_prompt_sections(body_fields: dict, context: str, request: "web.Reques
         yaml_section = (
             f"## \u26a0\ufe0f {kind.upper()} EDITOR IS CURRENTLY OPEN{title_str}\n"
             f"ID: `{editor_id}`\n"
-            f"The user has this {kind} open in the side panel. "
-            f"If they ask to change it, use an `edit_{kind}` plan block \u2014 do NOT emit `open_editor`.\n\n"
+            f"The user has this {kind} open in the side panel. The YAML is already shown below \u2014 do NOT call `get_{kind}`.\n"
+            f"**CRITICAL: When the user asks to change, edit, modify, or update it: immediately emit an `edit_{kind}` plan block with the required changes. "
+            f"Do NOT ask for confirmation. Do NOT ask clarifying questions. Do NOT call `get_{kind}`. Do NOT emit `open_editor`. Just do the edit.**\n\n"
             f"**Current {kind} YAML:**\n{yaml_block}"
             f"{selection_block}"
         )

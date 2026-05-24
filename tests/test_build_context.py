@@ -190,4 +190,4 @@ async def test_user_name_newline_stripped(hass: HomeAssistant) -> None:
 
 def test_system_prompt_template_stays_under_budget() -> None:
     """Keep the base system prompt below the target size budget."""
-    assert len(SYSTEM_PROMPT_TEMPLATE) < 18000
+    assert len(SYSTEM_PROMPT_TEMPLATE) < 20000

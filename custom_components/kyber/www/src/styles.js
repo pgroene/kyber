@@ -120,8 +120,9 @@ export const STYLES = `
     background: var(--sidebar-bg);
     border-bottom: 2px solid var(--border-color);
     overflow-x: auto;
+    overflow-y: auto;
     min-height: 90px;
-    max-height: 210px;
+    max-height: 50vh;
     scrollbar-width: thin;
   }
   .adg-section {
@@ -338,6 +339,7 @@ export const STYLES = `
 
   .chat-history {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 12px;
     display: flex;
@@ -840,6 +842,8 @@ export const STYLES = `
     overflow: hidden;
   }
   .debug-pane[hidden] { display: none !important; }
+  .chat-pane.debug-standalone > *:not(#debug-pane) { display: none !important; }
+  .chat-pane.debug-standalone > #debug-pane { flex: 1; height: auto; border-top: none; }
   .debug-pane--standalone {
     position: absolute; inset: 0;
     height: 100%;
