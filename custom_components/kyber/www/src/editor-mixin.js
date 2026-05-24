@@ -979,9 +979,9 @@ export const EditorMixin = (Base) => class extends Base {
     const chooseIndent = (chooseLine.match(/^(\s*)-/) || ["", ""])[1].length;
     const endLine = Math.min((parentToLine || parentFromLine) + 200, lines.length - 1);
 
-    // An option boundary: a list item starting with "- conditions:" or "- condition:" (HA choose format)
-    // This is more reliable than indent-matching because users may have inconsistent indentation.
-    const isOptBoundary = (line) => /^\s*-\s*(conditions?)\s*:/.test(line);
+    // An option boundary: a list item starting with "- conditions:" (plural, HA choose format).
+    // Do NOT match "- condition:" (singular) which is a sub-condition type specifier.
+    const isOptBoundary = (line) => /^\s*-\s*conditions\s*:/.test(line);
     // A sequence marker: "sequence:" key anywhere inside the choose block
     const isSeqKey = (line) => /^\s*sequence\s*:/.test(line);
 
@@ -1002,6 +1002,8 @@ export const EditorMixin = (Base) => class extends Base {
     for (let i = parentFromLine + 1; i <= endLine; i++) {
       const line = lines[i];
       if (!line.trim()) continue;
+      // Skip inline flow values like {} or [] that HA writes at column 0 inside metadata/data keys
+      if (/^\s*[\{\[]/.test(line)) continue;
       const lineIndent = (line.match(/^(\s*)/) || ["", ""])[1].length;
       if (lineIndent <= chooseIndent) break;
 
