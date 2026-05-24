@@ -518,17 +518,15 @@ class KyberSaveView(HomeAssistantView):
         if not yaml_text:
             return self.json_message("Missing 'yaml' field", HTTPStatus.BAD_REQUEST)
 
+        # HA writes empty mappings/lists as standalone {} or [] on their own
+        # line which breaks standard YAML parsing.  Always strip before parse.
+        import re
+        yaml_text = re.sub(r"^\s*(\{\}|\[\])\s*$", "", yaml_text, flags=re.MULTILINE)
+
         try:
             config = yaml.safe_load(yaml_text)
-        except yaml.YAMLError:
-            # HA writes empty mappings/lists as standalone {} or [] on their
-            # own line which breaks standard YAML parsing.  Strip and retry.
-            import re
-            cleaned = re.sub(r"^\s*(\{\}|\[\])\s*$", "", yaml_text, flags=re.MULTILINE)
-            try:
-                config = yaml.safe_load(cleaned)
-            except yaml.YAMLError as err:
-                return self.json_message(f"Invalid YAML: {err}", HTTPStatus.BAD_REQUEST)
+        except yaml.YAMLError as err:
+            return self.json_message(f"Invalid YAML: {err}", HTTPStatus.BAD_REQUEST)
 
         if not isinstance(config, dict):
             return self.json_message("YAML must be a mapping object", HTTPStatus.BAD_REQUEST)
