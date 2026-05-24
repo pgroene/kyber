@@ -68,7 +68,7 @@ export const EditorMixin = (Base) => class extends Base {
           const cursorLine = update.state.doc.lineAt(update.state.selection.main.head).number - 1;
           const cursorPos = update.state.selection.main.head;
           self._updateDiagramHighlight(cursorLine);
-          if (self._errorLineNum) self._applyErrorOverlay();
+          if (self._errorLineNum) requestAnimationFrame(() => self._applyErrorOverlay());
           clearTimeout(self._inspectorDebounce);
           self._inspectorDebounce = setTimeout(() => {
             const yamlText = update.state.doc.toString();
@@ -2171,29 +2171,27 @@ export const EditorMixin = (Base) => class extends Base {
   // Highlight the error line in the editor with a red squiggly overlay
   _setErrorLine(lineNum) {
     this._errorLineNum = lineNum;
-    this._applyErrorOverlay();
-    // Scroll to the error line
+    // Scroll to the error line first, then apply overlay after render
     if (this._editor && lineNum > 0) {
       try {
         const doc = this._editor.state.doc;
         if (lineNum <= doc.lines) {
           const pos = doc.line(lineNum).from;
           this._editor.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
-          // Re-apply after scroll settles
-          setTimeout(() => this._applyErrorOverlay(), 50);
         }
       } catch { /* ignore */ }
     }
+    // Apply after a short delay so CM has rendered the scroll position
+    setTimeout(() => this._applyErrorOverlay(), 100);
   }
 
   _clearErrorLine() {
     this._errorLineNum = null;
-    if (!this._editor) return;
-    const overlay = this._editor.dom.querySelector(".cm-error-overlay");
+    const overlay = this.shadowRoot?.getElementById("cm-error-overlay");
     if (overlay) overlay.remove();
   }
 
-  // Position an absolutely-placed error overlay on the error line
+  // Position error overlay using coordsAtPos relative to the editor pane
   _applyErrorOverlay() {
     if (!this._editor || !this._errorLineNum) return;
     try {
@@ -2201,19 +2199,25 @@ export const EditorMixin = (Base) => class extends Base {
       const lineNum = this._errorLineNum;
       if (lineNum < 1 || lineNum > doc.lines) return;
       const lineObj = doc.line(lineNum);
-      const block = this._editor.lineBlockAt(lineObj.from);
-      // Place overlay inside .cm-scroller so it scrolls with content
-      const scroller = this._editor.dom.querySelector(".cm-scroller");
-      if (!scroller) return;
-      if (getComputedStyle(scroller).position === "static") scroller.style.position = "relative";
-      let overlay = scroller.querySelector(".cm-error-overlay");
+      // Get pixel coordinates of the line
+      const coords = this._editor.coordsAtPos(lineObj.from);
+      if (!coords) return;
+      const lineEnd = this._editor.coordsAtPos(lineObj.to);
+      const lineHeight = lineEnd ? lineEnd.bottom - coords.top : 20;
+      // Position relative to the editor pane (same as entity inspector)
+      const editorPane = this._editor.dom.closest(".editor-pane") || this._editor.dom.parentElement;
+      if (!editorPane) return;
+      const paneRect = editorPane.getBoundingClientRect();
+      const top = coords.top - paneRect.top;
+      // Create or reuse overlay
+      let overlay = this.shadowRoot.getElementById("cm-error-overlay");
       if (!overlay) {
         overlay = document.createElement("div");
+        overlay.id = "cm-error-overlay";
         overlay.className = "cm-error-overlay";
-        scroller.appendChild(overlay);
+        editorPane.appendChild(overlay);
       }
-      // block.top is relative to scroll content top — no offset needed inside scroller
-      overlay.style.cssText = `position:absolute;left:0;right:0;top:${block.top}px;height:${block.height}px;pointer-events:none;z-index:5;`;
+      overlay.style.cssText = `position:absolute;left:0;right:0;top:${top}px;height:${lineHeight}px;pointer-events:none;z-index:4;`;
     } catch { /* ignore */ }
   }
 
