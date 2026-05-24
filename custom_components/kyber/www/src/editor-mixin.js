@@ -71,6 +71,7 @@ export const EditorMixin = (Base) => class extends Base {
           clearTimeout(self._inspectorDebounce);
           self._inspectorDebounce = setTimeout(() => {
             const yamlText = update.state.doc.toString();
+            self._updateTemplateInspector(cursorLine, yamlText, cursorPos);
             self._updateEntityInspector(cursorLine, yamlText, cursorPos);
             self._updateEntityListPicker(cursorLine, yamlText, cursorPos);
           }, 250);
@@ -93,6 +94,13 @@ export const EditorMixin = (Base) => class extends Base {
     insp.className = "entity-inspector";
     insp.hidden = true;
     editorPane.appendChild(insp);
+
+    // Floating template inspector — shows live preview of value_template
+    const tplInsp = document.createElement("div");
+    tplInsp.id = "template-inspector";
+    tplInsp.className = "template-inspector";
+    tplInsp.hidden = true;
+    editorPane.appendChild(tplInsp);
 
     // Floating entity-list picker — add entities to YAML lists
     const picker = document.createElement("div");
@@ -751,7 +759,8 @@ export const EditorMixin = (Base) => class extends Base {
 
     // Render a condition item — clickable if onClickFn is provided.
     // For and/or/not, recursively renders sub-conditions in a group.
-    const renderCondItem = (cond, onClickFn) => {
+    // fromLine/toLine are optional line ranges for cursor-based highlighting.
+    const renderCondItem = (cond, onClickFn, fromLine, toLine) => {
       // Handle string shorthand (bare template)
       if (typeof cond === "string") {
         cond = { condition: "template", value_template: cond };
@@ -778,8 +787,9 @@ export const EditorMixin = (Base) => class extends Base {
       let condDetail = "";
 
       if (c === "template") {
-        const vt = cond.value_template || "";
-        const statesMatch = vt.match(/states\(\s*['"]([^'"]+)['"]\s*\)\s*(==|!=|>|<|>=|<=)\s*\\?["']?([^"'\\}\s]+)/);
+        // Normalize escaped quotes — HA may store value_template with literal \" sequences
+        const vt = (cond.value_template || "").replace(/\\"/g, '"').replace(/\\'/g, "'");
+        const statesMatch = vt.match(/states\(\s*['"]([^'"]+)['"]\s*\)\s*(==|!=|>|<|>=|<=)\s*['"]?([^"'\\}\s]+)/);
         const isStateMatch = vt.match(/is_state\(\s*['"]([^'"]+)['"],\s*['"]([^'"]+)['"]\)/);
         if (statesMatch) {
           const entity = statesMatch[1];
@@ -828,6 +838,7 @@ export const EditorMixin = (Base) => class extends Base {
       }
 
       const el = document.createElement("div"); el.className = "adg-cond-item" + (onClickFn ? " adg-cond-clickable" : "");
+      if (fromLine != null) { el.dataset.from = String(fromLine); el.dataset.to = String(toLine ?? fromLine); }
       el.innerHTML = `<span class="adg-icon">${COND_ICONS[c] || "❓"}</span><span class="adg-title">${this._escH(c || "condition")}</span>${condSub ? `<span class="adg-sub">${this._escH(condSub)}</span>` : ""}${condDetail ? `<span class="adg-cond-detail">${this._escH(condDetail)}</span>` : ""}`;
       if (onClickFn) el.addEventListener("click", (e) => {
         diag.querySelectorAll(".adg-cond-selected").forEach((n) => n.classList.remove("adg-cond-selected"));
@@ -860,10 +871,18 @@ export const EditorMixin = (Base) => class extends Base {
           nodeEl.classList.add("adg-selected");
           // Jump editor to this option's line
           if (!this._suppressEditorJump && optBlock?.from_line != null) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true);
-          // Build actions column — conditions are clickable (jump to option start)
+          // Build actions column — conditions are clickable (jump to specific condition line)
           const nodes = [];
-          const condClick = optBlock?.from_line != null ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true); } : null;
-          if (conds.length) { nodes.push(mkHeader("when:")); conds.forEach((c) => nodes.push(renderCondItem(c, condClick))); }
+          if (conds.length) {
+           nodes.push(mkHeader("when:"));
+           conds.forEach((c, ci) => {
+             const condBlock = optBlock?.conditions?.[ci];
+             const condClickFn = condBlock?.from_line != null
+               ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(condBlock.from_line, condBlock.to_line, true); }
+               : (optBlock?.from_line != null ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true); } : null);
+             nodes.push(renderCondItem(c, condClickFn, condBlock?.from_line, condBlock?.to_line));
+           });
+          }
           if (seq.length) {
             if (conds.length) nodes.push(mkHeader("then:"));
             seq.forEach((a, i) => {
@@ -1101,7 +1120,7 @@ export const EditorMixin = (Base) => class extends Base {
   }
 
   // Parse the YAML to find per-option and per-sub-action line numbers within a choose/if block.
-  // Returns an array of { from_line, to_line, actions: [{from_line, to_line}] } — one entry per option.
+  // Returns an array of { from_line, to_line, actions: [{from_line, to_line}], conditions: [{from_line, to_line}] } — one entry per option.
   // Uses content-based detection so inconsistent indentation (from manual edits) still works.
   _parseChooseBlocks(parentFromLine, parentToLine) {
     if (!this._editor || parentFromLine == null) return [];
@@ -1120,14 +1139,21 @@ export const EditorMixin = (Base) => class extends Base {
     const opts = [];
     let curOpt = null;
     let inSeq = false;
+    let inConds = false;
     let curAct = null;
+    let curCond = null;
     let actIndent = -1;
+    let condIndent = -1;
 
     const pushAct = (endAt) => {
       if (curAct && curOpt) { curAct.to_line = endAt; curOpt.actions.push(curAct); curAct = null; }
     };
+    const pushCond = (endAt) => {
+      if (curCond && curOpt) { curCond.to_line = endAt; curOpt.conditions.push(curCond); curCond = null; }
+    };
     const pushOpt = (endAt) => {
       pushAct(endAt);
+      pushCond(endAt);
       if (curOpt) { curOpt.to_line = endAt; opts.push(curOpt); curOpt = null; }
     };
 
@@ -1142,13 +1168,24 @@ export const EditorMixin = (Base) => class extends Base {
       if (isOptBoundary(line)) {
         // Start of a new choose option
         pushOpt(i - 1);
-        curOpt = { from_line: i, to_line: i, actions: [], _optIndent: lineIndent };
+        curOpt = { from_line: i, to_line: i, actions: [], conditions: [], _optIndent: lineIndent };
         inSeq = false;
+        inConds = true;
         actIndent = -1;
+        condIndent = -1;
       } else if (curOpt && isSeqKey(line)) {
-        // Sequence section of the current option
+        // Sequence section of the current option — end conditions section
+        pushCond(i - 1);
+        inConds = false;
         inSeq = true;
         actIndent = -1; // will be auto-detected from first action below
+      } else if (curOpt && inConds && /^\s*-\s/.test(line)) {
+        // Condition list item inside conditions
+        if (condIndent < 0) condIndent = lineIndent;
+        if (lineIndent === condIndent) {
+          pushCond(i - 1);
+          curCond = { from_line: i, to_line: i };
+        }
       } else if (curOpt && inSeq && /^\s*-/.test(line)) {
         // Action list item inside sequence
         if (actIndent < 0) actIndent = lineIndent; // first item sets the level
@@ -1255,8 +1292,8 @@ export const EditorMixin = (Base) => class extends Base {
         const nested = [].concat(item.conditions || []);
         sub = `${nested.length} condition${nested.length !== 1 ? "s" : ""}`;
       } else if (c === "template") {
-        const vt = item.value_template || "";
-        const statesMatch = vt.match(/states\(\s*['"]([^'"]+)['"]\s*\)\s*(==|!=|>|<|>=|<=)\s*\\?["']?([^"'\\}\s]+)/);
+        const vt = (item.value_template || "").replace(/\\"/g, '"').replace(/\\'/g, "'");
+        const statesMatch = vt.match(/states\(\s*['"]([^'"]+)['"]\s*\)\s*(==|!=|>|<|>=|<=)\s*['"]?([^"'\\}\s]+)/);
         const isStateMatch = vt.match(/is_state\(\s*['"]([^'"]+)['"],\s*['"]([^'"]+)['"]\)/);
         if (statesMatch) {
           const entity = statesMatch[1];
@@ -1422,6 +1459,15 @@ export const EditorMixin = (Base) => class extends Base {
       if (active && (to - from) < bestRange) { bestRange = to - from; bestNode = node; }
     });
 
+    // Also highlight condition items that have line ranges
+    diag.querySelectorAll(".adg-cond-item").forEach((item) => {
+      const from = parseInt(item.dataset.from, 10);
+      const to = parseInt(item.dataset.to, 10);
+      if (isNaN(from) || isNaN(to)) return;
+      const active = cursorLine >= from && cursorLine <= to;
+      item.classList.toggle("adg-cond-selected", active);
+    });
+
     // Auto-collapse: deselect expanded nodes whose range no longer contains cursor
     if (depth === 0) {
       let collapseFromLevel = Infinity;
@@ -1453,9 +1499,130 @@ export const EditorMixin = (Base) => class extends Base {
     }
   }
 
+  // ─── Template inspector ────────────────────────────────────────────────────
+
+  _updateTemplateInspector(cursorLine, yamlText, cursorPos) {
+    const tplInsp = this.shadowRoot.getElementById("template-inspector");
+    if (!tplInsp || !this._hass) return;
+
+    const lines = yamlText.split("\n");
+    const line = lines[cursorLine] || "";
+
+    // Detect value_template on current line or ±1 line
+    let templateStr = null;
+    let templateLine = -1;
+    for (let i = Math.max(0, cursorLine - 1); i <= Math.min(lines.length - 1, cursorLine + 1); i++) {
+      const m = lines[i].match(/value_template\s*:\s*(.+)/);
+      if (m) {
+        templateStr = m[1].trim();
+        templateLine = i;
+        break;
+      }
+    }
+
+    if (!templateStr) {
+      tplInsp.hidden = true;
+      this._templateInspectorLine = -1;
+      return;
+    }
+
+    // Strip outer YAML quotes
+    if ((templateStr.startsWith('"') && templateStr.endsWith('"')) ||
+        (templateStr.startsWith("'") && templateStr.endsWith("'"))) {
+      templateStr = templateStr.slice(1, -1);
+    }
+    // Unescape YAML escaped quotes
+    templateStr = templateStr.replace(/\\"/g, '"').replace(/\\'/g, "'");
+
+    // Don't re-render if same template line and content
+    if (this._templateInspectorLine === templateLine && this._templateInspectorStr === templateStr) return;
+    this._templateInspectorLine = templateLine;
+    this._templateInspectorStr = templateStr;
+
+    // Hide entity inspector — template inspector takes priority
+    const entInsp = this.shadowRoot.getElementById("entity-inspector");
+    if (entInsp) entInsp.hidden = true;
+
+    // Position near the cursor
+    if (this._editor && cursorPos !== undefined) {
+      try {
+        const coords = this._editor.coordsAtPos(cursorPos);
+        const pane = tplInsp.parentElement;
+        if (coords && pane) {
+          const paneRect = pane.getBoundingClientRect();
+          const relTop = coords.top - paneRect.top + pane.scrollTop;
+          const maxTop = pane.clientHeight - 280;
+          tplInsp.style.top = `${Math.min(Math.max(relTop - 4, 60), maxTop)}px`;
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    // Extract entity IDs referenced in the template
+    const entityRefs = [];
+    const entityPattern = /(?:states|is_state|state_attr)\s*\(\s*['"]([a-z_]+\.[a-z0-9_]+)['"]/g;
+    let em;
+    while ((em = entityPattern.exec(templateStr)) !== null) {
+      if (!entityRefs.includes(em[1])) entityRefs.push(em[1]);
+    }
+
+    // Build entity chips with live values
+    const entityChips = entityRefs.map((eid) => {
+      const st = this._hass.states[eid];
+      if (!st) return `<span class="ti-entity-chip ti-unknown">${this._escH(eid)}: ???</span>`;
+      const name = st.attributes?.friendly_name || eid.split(".")[1];
+      const val = st.state;
+      const cls = val === "on" ? "ti-on" : val === "off" ? "ti-off" : val === "unavailable" ? "ti-unavail" : "";
+      return `<span class="ti-entity-chip ${cls}" title="${this._escH(eid)}">${this._escH(name)}: <b>${this._escH(val)}</b></span>`;
+    }).join("");
+
+    // Clean display of the template expression
+    const cleanExpr = templateStr.replace(/\{\{|\}\}/g, "").trim();
+
+    tplInsp.hidden = false;
+    tplInsp.innerHTML = `
+      <div class="ti-header">
+        <span class="ti-label">📋 Template</span>
+        <button class="ti-close" title="Close">✕</button>
+      </div>
+      <div class="ti-expr"><code>${this._escH(cleanExpr)}</code></div>
+      ${entityChips ? `<div class="ti-entities">${entityChips}</div>` : ""}
+      <div class="ti-preview">
+        <span class="ti-preview-label">Result:</span>
+        <span class="ti-preview-value" id="ti-preview-val">evaluating…</span>
+      </div>
+    `;
+    tplInsp.querySelector(".ti-close").addEventListener("click", () => {
+      tplInsp.hidden = true;
+      this._templateInspectorLine = -1;
+    });
+
+    // Call HA /api/template to render the template live
+    this._renderTemplatePreview(templateStr);
+  }
+
+  async _renderTemplatePreview(templateStr) {
+    const previewEl = this.shadowRoot.getElementById("ti-preview-val");
+    if (!previewEl || !this._hass) return;
+    try {
+      const resp = await this._hass.callApi("POST", "template", { template: templateStr });
+      // resp is the rendered string
+      const result = typeof resp === "string" ? resp : JSON.stringify(resp);
+      previewEl.textContent = result.length > 100 ? result.slice(0, 100) + "…" : result;
+      previewEl.className = "ti-preview-value ti-result-ok";
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      previewEl.textContent = msg.slice(0, 80);
+      previewEl.className = "ti-preview-value ti-result-err";
+    }
+  }
+
   _updateEntityInspector(cursorLine, yamlText, cursorPos) {
     const insp = this.shadowRoot.getElementById("entity-inspector");
     if (!insp || !this._hass) return;
+
+    // Skip entity inspector when template inspector is active
+    const tplInsp = this.shadowRoot.getElementById("template-inspector");
+    if (tplInsp && !tplInsp.hidden) return;
 
     const lines = yamlText.split("\n");
     let entityId = null;
@@ -1512,6 +1679,10 @@ export const EditorMixin = (Base) => class extends Base {
         <button class="ei-close" title="Close">✕</button>
       </div>
       <div class="ei-body"><table class="ei-table">${rows || "<tr><td colspan='2' class='ei-key'>no attributes</td></tr>"}</table></div>
+      <div class="ei-footer">
+        <a class="ei-config-link" href="/config/entities/entity_id/${entityId}" target="_top" title="Open entity settings">⚙ Configure</a>
+        <a class="ei-config-link" href="/developer-tools/state?entity_id=${entityId}" target="_top" title="Open in Developer Tools">🔧 Dev Tools</a>
+      </div>
     `;
     insp.querySelector(".ei-close").addEventListener("click", () => { insp.hidden = true; });
   }

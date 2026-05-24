@@ -273,6 +273,81 @@ export const STYLES = `
   .ei-table td { padding: 2px 10px; vertical-align: top; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 40%, transparent); }
   .ei-key { color: var(--text-muted); white-space: nowrap; font-family: monospace; font-size: 10px; width: 40%; }
   .ei-val { color: var(--text-color); word-break: break-all; font-size: 11px; }
+  .ei-footer { display: flex; gap: 8px; padding: 4px 6px; border-top: 1px solid var(--border-color); }
+  .ei-config-link { font-size: 10px; color: #42a5f5; text-decoration: none; cursor: pointer; white-space: nowrap; }
+  .ei-config-link:hover { text-decoration: underline; color: #90caf9; }
+
+  /* ── Template inspector (floating live preview) ────── */
+  .template-inspector {
+    position: absolute;
+    right: 8px;
+    left: auto;
+    top: 80px;
+    width: 280px;
+    max-height: 320px;
+    background: var(--sidebar-bg, #1e1e2e);
+    border: 1px solid var(--border-color, #444);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    z-index: 20;
+    overflow: auto;
+    font-size: 11px;
+  }
+  .ti-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: rgba(255,152,0,0.1);
+    border-bottom: 1px solid var(--border-color);
+    border-radius: 8px 8px 0 0;
+  }
+  .ti-label { font-weight: 600; font-size: 12px; color: #ff9800; }
+  .ti-close { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 14px; padding: 0 2px; }
+  .ti-expr {
+    padding: 8px 10px;
+    background: rgba(0,0,0,0.15);
+    border-bottom: 1px solid var(--border-color);
+    font-family: monospace;
+    font-size: 11px;
+    color: #e0e0e0;
+    word-break: break-all;
+    line-height: 1.4;
+  }
+  .ti-expr code { color: #ffcc80; }
+  .ti-entities {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .ti-entity-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    background: rgba(255,255,255,0.08);
+    color: var(--text-color);
+    white-space: nowrap;
+  }
+  .ti-entity-chip b { color: #90caf9; }
+  .ti-on b { color: #4caf50; }
+  .ti-off b { color: #ff5252; }
+  .ti-unavail { opacity: 0.5; }
+  .ti-unknown { opacity: 0.5; font-style: italic; }
+  .ti-preview {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  .ti-preview-label { font-size: 10px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+  .ti-preview-value { font-family: monospace; font-size: 12px; font-weight: 600; word-break: break-all; }
+  .ti-result-ok { color: #4caf50; }
+  .ti-result-err { color: #ff5252; font-size: 10px; font-weight: 400; }
 
   /* ── Entity list picker (floating add-entity widget) ────── */
   .entity-list-picker {
