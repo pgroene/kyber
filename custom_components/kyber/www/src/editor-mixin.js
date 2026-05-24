@@ -993,8 +993,7 @@ export const EditorMixin = (Base) => class extends Base {
       if (!foundSeq && /^\s*sequence\s*:/.test(l)) { foundSeq = true; continue; }
       if (foundSeq && /^\s*-/.test(l) && li > optIndent) { actIndent = li; }
     }
-    if (actIndent < 0) actIndent = optIndent + 4; // fallback
-
+    if (actIndent < 0) actIndent = optIndent + 2; // fallback
     const optPat = new RegExp(`^\\s{${optIndent}}-`);
     const actPat = new RegExp(`^\\s{${actIndent}}-`);
     const seqPat = /^\s*sequence\s*:/;
@@ -1022,7 +1021,7 @@ export const EditorMixin = (Base) => class extends Base {
         pushOpt(i - 1);
         curOpt = { from_line: i, to_line: i, actions: [] };
         inSeq = false;
-      } else if (curOpt && seqPat.test(line) && lineIndent > optIndent) {
+      } else if (curOpt && seqPat.test(line) && lineIndent >= optIndent) {
         inSeq = true;
       } else if (curOpt && inSeq && actPat.test(line)) {
         pushAct(i - 1);
