@@ -198,6 +198,7 @@ export const STYLES = `
   .adg-cond-item { display: flex; flex-direction: column; padding: 4px 8px; background: var(--card-bg, #1e1e2e); border-left: 2px solid #ff9800; border-radius: 4px; margin: 2px 0; opacity: 0.85; }
   .adg-cond-clickable { cursor: pointer; opacity: 1; }
   .adg-cond-clickable:hover { border-left-color: #ffb74d; background: rgba(255,152,0,0.12); }
+  .adg-cond-clickable.adg-cond-selected { border-left-color: #ff9800; background: rgba(255,152,0,0.22); box-shadow: 0 0 0 2px rgba(255,152,0,0.4); opacity: 1; }
   .adg-sub-node { opacity: 0.85; border-left-width: 2px; border-left-style: dashed; padding: 5px 8px; }
   .adg-expandable { cursor: pointer; }
   .adg-icon  { font-size: 14px; line-height: 1; margin-bottom: 4px; }

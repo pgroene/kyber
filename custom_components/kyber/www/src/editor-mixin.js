@@ -748,7 +748,12 @@ export const EditorMixin = (Base) => class extends Base {
       const condSub = entityId.includes(".") ? entityId.split(".")[1] : (entityId || (cond.value_template || "").slice(0, 25));
       const el = document.createElement("div"); el.className = "adg-cond-item" + (onClickFn ? " adg-cond-clickable" : "");
       el.innerHTML = `<span class="adg-icon">${COND_ICONS[c] || "❓"}</span><span class="adg-title">${this._escH(c || "condition")}</span>${condSub ? `<span class="adg-sub">${this._escH(condSub)}</span>` : ""}`;
-      if (onClickFn) el.addEventListener("click", (e) => { onClickFn(); e.stopPropagation(); });
+      if (onClickFn) el.addEventListener("click", (e) => {
+        diag.querySelectorAll(".adg-cond-selected").forEach((n) => n.classList.remove("adg-cond-selected"));
+        el.classList.add("adg-cond-selected");
+        onClickFn();
+        e.stopPropagation();
+      });
       return el;
     };
 
@@ -762,6 +767,7 @@ export const EditorMixin = (Base) => class extends Base {
       const nodeEl = document.createElement("div");
       const optCls = optItem._isDefault ? "adg-option-default" : "adg-option";
       nodeEl.className = `adg-node adg-action ${optCls} adg-expandable`;
+      if (optBlock?.from_line) { nodeEl.dataset.from = String(optBlock.from_line); nodeEl.dataset.to = String(optBlock.to_line || optBlock.from_line); }
       const condStr = conds.length ? ` · ${conds.length} cond` : "";
       const seqStr = seq.length ? `${seq.length} action${seq.length !== 1 ? "s" : ""}${condStr}` : (conds.length ? `${conds.length} cond` : "");
       nodeEl.innerHTML = `<span class="adg-icon">${optItem._isDefault ? "↩" : "📋"}</span><span class="adg-title">${this._escH(optItem._label)}</span>${seqStr ? `<span class="adg-sub">${seqStr}</span>` : ""}`;
@@ -772,7 +778,7 @@ export const EditorMixin = (Base) => class extends Base {
         if (!wasSelected) {
           nodeEl.classList.add("adg-selected");
           // Jump editor to this option's line
-          if (optBlock?.from_line) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true);
+          if (!this._suppressEditorJump && optBlock?.from_line) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true);
           // Build actions column — conditions are clickable (jump to option start)
           const nodes = [];
           const condClick = optBlock?.from_line ? () => this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true) : null;
@@ -825,7 +831,7 @@ export const EditorMixin = (Base) => class extends Base {
           removeDrilldownCols(colLevel + 1);
           if (!wasSelected) {
             nodeEl.classList.add("adg-selected");
-            if (fromLine || toLine) this._jumpEditorToBlock(fromLine, toLine, true);
+            if (!this._suppressEditorJump && (fromLine || toLine)) this._jumpEditorToBlock(fromLine, toLine, true);
             if (isChooseIf) {
               const chooseBlocks = this._parseChooseBlocks(fromLine, toLine);
               addDrilldownCol(colLevel + 1, title, children.map((opt, i) => renderOptionTile(opt, nodeEl, chooseBlocks[i], colLevel + 1)));
@@ -847,7 +853,7 @@ export const EditorMixin = (Base) => class extends Base {
                 untilConds.forEach((c) => nodes.push(renderCondItem(c)));
               }
               if (children.length) nodes.push(mkHeader("sequence:"));
-              children.forEach((child) => nodes.push(renderActionNode(child, "adg-action", 0, 0, 0, null, colLevel + 1)));
+              children.forEach((child) => nodes.push(renderActionNode(child, "adg-action", fromLine, toLine, 0, null, colLevel + 1)));
               addDrilldownCol(colLevel + 1, title, nodes);
             } else {
               // parallel: each element is a {sequence:[]} wrapper — flatten all sequences
@@ -855,7 +861,7 @@ export const EditorMixin = (Base) => class extends Base {
               [].concat(item.parallel || []).forEach((branch, bi) => {
                 const seq = [].concat(branch.sequence || branch || []);
                 if (item.parallel.length > 1) nodes.push(mkHeader(branch.alias || `branch ${bi + 1}`));
-                seq.forEach((child) => nodes.push(renderActionNode(child, "adg-action", 0, 0, 0, null, colLevel + 1)));
+                seq.forEach((child) => nodes.push(renderActionNode(child, "adg-action", fromLine, toLine, 0, null, colLevel + 1)));
               });
               addDrilldownCol(colLevel + 1, title, nodes);
             }
@@ -1217,14 +1223,33 @@ export const EditorMixin = (Base) => class extends Base {
     this._editor.focus();
   }
 
-  _updateDiagramHighlight(cursorLine) {
+  _updateDiagramHighlight(cursorLine, depth = 0) {
     const diag = this.shadowRoot.getElementById("automation-diagram");
     if (!diag || diag.hidden) return;
+
+    // Find the narrowest (most specific) node containing the cursor line
+    let bestNode = null;
+    let bestRange = Infinity;
     diag.querySelectorAll(".adg-node").forEach((node) => {
       const from = parseInt(node.dataset.from, 10);
       const to = parseInt(node.dataset.to, 10);
-      node.classList.toggle("adg-active", cursorLine >= from && cursorLine <= to);
+      if (isNaN(from) || isNaN(to) || (from === 0 && to === 0)) {
+        node.classList.remove("adg-active"); return;
+      }
+      const active = cursorLine >= from && cursorLine <= to;
+      node.classList.toggle("adg-active", active);
+      if (active && (to - from) < bestRange) { bestRange = to - from; bestNode = node; }
     });
+
+    // Auto-expand: click the best unselected expandable node (max 3 levels deep)
+    if (depth < 3 && bestNode &&
+        bestNode.classList.contains("adg-expandable") &&
+        !bestNode.classList.contains("adg-selected")) {
+      this._suppressEditorJump = true;
+      bestNode.click();
+      this._suppressEditorJump = false;
+      this._updateDiagramHighlight(cursorLine, depth + 1);
+    }
   }
 
   _updateEntityInspector(cursorLine, yamlText, cursorPos) {
