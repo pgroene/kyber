@@ -196,6 +196,7 @@ export const STYLES = `
   .adg-option.adg-selected { opacity: 1; border-color: #7c4dff; background: rgba(124,77,255,0.18); box-shadow: 0 0 0 2px rgba(124,77,255,0.4); }
   .adg-opt-header { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted, #999); padding: 2px 4px 1px; margin-top: 2px; }
   .adg-cond-item { display: flex; flex-direction: column; padding: 4px 8px; background: var(--card-bg, #1e1e2e); border-left: 2px solid #ff9800; border-radius: 4px; margin: 2px 0; opacity: 0.85; }
+  .adg-nodes > .adg-cond-item { min-width: 120px; max-width: 165px; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border-color); border-left: 3px solid #ff9800; opacity: 1; cursor: pointer; transition: border-color 0.15s, background 0.15s, box-shadow 0.15s; }
   .adg-cond-detail { font-size: 9px; color: #ff9800; font-weight: 600; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 145px; }
   .adg-cond-group { border-left: 2px solid #666; padding-left: 6px; margin: 2px 0; }
   .adg-cond-group-label { font-size: 9px; font-weight: 700; color: #ab47bc; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }

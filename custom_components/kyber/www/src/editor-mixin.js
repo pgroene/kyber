@@ -1029,6 +1029,12 @@ export const EditorMixin = (Base) => class extends Base {
         const toLine = lineBlock ? lineBlock.to_line : 0;
         if (sectionKey === "actions") {
           nodesEl.appendChild(renderActionNode(item, cls, fromLine, toLine, 0));
+        } else if (sectionKey === "conditions") {
+          // Use rich condition renderer for per-condition click navigation
+          const clickFn = (fromLine > 0 || toLine > 0) ? () => this._jumpEditorToBlock(fromLine, toLine) : null;
+          const condEl = renderCondItem(item, clickFn, fromLine, toLine);
+          if (isBlockDirty(fromLine, toLine)) condEl.classList.add("adg-dirty");
+          nodesEl.appendChild(condEl);
         } else {
           const { icon, title, sub } = this._blockMetaFromJson(sectionKey, item);
           const nodeEl = document.createElement("div");
