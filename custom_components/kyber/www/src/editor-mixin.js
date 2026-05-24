@@ -744,10 +744,50 @@ export const EditorMixin = (Base) => class extends Base {
     // Render a condition item — clickable if onClickFn is provided
     const renderCondItem = (cond, onClickFn) => {
       const c = cond.condition || "";
-      const entityId = (Array.isArray(cond.entity_id) ? cond.entity_id[0] : cond.entity_id) || "";
-      const condSub = entityId.includes(".") ? entityId.split(".")[1] : (entityId || (cond.value_template || "").slice(0, 25));
+      let condSub = "";
+      let condDetail = "";
+
+      if (c === "template") {
+        const vt = cond.value_template || "";
+        // Parse common template patterns to show readable info
+        const statesMatch = vt.match(/states\(\s*['"]([^'"]+)['"]\s*\)\s*(==|!=|>|<|>=|<=)\s*\\?["']?([^"'\\}\s]+)/);
+        const isStateMatch = vt.match(/is_state\(\s*['"]([^'"]+)['"],\s*['"]([^'"]+)['"]\)/);
+        if (statesMatch) {
+          const entity = statesMatch[1];
+          condSub = entity.includes(".") ? entity.split(".")[1] : entity;
+          condDetail = `${statesMatch[2]} ${statesMatch[3]}`;
+        } else if (isStateMatch) {
+          const entity = isStateMatch[1];
+          condSub = entity.includes(".") ? entity.split(".")[1] : entity;
+          condDetail = `== ${isStateMatch[2]}`;
+        } else {
+          condSub = vt.replace(/\{\{|\}\}/g, "").trim().slice(0, 40);
+        }
+      } else if (c === "state") {
+        const entityId = (Array.isArray(cond.entity_id) ? cond.entity_id[0] : cond.entity_id) || "";
+        condSub = entityId.includes(".") ? entityId.split(".")[1] : entityId;
+        if (cond.state !== undefined) condDetail = `== ${cond.state}`;
+      } else if (c === "numeric_state") {
+        const entityId = (Array.isArray(cond.entity_id) ? cond.entity_id[0] : cond.entity_id) || "";
+        condSub = entityId.includes(".") ? entityId.split(".")[1] : entityId;
+        const parts = [];
+        if (cond.above !== undefined) parts.push(`> ${cond.above}`);
+        if (cond.below !== undefined) parts.push(`< ${cond.below}`);
+        condDetail = parts.join(", ");
+      } else if (c === "time") {
+        const parts = [];
+        if (cond.after) parts.push(`after ${cond.after}`);
+        if (cond.before) parts.push(`before ${cond.before}`);
+        condSub = parts.join(", ") || "";
+      } else if (c === "zone") {
+        condSub = cond.zone || "";
+      } else {
+        const entityId = (Array.isArray(cond.entity_id) ? cond.entity_id[0] : cond.entity_id) || "";
+        condSub = entityId.includes(".") ? entityId.split(".")[1] : (entityId || (cond.value_template || "").slice(0, 25));
+      }
+
       const el = document.createElement("div"); el.className = "adg-cond-item" + (onClickFn ? " adg-cond-clickable" : "");
-      el.innerHTML = `<span class="adg-icon">${COND_ICONS[c] || "❓"}</span><span class="adg-title">${this._escH(c || "condition")}</span>${condSub ? `<span class="adg-sub">${this._escH(condSub)}</span>` : ""}`;
+      el.innerHTML = `<span class="adg-icon">${COND_ICONS[c] || "❓"}</span><span class="adg-title">${this._escH(c || "condition")}</span>${condSub ? `<span class="adg-sub">${this._escH(condSub)}</span>` : ""}${condDetail ? `<span class="adg-cond-detail">${this._escH(condDetail)}</span>` : ""}`;
       if (onClickFn) el.addEventListener("click", (e) => {
         diag.querySelectorAll(".adg-cond-selected").forEach((n) => n.classList.remove("adg-cond-selected"));
         el.classList.add("adg-cond-selected");
@@ -1151,8 +1191,25 @@ export const EditorMixin = (Base) => class extends Base {
     if (section === "conditions") {
       const c = item.condition || "";
       const ICONS = { state: "✅", template: "📋", time: "⏰", numeric_state: "🔢", zone: "📍", and: "🔗", or: "🔀", not: "❌", device: "📱", trigger: "⚡" };
-      const entityId = (Array.isArray(item.entity_id) ? item.entity_id[0] : item.entity_id) || "";
-      const sub = entityId.includes(".") ? entityId.split(".")[1] : entityId;
+      let sub = "";
+      if (c === "template") {
+        const vt = item.value_template || "";
+        const statesMatch = vt.match(/states\(\s*['"]([^'"]+)['"]\s*\)\s*(==|!=|>|<|>=|<=)\s*\\?["']?([^"'\\}\s]+)/);
+        const isStateMatch = vt.match(/is_state\(\s*['"]([^'"]+)['"],\s*['"]([^'"]+)['"]\)/);
+        if (statesMatch) {
+          const entity = statesMatch[1];
+          sub = (entity.includes(".") ? entity.split(".")[1] : entity) + ` ${statesMatch[2]} ${statesMatch[3]}`;
+        } else if (isStateMatch) {
+          const entity = isStateMatch[1];
+          sub = (entity.includes(".") ? entity.split(".")[1] : entity) + ` == ${isStateMatch[2]}`;
+        } else {
+          sub = vt.replace(/\{\{|\}\}/g, "").trim().slice(0, 40);
+        }
+      } else {
+        const entityId = (Array.isArray(item.entity_id) ? item.entity_id[0] : item.entity_id) || "";
+        sub = entityId.includes(".") ? entityId.split(".")[1] : entityId;
+        if (c === "state" && item.state !== undefined) sub += ` == ${item.state}`;
+      }
       return { icon: ICONS[c] || "❓", title: c || "condition", sub };
     }
     // actions
@@ -1280,6 +1337,26 @@ export const EditorMixin = (Base) => class extends Base {
       node.classList.toggle("adg-active", active);
       if (active && (to - from) < bestRange) { bestRange = to - from; bestNode = node; }
     });
+
+    // Auto-collapse: deselect expanded nodes whose range no longer contains cursor
+    if (depth === 0) {
+      let collapseFromLevel = Infinity;
+      diag.querySelectorAll(".adg-node.adg-selected.adg-expandable").forEach((node) => {
+        const from = parseInt(node.dataset.from, 10);
+        const to = parseInt(node.dataset.to, 10);
+        if (!isNaN(from) && !isNaN(to) && (cursorLine < from || cursorLine > to)) {
+          node.classList.remove("adg-selected", "adg-has-expanded-child");
+          const sec = node.closest(".adg-section.adg-dd");
+          const nodeLevel = sec ? parseInt(sec.dataset.level || "0") : 0;
+          collapseFromLevel = Math.min(collapseFromLevel, nodeLevel + 1);
+        }
+      });
+      if (collapseFromLevel < Infinity) {
+        diag.querySelectorAll(".adg-dd").forEach((el) => {
+          if (parseInt(el.dataset.level || "0") >= collapseFromLevel) el.remove();
+        });
+      }
+    }
 
     // Auto-expand: click the best unselected expandable node (max 3 levels deep)
     if (depth < 3 && bestNode &&
