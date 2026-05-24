@@ -307,15 +307,17 @@ export const STYLES = `
   .ti-close { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 14px; padding: 0 2px; }
   .ti-expr {
     padding: 8px 10px;
-    background: rgba(0,0,0,0.15);
+    background: #1e1e2e;
     border-bottom: 1px solid var(--border-color);
     font-family: monospace;
-    font-size: 11px;
+    font-size: 12px;
     color: #e0e0e0;
     overflow-x: auto;
     white-space: pre-wrap;
     word-break: break-word;
-    line-height: 1.4;
+    line-height: 1.5;
+    border-radius: 4px;
+    margin: 4px 6px;
   }
   .ti-expr code { color: #ffcc80; }
   .ti-entities {
@@ -332,8 +334,8 @@ export const STYLES = `
     padding: 2px 8px;
     border-radius: 12px;
     font-size: 10px;
-    background: rgba(255,255,255,0.08);
-    color: var(--text-color);
+    background: rgba(0,0,0,0.08);
+    color: var(--primary-text-color, #333);
     white-space: nowrap;
   }
   .ti-entity-chip b { color: #90caf9; }
