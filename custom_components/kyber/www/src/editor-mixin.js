@@ -2098,12 +2098,14 @@ export const EditorMixin = (Base) => class extends Base {
   async _reparseEditorConfig(yamlText) {
     if (!this._hass || !yamlText?.trim()) return;
     const errorBar = this.shadowRoot.getElementById("yaml-error-bar");
+    // Strip standalone {} and [] lines (HA writes empty mappings/lists this way)
+    const cleaned = yamlText.replace(/^\s*(?:\{\}|\[\])\s*$/gm, "");
     try {
       const token = this._hass.auth.data.access_token;
       const resp = await fetch("/api/kyber/parse_yaml", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ yaml: yamlText }),
+        body: JSON.stringify({ yaml: cleaned }),
       });
       if (!resp.ok) {
         // YAML parse error — show error banner with AI fix button
@@ -2159,6 +2161,13 @@ export const EditorMixin = (Base) => class extends Base {
   async _aiAutofix(errMsg, yamlText) {
     if (!this._hass) return;
     const errorBar = this.shadowRoot.getElementById("yaml-error-bar");
+
+    // Auto-fix known HA YAML formatting issues ({} / [] on standalone lines)
+    if (/\{\}|\[\]/.test(errMsg) && /^\s*(?:\{\}|\[\])\s*$/m.test(yamlText)) {
+      const fixed = yamlText.replace(/^\s*(?:\{\}|\[\])\s*$/gm, "");
+      this._showFixPreview(fixed, yamlText, errMsg);
+      return;
+    }
 
     // Show progress in the error bar
     const autofixBtn = errorBar?.querySelector(".yeb-autofix");
@@ -2237,6 +2246,15 @@ ${yamlText}`;
   }
 
   _aiGuidedFix(errMsg, yamlText) {
+    // Auto-fix known HA YAML formatting issues ({} / [] on standalone lines)
+    if (/\{\}|\[\]/.test(errMsg) && /^\s*(?:\{\}|\[\])\s*$/m.test(yamlText)) {
+      const fixed = yamlText.replace(/^\s*(?:\{\}|\[\])\s*$/gm, "");
+      this._setEditorContent(fixed);
+      const errorBar = this.shadowRoot.getElementById("yaml-error-bar");
+      if (errorBar) errorBar.hidden = true;
+      this._setStatus("Auto-fixed: removed HA empty {} / [] lines ✓", "success");
+      return;
+    }
     // Send the error to the chat as a guided conversation
     const promptInput = this.shadowRoot.getElementById("prompt-input");
     if (promptInput) {
