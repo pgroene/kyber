@@ -32,16 +32,16 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=119";
+import { STYLES } from "./src/styles.js?v=121";
 import { getT } from "./src/i18n.js?v=3";
 import { UtilsMixin } from "./src/utils-mixin.js?v=101";
 import { SessionMixin } from "./src/session-mixin.js?v=88";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=89";
-import { DebugMixin } from "./src/debug-mixin.js?v=111";
-import { SlashMixin } from "./src/slash-commands-mixin.js?v=96";
-import { EditorMixin } from "./src/editor-mixin.js?v=98";
-import { AIMixin } from "./src/ai-mixin.js?v=118";
-import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=101";
+import { DebugMixin } from "./src/debug-mixin.js?v=112";
+import { SlashMixin } from "./src/slash-commands-mixin.js?v=97";
+import { EditorMixin } from "./src/editor-mixin.js?v=99";
+import { AIMixin } from "./src/ai-mixin.js?v=119";
+import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=102";
 
 // ---------------------------------------------------------------------------
 // Custom Element
@@ -206,22 +206,22 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <textarea id="prompt-input" placeholder="${this._t("placeholder")}" rows="3"></textarea>
             <button class="btn-ask" id="btn-ask">${this._t("btn_ask")}</button>
           </div>
-        </div>
-        <div class="debug-pane" id="debug-pane" hidden>
-          <div class="debug-header">
-            <strong>${this._t("debug_title")}</strong>
-            <nav class="debug-tabs">
-              <button class="debug-tab active" data-debug-tab="memory">${this._t("debug_tab_memory")}</button>
-              <button class="debug-tab" data-debug-tab="last_turn">${this._t("debug_tab_last")}</button>
-              <button class="debug-tab" data-debug-tab="status">${this._t("debug_tab_status")}</button>
-              <button class="debug-tab" data-debug-tab="logs">${this._t("debug_tab_logs")}</button>
-              <button class="debug-tab" data-debug-tab="tests">${this._t("debug_tab_tests")}</button>
-              <button class="debug-tab" data-debug-tab="mcp">${this._t("debug_tab_mcp")}</button>
-            </nav>
-            <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">↻</button>
-            <button class="btn-debug-close" id="btn-debug-close" title="Back to chat">✕</button>
+          <div class="debug-pane" id="debug-pane" hidden>
+            <div class="debug-header">
+              <strong>${this._t("debug_title")}</strong>
+              <nav class="debug-tabs">
+                <button class="debug-tab active" data-debug-tab="memory">${this._t("debug_tab_memory")}</button>
+                <button class="debug-tab" data-debug-tab="last_turn">${this._t("debug_tab_last")}</button>
+                <button class="debug-tab" data-debug-tab="status">${this._t("debug_tab_status")}</button>
+                <button class="debug-tab" data-debug-tab="logs">${this._t("debug_tab_logs")}</button>
+                <button class="debug-tab" data-debug-tab="tests">${this._t("debug_tab_tests")}</button>
+                <button class="debug-tab" data-debug-tab="mcp">${this._t("debug_tab_mcp")}</button>
+              </nav>
+              <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">↻</button>
+              <button class="btn-debug-close" id="btn-debug-close" title="Close debug">✕</button>
+            </div>
+            <div class="debug-body" id="debug-body"><em>${this._t("debug_loading")}</em></div>
           </div>
-          <div class="debug-body" id="debug-body"><em>${this._t("debug_loading")}</em></div>
         </div>
         <div class="editor-pane" id="editor-container"></div>
         <div class="status-bar" id="status-bar">
@@ -248,7 +248,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     const closeBtn = shadow.getElementById("btn-debug-close");
     const isAdmin = !!this._hass?.user?.is_admin;
 
-    // Apply debug layout SYNCHRONOUSLY before any async work to avoid flash.
+    // Standalone debug mode (/kyber-debug path)
     if (this._mode === "debug" && isAdmin) {
       if (chat) chat.style.display = "none";
       if (pane) {
@@ -259,59 +259,61 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       this._debugTab = this._debugTab || "memory";
     } else {
       if (chat) chat.style.display = "";
-      if (pane) {
-        pane.setAttribute("hidden", "");
-        pane.classList.remove("debug-pane--standalone");
-      }
+      if (pane) pane.classList.remove("debug-pane--standalone");
       if (closeBtn) closeBtn.style.display = "";
     }
 
     const btnDebug = shadow.getElementById("btn-debug");
     if (!isAdmin) {
       if (btnDebug) btnDebug.style.display = "none";
-      if (pane) {
-        pane.setAttribute("hidden", "");
-        pane.classList.remove("debug-pane--standalone");
-      }
+      if (pane) pane.setAttribute("hidden", "");
       if (chat) chat.style.display = "";
       this._debugEnabled = false;
       this._loadMemoryCount();
-      if (this._mode !== "debug") {
-        this._startStatusPolling();
-      }
+      if (this._mode !== "debug") this._startStatusPolling();
       return;
     }
 
-    // Always show the debug button for admins so they can access it even if debug mode was toggled off.
     if (btnDebug) btnDebug.style.display = "";
     this._debugEnabled = true;
 
-    let debugAutoOpen = true;
-    try {
-      if (isAdmin) {
-        const data = await this._hass.callApi("GET", "kyber/debug/mode");
-        debugAutoOpen = !!data.enabled;
+    // Restore debug pane visibility immediately from localStorage (no async flash)
+    if (this._mode !== "debug") {
+      let savedOpen = null;
+      try { savedOpen = localStorage.getItem("kyber_debug_open"); } catch (e) { /* test env */ }
+      // Only auto-open if explicitly saved as "1"; default is closed on first visit
+      const shouldOpen = savedOpen === "1";
+      if (shouldOpen) {
+        pane.removeAttribute("hidden");
+        this._debugTab = this._debugTab || "last_turn";
+        this._renderDebugTab(this._debugTab);
+      } else {
+        pane.setAttribute("hidden", "");
       }
-    } catch (e) { /* keep default */ }
+    } else {
+      this._renderDebugTab(this._debugTab || "memory");
+    }
 
     this._loadMemoryCount();
 
-    if (debugAutoOpen) {
-      if (this._mode === "debug") {
-        this._renderDebugTab(this._debugTab);
-      } else {
-        pane.removeAttribute("hidden");
-        pane.classList.remove("debug-pane--standalone");
-        this._debugTab = this._debugTab || "last_turn";
-        this._renderDebugTab(this._debugTab);
-      }
-    } else if (this._mode === "debug") {
-      // In standalone debug mode, always render the tab regardless of the toggle setting
-      this._renderDebugTab(this._debugTab);
-    }
-    if (this._mode !== "debug") {
-      this._startStatusPolling();
-    }
+    // Async: sync server-side setting (update localStorage for next time)
+    try {
+      const data = await this._hass.callApi("GET", "kyber/debug/mode");
+      const serverEnabled = !!data.enabled;
+      try {
+        // Only override if user hasn't set a preference yet
+        if (localStorage.getItem("kyber_debug_open") === null) {
+          localStorage.setItem("kyber_debug_open", serverEnabled ? "1" : "0");
+          if (serverEnabled && this._mode !== "debug") {
+            pane.removeAttribute("hidden");
+            this._debugTab = this._debugTab || "last_turn";
+            this._renderDebugTab(this._debugTab);
+          }
+        }
+      } catch (e) { /* localStorage unavailable */ }
+    } catch (e) { /* API unavailable */ }
+
+    if (this._mode !== "debug") this._startStatusPolling();
   }
 
   _bindEvents(shadow) {
@@ -347,14 +349,8 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       this._clearHistory();
     });
     shadow.getElementById("btn-debug").addEventListener("click", () => {
-      // Always navigate to the dedicated debug page so the chat panel stays clean.
       if (this._mode === "debug") return;
-      try {
-        window.history.pushState({}, "", "/kyber-debug");
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      } catch (e) {
-        window.location.href = "/kyber-debug";
-      }
+      this._toggleDebugPane();
     });
     shadow.getElementById("btn-debug-close").addEventListener("click", () => this._toggleDebugPane(false));
     shadow.getElementById("btn-debug-refresh").addEventListener("click", () => this._renderDebugTab(this._debugTab || "memory"));

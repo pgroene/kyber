@@ -164,6 +164,7 @@ export const STYLES = `
   .adg-trigger.adg-active  { border-color: #4caf50; background: rgba(76,175,80,0.18); box-shadow: 0 0 0 2px rgba(76,175,80,0.3); }
   .adg-condition.adg-active{ border-color: #ff9800; background: rgba(255,152,0,0.18); box-shadow: 0 0 0 2px rgba(255,152,0,0.3); }
   .adg-action.adg-active   { border-color: #2196f3; background: rgba(33,150,243,0.18); box-shadow: 0 0 0 2px rgba(33,150,243,0.3); }
+  .adg-sub-node { opacity: 0.85; font-size: 10px; border-left-width: 2px; border-left-style: dashed; }
   .adg-icon  { font-size: 15px; line-height: 1; margin-bottom: 3px; }
   .adg-title { font-size: 11px; font-weight: 600; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
   .adg-sub   { font-size: 10px; color: var(--text-muted, #999); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; margin-top: 1px; }
@@ -769,19 +770,27 @@ export const STYLES = `
   }
   .btn-debug:hover { color: var(--primary-color); border-color: var(--primary-color); }
   .debug-pane {
-    flex: 1; display: flex; flex-direction: column; height: 100%;
-    padding: 12px; box-sizing: border-box; overflow: auto;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    height: 260px;
+    border-top: 2px solid var(--divider-color);
+    background: var(--primary-background-color, #fafafa);
+    overflow: hidden;
   }
   .debug-pane[hidden] { display: none !important; }
   .debug-pane--standalone {
     position: absolute; inset: 0;
+    height: 100%;
     background: var(--primary-background-color, #fafafa);
     z-index: 5;
+    border-top: none;
   }
   .debug-header {
     display: flex; align-items: center; gap: 8px;
     border-bottom: 1px solid var(--divider-color);
-    padding-bottom: 8px; margin-bottom: 12px;
+    padding: 6px 10px;
+    flex: 0 0 auto;
   }
   .debug-header h2 { margin: 0; font-size: 16px; flex: 0 0 auto; }
   .debug-tabs { display: flex; gap: 4px; flex: 1; margin-left: 12px; }
@@ -794,7 +803,7 @@ export const STYLES = `
     background: var(--primary-color); color: white;
     border-color: var(--primary-color);
   }
-  .debug-body { flex: 1; overflow: auto; }
+  .debug-body { flex: 1; overflow: auto; padding: 8px 12px; }
   .debug-stats {
     background: var(--card-background-color); padding: 8px 10px;
     border-radius: 4px; margin-bottom: 10px; font-size: 12px;

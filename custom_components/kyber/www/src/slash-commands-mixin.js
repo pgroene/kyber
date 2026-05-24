@@ -772,16 +772,7 @@ export const SlashMixin = (Base) => class extends Base {
       case "open": {
         const state = this._findEntity("automation", nameArg);
         if (!state) { this._showMsg(`Automation not found: "${nameArg}". Try a partial name.`); return; }
-        const friendly = state.attributes.friendly_name || state.entity_id;
-        const configId = state.attributes.id || state.entity_id.replace("automation.", "");
-        this._buildCommandCard({
-          icon: "📝", title: "Open automation editor",
-          detail: `${state.entity_id} — ${friendly}`,
-          onConfirm: (card) => {
-            this._openEditor(state.entity_id);
-            card.querySelector(".btn-cmd-execute").textContent = "✓ Opened";
-          },
-        });
+        this._openEditor(state.entity_id);
         break;
       }
       case "close":
@@ -843,15 +834,7 @@ export const SlashMixin = (Base) => class extends Base {
       case "open": {
         const state = this._findEntity("script", nameArg);
         if (!state) { this._showMsg(`Script not found: "${nameArg}".`); return; }
-        const friendly = state.attributes.friendly_name || state.entity_id;
-        this._buildCommandCard({
-          icon: "📜", title: "Open script editor",
-          detail: `${state.entity_id} — ${friendly}`,
-          onConfirm: (card) => {
-            this._openEditor(state.entity_id);
-            card.querySelector(".btn-cmd-execute").textContent = "✓ Opened";
-          },
-        });
+        this._openEditor(state.entity_id);
         break;
       }
       case "close":

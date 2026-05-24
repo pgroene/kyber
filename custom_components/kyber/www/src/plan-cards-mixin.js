@@ -926,6 +926,10 @@ export const PlanCardsMixin = (Base) => class extends Base {
             await this._hass.callApi("POST", apiPath, { ...(plan.original_config || workingConfig), id: configId });
             cancelBtn.textContent = "✓ Hersteld";
             cancelBtn.disabled = true;
+            // Re-enable apply so the user can re-apply after undo
+            applyBtn.disabled = false;
+            applyBtn.textContent = "↩ Opnieuw toepassen";
+            applyBtn.style.background = "";
             // Sync editor & diagram after undo
             if (this._currentAutomationId === String(configId) && this._loadAutomation) {
               this._loadAutomation(String(configId)).catch(() => {});

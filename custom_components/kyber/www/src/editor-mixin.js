@@ -608,18 +608,145 @@ export const EditorMixin = (Base) => class extends Base {
       return;
     }
 
+    // Use stored JSON config when available (more reliable than YAML re-parsing)
+    const cfg = this._currentAutomationConfig;
+    if (cfg) {
+      this._renderDiagramFromJson(diag, cfg, yamlText);
+    } else {
+      this._renderDiagramFromYaml(diag, yamlText);
+    }
+  }
+
+  // ── Diagram from JSON config (accurate, expanded) ─────────────────────────
+
+  _renderDiagramFromJson(diag, cfg, yamlText) {
+    const triggers = [].concat(cfg.triggers || cfg.trigger || []).filter(Boolean);
+    const conditions = [].concat(cfg.conditions || cfg.condition || []).filter(Boolean);
+    const actions = [].concat(cfg.actions || cfg.action || []).filter(Boolean);
+
+    // Build YAML line-range index for cursor ↔ node sync
+    this._diagLineBlocks = this._parseAutomationBlocks(yamlText);
+
+    const total = triggers.length + conditions.length + actions.length;
+    if (!total) { diag.hidden = true; return; }
+    diag.hidden = false;
+
+    const renderNodes = (items, sectionKey, cls) => items.map((item, idx) => {
+      const { icon, title, sub } = this._blockMetaFromJson(sectionKey, item);
+      const safeTitle = this._escH(title);
+      const safeSub = this._escH(sub);
+      // Find line range from parsed YAML blocks for click-to-jump
+      const lineBlock = (this._diagLineBlocks[sectionKey] || [])[idx];
+      const fromLine = lineBlock ? lineBlock.from_line : 0;
+      const toLine = lineBlock ? lineBlock.to_line : 0;
+      const indent = item._depth ? `margin-left:${item._depth * 10}px;` : "";
+      return `<div class="adg-node ${cls}${item._depth ? " adg-sub-node" : ""}"
+          data-from="${fromLine}" data-to="${toLine}" style="${indent}"
+          title="${safeTitle}${sub ? ": " + safeSub : ""}">
+        <span class="adg-icon">${icon}</span>
+        <span class="adg-title">${safeTitle}</span>
+        ${sub ? `<span class="adg-sub">${safeSub}</span>` : ""}
+      </div>`;
+    }).join("");
+
+    const renderSection = (items, sectionKey, label, cls) => {
+      if (!items.length) return "";
+      return `<div class="adg-section"><div class="adg-label">${label}</div><div class="adg-nodes">${renderNodes(items, sectionKey, cls)}</div></div>`;
+    };
+
+    // Flatten actions: expand choose/parallel/repeat into sub-nodes
+    const flatActions = [];
+    this._flattenActionsForDiagram(actions, flatActions, 0);
+
+    const parts = [];
+    parts.push(renderSection(triggers, "triggers", "WHEN", "adg-trigger"));
+    if (conditions.length) parts.push(renderSection(conditions, "conditions", "IF", "adg-condition"));
+    parts.push(renderSection(flatActions, "actions", "THEN", "adg-action"));
+
+    diag.innerHTML = parts.filter(Boolean).join('<div class="adg-arrow">→</div>');
+    diag.querySelectorAll(".adg-node").forEach((node) => {
+      node.addEventListener("click", () => {
+        const from = parseInt(node.dataset.from, 10);
+        const to = parseInt(node.dataset.to, 10);
+        if (from || to) this._jumpEditorToBlock(from, to);
+      });
+    });
+  }
+
+  _flattenActionsForDiagram(actions, output, depth) {
+    for (const a of actions) {
+      if (a.choose) {
+        output.push({ ...a, _depth: depth });
+        for (const option of (a.choose || [])) {
+          const seq = option.sequence || option.then || [];
+          this._flattenActionsForDiagram(seq, output, depth + 1);
+        }
+      } else if (a.parallel) {
+        output.push({ ...a, _depth: depth });
+        this._flattenActionsForDiagram(a.parallel, output, depth + 1);
+      } else if (a.repeat) {
+        output.push({ ...a, _depth: depth });
+        const seq = a.repeat.sequence || [];
+        this._flattenActionsForDiagram(seq, output, depth + 1);
+      } else if (a.sequence) {
+        this._flattenActionsForDiagram(a.sequence, output, depth);
+      } else {
+        output.push({ ...a, _depth: depth });
+      }
+    }
+  }
+
+  _blockMetaFromJson(section, item) {
+    if (section === "triggers") {
+      const p = item.platform || item.trigger || item.triggers?.platform || "";
+      const ICONS = { sun: "🌅", state: "📡", time: "⏰", homeassistant: "🏠", webhook: "🌐", event: "⚡", template: "📋", zone: "📍", numeric_state: "🔢", device: "📱", calendar: "📅", tag: "🏷", mqtt: "📡", geo_location: "🗺", persistent_notification: "🔔", conversation: "💬" };
+      const sub = (item.event || (Array.isArray(item.entity_id) ? item.entity_id[0] : item.entity_id) || item.at || item.event_type || item.device_id || "").toString().split(",")[0].trim();
+      return { icon: ICONS[p] || "⚡", title: p || "trigger", sub };
+    }
+    if (section === "conditions") {
+      const c = item.condition || "";
+      const ICONS = { state: "✅", template: "📋", time: "⏰", numeric_state: "🔢", zone: "📍", and: "🔗", or: "🔀", not: "❌", device: "📱", trigger: "⚡" };
+      const sub = ((Array.isArray(item.entity_id) ? item.entity_id[0] : item.entity_id) || "").toString();
+      return { icon: ICONS[c] || "❓", title: c || "condition", sub };
+    }
+    // actions
+    if (item.choose !== undefined) return { icon: "🔀", title: "choose", sub: `${(item.choose || []).length} branches` };
+    if (item.parallel !== undefined) return { icon: "⚡", title: "parallel", sub: `${(item.parallel || []).length} actions` };
+    if (item.repeat !== undefined) return { icon: "🔁", title: "repeat", sub: String(item.repeat?.count || "") };
+    if (item.wait_template !== undefined || item.wait_for_trigger !== undefined) return { icon: "⏳", title: "wait", sub: "" };
+    if (item.delay !== undefined) return { icon: "⏱", title: "delay", sub: String(item.delay) };
+    if (item.stop !== undefined) return { icon: "🛑", title: "stop", sub: String(item.stop || "") };
+    if (item.event !== undefined) return { icon: "📡", title: "fire event", sub: String(item.event) };
+    if (item.variables !== undefined) return { icon: "📦", title: "variables", sub: "" };
+    if (item.device_id !== undefined) return { icon: "📱", title: item.type || "device action", sub: String(item.device_id || "").slice(0, 20) };
+    const svc = item.service || item.action || "";
+    const SVC_ICONS = { "light.": "💡", "switch.": "🔌", "media_player.": "🎵", "notify.": "📢", "script.": "📜", "climate.": "🌡️", "homeassistant.": "🏠", "automation.": "⚙️", "input_boolean.": "🔘", "input_number.": "🔢", "input_select.": "📋", "cover.": "🪟", "lock.": "🔒", "alarm_control_panel.": "🚨", "vacuum.": "🤖", "fan.": "💨", "button.": "🔘", "scene.": "🎨", "frontend.": "🖥️" };
+    const iconKey = Object.keys(SVC_ICONS).find((k) => svc.startsWith(k));
+    const target = item.target?.entity_id || item.data?.entity_id || "";
+    const entityList = Array.isArray(target) ? target[0] : target;
+    const sub = (entityList || (Array.isArray(item.entity_id) ? item.entity_id[0] : item.entity_id) || "").toString().split(",")[0].trim();
+    const shortSvc = svc.includes(".") ? svc.split(".").slice(1).join(".") : svc;
+    return { icon: iconKey ? SVC_ICONS[iconKey] : "▶️", title: shortSvc || svc || "action", sub };
+  }
+
+  _escH(s) {
+    return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  // ── Diagram from YAML fallback (when JSON not cached) ─────────────────────
+
+  _renderDiagramFromYaml(diag, yamlText) {
     const blocks = this._parseAutomationBlocks(yamlText);
     const total = blocks.triggers.length + blocks.conditions.length + blocks.actions.length;
     if (!total) { diag.hidden = true; return; }
-
     diag.hidden = false;
 
     const renderSection = (sectionKey, items, label, cls) => {
       if (!items.length) return "";
-      const nodes = items.map((item, idx) => {
+      const nodes = items.map((item) => {
         const { icon, title, sub } = this._blockMeta(sectionKey, item.fields);
-        const safeTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        const safeSub = sub.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const safeTitle = this._escH(title);
+        const safeSub = this._escH(sub);
         return `<div class="adg-node ${cls}"
             data-from="${item.from_line}" data-to="${item.to_line}"
             title="${safeTitle}${sub ? ": " + safeSub : ""}">
@@ -637,7 +764,6 @@ export const EditorMixin = (Base) => class extends Base {
     parts.push(renderSection("actions", blocks.actions, "THEN", "adg-action"));
 
     diag.innerHTML = parts.filter(Boolean).join('<div class="adg-arrow">→</div>');
-
     diag.querySelectorAll(".adg-node").forEach((node) => {
       node.addEventListener("click", () => {
         const from = parseInt(node.dataset.from, 10);
@@ -727,6 +853,7 @@ export const EditorMixin = (Base) => class extends Base {
 
     try {
       const config = await this._hass.callApi("GET", apiPath);
+      this._currentAutomationConfig = config; // store for diagram
       const yamlText = this._configToYaml(config);
       this._setEditorContent(yamlText);
       this._currentAutomationId = configId;

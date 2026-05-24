@@ -52,6 +52,7 @@ describe("_handleSlashCommand dispatch", () => {
 
   it("routes /automation to _cmdAutomation", () => {
     const { element } = setup();
+    vi.spyOn(element, "_openEditor").mockResolvedValue(undefined);
     const spy = vi.spyOn(element, "_cmdAutomation");
     element._handleSlashCommand("automation", "open morning");
     expect(spy).toHaveBeenCalledWith("open", "morning");
@@ -129,12 +130,14 @@ describe("_cmdDashboard", () => {
 // /automation sub-commands
 // ---------------------------------------------------------------------------
 describe("_cmdAutomation", () => {
-  it("open: builds a command card when entity found by name", () => {
+  it("open: calls _openEditor directly when entity found by name", () => {
     const { element } = setup();
+    const spy = vi.spyOn(element, "_openEditor").mockImplementation(() => {});
     element._cmdAutomation("open", "morning");
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("automation.morning"));
+    // No command card — opens directly without confirmation
     const card = element.shadowRoot.querySelector(".command-card");
-    expect(card).not.toBeNull();
-    expect(card.textContent).toContain("Open automation");
+    expect(card).toBeNull();
   });
 
   it("open: shows 'not found' message when entity not found", () => {

@@ -1,17 +1,16 @@
 export const DebugMixin = (Base) => class extends Base {
   _toggleDebugPane(force) {
     const pane = this.shadowRoot.getElementById("debug-pane");
-    const chat = this.shadowRoot.querySelector(".chat-pane");
-    if (!pane || !chat) return;
+    if (!pane) return;
     const wantOpen = force === undefined ? pane.hasAttribute("hidden") : !!force;
     if (wantOpen) {
       pane.removeAttribute("hidden");
-      chat.style.display = "none";
-      this._debugTab = this._debugTab || "memory";
+      this._debugTab = this._debugTab || "last_turn";
       this._renderDebugTab(this._debugTab);
+      try { localStorage.setItem("kyber_debug_open", "1"); } catch (e) { /* */ }
     } else {
       pane.setAttribute("hidden", "");
-      chat.style.display = "";
+      try { localStorage.setItem("kyber_debug_open", "0"); } catch (e) { /* */ }
     }
   }
 

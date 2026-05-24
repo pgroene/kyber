@@ -1202,10 +1202,16 @@ export const AIMixin = (Base) => class extends Base {
           setTimeout(() => card.querySelector(".btn-open-editor")?.click(), 300);
         }
       } else if (plan.open_editor) {
-        const card = this._buildOpenEditorPrompt(plan);
-        history.appendChild(card);
-        if (this._autopilot) {
-          setTimeout(() => card.querySelector(".btn-open-editor")?.click(), 300);
+        // Auto-open the editor directly — no confirmation needed
+        if (plan.automation_id && this._openEditor) {
+          this._openEditor(plan.automation_id);
+          const card = document.createElement("div");
+          card.className = "open-editor-prompt";
+          card.innerHTML = `<div class="open-editor-summary">📝 ${this._escapeHtml(plan.summary || "Automation editor opened")}</div>`;
+          history.appendChild(card);
+        } else {
+          const card = this._buildOpenEditorPrompt(plan);
+          history.appendChild(card);
         }
       } else if (plan.actions && plan.actions.length > 0) {
         const READ_TOOL_TYPES = new Set([
