@@ -1784,6 +1784,11 @@ export const STYLES = `
   .status-bar.error   { color: var(--danger); }
 
   /* ── YAML error bar (AI fix) ────── */
+  .cm-error-line {
+    background: rgba(255,82,82,0.15) !important;
+    border-left: 3px solid #ff5252 !important;
+    padding-left: 1px !important;
+  }
   .yaml-error-bar {
     display: flex;
     align-items: center;

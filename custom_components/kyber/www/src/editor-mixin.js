@@ -68,6 +68,7 @@ export const EditorMixin = (Base) => class extends Base {
           const cursorLine = update.state.doc.lineAt(update.state.selection.main.head).number - 1;
           const cursorPos = update.state.selection.main.head;
           self._updateDiagramHighlight(cursorLine);
+          if (self._errorLineNum) self._applyErrorLineClass();
           clearTimeout(self._inspectorDebounce);
           self._inspectorDebounce = setTimeout(() => {
             const yamlText = update.state.doc.toString();
@@ -2120,9 +2121,10 @@ export const EditorMixin = (Base) => class extends Base {
         this._showYamlError(errMsg, yamlText);
         return;
       }
-      // Valid YAML — hide error bar and update diagram
+      // Valid YAML — hide error bar, clear error line, and update diagram
       if (errorBar) errorBar.hidden = true;
       this._lastYamlError = null;
+      this._clearErrorLine();
       const { config } = await resp.json();
       if (config) {
         this._currentAutomationConfig = config;
@@ -2135,6 +2137,9 @@ export const EditorMixin = (Base) => class extends Base {
 
   _showYamlError(errMsg, yamlText) {
     this._lastYamlError = errMsg;
+    // Extract error line number from YAML error message (e.g. "line 36, column 1")
+    const lineMatch = errMsg.match(/line\s+(\d+)/i);
+    if (lineMatch) this._setErrorLine(parseInt(lineMatch[1], 10));
     let errorBar = this.shadowRoot.getElementById("yaml-error-bar");
     if (!errorBar) {
       errorBar = document.createElement("div");
@@ -2161,6 +2166,51 @@ export const EditorMixin = (Base) => class extends Base {
     errorBar.querySelector(".yeb-close").addEventListener("click", () => {
       errorBar.hidden = true;
     });
+  }
+
+  // Highlight the error line in the editor with a red background
+  _setErrorLine(lineNum) {
+    this._errorLineNum = lineNum;
+    this._applyErrorLineClass();
+    // Scroll to the error line
+    if (this._editor && lineNum > 0) {
+      try {
+        const doc = this._editor.state.doc;
+        if (lineNum <= doc.lines) {
+          const pos = doc.line(lineNum).from;
+          this._editor.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+        }
+      } catch { /* ignore */ }
+    }
+  }
+
+  _clearErrorLine() {
+    this._errorLineNum = null;
+    if (!this._editor) return;
+    const cmContent = this._editor.dom.querySelector(".cm-content");
+    if (cmContent) cmContent.querySelectorAll(".cm-error-line").forEach((el) => el.classList.remove("cm-error-line"));
+  }
+
+  // Apply/reapply the .cm-error-line CSS class to the correct DOM element
+  _applyErrorLineClass() {
+    if (!this._editor || !this._errorLineNum) return;
+    try {
+      const doc = this._editor.state.doc;
+      const lineNum = this._errorLineNum;
+      if (lineNum < 1 || lineNum > doc.lines) return;
+      const lineObj = doc.line(lineNum);
+      // Remove old markers first
+      const cmContent = this._editor.dom.querySelector(".cm-content");
+      if (cmContent) cmContent.querySelectorAll(".cm-error-line").forEach((el) => el.classList.remove("cm-error-line"));
+      // Find the DOM element for this line
+      const blockInfo = this._editor.lineBlockAt(lineObj.from);
+      if (blockInfo) {
+        const domPos = this._editor.domAtPos(lineObj.from);
+        const el = domPos.node.nodeType === 3 ? domPos.node.parentElement : domPos.node;
+        const cmLine = el?.closest?.(".cm-line") || el;
+        if (cmLine) cmLine.classList.add("cm-error-line");
+      }
+    } catch { /* ignore — line may be out of viewport */ }
   }
 
   async _aiAutofix(errMsg, yamlText) {
