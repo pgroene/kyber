@@ -717,7 +717,46 @@ export const EditorMixin = (Base) => class extends Base {
     diag.hidden = false;
 
     // Render a single action node with optional expandable children
-    const renderActionNode = (item, cls, fromLine, toLine, depth) => {
+    // parentNodeEl: the parent .adg-node to highlight when this node expands
+    const renderActionNode = (item, cls, fromLine, toLine, depth, parentNodeEl) => {
+      // ── Synthetic option node (choose option or if-branch) ──────────────
+      if (item._isOption || item._isDefault) {
+        const seq = item.sequence || [];
+        const isExpandable = seq.length > 0;
+        const wrapper = document.createElement("div");
+        wrapper.className = "adg-node-wrapper";
+        const nodeEl = document.createElement("div");
+        const optCls = item._isDefault ? "adg-option-default" : "adg-option";
+        nodeEl.className = `adg-node ${cls} ${optCls}${depth ? " adg-sub-node" : ""}${isExpandable ? " adg-expandable" : ""}`;
+        nodeEl.setAttribute("style", depth ? `margin-left:${depth * 14}px;` : "");
+        const condStr = item._condCount ? ` · ${item._condCount} cond` : "";
+        const seqStr = seq.length ? `${seq.length} action${seq.length !== 1 ? "s" : ""}${condStr}` : "";
+        nodeEl.setAttribute("title", `${item._label}${seqStr ? ": " + seqStr : ""}${isExpandable ? " — click to expand" : ""}`);
+        nodeEl.innerHTML = `<span class="adg-icon">${item._isDefault ? "↩" : "📋"}</span><span class="adg-title">${this._escH(item._label)}</span>${seqStr ? `<span class="adg-sub">${seqStr}</span>` : ""}${isExpandable ? `<span class="adg-expand-btn">▶</span>` : ""}`;
+        const toggleOption = () => {
+          const childrenEl = wrapper.querySelector(":scope > .adg-children");
+          if (!childrenEl) return;
+          const open = !childrenEl.hidden;
+          childrenEl.hidden = open;
+          const btn = nodeEl.querySelector(".adg-expand-btn");
+          if (btn) btn.textContent = open ? "▶" : "▼";
+          nodeEl.classList.toggle("adg-expanded", !open);
+          // Highlight parent choose/if node when any child option is expanded
+          if (parentNodeEl) parentNodeEl.classList.toggle("adg-has-expanded-child", !open);
+        };
+        nodeEl.addEventListener("click", (e) => { if (isExpandable) { toggleOption(); e.stopPropagation(); } });
+        wrapper.appendChild(nodeEl);
+        if (isExpandable) {
+          const childrenEl = document.createElement("div");
+          childrenEl.className = "adg-children";
+          childrenEl.hidden = true;
+          seq.forEach((child) => childrenEl.appendChild(renderActionNode(child, cls, 0, 0, depth + 1, null)));
+          wrapper.appendChild(childrenEl);
+        }
+        return wrapper;
+      }
+
+      // ── Regular action node ──────────────────────────────────────────────
       const { icon, title, sub } = this._blockMetaFromJson("actions", item);
       const safeTitle = this._escH(title);
       const safeSub = this._escH(sub);
@@ -744,6 +783,7 @@ export const EditorMixin = (Base) => class extends Base {
         const btn = nodeEl.querySelector(".adg-expand-btn");
         if (btn) btn.textContent = open ? "▶" : "▼";
         nodeEl.classList.toggle("adg-expanded", !open);
+        if (parentNodeEl) parentNodeEl.classList.toggle("adg-has-expanded-child", !open);
       };
 
       nodeEl.addEventListener("click", (e) => {
@@ -762,7 +802,7 @@ export const EditorMixin = (Base) => class extends Base {
         childrenEl.className = "adg-children";
         childrenEl.hidden = true;
         children.forEach((child) => {
-          childrenEl.appendChild(renderActionNode(child, cls, 0, 0, depth + 1));
+          childrenEl.appendChild(renderActionNode(child, cls, 0, 0, depth + 1, nodeEl));
         });
         wrapper.appendChild(childrenEl);
       }
@@ -836,15 +876,27 @@ export const EditorMixin = (Base) => class extends Base {
 
   // Returns child actions for compound action types (used for expand/collapse in diagram)
   _getActionChildren(item) {
+    if (item._isOption || item._isDefault) {
+      return [].concat(item.sequence || []);
+    }
     if (item.if !== undefined) {
-      const then = [].concat(item.then || []);
-      const els  = [].concat(item.else || []);
-      return [...then, ...els];
+      const thenSeq = [].concat(item.then || []);
+      const elseSeq = [].concat(item.else || []);
+      const opts = [];
+      if (thenSeq.length) opts.push({ _isOption: true, _label: "then", sequence: thenSeq, _condCount: [].concat(item.if || []).length });
+      if (elseSeq.length) opts.push({ _isOption: true, _label: "else", sequence: elseSeq, _condCount: 0 });
+      return opts;
     }
     if (item.choose !== undefined) {
-      const branches = (item.choose || []).flatMap((opt) => opt.sequence || opt.then || []);
+      const opts = (item.choose || []).map((opt, i) => ({
+        _isOption: true,
+        _label: `option ${i + 1}`,
+        _condCount: [].concat(opt.conditions || opt.condition || []).length,
+        sequence: [].concat(opt.sequence || opt.then || []),
+      }));
       const def = [].concat(item.default || []);
-      return [...branches, ...def];
+      if (def.length) opts.push({ _isDefault: true, _label: "default", sequence: def, _condCount: 0 });
+      return opts;
     }
     if (item.repeat !== undefined) {
       return [].concat(item.repeat?.sequence || []);

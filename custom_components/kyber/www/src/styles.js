@@ -188,6 +188,9 @@ export const STYLES = `
   .adg-trigger.adg-active  { border-color: #4caf50; background: rgba(76,175,80,0.18); box-shadow: 0 0 0 2px rgba(76,175,80,0.3); }
   .adg-condition.adg-active{ border-color: #ff9800; background: rgba(255,152,0,0.18); box-shadow: 0 0 0 2px rgba(255,152,0,0.3); }
   .adg-action.adg-active   { border-color: #2196f3; background: rgba(33,150,243,0.18); box-shadow: 0 0 0 2px rgba(33,150,243,0.3); }
+  .adg-action.adg-has-expanded-child { border-color: #64b5f6; background: rgba(33,150,243,0.12); box-shadow: 0 0 0 2px rgba(100,181,246,0.4); }
+  .adg-option        { border-left: 3px solid #7c4dff; opacity: 0.9; }
+  .adg-option-default{ border-left: 3px solid #78909c; opacity: 0.9; }
   .adg-sub-node { opacity: 0.85; border-left-width: 2px; border-left-style: dashed; padding: 5px 8px; }
   .adg-expandable { cursor: pointer; }
   .adg-icon  { font-size: 14px; line-height: 1; margin-bottom: 4px; }
