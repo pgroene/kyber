@@ -685,67 +685,136 @@ export const EditorMixin = (Base) => class extends Base {
     }
     diag.hidden = false;
 
-    const renderNodes = (items, sectionKey, cls) => items.map((item, idx) => {
-      const { icon, title, sub } = this._blockMetaFromJson(sectionKey, item);
+    // Render a single action node with optional expandable children
+    const renderActionNode = (item, cls, fromLine, toLine, depth) => {
+      const { icon, title, sub } = this._blockMetaFromJson("actions", item);
       const safeTitle = this._escH(title);
       const safeSub = this._escH(sub);
-      // Find line range from parsed YAML blocks for click-to-jump
-      const lineBlock = (this._diagLineBlocks[sectionKey] || [])[idx];
-      const fromLine = lineBlock ? lineBlock.from_line : 0;
-      const toLine = lineBlock ? lineBlock.to_line : 0;
-      const indent = item._depth ? `margin-left:${item._depth * 10}px;` : "";
-      return `<div class="adg-node ${cls}${item._depth ? " adg-sub-node" : ""}"
-          data-from="${fromLine}" data-to="${toLine}" style="${indent}"
-          title="${safeTitle}${sub ? ": " + safeSub : ""}">
-        <span class="adg-icon">${icon}</span>
-        <span class="adg-title">${safeTitle}</span>
-        ${sub ? `<span class="adg-sub">${safeSub}</span>` : ""}
-      </div>`;
-    }).join("");
+      const indent = depth ? `margin-left:${depth * 14}px;` : "";
+      const children = this._getActionChildren(item);
+      const isExpandable = children.length > 0;
 
-    const renderSection = (items, sectionKey, label, cls) => {
-      if (!items.length) return "";
-      return `<div class="adg-section"><div class="adg-label">${label}</div><div class="adg-nodes">${renderNodes(items, sectionKey, cls)}</div></div>`;
+      const wrapper = document.createElement("div");
+      wrapper.className = "adg-node-wrapper";
+
+      const nodeEl = document.createElement("div");
+      nodeEl.className = `adg-node ${cls}${depth ? " adg-sub-node" : ""}${isExpandable ? " adg-expandable" : ""}`;
+      nodeEl.dataset.from = String(fromLine);
+      nodeEl.dataset.to = String(toLine);
+      nodeEl.setAttribute("style", indent);
+      nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}`);
+      nodeEl.innerHTML = `<span class="adg-icon">${icon}</span><span class="adg-title">${safeTitle}</span>${sub ? `<span class="adg-sub">${safeSub}</span>` : ""}${isExpandable ? `<span class="adg-expand-btn" title="Expand inner actions">▶</span>` : ""}`;
+
+      nodeEl.addEventListener("click", (e) => {
+        if (e.target.classList.contains("adg-expand-btn")) {
+          const childrenEl = wrapper.querySelector(":scope > .adg-children");
+          if (!childrenEl) return;
+          const open = !childrenEl.hidden;
+          childrenEl.hidden = open;
+          e.target.textContent = open ? "▶" : "▼";
+          nodeEl.classList.toggle("adg-expanded", !open);
+          e.stopPropagation();
+          return;
+        }
+        if (fromLine || toLine) this._jumpEditorToBlock(fromLine, toLine);
+      });
+
+      wrapper.appendChild(nodeEl);
+
+      if (isExpandable) {
+        const childrenEl = document.createElement("div");
+        childrenEl.className = "adg-children";
+        childrenEl.hidden = true;
+        children.forEach((child) => {
+          childrenEl.appendChild(renderActionNode(child, cls, 0, 0, depth + 1));
+        });
+        wrapper.appendChild(childrenEl);
+      }
+
+      return wrapper;
+    };
+
+    const renderSection = (items, sectionKey, label, cls, lineBlocks) => {
+      if (!items.length) return null;
+      const section = document.createElement("div");
+      section.className = "adg-section";
+      section.innerHTML = `<div class="adg-label">${label}</div>`;
+      const nodesEl = document.createElement("div");
+      nodesEl.className = "adg-nodes";
+      items.forEach((item, idx) => {
+        const lineBlock = lineBlocks ? lineBlocks[idx] : null;
+        const fromLine = lineBlock ? lineBlock.from_line : 0;
+        const toLine = lineBlock ? lineBlock.to_line : 0;
+        if (sectionKey === "actions") {
+          nodesEl.appendChild(renderActionNode(item, cls, fromLine, toLine, 0));
+        } else {
+          const { icon, title, sub } = this._blockMetaFromJson(sectionKey, item);
+          const nodeEl = document.createElement("div");
+          nodeEl.className = `adg-node ${cls}`;
+          nodeEl.dataset.from = String(fromLine);
+          nodeEl.dataset.to = String(toLine);
+          nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}`);
+          nodeEl.innerHTML = `<span class="adg-icon">${icon}</span><span class="adg-title">${this._escH(title)}</span>${sub ? `<span class="adg-sub">${this._escH(sub)}</span>` : ""}`;
+          nodeEl.addEventListener("click", () => { if (fromLine || toLine) this._jumpEditorToBlock(fromLine, toLine); });
+          nodesEl.appendChild(nodeEl);
+        }
+      });
+      section.appendChild(nodesEl);
+      return section;
     };
 
     // Script: optionally show PARAMETERS section from cfg.fields
-    let fieldsSection = "";
+    let fieldsSection = null;
     if (isScript && cfg.fields && typeof cfg.fields === "object") {
       const fieldEntries = Object.entries(cfg.fields);
       if (fieldEntries.length) {
-        const fieldNodes = fieldEntries.map(([name, meta]) => {
+        fieldsSection = document.createElement("div");
+        fieldsSection.className = "adg-section";
+        fieldsSection.innerHTML = `<div class="adg-label">PARAMETERS</div>`;
+        const nodesEl = document.createElement("div");
+        nodesEl.className = "adg-nodes";
+        fieldEntries.forEach(([name, meta]) => {
           const desc = (meta && typeof meta === "object") ? (meta.description || meta.name || "") : String(meta || "");
-          const safeN = this._escH(name);
-          const safeD = this._escH(String(desc).slice(0, 60));
-          return `<div class="adg-node adg-trigger" data-from="0" data-to="0" title="${safeN}${safeD ? ": " + safeD : ""}">
-            <span class="adg-icon">📥</span>
-            <span class="adg-title">${safeN}</span>
-            ${safeD ? `<span class="adg-sub">${safeD}</span>` : ""}
-          </div>`;
-        }).join("");
-        fieldsSection = `<div class="adg-section"><div class="adg-label">PARAMETERS</div><div class="adg-nodes">${fieldNodes}</div></div>`;
+          const nodeEl = document.createElement("div");
+          nodeEl.className = "adg-node adg-trigger";
+          nodeEl.dataset.from = "0";
+          nodeEl.dataset.to = "0";
+          nodeEl.innerHTML = `<span class="adg-icon">📥</span><span class="adg-title">${this._escH(name)}</span>${desc ? `<span class="adg-sub">${this._escH(String(desc).slice(0, 60))}</span>` : ""}`;
+          nodesEl.appendChild(nodeEl);
+        });
+        fieldsSection.appendChild(nodesEl);
       }
     }
 
-    // Flatten actions: expand choose/parallel/repeat into sub-nodes
-    const flatActions = [];
-    this._flattenActionsForDiagram(actions, flatActions, 0);
-
     const actionLabel = isScript ? "DO" : "THEN";
-    const parts = [];
-    if (fieldsSection) parts.push(fieldsSection);
-    if (!isScript) parts.push(renderSection(triggers, "triggers", "WHEN", "adg-trigger"));
-    if (!isScript && conditions.length) parts.push(renderSection(conditions, "conditions", "IF", "adg-condition"));
-    parts.push(renderSection(flatActions, "actions", actionLabel, "adg-action"));
+    const triggerSection  = renderSection(triggers, "triggers", "WHEN", "adg-trigger", this._diagLineBlocks.triggers);
+    const condSection     = renderSection(conditions, "conditions", "IF", "adg-condition", this._diagLineBlocks.conditions);
+    const actionSection   = renderSection(actions, "actions", actionLabel, "adg-action", this._diagLineBlocks.actions);
 
-    diag.innerHTML = parts.filter(Boolean).join('<div class="adg-arrow">→</div>');
-    diag.querySelectorAll(".adg-node").forEach((node) => {
-      node.addEventListener("click", () => {
-        const from = parseInt(node.dataset.from, 10);
-        const to = parseInt(node.dataset.to, 10);
-        if (from || to) this._jumpEditorToBlock(from, to);
-      });
-    });
+    const arrow = () => { const d = document.createElement("div"); d.className = "adg-arrow"; d.textContent = "→"; return d; };
+
+    diag.innerHTML = "";
+    const parts = [fieldsSection, triggerSection, condSection, actionSection].filter(Boolean);
+    parts.forEach((part, i) => { diag.appendChild(part); if (i < parts.length - 1) diag.appendChild(arrow()); });
+  }
+
+  // Returns child actions for compound action types (used for expand/collapse in diagram)
+  _getActionChildren(item) {
+    if (item.if !== undefined) {
+      const then = [].concat(item.then || []);
+      const els  = [].concat(item.else || []);
+      return [...then, ...els];
+    }
+    if (item.choose !== undefined) {
+      return (item.choose || []).flatMap((opt) => opt.sequence || opt.then || []);
+    }
+    if (item.repeat !== undefined) {
+      return [].concat(item.repeat?.sequence || []);
+    }
+    if (item.parallel !== undefined) {
+      return [].concat(item.parallel || []);
+    }
+    return [];
   }
 
   _flattenActionsForDiagram(actions, output, depth) {
@@ -796,6 +865,10 @@ export const EditorMixin = (Base) => class extends Base {
       return { icon: ICONS[c] || "❓", title: c || "condition", sub };
     }
     // actions
+    if (item.if !== undefined) {
+      const condCount = [].concat(item.if || []).length;
+      return { icon: "🔀", title: "if/then", sub: `${condCount} condition${condCount !== 1 ? "s" : ""}` };
+    }
     if (item.choose !== undefined) return { icon: "🔀", title: "choose", sub: `${(item.choose || []).length} options` };
     if (item.parallel !== undefined) return { icon: "⚡", title: "parallel", sub: `${(item.parallel || []).length} actions` };
     if (item.repeat !== undefined) return { icon: "🔁", title: "repeat", sub: item.repeat?.count ? `${item.repeat.count}×` : "" };

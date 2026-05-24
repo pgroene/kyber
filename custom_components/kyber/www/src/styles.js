@@ -151,6 +151,8 @@ export const STYLES = `
     margin-bottom: 3px;
   }
   .adg-nodes { display: flex; flex-direction: column; gap: 5px; }
+  .adg-node-wrapper { display: flex; flex-direction: column; gap: 3px; }
+  .adg-children { display: flex; flex-direction: column; gap: 3px; padding-left: 2px; border-left: 2px solid var(--accent, #03a9f4); margin-left: 8px; }
   .adg-node {
     display: flex;
     flex-direction: column;
@@ -163,7 +165,15 @@ export const STYLES = `
     min-width: 120px;
     max-width: 165px;
     user-select: none;
+    position: relative;
   }
+  .adg-expand-btn {
+    position: absolute; top: 4px; right: 6px;
+    font-size: 9px; color: var(--accent);
+    padding: 1px 3px; border-radius: 3px;
+    transition: transform 0.15s;
+  }
+  .adg-expanded .adg-expand-btn { transform: rotate(90deg); }
   .adg-node:hover {
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 10%, var(--card-bg, #1e1e2e));
@@ -175,6 +185,7 @@ export const STYLES = `
   .adg-condition.adg-active{ border-color: #ff9800; background: rgba(255,152,0,0.18); box-shadow: 0 0 0 2px rgba(255,152,0,0.3); }
   .adg-action.adg-active   { border-color: #2196f3; background: rgba(33,150,243,0.18); box-shadow: 0 0 0 2px rgba(33,150,243,0.3); }
   .adg-sub-node { opacity: 0.85; border-left-width: 2px; border-left-style: dashed; padding: 5px 8px; }
+  .adg-expandable { cursor: pointer; }
   .adg-icon  { font-size: 14px; line-height: 1; margin-bottom: 4px; }
   .adg-title { font-size: 11px; font-weight: 600; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 145px; }
   .adg-sub   { font-size: 10px; color: var(--text-muted, #999); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 145px; margin-top: 2px; }
