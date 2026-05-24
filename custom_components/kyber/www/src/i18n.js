@@ -22,7 +22,6 @@ export const EN = {
   btn_debug_title:    "Open debug / memory inspector",
 
   // Editor toolbar
-  btn_new_dashboard:  "＋ New dashboard",
   btn_save:           "Save",
   btn_close_editor:   "✕ Close editor",
 
@@ -100,7 +99,6 @@ export const NL = {
   btn_debug_title:    "Open debug / geheugeninspecteur",
 
   // Editor toolbar
-  btn_new_dashboard:  "＋ Nieuw dashboard",
   btn_save:           "Opslaan",
   btn_close_editor:   "✕ Editor sluiten",
 
@@ -178,7 +176,6 @@ export const DE = {
   btn_debug_title: "Debug-/Speicherinspektor ?ffnen",
 
   // Editor toolbar
-  btn_new_dashboard: "? Neues Dashboard",
   btn_save: "Speichern",
   btn_close_editor: "? Editor schlie?en",
 
@@ -256,7 +253,6 @@ export const FR = {
   btn_debug_title: "Ouvrir le d?bogage / inspecteur m?moire",
 
   // Editor toolbar
-  btn_new_dashboard: "? Nouveau tableau de bord",
   btn_save: "Enregistrer",
   btn_close_editor: "? Fermer l??diteur",
 
@@ -334,7 +330,6 @@ export const ES = {
   btn_debug_title: "Abrir depuraci?n / inspector de memoria",
 
   // Editor toolbar
-  btn_new_dashboard: "? Nuevo panel",
   btn_save: "Guardar",
   btn_close_editor: "? Cerrar editor",
 
@@ -411,7 +406,6 @@ export const IT = {
   btn_debug_title: "Apri debug / ispettore memoria",
 
   // Editor toolbar
-  btn_new_dashboard: "? Nuova dashboard",
   btn_save: "Salva",
   btn_close_editor: "? Chiudi editor",
 
@@ -488,7 +482,6 @@ export const PT = {
   btn_debug_title: "Abrir depura??o / inspetor de mem?ria",
 
   // Editor toolbar
-  btn_new_dashboard: "? Novo painel",
   btn_save: "Guardar",
   btn_close_editor: "? Fechar editor",
 
@@ -565,7 +558,6 @@ export const PL = {
   btn_debug_title: "Otw?rz debugowanie / inspektor pami?ci",
 
   // Editor toolbar
-  btn_new_dashboard: "? Nowy pulpit",
   btn_save: "Zapisz",
   btn_close_editor: "? Zamknij edytor",
 
@@ -642,7 +634,6 @@ export const HU = {
   btn_debug_title: "Hibakeres?s / mem?riaellen?rz? megnyit?sa",
 
   // Editor toolbar
-  btn_new_dashboard: "? ?j ir?ny?t?pult",
   btn_save: "Ment?s",
   btn_close_editor: "? Szerkeszt? bez?r?sa",
 
@@ -719,7 +710,6 @@ export const SV = {
   btn_debug_title: "?ppna fels?kning / minnesinspekt?r",
 
   // Editor toolbar
-  btn_new_dashboard: "? Ny instrumentpanel",
   btn_save: "Spara",
   btn_close_editor: "? St?ng redigeraren",
 
@@ -796,7 +786,6 @@ export const RU = {
   btn_debug_title: "??????? ??????? / ????????? ??????",
 
   // Editor toolbar
-  btn_new_dashboard: "? ????? ??????",
   btn_save: "?????????",
   btn_close_editor: "? ??????? ????????",
 
@@ -873,7 +862,6 @@ export const ZH = {
   btn_debug_title: "???? / ?????",
 
   // Editor toolbar
-  btn_new_dashboard: "? ?????",
   btn_save: "??",
   btn_close_editor: "? ?????",
 

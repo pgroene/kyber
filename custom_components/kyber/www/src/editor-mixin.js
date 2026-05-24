@@ -183,8 +183,6 @@ export const EditorMixin = (Base) => class extends Base {
     this._setEditorContextLabel(isScript ? "script" : "automation", friendlyName);
     const sel = this.shadowRoot.getElementById("dashboard-select");
     if (sel) sel.style.display = "none";
-    const newDashBtn = this.shadowRoot.getElementById("btn-new-dashboard");
-    if (newDashBtn) newDashBtn.style.display = "none";
 
     this._currentAutomationId = configId;
     this._editorTitle = friendlyName;
@@ -237,8 +235,6 @@ export const EditorMixin = (Base) => class extends Base {
     // Hide dashboard/blueprint-specific controls
     const sel = this.shadowRoot.getElementById("dashboard-select");
     if (sel) sel.style.display = "none";
-    const newDashBtn = this.shadowRoot.getElementById("btn-new-dashboard");
-    if (newDashBtn) newDashBtn.style.display = "none";
     this._updateBlueprintButton(null);
   }
 
@@ -268,8 +264,6 @@ export const EditorMixin = (Base) => class extends Base {
     this._setEditorContextLabel("dashboard", "Dashboard editor");
     this._setStatus("Opening…");
     this.shadowRoot.getElementById("btn-save").disabled = true;
-    const newDashBtn = this.shadowRoot.getElementById("btn-new-dashboard");
-    if (newDashBtn) newDashBtn.style.display = "inline-block";
 
     // Fetch list of all dashboards and populate selector
     this._setStatus("Loading dashboards…");

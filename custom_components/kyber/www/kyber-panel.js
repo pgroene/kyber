@@ -32,14 +32,14 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=146";
+import { STYLES } from "./src/styles.js?v=147";
 import { getT } from "./src/i18n.js?v=3";
 import { UtilsMixin } from "./src/utils-mixin.js?v=101";
 import { SessionMixin } from "./src/session-mixin.js?v=88";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=89";
 import { DebugMixin } from "./src/debug-mixin.js?v=112";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=98";
-import { EditorMixin } from "./src/editor-mixin.js?v=144";
+import { EditorMixin } from "./src/editor-mixin.js?v=145";
 import { AIMixin } from "./src/ai-mixin.js?v=119";
 import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=102";
 
@@ -166,7 +166,6 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
           <span class="editor-context-label editor-controls" id="editor-context-label"></span>
           <span class="editor-title editor-controls" id="editor-title">
             <select id="dashboard-select" class="dashboard-select" style="display:none"></select>
-            <button class="btn-new-dashboard editor-controls" id="btn-new-dashboard" style="display:none" title="${this._t("btn_new_dashboard")}">${this._t("btn_new_dashboard")}</button>
           </span>
           <button class="btn-save editor-controls" id="btn-save" disabled>${this._t("btn_save")}</button>
           <button class="btn-edit-blueprint editor-controls" id="btn-edit-blueprint" style="display:none" title="Open this automation's blueprint for editing">📋 Edit blueprint</button>
@@ -340,9 +339,6 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       this._closeEditor();
     });
 
-    shadow.getElementById("btn-new-dashboard").addEventListener("click", () => {
-      this._createNewDashboard();
-    });
 
     shadow.getElementById("dashboard-select").addEventListener("change", (e) => {
       const urlPath = e.target.value === "__default__" ? null : e.target.value;

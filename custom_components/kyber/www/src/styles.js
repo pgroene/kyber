@@ -1707,18 +1707,6 @@ export const STYLES = `
   }
   .dashboard-select:focus { outline: 1px solid var(--accent); }
 
-  .btn-new-dashboard {
-    background: transparent;
-    color: var(--accent);
-    border: 1px dashed var(--accent);
-    padding: 3px 10px;
-    border-radius: 4px;
-    font-size: 12px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .btn-new-dashboard:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
-
   .btn-close-editor {
     background: transparent;
     color: var(--secondary-text-color, #aaa);
