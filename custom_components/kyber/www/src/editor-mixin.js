@@ -1036,12 +1036,16 @@ export const EditorMixin = (Base) => class extends Base {
     // Look backwards for the parent key
     let listIndent = -1;
     let isEntityList = false;
+    let parentKeyLine = -1;
+    let parentKeyHasInlineValue = false;
     for (let i = cursorLine; i >= 0; i--) {
       const l = lines[i];
-      const keyMatch = l.match(/^(\s*)(entity_ids?|entities)\s*:/);
+      const keyMatch = l.match(/^(\s*)(entity_ids?|entities)\s*:(.*)/);
       if (keyMatch) {
         isEntityList = true;
         listIndent = keyMatch[1].length;
+        parentKeyLine = i;
+        parentKeyHasInlineValue = keyMatch[3].trim().length > 0; // e.g. "entity_id: light.abc"
         break;
       }
       // If we hit a line with same or less indent that isn't a list item, stop
@@ -1078,8 +1082,10 @@ export const EditorMixin = (Base) => class extends Base {
     this._entityListCurrentEntities = [...new Set(currentEntities)];
     this._entityListInsertIndent = listIndent + 2;
     this._entityListInsertLine = cursorLine;
+    this._entityListParentKeyLine = parentKeyLine;
+    this._entityListParentHasInlineValue = parentKeyHasInlineValue;
 
-    // Position picker near cursor
+    // Position picker near cursor (follow x, clamp to pane bounds)
     if (this._editor && cursorPos !== undefined) {
       try {
         const coords = this._editor.coordsAtPos(cursorPos);
@@ -1087,8 +1093,12 @@ export const EditorMixin = (Base) => class extends Base {
         if (coords && pane) {
           const paneRect = pane.getBoundingClientRect();
           const relTop = coords.top - paneRect.top + pane.scrollTop;
+          const relLeft = coords.left - paneRect.left;
           const maxTop = pane.clientHeight - 320;
+          const maxLeft = pane.clientWidth - 250;
           picker.style.top = `${Math.min(Math.max(relTop + 20, 60), maxTop)}px`;
+          picker.style.left = `${Math.min(Math.max(relLeft - 120, 8), maxLeft)}px`;
+          picker.style.right = "auto";
         }
       } catch (e) { /* */ }
     }
@@ -1194,11 +1204,48 @@ export const EditorMixin = (Base) => class extends Base {
     if (!this._editor) return;
     const picker = this.shadowRoot.getElementById("entity-list-picker");
     const doc = this._editor.state.doc;
+    const lines = doc.toString().split("\n");
+
+    // If parent key has an inline scalar (e.g. entity_id: light.abc), convert to list
+    if (this._entityListParentHasInlineValue && this._entityListParentKeyLine >= 0) {
+      const pkLine = this._entityListParentKeyLine;
+      const rawLine = lines[pkLine] || "";
+      const m = rawLine.match(/^(\s*)(entity_ids?|entities)\s*:\s+(.+)$/);
+      if (m) {
+        const keyIndent = m[1];
+        const key = m[2];
+        const existing = m[3].trim();
+        const itemIndent = keyIndent + "  ";
+        const newText = `${keyIndent}${key}:\n${itemIndent}- ${existing}\n${itemIndent}- ${entityId}`;
+        const lineObj = doc.line(pkLine + 1);
+        this._editor.dispatch({
+          changes: { from: lineObj.from, to: lineObj.to, insert: newText },
+          selection: { anchor: lineObj.from + newText.length },
+        });
+        this._entityListParentHasInlineValue = false;
+        this._entityListCurrentEntities = [...(this._entityListCurrentEntities || []), entityId];
+        this._renderEntityPickerCurrentList();
+        this._editor.focus();
+        const searchEl = picker?.querySelector(".elp-search");
+        if (searchEl) { searchEl.value = ""; searchEl.focus(); }
+        this._renderEntityPickerResults("");
+        return;
+      }
+    }
+
+    // Normal case: insert new list item after last existing item in the block
     const cursorLine = this._entityListInsertLine ?? (doc.lineAt(this._editor.state.selection.main.head).number - 1);
     const indent = " ".repeat(this._entityListInsertIndent ?? 4);
 
-    // Insert a new list item after the cursor's current line
-    const lineNum = Math.min(cursorLine + 1, doc.lines);
+    // Find last list item line in this block (scan forward from parent key line)
+    let insertAfterLine = cursorLine;
+    const startScan = (this._entityListParentKeyLine >= 0 ? this._entityListParentKeyLine : cursorLine) + 1;
+    for (let i = startScan; i < lines.length; i++) {
+      if (/^\s*-/.test(lines[i])) insertAfterLine = i;
+      else if (lines[i].trim()) break;
+    }
+
+    const lineNum = Math.min(insertAfterLine + 1, doc.lines);
     const lineObj = doc.line(lineNum);
     const insertText = `\n${indent}- ${entityId}`;
     const insertPos = lineObj.to;
