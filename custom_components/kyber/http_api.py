@@ -1412,6 +1412,27 @@ async def _run_ai_loop(
             unique_calls.append((sig, call))
         tool_calls_filtered = unique_calls
 
+        # Guard: if the AI calls search_entities >8 times in one round it is
+        # almost certainly looping over raw entity_ids from an automation config
+        # (e.g. light.0x...). Inject a redirect and skip execution.
+        _search_entity_count = sum(1 for _, c in tool_calls_filtered if c.get("name") == "search_entities")
+        if _search_entity_count > 8:
+            _LOGGER.warning(
+                "Kyber: AI requested %d search_entities calls in one round — injecting loop guard",
+                _search_entity_count,
+            )
+            _progress_emit(hass, request_id, {
+                "type": "info",
+                "message": f"Redirecting \u2014 {_search_entity_count} search_entities calls detected.",
+            })
+            tool_exchange += (
+                f"\n[SYSTEM: You called search_entities {_search_entity_count} times in one round. "
+                "Entity IDs from automation configs (like light.0x...) do NOT need to be resolved — use them as-is. "
+                "To list available automations use list_entities_by_domain(domain='automation'). "
+                "Answer the user now without calling more tools.]\nAssistant:"
+            )
+            continue
+
         # Execute tools and build result block
         clean_response = _strip_tool_calls(response_text)
         tool_results_block = ""
@@ -1741,6 +1762,16 @@ async def _run_ai_loop(
                     "request \u2014 could you rephrase or be more specific?"
                 )
             break
+
+    # Fallback: if the tool loop exhausted max rounds without producing a text
+    # response (e.g. AI kept making tool calls until the last round), ensure
+    # the user always gets a helpful message instead of an empty response.
+    if not _strip_tool_calls(response_text).strip():
+        _LOGGER.warning("Kyber: tool loop exhausted max rounds with no text response — returning fallback")
+        response_text = (
+            "Ik kon geen antwoord genereren voor dit verzoek — "
+            "kon je het anders formuleren of specifieker zijn?"
+        )
 
     return response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved, _token_usage
 

@@ -599,6 +599,19 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         else:
             return json.dumps({"error": "Missing 'query' argument (or 'queries' list)"})
 
+        # Fast-path: if the query IS a raw entity_id (domain.slug), return it
+        # directly instead of doing a full search. This prevents the AI from
+        # calling search_entities in a loop to "resolve" known entity_ids that
+        # appear in automation configs.
+        if len(query_list) == 1 and re.match(r'^[a-z_]+\.[a-z0-9_]+$', query_list[0]):
+            _direct_eid = query_list[0]
+            _direct_state = hass.states.get(_direct_eid)
+            if _direct_state is not None:
+                _proj = _project_entity(_direct_eid, _direct_state)
+                _proj["domain"] = _direct_eid.split(".")[0]
+                _proj["_note"] = "Direct entity_id match — no search needed. Use this entity_id as-is."
+                return json.dumps({_direct_eid: _proj})
+
         results = {}
         for state in hass.states.async_all():
             entity_lower = state.entity_id.lower()
