@@ -109,6 +109,15 @@ export const EditorMixin = (Base) => class extends Base {
       this._renderEntityPickerResults(e.target.value);
     });
     picker.querySelector(".elp-search").addEventListener("keydown", (e) => e.stopPropagation());
+
+    // Close picker when clicking outside it
+    document.addEventListener("click", (e) => {
+      if (!picker.hidden && !picker.contains(e.target)) {
+        picker.hidden = true;
+        this._entityListPickerOpen = false;
+      }
+    }, true);
+
     container.addEventListener("keydown", (e) => e.stopPropagation());
     container.addEventListener("keyup", (e) => e.stopPropagation());
     container.addEventListener("keypress", (e) => e.stopPropagation());
@@ -1185,9 +1194,11 @@ export const EditorMixin = (Base) => class extends Base {
       const name = s.attributes?.friendly_name || s.entity_id.split(".")[1];
       const stateClass = s.state === "on" ? "ei-on" : s.state === "off" ? "ei-off" : "";
       return `<div class="elp-item" data-id="${s.entity_id}" title="${s.entity_id}">
-        <span class="elp-name">${name}</span>
+        <div class="elp-item-main">
+          <span class="elp-name">${name}</span>
+          <span class="ei-state ${stateClass}">${s.state}</span>
+        </div>
         <span class="elp-id">${s.entity_id}</span>
-        <span class="ei-state ${stateClass}">${s.state}</span>
       </div>`;
     }).join("");
 

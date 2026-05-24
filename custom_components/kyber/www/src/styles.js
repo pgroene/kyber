@@ -298,13 +298,14 @@ export const STYLES = `
   }
   .elp-results { flex: 1; overflow-y: auto; scrollbar-width: thin; }
   .elp-item {
-    display: flex; align-items: center; gap: 6px;
+    display: flex; flex-direction: column;
     padding: 5px 10px; cursor: pointer;
     border-bottom: 1px solid color-mix(in srgb, var(--border-color) 40%, transparent);
   }
   .elp-item:hover { background: color-mix(in srgb, var(--accent) 12%, var(--card-bg, #1e1e2e)); }
+  .elp-item-main { display: flex; align-items: center; gap: 5px; }
   .elp-name { font-weight: 500; font-size: 11px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .elp-id { font-size: 10px; color: var(--text-muted); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; }
+  .elp-id { font-size: 10px; color: var(--text-muted); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; margin-top: 1px; }
   .elp-empty { padding: 12px; color: var(--text-muted); font-size: 11px; text-align: center; }
   .elp-current { border-bottom: 1px solid var(--border-color); padding: 4px 6px; display: flex; flex-wrap: wrap; gap: 4px; }
   .elp-current-item {
