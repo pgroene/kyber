@@ -539,7 +539,11 @@ export const AIMixin = (Base) => class extends Base {
     span.style.cursor = "pointer";
     span.innerHTML = `<span class="entity-chip-icon">${icon}</span><span class="entity-chip-name">${this._escapeHTML(name)}</span>${stateVal ? `<span class="entity-chip-state">${this._escapeHTML(stateVal)}</span>` : ""}${!state ? `<span class="entity-chip-warn" title="Entity not found">?</span>` : ""}`;
     span.addEventListener("click", () => {
-      this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId } }));
+      if ((domain === "automation" || domain === "script") && this._openEditor) {
+        this._openEditor(entityId);
+      } else {
+        this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId } }));
+      }
     });
     return span;
   }
