@@ -1532,6 +1532,8 @@ export const EditorMixin = (Base) => class extends Base {
 
   _jumpEditorToBlock(fromLine, toLine, cursorOnly = false) {
     if (!this._editor) return;
+    // Prevent immediate drilldown collapse after diagram-initiated cursor jumps.
+    this._suppressDiagramAutoCollapseUntil = Date.now() + 400;
     const doc = this._editor.state.doc;
     const safeFrom = Math.max(1, fromLine + 1);
     const safeTo = cursorOnly ? safeFrom : Math.min(doc.lines, toLine + 1);
@@ -1569,7 +1571,10 @@ export const EditorMixin = (Base) => class extends Base {
     });
 
     // Auto-collapse: deselect expanded nodes whose range no longer contains cursor
-    if (depth === 0) {
+    const suppressCollapse =
+      this._suppressDiagramAutoCollapseUntil &&
+      Date.now() < this._suppressDiagramAutoCollapseUntil;
+    if (depth === 0 && !suppressCollapse) {
       let collapseFromLevel = Infinity;
       diag.querySelectorAll(".adg-node.adg-selected.adg-expandable").forEach((node) => {
         const from = parseInt(node.dataset.from, 10);
@@ -1692,8 +1697,22 @@ export const EditorMixin = (Base) => class extends Base {
       </div>
     `;
     // Force high contrast so the expression stays readable regardless of theme/cached CSS
+    tplInsp.style.setProperty("background", "#111827", "important");
+    tplInsp.style.setProperty("border", "1px solid #334155", "important");
+    tplInsp.style.setProperty("color", "#f8fafc", "important");
+    tplInsp.style.setProperty("width", "420px", "important");
     const exprEl = tplInsp.querySelector(".ti-expr");
     const exprCodeEl = tplInsp.querySelector(".ti-expr code");
+    const hdrEl = tplInsp.querySelector(".ti-header");
+    const lblEl = tplInsp.querySelector(".ti-label");
+    const closeEl = tplInsp.querySelector(".ti-close");
+    const previewLabelEl = tplInsp.querySelector(".ti-preview-label");
+    if (hdrEl) {
+      hdrEl.style.setProperty("background", "#1f2937", "important");
+      hdrEl.style.setProperty("border-bottom", "1px solid #334155", "important");
+    }
+    if (lblEl) lblEl.style.setProperty("color", "#fbbf24", "important");
+    if (closeEl) closeEl.style.setProperty("color", "#cbd5e1", "important");
     if (exprEl) {
       exprEl.style.setProperty("background", "#0f172a", "important");
       exprEl.style.setProperty("color", "#f8fafc", "important");
@@ -1703,6 +1722,7 @@ export const EditorMixin = (Base) => class extends Base {
       exprEl.style.setProperty("border", "1px solid #334155", "important");
     }
     if (exprCodeEl) exprCodeEl.style.setProperty("color", "#f8fafc", "important");
+    if (previewLabelEl) previewLabelEl.style.setProperty("color", "#cbd5e1", "important");
     tplInsp.querySelector(".ti-close").addEventListener("click", () => {
       tplInsp.hidden = true;
       this._templateInspectorLine = -1;
@@ -2249,51 +2269,51 @@ export const EditorMixin = (Base) => class extends Base {
         return;
       }
       const lineObj = doc.line(lineNum);
-      const startCoords = this._editor.coordsAtPos(lineObj.from);
-      const endCoords = this._editor.coordsAtPos(Math.max(lineObj.from, lineObj.to));
-      if (!startCoords) {
+      const block = this._editor.lineBlockAt(lineObj.from);
+      const scroller = this._editor.dom.querySelector(".cm-scroller");
+      if (!block || !scroller || !this.shadowRoot) {
         this._clearErrorDecorations();
         return;
       }
-
-      const pane = this._editor.dom.closest(".editor-pane") || this._editor.dom.parentElement;
-      if (!pane || !this.shadowRoot) {
-        this._clearErrorDecorations();
-        return;
-      }
-      const paneRect = pane.getBoundingClientRect();
-      const editorRect = this._editor.dom.getBoundingClientRect();
+      if (getComputedStyle(scroller).position === "static") scroller.style.position = "relative";
 
       let overlay = this.shadowRoot.getElementById("yaml-error-line-overlay");
       if (!overlay) {
         overlay = document.createElement("div");
         overlay.id = "yaml-error-line-overlay";
         overlay.className = "yaml-error-line-overlay";
-        pane.appendChild(overlay);
+        scroller.appendChild(overlay);
       }
+      if (overlay.parentElement !== scroller) scroller.appendChild(overlay);
       let badge = this.shadowRoot.getElementById("yaml-error-line-badge");
       if (!badge) {
         badge = document.createElement("div");
         badge.id = "yaml-error-line-badge";
         badge.className = "yaml-error-line-badge";
-        pane.appendChild(badge);
+        scroller.appendChild(badge);
       }
+      if (badge.parentElement !== scroller) scroller.appendChild(badge);
 
-      const top = Math.max(0, startCoords.top - paneRect.top);
-      const left = Math.max(0, editorRect.left - paneRect.left);
-      const height = Math.max(18, ((endCoords && endCoords.bottom) ? endCoords.bottom : startCoords.bottom) - startCoords.top);
-      const width = Math.max(40, editorRect.width);
+      const top = Math.round(block.top - scroller.scrollTop);
+      const height = Math.max(18, Math.round(block.height || 20));
+      const width = Math.max(40, scroller.clientWidth || this._editor.dom.clientWidth || 200);
+      // Line not visible in viewport: hide marker for now.
+      if (top + height < 0 || top > scroller.clientHeight) {
+        overlay.hidden = true;
+        badge.hidden = true;
+        return;
+      }
 
       overlay.hidden = false;
       overlay.style.top = `${top}px`;
-      overlay.style.left = `${left}px`;
+      overlay.style.left = "0px";
       overlay.style.width = `${width}px`;
       overlay.style.height = `${height}px`;
 
       badge.hidden = false;
       badge.textContent = `\u26a0 line ${lineNum}`;
       badge.style.top = `${Math.max(0, top - 20)}px`;
-      badge.style.left = `${left + 6}px`;
+      badge.style.left = "6px";
     } catch {
       this._clearErrorDecorations();
     }
