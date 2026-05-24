@@ -829,9 +829,35 @@ export const EditorMixin = (Base) => class extends Base {
             if (isChooseIf) {
               const chooseBlocks = this._parseChooseBlocks(fromLine, toLine);
               addDrilldownCol(colLevel + 1, title, children.map((opt, i) => renderOptionTile(opt, nodeEl, chooseBlocks[i], colLevel + 1)));
+            } else if (item.repeat !== undefined) {
+              // repeat: show loop-type header + optional conditions + sequence
+              const nodes = [];
+              const whileConds = [].concat(item.repeat.while || []);
+              const untilConds = [].concat(item.repeat.until || []);
+              if (item.repeat.count !== undefined) {
+                nodes.push(mkHeader(`count: ${item.repeat.count}`));
+              } else if (item.repeat.for_each !== undefined) {
+                const n = Array.isArray(item.repeat.for_each) ? item.repeat.for_each.length : "?";
+                nodes.push(mkHeader(`for_each: ${n} items`));
+              } else if (whileConds.length) {
+                nodes.push(mkHeader("while:"));
+                whileConds.forEach((c) => nodes.push(renderCondItem(c)));
+              } else if (untilConds.length) {
+                nodes.push(mkHeader("until:"));
+                untilConds.forEach((c) => nodes.push(renderCondItem(c)));
+              }
+              if (children.length) nodes.push(mkHeader("sequence:"));
+              children.forEach((child) => nodes.push(renderActionNode(child, "adg-action", 0, 0, 0, null, colLevel + 1)));
+              addDrilldownCol(colLevel + 1, title, nodes);
             } else {
-              // repeat/parallel: show sub-actions directly in next column
-              addDrilldownCol(colLevel + 1, title, children.map((child) => renderActionNode(child, "adg-action", fromLine, toLine, 0, null, colLevel + 1)));
+              // parallel: each element is a {sequence:[]} wrapper — flatten all sequences
+              const nodes = [];
+              [].concat(item.parallel || []).forEach((branch, bi) => {
+                const seq = [].concat(branch.sequence || branch || []);
+                if (item.parallel.length > 1) nodes.push(mkHeader(branch.alias || `branch ${bi + 1}`));
+                seq.forEach((child) => nodes.push(renderActionNode(child, "adg-action", 0, 0, 0, null, colLevel + 1)));
+              });
+              addDrilldownCol(colLevel + 1, title, nodes);
             }
           }
           e.stopPropagation(); return;
@@ -1100,7 +1126,21 @@ export const EditorMixin = (Base) => class extends Base {
       return { icon: "🔁", title: "repeat", sub: item.repeat?.count ? `${item.repeat.count}× · ${seqCount} actions ▶` : `${seqCount} actions ▶` };
     }
     if (item.wait_template !== undefined || item.wait_for_trigger !== undefined) return { icon: "⏳", title: "wait", sub: "" };
-    if (item.delay !== undefined) return { icon: "⏱", title: "delay", sub: String(item.delay) };
+    if (item.delay !== undefined) {
+      let delayStr;
+      if (typeof item.delay === "object" && item.delay !== null) {
+        const p = [];
+        if (item.delay.days) p.push(`${item.delay.days}d`);
+        if (item.delay.hours) p.push(`${item.delay.hours}h`);
+        if (item.delay.minutes) p.push(`${item.delay.minutes}m`);
+        if (item.delay.seconds) p.push(`${item.delay.seconds}s`);
+        if (item.delay.milliseconds) p.push(`${item.delay.milliseconds}ms`);
+        delayStr = p.join(" ") || "0s";
+      } else {
+        delayStr = String(item.delay);
+      }
+      return { icon: "⏱", title: "delay", sub: delayStr };
+    }
     if (item.stop !== undefined) return { icon: "🛑", title: "stop", sub: String(item.stop || "") };
     if (item.event !== undefined) return { icon: "📡", title: "fire event", sub: String(item.event) };
     if (item.variables !== undefined) return { icon: "📦", title: "variables", sub: "" };
