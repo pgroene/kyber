@@ -700,10 +700,21 @@ export const EditorMixin = (Base) => class extends Base {
       return;
     }
 
-    // Use stored JSON config when available (more reliable than YAML re-parsing)
     const cfg = this._currentAutomationConfig;
     if (cfg) {
-      this._renderDiagramFromJson(diag, cfg, yamlText);
+      // Compare YAML block counts with JSON config to detect stale config
+      const blocks = this._parseAutomationBlocks(yamlText);
+      const isScript = this._editorMode === "script";
+      const jsonTriggers = isScript ? [] : [].concat(cfg.triggers || cfg.trigger || []).filter(Boolean);
+      const jsonActions = isScript
+        ? [].concat(cfg.sequence || []).filter(Boolean)
+        : [].concat(cfg.actions || cfg.action || []).filter(Boolean);
+      if (blocks.triggers.length !== jsonTriggers.length || blocks.actions.length !== jsonActions.length) {
+        // Config is stale — fall back to YAML-only rendering until reparse completes
+        this._renderDiagramFromYaml(diag, yamlText);
+      } else {
+        this._renderDiagramFromJson(diag, cfg, yamlText);
+      }
     } else {
       this._renderDiagramFromYaml(diag, yamlText);
     }

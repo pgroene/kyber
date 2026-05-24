@@ -165,8 +165,8 @@ describe("_jsonToYaml", () => {
     expect(result).toContain('"');
   });
 
-  it("serialises an empty array as '[]'", () => {
-    expect(el._jsonToYaml([], 0)).toBe("[]");
+  it("serialises an empty array as empty string", () => {
+    expect(el._jsonToYaml([], 0)).toBe("");
   });
 
   it("serialises an array with items as YAML list", () => {
@@ -175,8 +175,8 @@ describe("_jsonToYaml", () => {
     expect(result).toContain("- b");
   });
 
-  it("serialises an empty object as '{}'", () => {
-    expect(el._jsonToYaml({}, 0)).toBe("{}");
+  it("serialises an empty object as empty string", () => {
+    expect(el._jsonToYaml({}, 0)).toBe("");
   });
 
   it("serialises a flat object with key: value pairs", () => {

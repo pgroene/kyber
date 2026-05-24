@@ -127,14 +127,14 @@ export const UtilsMixin = (Base) => class extends Base {
       return obj;
     }
     if (Array.isArray(obj)) {
-      if (obj.length === 0) return "[]";
+      if (obj.length === 0) return "";
       return obj
         .map((item) => `\n${pad}- ${this._jsonToYaml(item, indent + 1).trimStart()}`)
         .join("");
     }
     if (typeof obj === "object") {
       const entries = Object.entries(obj);
-      if (entries.length === 0) return "{}";
+      if (entries.length === 0) return "";
       return entries
         .map(([k, v]) => {
           const val = this._jsonToYaml(v, indent + 1);
