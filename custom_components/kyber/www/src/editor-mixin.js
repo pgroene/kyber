@@ -2460,6 +2460,8 @@ ${yamlText}`;
       this._dirty = true;
       if (saveBtn) saveBtn.disabled = false;
       this._setStatus("Restored unsaved draft — review and save to apply", "warning");
+      // Re-parse draft YAML to get accurate JSON config (draft may differ from saved)
+      this._reparseEditorConfig(draft);
       this._renderAutomationDiagram(draft);
     } else {
       await this._loadAutomation(saved.id).catch(() => {});
