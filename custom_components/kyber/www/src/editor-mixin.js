@@ -767,7 +767,7 @@ export const EditorMixin = (Base) => class extends Base {
       const nodeEl = document.createElement("div");
       const optCls = optItem._isDefault ? "adg-option-default" : "adg-option";
       nodeEl.className = `adg-node adg-action ${optCls} adg-expandable`;
-      if (optBlock?.from_line) { nodeEl.dataset.from = String(optBlock.from_line); nodeEl.dataset.to = String(optBlock.to_line || optBlock.from_line); }
+      if (optBlock?.from_line != null) { nodeEl.dataset.from = String(optBlock.from_line); nodeEl.dataset.to = String(optBlock.to_line ?? optBlock.from_line); }
       const condStr = conds.length ? ` · ${conds.length} cond` : "";
       const seqStr = seq.length ? `${seq.length} action${seq.length !== 1 ? "s" : ""}${condStr}` : (conds.length ? `${conds.length} cond` : "");
       nodeEl.innerHTML = `<span class="adg-icon">${optItem._isDefault ? "↩" : "📋"}</span><span class="adg-title">${this._escH(optItem._label)}</span>${seqStr ? `<span class="adg-sub">${seqStr}</span>` : ""}`;
@@ -778,7 +778,7 @@ export const EditorMixin = (Base) => class extends Base {
         if (!wasSelected) {
           nodeEl.classList.add("adg-selected");
           // Jump editor to this option's line
-          if (!this._suppressEditorJump && optBlock?.from_line) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true);
+          if (!this._suppressEditorJump && optBlock?.from_line != null) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true);
           // Build actions column — conditions are clickable (jump to option start)
           const nodes = [];
           const condClick = optBlock?.from_line != null ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(optBlock.from_line, optBlock.to_line, true); } : null;
@@ -787,7 +787,7 @@ export const EditorMixin = (Base) => class extends Base {
             if (conds.length) nodes.push(mkHeader("then:"));
             seq.forEach((a, i) => {
               const lb = optBlock?.actions?.[i];
-              nodes.push(renderActionNode(a, "adg-action", lb?.from_line || 0, lb?.to_line || 0, 0, null, colLevel + 1));
+              nodes.push(renderActionNode(a, "adg-action", lb?.from_line ?? 0, lb?.to_line ?? 0, 0, null, colLevel + 1));
             });
           }
           addDrilldownCol(colLevel + 1, optItem._label, nodes);
@@ -831,7 +831,7 @@ export const EditorMixin = (Base) => class extends Base {
           removeDrilldownCols(colLevel + 1);
           if (!wasSelected) {
             nodeEl.classList.add("adg-selected");
-            if (!this._suppressEditorJump && (fromLine || toLine)) this._jumpEditorToBlock(fromLine, toLine, true);
+            if (!this._suppressEditorJump && fromLine != null) this._jumpEditorToBlock(fromLine, toLine, true);
             if (isChooseIf) {
               const chooseBlocks = this._parseChooseBlocks(fromLine, toLine);
               addDrilldownCol(colLevel + 1, title, children.map((opt, i) => renderOptionTile(opt, nodeEl, chooseBlocks[i], colLevel + 1)));
@@ -841,7 +841,7 @@ export const EditorMixin = (Base) => class extends Base {
               const whileConds = [].concat(item.repeat.while || []);
               const untilConds = [].concat(item.repeat.until || []);
               // Condition items jump to repeat block start
-              const repeatJump = (fromLine || toLine) ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(fromLine, fromLine + 3, true); } : null;
+              const repeatJump = (fromLine != null) ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(fromLine, fromLine + 3, true); } : null;
               if (item.repeat.count !== undefined) {
                 nodes.push(mkHeader(`count: ${item.repeat.count}`));
               } else if (item.repeat.for_each !== undefined) {
@@ -888,7 +888,7 @@ export const EditorMixin = (Base) => class extends Base {
         // Leaf node: highlight + jump editor
         diag.querySelectorAll(".adg-node.adg-leaf-selected").forEach((n) => n.classList.remove("adg-leaf-selected"));
         nodeEl.classList.add("adg-leaf-selected");
-        if (fromLine || toLine) this._jumpEditorToBlock(fromLine, toLine);
+        if (fromLine != null) this._jumpEditorToBlock(fromLine, toLine);
         e.stopPropagation();
       });
 
@@ -923,7 +923,7 @@ export const EditorMixin = (Base) => class extends Base {
           nodeEl.dataset.to = String(toLine);
           nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}`);
           nodeEl.innerHTML = `<span class="adg-icon">${icon}</span><span class="adg-title">${this._escH(title)}</span>${sub ? `<span class="adg-sub">${this._escH(sub)}</span>` : ""}`;
-          nodeEl.addEventListener("click", () => { if (fromLine || toLine) this._jumpEditorToBlock(fromLine, toLine); });
+          nodeEl.addEventListener("click", () => { if (fromLine != null) this._jumpEditorToBlock(fromLine, toLine); });
           nodesEl.appendChild(nodeEl);
         }
       });
@@ -1013,7 +1013,7 @@ export const EditorMixin = (Base) => class extends Base {
 
     const chooseLine = lines[parentFromLine] || "";
     const chooseIndent = (chooseLine.match(/^(\s*)-/) || ["", ""])[1].length;
-    const endLine = Math.min((parentToLine || parentFromLine) + 200, lines.length - 1);
+    const endLine = Math.min((parentToLine ?? parentFromLine) + 200, lines.length - 1);
 
     // An option boundary: a list item starting with "- conditions:" (plural, HA choose format).
     // Do NOT match "- condition:" (singular) which is a sub-condition type specifier.
@@ -1065,7 +1065,7 @@ export const EditorMixin = (Base) => class extends Base {
         // This handles edge cases where "sequence:" appears before "conditions:"
       }
     }
-    pushOpt(parentToLine || endLine);
+    pushOpt(parentToLine ?? endLine);
     return opts;
   }
 
@@ -1074,7 +1074,7 @@ export const EditorMixin = (Base) => class extends Base {
   _parseRepeatBlocks(parentFromLine, parentToLine) {
     if (!this._editor || parentFromLine == null) return [];
     const lines = this._editor.state.doc.toString().split("\n");
-    const endLine = Math.min((parentToLine || parentFromLine) + 200, lines.length - 1);
+    const endLine = Math.min((parentToLine ?? parentFromLine) + 200, lines.length - 1);
     const actions = [];
     let inSeq = false;
     let seqIndent = -1;
@@ -1099,7 +1099,7 @@ export const EditorMixin = (Base) => class extends Base {
         break;
       }
     }
-    if (curAct) { curAct.to_line = parentToLine || endLine; actions.push(curAct); }
+    if (curAct) { curAct.to_line = parentToLine ?? endLine; actions.push(curAct); }
     return actions;
   }
 
