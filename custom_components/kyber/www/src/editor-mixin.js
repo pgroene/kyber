@@ -941,8 +941,6 @@ export const EditorMixin = (Base) => class extends Base {
               const nodes = [];
               const whileConds = [].concat(item.repeat.while || []);
               const untilConds = [].concat(item.repeat.until || []);
-              // Condition items jump to repeat block start
-              const repeatJump = (fromLine != null) ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(fromLine, fromLine + 3, true); } : null;
               if (item.repeat.count !== undefined) {
                 nodes.push(mkHeader(`count: ${item.repeat.count}`));
               } else if (item.repeat.for_each !== undefined) {
@@ -950,10 +948,24 @@ export const EditorMixin = (Base) => class extends Base {
                 nodes.push(mkHeader(`for_each: ${n} items`));
               } else if (whileConds.length) {
                 nodes.push(mkHeader("while:"));
-                whileConds.forEach((c) => nodes.push(renderCondItem(c, repeatJump)));
+                const condBlocks = this._parseRepeatCondBlocks(fromLine, toLine, "while");
+                whileConds.forEach((c, ci) => {
+                  const cb = condBlocks[ci];
+                  const condClickFn = cb?.from_line != null
+                    ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(cb.from_line, cb.to_line, true); }
+                    : (fromLine != null ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(fromLine, toLine, true); } : null);
+                  nodes.push(renderCondItem(c, condClickFn, cb?.from_line, cb?.to_line));
+                });
               } else if (untilConds.length) {
                 nodes.push(mkHeader("until:"));
-                untilConds.forEach((c) => nodes.push(renderCondItem(c, repeatJump)));
+                const condBlocks = this._parseRepeatCondBlocks(fromLine, toLine, "until");
+                untilConds.forEach((c, ci) => {
+                  const cb = condBlocks[ci];
+                  const condClickFn = cb?.from_line != null
+                    ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(cb.from_line, cb.to_line, true); }
+                    : (fromLine != null ? () => { if (!this._suppressEditorJump) this._jumpEditorToBlock(fromLine, toLine, true); } : null);
+                  nodes.push(renderCondItem(c, condClickFn, cb?.from_line, cb?.to_line));
+                });
               }
               if (children.length) nodes.push(mkHeader("sequence:"));
               // Parse per-action line ranges inside the repeat's sequence
@@ -1242,6 +1254,45 @@ export const EditorMixin = (Base) => class extends Base {
     return actions;
   }
 
+  // Parse per-condition line numbers within a repeat's while: or until: block.
+  // sectionKey is "while" or "until". Returns [{from_line, to_line}, ...] for each condition.
+  _parseRepeatCondBlocks(parentFromLine, parentToLine, sectionKey) {
+    if (!this._editor || parentFromLine == null) return [];
+    const lines = this._editor.state.doc.toString().split("\n");
+    const endLine = Math.min((parentToLine ?? parentFromLine) + 200, lines.length - 1);
+    const conds = [];
+    let inSection = false;
+    let sectionIndent = -1;
+    let itemIndent = -1;
+    let curItem = null;
+    const sectionRe = new RegExp(`^\\s*${sectionKey}\\s*:`);
+    for (let i = parentFromLine + 1; i <= endLine; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+      const lineIndent = (line.match(/^(\s*)/) || ["", ""])[1].length;
+      if (!inSection) {
+        if (sectionRe.test(line)) { inSection = true; sectionIndent = lineIndent; }
+        continue;
+      }
+      // Past section — hit sequence: or another same-level key
+      if (lineIndent <= sectionIndent && !/^\s*$/.test(line)) {
+        if (curItem) { curItem.to_line = i - 1; conds.push(curItem); }
+        break;
+      }
+      if (/^\s*-\s/.test(line)) {
+        if (itemIndent < 0) {
+          itemIndent = lineIndent;
+          curItem = { from_line: i, to_line: i };
+        } else if (lineIndent === itemIndent) {
+          if (curItem) { curItem.to_line = i - 1; conds.push(curItem); }
+          curItem = { from_line: i, to_line: i };
+        }
+      }
+    }
+    if (curItem) { curItem.to_line = parentToLine ?? endLine; conds.push(curItem); }
+    return conds;
+  }
+
   _flattenActionsForDiagram(actions, output, depth) {
     for (const a of actions) {
       if (a.choose) {
@@ -1353,7 +1404,10 @@ export const EditorMixin = (Base) => class extends Base {
     if (item.parallel !== undefined) return { icon: "⚡", title: "parallel", sub: `${(item.parallel || []).length} actions` };
     if (item.repeat !== undefined) {
       const seqCount = [].concat(item.repeat?.sequence || []).length;
-      return { icon: "🔁", title: "repeat", sub: item.repeat?.count ? `${item.repeat.count}× · ${seqCount} actions ▶` : `${seqCount} actions ▶` };
+      const whileCount = [].concat(item.repeat?.while || []).length;
+      const untilCount = [].concat(item.repeat?.until || []).length;
+      const condStr = whileCount ? `while ${whileCount} cond · ` : (untilCount ? `until ${untilCount} cond · ` : "");
+      return { icon: "🔁", title: "repeat", sub: item.repeat?.count ? `${item.repeat.count}× · ${seqCount} actions ▶` : `${condStr}${seqCount} actions ▶` };
     }
     if (item.wait_template !== undefined || item.wait_for_trigger !== undefined) return { icon: "⏳", title: "wait", sub: "" };
     if (item.delay !== undefined) {
