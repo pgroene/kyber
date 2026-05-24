@@ -1532,6 +1532,10 @@ export const EditorMixin = (Base) => class extends Base {
 
   _jumpEditorToBlock(fromLine, toLine, cursorOnly = false) {
     if (!this._editor) return;
+    // If this jump comes from a diagram click, cancel pending debounced re-renders.
+    // Otherwise a delayed parse/render can wipe active drilldown columns right after click.
+    clearTimeout(this._diagramDebounce);
+    clearTimeout(this._configReparseDebounce);
     // Prevent immediate drilldown collapse after diagram-initiated cursor jumps.
     this._suppressDiagramAutoCollapseUntil = Date.now() + 400;
     const doc = this._editor.state.doc;

@@ -12,6 +12,12 @@ export async function gotoHarness(page) {
   await page.waitForFunction(() => window.__panel && window.__panel.shadowRoot);
 }
 
+/** Navigate to the real-editor harness (uses actual CodeMirror bundle). */
+export async function gotoRealEditorHarness(page) {
+  await page.goto("/www/kyber/tests/ui/harness-real-editor.html");
+  await page.waitForFunction(() => window.__panel && window.__panel.shadowRoot);
+}
+
 /**
  * Inject a plan card directly into the panel's chat history.
  * @param {import("@playwright/test").Page} page

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Kyber Panel — Real Editor Harness</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #1a1a2e; }
+    kyber-panel { display: block; height: 100vh; }
+  </style>
+</head>
+<body>
+  <kyber-panel id="panel"></kyber-panel>
+
+  <script type="module">
+    import "/custom_components/kyber/www/kyber-panel.js";
+
+    const MOCK_STATES = {
+      "sensor.house_energy_management_mode": { entity_id: "sensor.house_energy_management_mode", state: "BALANCE", attributes: { friendly_name: "House energy mode" } },
+      "sensor.pv_power": { entity_id: "sensor.pv_power", state: "3500", attributes: { friendly_name: "PV power" } },
+      "switch.goodwe_grid_export_limit_switch": { entity_id: "switch.goodwe_grid_export_limit_switch", state: "on", attributes: { friendly_name: "Goodwe export switch" } },
+      "number.goodwe_grid_export_limit": { entity_id: "number.goodwe_grid_export_limit", state: "120", attributes: { friendly_name: "Goodwe export limit" } },
+    };
+
+    const mockHass = {
+      states: MOCK_STATES,
+      user: { name: "UI Test User" },
+      auth: { data: { access_token: "test-token" } },
+      panels: {},
+      callApi: async (method, path, body) => {
+        const resp = await fetch(`/api/${path}`, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        if (!resp.ok) throw new Error(`callApi ${path} -> ${resp.status}`);
+        return resp.json();
+      },
+      callWS: async (msg) => {
+        if (msg.type === "lovelace/dashboards") return [];
+        if (msg.type === "lovelace/config") return { views: [] };
+        return {};
+      },
+    };
+
+    const panel = document.getElementById("panel");
+    panel.hass = mockHass;
+    window.__panel = panel;
+    window.__hass = mockHass;
+  </script>
+</body>
+</html>
