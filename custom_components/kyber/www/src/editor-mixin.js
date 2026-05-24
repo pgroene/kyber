@@ -202,6 +202,7 @@ export const EditorMixin = (Base) => class extends Base {
     if (ctxLabel) ctxLabel.textContent = "";
 
     this._currentAutomationId = null;
+    this._currentAutomationConfig = null;
     this._editorTitle = null;
     this._currentDashboardPath = null;
     this._currentBlueprintPath = null;
@@ -1587,6 +1588,12 @@ export const EditorMixin = (Base) => class extends Base {
     }
 
     if (draft) {
+      // Fetch fresh JSON config so diagram can use the expandable JSON path
+      try {
+        const cfgPath = isScript ? `config/script/config/${saved.id}` : `config/automation/config/${saved.id}`;
+        const config = await this._hass.callApi("GET", cfgPath);
+        this._currentAutomationConfig = config;
+      } catch (_) { /* fallback: diagram uses YAML path */ }
       // Load the draft — show unsaved state so user knows this isn't from HA
       this._setEditorContent(draft);
       this._dirty = true;
