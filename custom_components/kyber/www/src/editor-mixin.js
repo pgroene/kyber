@@ -2620,8 +2620,23 @@ export const EditorMixin = (Base) => class extends Base {
     const simPane = this.shadowRoot?.getElementById("sim-pane");
     if (!simPane || simPane.hidden) return;
     const found = this._findNodeForYamlLine(lineNum0);
-    if (!found) return;
+    if (!found) {
+      // Cursor is outside any section - clear selection
+      this._clearSimSelection();
+      return;
+    }
     this._selectSimNode(found.type, found.idx, true);
+  }
+
+  /** Clear sim selection without affecting YAML highlight. */
+  _clearSimSelection() {
+    const simPane = this.shadowRoot?.getElementById("sim-pane");
+    if (!simPane) return;
+    if (this._selectedSimNodeKey) {
+      const prev = simPane.querySelector(`[data-node-key="${this._selectedSimNodeKey}"]`);
+      if (prev) prev.classList.remove("sim-selected");
+      this._selectedSimNodeKey = null;
+    }
   }
 
   /** Select a sim node by type+idx. fromEditor=true skips the YAML highlight (already there). */
@@ -2629,13 +2644,12 @@ export const EditorMixin = (Base) => class extends Base {
     const simPane = this.shadowRoot?.getElementById("sim-pane");
     if (!simPane) return;
     const key = `${type}:${idx}`;
-    if (this._selectedSimNodeKey === key && !fromEditor) {
-      // Toggle off when same node clicked again (handled by click path)
-      return;
+    if (this._selectedSimNodeKey === key && fromEditor) {
+      return; // Already selected, no need to update
     }
-    // Deselect previous
+    // Deselect previous (use [data-node-key] to cover both sim-node and sim-sub-node)
     if (this._selectedSimNodeKey) {
-      const prev = simPane.querySelector(`.sim-node[data-node-key="${this._selectedSimNodeKey}"]`);
+      const prev = simPane.querySelector(`[data-node-key="${this._selectedSimNodeKey}"]`);
       if (prev) prev.classList.remove("sim-selected");
     }
     this._selectedSimNodeKey = key;

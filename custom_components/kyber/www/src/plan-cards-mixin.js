@@ -840,23 +840,19 @@ export const PlanCardsMixin = (Base) => class extends Base {
       flowEl.appendChild(buildSection("SEQUENCE", actions, "action"));
     } else if (isBlueprint) {
       // Blueprints: trigger → conditions → actions (same as automation)
-      // !input references shown as blueprint input name
       if (triggers.length) {
         flowEl.appendChild(buildSection("TRIGGERS", triggers, "trigger"));
         flowEl.appendChild(makeArrow());
       }
-      if (conditions.length) {
-        flowEl.appendChild(buildSection("CONDITIONS", conditions, "condition"));
-        flowEl.appendChild(makeArrow());
-      }
+      // Always show CONDITIONS section (even if empty) so the flow is clear
+      flowEl.appendChild(buildSection("CONDITIONS", conditions, "condition"));
+      flowEl.appendChild(makeArrow());
       flowEl.appendChild(buildSection("ACTIONS", actions.length ? actions : [], "action"));
     } else {
-      // Standard automation
+      // Standard automation — always show all three sections
       flowEl.appendChild(buildSection("TRIGGERS", triggers, "trigger"));
-      if (conditions.length) {
-        flowEl.appendChild(makeArrow());
-        flowEl.appendChild(buildSection("CONDITIONS", conditions, "condition"));
-      }
+      flowEl.appendChild(makeArrow());
+      flowEl.appendChild(buildSection("CONDITIONS", conditions, "condition"));
       flowEl.appendChild(makeArrow());
       flowEl.appendChild(buildSection("ACTIONS", actions, "action"));
     }
@@ -887,11 +883,18 @@ export const PlanCardsMixin = (Base) => class extends Base {
       sec.appendChild(labelEl);
       const nodesEl = document.createElement("div");
       nodesEl.className = "sim-nodes";
-      items.forEach((item, idx) => {
-        const node = buildNode(item, type, idx);
-        nodeEls[`${type}:${idx}`] = node;
-        nodesEl.appendChild(node);
-      });
+      if (items.length === 0) {
+        const none = document.createElement("div");
+        none.className = "sim-node-empty";
+        none.textContent = "none";
+        nodesEl.appendChild(none);
+      } else {
+        items.forEach((item, idx) => {
+          const node = buildNode(item, type, idx);
+          nodeEls[`${type}:${idx}`] = node;
+          nodesEl.appendChild(node);
+        });
+      }
       sec.appendChild(nodesEl);
       return sec;
     }

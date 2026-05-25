@@ -1887,6 +1887,13 @@ export const STYLES = `
     padding-left: 2px;
   }
   .sim-nodes { display: flex; flex-direction: column; gap: 5px; }
+  .sim-node-empty {
+    font-size: 11px;
+    color: var(--secondary-text-color, #666);
+    font-style: italic;
+    padding: 4px 6px;
+    opacity: 0.6;
+  }
   .sim-node {
     display: flex;
     flex-direction: column;
@@ -2975,8 +2982,9 @@ export const STYLES = `
     transition: background 0.2s;
   }
   .sim-branch.sim-pass > .sim-branch-label { color: #4ade80; }
-  .sim-branch.sim-skip > .sim-branch-label { opacity: 0.4; }
-  .sim-branch.sim-skip .sim-sub-node { opacity: 0.3; }
+  .sim-branch.sim-skip > .sim-branch-label { opacity: 0.5; }
+  .sim-branch.sim-skip .sim-sub-node { opacity: 0.5; }
+  .sim-branch.sim-skip { background: rgba(255,255,255,0.02); }
 
   .sim-branch-label {
     font-size: 10px;
