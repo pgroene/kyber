@@ -1917,6 +1917,7 @@ export const STYLES = `
   .sim-node.sim-skip { opacity: 0.4; }
   .sim-node.sim-fired { border-left-color: #f59e0b !important; box-shadow: 0 0 0 1px rgba(245,158,11,0.4); background: rgba(245,158,11,0.08); }
   .sim-node.sim-selected { outline: 2px solid #38bdf8; outline-offset: 1px; }
+  .sim-sub-node.sim-selected { outline: 2px solid #38bdf8; outline-offset: 1px; background: rgba(56,189,248,0.08); }
   .sim-fire-btn {
     position: absolute; top: 4px; right: 6px;
     background: transparent; border: none; cursor: pointer;
@@ -2998,6 +2999,7 @@ export const STYLES = `
     background: var(--card-bg-inner, #111827);
     border: 1px solid var(--border-color, #374151);
     font-size: 12px;
+    cursor: pointer;
     transition: background 0.2s, border-color 0.2s, opacity 0.2s;
     margin-bottom: 2px;
   }

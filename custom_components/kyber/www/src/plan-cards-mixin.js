@@ -798,6 +798,8 @@ export const PlanCardsMixin = (Base) => class extends Base {
     const inputMocks = {};       // blueprint input key → mock value
     const firedTriggers = new Set();
     const nodeEls = {};
+    // Reset panel-level selection state when tester is rebuilt
+    self._selectedSimNodeKey = null;
 
     const getLive = (eid) => self._hass?.states[eid]?.state ?? "?";
 
@@ -894,22 +896,20 @@ export const PlanCardsMixin = (Base) => class extends Base {
       return sec;
     }
 
-    let _selectedNodeKey = null;
-
     function selectNode(type, idx, nodeEl) {
-      // Deselect previous
-      if (_selectedNodeKey) {
-        const prev = container.querySelector(`.sim-node[data-node-key="${_selectedNodeKey}"]`);
+      const key = `${type}:${idx}`;
+      // Deselect previous (including the current node if same key is clicked again)
+      if (self._selectedSimNodeKey) {
+        const prev = container.querySelector(`[data-node-key="${self._selectedSimNodeKey}"]`);
         if (prev) prev.classList.remove("sim-selected");
       }
-      const key = `${type}:${idx}`;
-      if (_selectedNodeKey === key) {
+      if (self._selectedSimNodeKey === key) {
         // Toggle off
-        _selectedNodeKey = null;
+        self._selectedSimNodeKey = null;
         self._clearNodeHighlight?.();
         return;
       }
-      _selectedNodeKey = key;
+      self._selectedSimNodeKey = key;
       nodeEl.classList.add("sim-selected");
       self._highlightNodeInEditor?.(type, idx);
     }
@@ -1090,8 +1090,32 @@ export const PlanCardsMixin = (Base) => class extends Base {
       const node = document.createElement("div");
       node.className = "sim-sub-node";
       node.dataset.key = key;
+      node.dataset.nodeKey = key;  // for unified querySelector
       const { icon, title, sub } = describeNode(item, "action");
       node.innerHTML = `<span class="sim-sub-icon">${icon}</span><span class="sim-sub-title">${self._escapeHtml(title)}</span>${sub ? `<span class="sim-sub-sub"> — ${self._escapeHtml(sub)}</span>` : ""}`;
+      // Sub-node selection: highlight parent action in editor
+      node.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const nodeKey = key; // e.g. "action:0:opt:1:2"
+        // Deselect previous (including self if toggling off)
+        if (self._selectedSimNodeKey) {
+          const prev = container.querySelector(`[data-node-key="${self._selectedSimNodeKey}"]`);
+          if (prev) prev.classList.remove("sim-selected");
+        }
+        if (self._selectedSimNodeKey === nodeKey) {
+          self._selectedSimNodeKey = null;
+          self._clearNodeHighlight?.();
+          return;
+        }
+        self._selectedSimNodeKey = nodeKey;
+        node.classList.add("sim-selected");
+        // Find parent action index from key (format: "action:<idx>:...")
+        const parts = nodeKey.split(":");
+        if (parts[0] === "action" && parts[1] !== undefined) {
+          const parentIdx = parseInt(parts[1], 10);
+          if (!isNaN(parentIdx)) self._highlightNodeInEditor?.("action", parentIdx);
+        }
+      });
       return node;
     }
 

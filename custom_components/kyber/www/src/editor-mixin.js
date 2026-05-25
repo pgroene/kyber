@@ -69,6 +69,8 @@ export const EditorMixin = (Base) => class extends Base {
           const cursorPos = update.state.selection.main.head;
           self._updateDiagramHighlight(cursorLine);
           if (self._errorLineNum) requestAnimationFrame(() => self._applyErrorDecorations());
+          // Sync simulator: highlight the sim node that corresponds to cursor position
+          self._syncSimFromEditorCursor(cursorLine);
           clearTimeout(self._inspectorDebounce);
           self._inspectorDebounce = setTimeout(() => {
             const yamlText = update.state.doc.toString();
@@ -2567,6 +2569,84 @@ export const EditorMixin = (Base) => class extends Base {
       overlay.style.width  = `${width}px`;
       overlay.style.height = `${height}px`;
     } catch { this._clearNodeHighlight(); }
+  }
+
+  // ── Editor → Simulator sync ─────────────────────────────────────────────────
+
+  /** Map a 0-indexed cursor line to the sim section/index it belongs to. */
+  _findNodeForYamlLine(lineNum0) {
+    if (!this._editor) return null;
+    const text = this._editor.state.doc.toString();
+    const lines = text.split("\n");
+    const sections = [
+      { type: "trigger",   aliases: ["trigger",   "triggers"] },
+      { type: "condition", aliases: ["condition",  "conditions"] },
+      { type: "action",    aliases: ["action",     "actions", "sequence"] },
+    ];
+    for (const sec of sections) {
+      let sectionLine = -1, sectionIndent = 0;
+      for (let i = 0; i < lines.length; i++) {
+        const m = lines[i].match(/^(\s*)(\w+)\s*:/);
+        if (m && sec.aliases.includes(m[2])) { sectionLine = i; sectionIndent = m[1].length; break; }
+      }
+      if (sectionLine === -1) continue;
+
+      const items = []; // [{start, end, idx}]
+      let curIdx = -1, curStart = -1, sectionEnd = lines.length;
+      for (let i = sectionLine + 1; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const rawIndent = line.search(/\S/);
+        if (rawIndent <= sectionIndent) { sectionEnd = i; break; }
+        if ((trimmed.startsWith("- ") || trimmed === "-") && line.indexOf("-") === rawIndent) {
+          if (curStart !== -1) items.push({ start: curStart, end: i - 1, idx: curIdx });
+          curIdx++; curStart = i;
+        }
+      }
+      if (curStart !== -1) items.push({ start: curStart, end: sectionEnd - 1, idx: curIdx });
+
+      for (const item of items) {
+        if (lineNum0 >= item.start && lineNum0 <= item.end) {
+          return { type: sec.type, idx: item.idx };
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Called on every cursor/selection change in the YAML editor. */
+  _syncSimFromEditorCursor(lineNum0) {
+    const simPane = this.shadowRoot?.getElementById("sim-pane");
+    if (!simPane || simPane.hidden) return;
+    const found = this._findNodeForYamlLine(lineNum0);
+    if (!found) return;
+    this._selectSimNode(found.type, found.idx, true);
+  }
+
+  /** Select a sim node by type+idx. fromEditor=true skips the YAML highlight (already there). */
+  _selectSimNode(type, idx, fromEditor = false) {
+    const simPane = this.shadowRoot?.getElementById("sim-pane");
+    if (!simPane) return;
+    const key = `${type}:${idx}`;
+    if (this._selectedSimNodeKey === key && !fromEditor) {
+      // Toggle off when same node clicked again (handled by click path)
+      return;
+    }
+    // Deselect previous
+    if (this._selectedSimNodeKey) {
+      const prev = simPane.querySelector(`.sim-node[data-node-key="${this._selectedSimNodeKey}"]`);
+      if (prev) prev.classList.remove("sim-selected");
+    }
+    this._selectedSimNodeKey = key;
+    const nodeEl = simPane.querySelector(`[data-node-key="${key}"]`);
+    if (nodeEl) {
+      nodeEl.classList.add("sim-selected");
+      nodeEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    if (!fromEditor) {
+      this._highlightNodeInEditor(type, idx);
+    }
   }
 
   _applyErrorDecorations() {
