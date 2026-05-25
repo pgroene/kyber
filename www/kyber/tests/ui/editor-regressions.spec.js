@@ -371,6 +371,178 @@ test.describe("Editor regressions (real CodeMirror)", () => {
   });
 });
 
+/* ── Ghost nodes / diff tracking ─────────────────────────────────────────── */
+
+const SIMPLE_YAML = `alias: Test automation
+triggers: []
+conditions: []
+actions:
+  - action: light.turn_on
+    target:
+      entity_id: light.living_room
+  - action: notify.mobile
+    data:
+      message: "Hello"
+mode: single
+`;
+
+const SIMPLE_CONFIG = {
+  alias: "Test automation",
+  triggers: [],
+  conditions: [],
+  actions: [
+    { action: "light.turn_on", target: { entity_id: "light.living_room" } },
+    { action: "notify.mobile", data: { message: "Hello" } },
+  ],
+  mode: "single",
+};
+
+const YAML_ONE_ACTION = `alias: Test automation
+triggers: []
+conditions: []
+actions:
+  - action: light.turn_on
+    target:
+      entity_id: light.living_room
+mode: single
+`;
+
+const CONFIG_ONE_ACTION = {
+  alias: "Test automation",
+  triggers: [],
+  conditions: [],
+  actions: [{ action: "light.turn_on", target: { entity_id: "light.living_room" } }],
+  mode: "single",
+};
+
+test.describe("Ghost nodes / diff tracking", () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoRealEditorHarness(page);
+    await page.route("**/api/kyber/parse_yaml", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ config: SIMPLE_CONFIG }),
+      })
+    );
+  });
+
+  test("deleted action appears as ghost node", async ({ page }) => {
+    // Load the full 2-action YAML as the baseline ("saved" state)
+    await page.evaluate(({ yaml, config }) => {
+      const panel = window.__panel;
+      const editorPane = panel.shadowRoot.getElementById("editor-container");
+      const container = panel.shadowRoot.getElementById("app-container");
+      container.classList.add("editor-open");
+      editorPane.classList.add("open");
+      if (!panel._editor) panel._initEditor(editorPane);
+      panel._editorMode = "automation";
+      panel._currentAutomationConfig = config;
+      panel._savedAutomationConfig = config;   // establish baseline
+      panel._savedYaml = yaml;                 // establish baseline
+      panel._setEditorContent(yaml);
+      panel._renderAutomationDiagram(yaml);
+    }, { yaml: SIMPLE_YAML, config: SIMPLE_CONFIG });
+
+    // Now update the editor to only 1 action (simulates user deleting the second action)
+    await page.evaluate(({ yaml, config }) => {
+      const panel = window.__panel;
+      panel._currentAutomationConfig = config;
+      panel._setEditorContent(yaml);
+      panel._renderAutomationDiagram(yaml);
+    }, { yaml: YAML_ONE_ACTION, config: CONFIG_ONE_ACTION });
+
+    // A ghost node should appear
+    const ghostNode = page.locator(".adg-ghost-node").first();
+    await expect(ghostNode).toBeVisible();
+    await expect(ghostNode).toContainText("mobile");
+
+    // The restore button should exist
+    const restoreBtn = ghostNode.locator(".adg-restore-btn");
+    await expect(restoreBtn).toBeVisible();
+    await expect(restoreBtn).toContainText("⟲");
+
+    await page.screenshot({ path: "screenshots/ghost-node-deleted-action.png" });
+  });
+
+  test("adg-dirty indicator appears on modified action", async ({ page }) => {
+    await page.evaluate(({ yaml, config }) => {
+      const panel = window.__panel;
+      const editorPane = panel.shadowRoot.getElementById("editor-container");
+      const container = panel.shadowRoot.getElementById("app-container");
+      container.classList.add("editor-open");
+      editorPane.classList.add("open");
+      if (!panel._editor) panel._initEditor(editorPane);
+      panel._editorMode = "automation";
+      panel._currentAutomationConfig = config;
+      panel._savedAutomationConfig = config;
+      panel._savedYaml = yaml;
+      panel._setEditorContent(yaml);
+      panel._renderAutomationDiagram(yaml);
+    }, { yaml: SIMPLE_YAML, config: SIMPLE_CONFIG });
+
+    // Modify first action's entity in the YAML
+    const modifiedYaml = SIMPLE_YAML.replace("light.living_room", "light.bedroom");
+    const modifiedConfig = {
+      ...SIMPLE_CONFIG,
+      actions: [
+        { action: "light.turn_on", target: { entity_id: "light.bedroom" } },
+        { action: "notify.mobile", data: { message: "Hello" } },
+      ],
+    };
+    await page.evaluate(({ yaml, config }) => {
+      const panel = window.__panel;
+      panel._currentAutomationConfig = config;
+      panel._setEditorContent(yaml);
+      panel._renderAutomationDiagram(yaml);
+    }, { yaml: modifiedYaml, config: modifiedConfig });
+
+    // Dirty indicator should appear on first action
+    const dirtyNode = page.locator(".adg-dirty").first();
+    await expect(dirtyNode).toBeVisible();
+
+    await page.screenshot({ path: "screenshots/adg-dirty-indicator.png" });
+  });
+
+  test("clicking restore button appends action back to YAML", async ({ page }) => {
+    await page.evaluate(({ yaml, config }) => {
+      const panel = window.__panel;
+      const editorPane = panel.shadowRoot.getElementById("editor-container");
+      const container = panel.shadowRoot.getElementById("app-container");
+      container.classList.add("editor-open");
+      editorPane.classList.add("open");
+      if (!panel._editor) panel._initEditor(editorPane);
+      panel._editorMode = "automation";
+      panel._currentAutomationConfig = config;
+      panel._savedAutomationConfig = config;
+      panel._savedYaml = yaml;
+      panel._setEditorContent(yaml);
+      panel._renderAutomationDiagram(yaml);
+    }, { yaml: SIMPLE_YAML, config: SIMPLE_CONFIG });
+
+    // Delete second action
+    await page.evaluate(({ yaml, config }) => {
+      const panel = window.__panel;
+      panel._currentAutomationConfig = config;
+      panel._setEditorContent(yaml);
+      panel._renderAutomationDiagram(yaml);
+    }, { yaml: YAML_ONE_ACTION, config: CONFIG_ONE_ACTION });
+
+    // Click restore
+    const restoreBtn = page.locator(".adg-restore-btn").first();
+    await expect(restoreBtn).toBeVisible();
+    await restoreBtn.click();
+
+    // YAML should now contain "notify.mobile" again
+    const restoredYaml = await page.evaluate(() =>
+      window.__panel._editor.state.doc.toString()
+    );
+    expect(restoredYaml).toContain("notify.mobile");
+
+    await page.screenshot({ path: "screenshots/ghost-node-restored.png" });
+  });
+});
+
 /* ── Error bar position ───────────────────────────────────────────────────── */
 
 test.describe("Error bar — position inside editor column", () => {

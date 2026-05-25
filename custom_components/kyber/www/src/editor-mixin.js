@@ -1259,6 +1259,98 @@ export const EditorMixin = (Base) => class extends Base {
     diag.innerHTML = "";
     const parts = [fieldsSection, triggerSection, condSection, actionSection].filter(Boolean);
     parts.forEach((part, i) => { diag.appendChild(part); if (i < parts.length - 1) diag.appendChild(arrow()); });
+
+    // ── Deleted-action ghost nodes ───────────────────────────────────────────
+    // Compare saved actions vs current actions; render ghost nodes for removed ones.
+    if (this._savedAutomationConfig && this._savedYaml && this._savedYaml !== yamlText) {
+      const savedActions = isScript
+        ? [].concat(this._savedAutomationConfig.sequence || []).filter(Boolean)
+        : [].concat(this._savedAutomationConfig.actions || this._savedAutomationConfig.action || []).filter(Boolean);
+
+      if (savedActions.length > actions.length) {
+        const savedBlocks = this._parseAutomationBlocks(this._savedYaml);
+        const savedLineBlocks = savedBlocks.actions || [];
+        const getBlockText = (yaml, lb) => {
+          if (!lb) return "";
+          return yaml.split("\n").slice(lb.from_line, lb.to_line + 1).join("\n").trim();
+        };
+        const currentTexts = new Set(
+          (this._diagLineBlocks.actions || []).map(lb => getBlockText(yamlText, lb))
+        );
+
+        const deletedItems = savedActions
+          .map((item, i) => ({ item, text: getBlockText(this._savedYaml, savedLineBlocks[i]) }))
+          .filter(({ text }) => text && !currentTexts.has(text));
+
+        if (deletedItems.length) {
+          const delSection = document.createElement("div");
+          delSection.className = "adg-section adg-deleted-section";
+          delSection.innerHTML = `<div class="adg-label adg-deleted-label">🗑 REMOVED</div>`;
+          const nodesEl = document.createElement("div");
+          nodesEl.className = "adg-nodes";
+          deletedItems.forEach(({ item, text }) => {
+            const { icon, title, sub } = this._blockMetaFromJson("actions", item);
+            const nodeEl = document.createElement("div");
+            nodeEl.className = "adg-node adg-action adg-ghost-node";
+            nodeEl.setAttribute("title", `Deleted: ${title}${sub ? ": " + sub : ""} — click ⟲ to restore`);
+            const restoreBtn = document.createElement("button");
+            restoreBtn.className = "adg-restore-btn";
+            restoreBtn.textContent = "⟲";
+            restoreBtn.title = "Restore this action";
+            restoreBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              this._restoreDeletedAction(text);
+            });
+            nodeEl.innerHTML = `<span class="adg-icon">${icon}</span><span class="adg-title">${this._escH(title)}</span>${sub ? `<span class="adg-sub">${this._escH(sub)}</span>` : ""}`;
+            nodeEl.appendChild(restoreBtn);
+            nodesEl.appendChild(nodeEl);
+          });
+          delSection.appendChild(nodesEl);
+          diag.appendChild(arrow());
+          diag.appendChild(delSection);
+        }
+      }
+    }
+  }
+
+  // Restore a deleted action by appending its YAML block back to the actions section
+  _restoreDeletedAction(yamlBlock) {
+    if (!this._editor || !yamlBlock) return;
+    const current = this._editor.state.doc.toString();
+    const lines = current.split("\n");
+    // Find the last line of the actions/sequence section
+    const isScript = this._editorMode === "script";
+    const sectionKey = isScript ? /^(sequence|actions)\s*:/m : /^(actions)\s*:/m;
+    const sectionMatch = current.match(sectionKey);
+    if (!sectionMatch) {
+      this._setStatus("Cannot restore — actions section not found", "error");
+      return;
+    }
+    // Find the insertion point: end of the last action item
+    const blocks = this._diagLineBlocks?.actions || [];
+    let insertAfterLine;
+    if (blocks.length > 0) {
+      insertAfterLine = blocks[blocks.length - 1].to_line;
+    } else {
+      // Find the actions: line and insert after it
+      const sectionLine = current.slice(0, sectionMatch.index).split("\n").length - 1;
+      insertAfterLine = sectionLine;
+    }
+    // Indent the block to match existing action items (2-space indent under actions:)
+    const indentedBlock = yamlBlock
+      .split("\n")
+      .map((l, i) => {
+        if (i === 0) return l.startsWith("  ") ? l : "  " + l.replace(/^-\s*/, "- ");
+        return l.startsWith("  ") ? l : "  " + l;
+      })
+      .join("\n");
+    // Insert after insertAfterLine
+    lines.splice(insertAfterLine + 1, 0, ...indentedBlock.split("\n"));
+    const newYaml = lines.join("\n");
+    this._setEditorContent(newYaml);
+    this._dirty = true;
+    this.shadowRoot.getElementById("btn-save").disabled = false;
+    this._setStatus("Action restored — review and save", "success");
   }
 
   // Returns child actions for compound action types (used for expand/collapse in diagram)
@@ -2838,6 +2930,7 @@ ${yamlText}`;
       this._currentAutomationConfig = config; // store for diagram
       const yamlText = this._stripEmptyYamlBlocks(this._configToYaml(config));
       this._savedYaml = yamlText; // baseline for dirty tracking
+      this._savedAutomationConfig = config; // baseline for deleted-node detection
       this._setEditorContent(yamlText);
       this._currentAutomationId = configId;
       this._dirty = false;
@@ -2920,6 +3013,7 @@ ${yamlText}`;
 
       this._dirty = false;
       this._savedYaml = yamlText; // update baseline for dirty tracking
+      this._savedAutomationConfig = this._currentAutomationConfig; // update baseline for deleted-node detection
       this._clearEditorDraft(); // draft is now saved to HA
       const kind = isScript ? "script" : "automation";
       this._addChatHistory("user", `I saved the YAML for ${this._currentAutomationId}.`);

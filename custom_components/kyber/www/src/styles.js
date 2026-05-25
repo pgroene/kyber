@@ -213,6 +213,23 @@ export const STYLES = `
   .adg-expandable { cursor: pointer; }
   .adg-dirty { border-left: 3px solid #ff9800 !important; position: relative; }
   .adg-dirty::after { content: "●"; position: absolute; top: 2px; right: 4px; font-size: 8px; color: #ff9800; line-height: 1; }
+
+  /* Ghost nodes — deleted actions not yet saved */
+  .adg-deleted-section .adg-label.adg-deleted-label { color: #ef5350; opacity: 0.8; }
+  .adg-ghost-node {
+    opacity: 0.55;
+    border-left: 3px dashed #ef5350 !important;
+    background: rgba(239,83,80,0.06) !important;
+    position: relative;
+  }
+  .adg-ghost-node:hover { opacity: 0.85; }
+  .adg-restore-btn {
+    position: absolute; top: 3px; right: 4px;
+    background: rgba(239,83,80,0.15); border: 1px solid rgba(239,83,80,0.4);
+    border-radius: 4px; color: #ef5350; font-size: 12px; cursor: pointer;
+    padding: 1px 5px; line-height: 1.4;
+  }
+  .adg-restore-btn:hover { background: rgba(239,83,80,0.3); }
   .adg-icon  { font-size: 14px; line-height: 1; margin-bottom: 4px; }
   .adg-title { font-size: 11px; font-weight: 600; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 145px; }
   .adg-sub   { font-size: 10px; color: var(--text-muted, #999); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 145px; margin-top: 2px; }
