@@ -89,6 +89,7 @@ export const EditorMixin = (Base) => class extends Base {
     if (scroller) {
       const onScroll = () => {
         if (this._errorLineNum) this._applyErrorDecorations();
+        if (this._nodeHighlightRange) this._applyNodeHighlight();
       };
       scroller.addEventListener("scroll", onScroll, { passive: true });
       this._errorLineScrollHandler = onScroll;
@@ -126,9 +127,69 @@ export const EditorMixin = (Base) => class extends Base {
       <div class="elp-results" id="elp-results"></div>
     `;
     editorPane.appendChild(picker);
+
+    const enablePanelDrag = (panelEl, headerSelector, posKey) => {
+      let dragging = false;
+      let startX = 0;
+      let startY = 0;
+      let originLeft = 0;
+      let originTop = 0;
+      let activePointerId = null;
+
+      panelEl.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        if (!e.target.closest(headerSelector)) return;
+        if (e.target.closest("button,input,textarea,select,a")) return;
+        const pane = panelEl.parentElement;
+        if (!pane) return;
+        const paneRect = pane.getBoundingClientRect();
+        const rect = panelEl.getBoundingClientRect();
+        dragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        originLeft = rect.left - paneRect.left;
+        originTop = rect.top - paneRect.top;
+        activePointerId = e.pointerId;
+        try { panelEl.setPointerCapture?.(e.pointerId); } catch (_) {}
+        e.preventDefault();
+      });
+
+      panelEl.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        if (activePointerId !== null && e.pointerId !== activePointerId) return;
+        const pane = panelEl.parentElement;
+        if (!pane) return;
+        const paneW = pane.clientWidth || 0;
+        const paneH = pane.clientHeight || 0;
+        const maxLeft = Math.max(0, paneW - panelEl.offsetWidth);
+        const maxTop = Math.max(0, paneH - panelEl.offsetHeight);
+        const nextLeft = Math.min(maxLeft, Math.max(0, originLeft + (e.clientX - startX)));
+        const nextTop = Math.min(maxTop, Math.max(0, originTop + (e.clientY - startY)));
+        panelEl.style.left = `${nextLeft}px`;
+        panelEl.style.top = `${nextTop}px`;
+        panelEl.style.right = "auto";
+        this[posKey] = { left: nextLeft, top: nextTop };
+      });
+
+      const stopDrag = (e) => {
+        if (!dragging) return;
+        if (activePointerId !== null && e.pointerId !== activePointerId) return;
+        dragging = false;
+        activePointerId = null;
+        try { panelEl.releasePointerCapture?.(e.pointerId); } catch (_) {}
+      };
+      panelEl.addEventListener("pointerup", stopDrag);
+      panelEl.addEventListener("pointercancel", stopDrag);
+    };
+
+    enablePanelDrag(tplInsp, ".ti-header", "_templateInspectorPinnedPos");
+    enablePanelDrag(picker, ".elp-header", "_entityListPickerPinnedPos");
+
     picker.querySelector(".elp-close").addEventListener("click", () => {
       picker.hidden = true;
       this._entityListPickerOpen = false;
+      this._entityListPickerDismissed = true;
+      this._entityListPickerDismissKey = this._entityListContextKey || null;
     });
     picker.querySelector(".elp-search").addEventListener("input", (e) => {
       this._renderEntityPickerResults(e.target.value);
@@ -140,6 +201,8 @@ export const EditorMixin = (Base) => class extends Base {
       if (!picker.hidden && !picker.contains(e.target)) {
         picker.hidden = true;
         this._entityListPickerOpen = false;
+        this._entityListPickerDismissed = true;
+        this._entityListPickerDismissKey = this._entityListContextKey || null;
       }
     }, true);
 
@@ -159,6 +222,46 @@ export const EditorMixin = (Base) => class extends Base {
     if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
     return resp.json();
   }
+
+  _showYamlTab() {
+    const shadow = this.shadowRoot;
+    const simPane = shadow.getElementById("sim-pane");
+    const diag = shadow.getElementById("automation-diagram");
+    const editor = this._editor?.dom;
+    if (simPane) {
+      simPane.hidden = true;
+      shadow.getElementById("app-container")?.classList.remove("sim-open");
+    }
+    if (diag) diag.hidden = this._editorMode !== "automation" && this._editorMode !== "script";
+    if (editor) editor.style.display = "";
+    shadow.getElementById("btn-tab-test")?.classList.remove("active");
+    shadow.getElementById("btn-tab-yaml")?.classList.add("active");
+  }
+
+  _showTestTab() {
+    const shadow = this.shadowRoot;
+    const simPane = shadow.getElementById("sim-pane");
+    const diag = shadow.getElementById("automation-diagram");
+    const editor = this._editor?.dom;
+    if (!simPane) return;
+    if (diag) diag.hidden = true;
+    if (editor) editor.style.display = "";
+    simPane.hidden = false;
+    shadow.getElementById("app-container")?.classList.add("sim-open");
+    shadow.getElementById("btn-tab-test")?.classList.add("active");
+    // Rebuild tester with current config
+    simPane.innerHTML = "";
+    const config = this._currentAutomationConfig;
+    const id = this._currentAutomationId || this._currentBlueprintPath || null;
+    if (config) {
+      this._buildAutomationTester(config, id, simPane);
+    } else if (this._editorMode === "blueprint" && this._editor) {
+      simPane.innerHTML = "<p style='color:#aaa;padding:16px'>Switch to YAML tab first to load the blueprint, then return here.</p>";
+    } else {
+      simPane.innerHTML = "<p style='color:#aaa;padding:8px'>No automation loaded.</p>";
+    }
+  }
+
 
   async _openEditor(entityId) {
     if (!this._hass) return;
@@ -199,6 +302,10 @@ export const EditorMixin = (Base) => class extends Base {
     this._editorMode = isScript ? "script" : "automation";
     this.shadowRoot.getElementById("btn-save").textContent = isScript ? "Save script" : "Save automation";
     this._saveEditorSession(configId, isScript ? "script" : "automation", friendlyName);
+    // Reset to YAML tab and show the Test tab button
+    this._showYamlTab();
+    const testBtn = this.shadowRoot.getElementById("btn-tab-test");
+    if (testBtn) testBtn.style.display = "";
     await this._loadAutomation(configId);
 
     if (this._editor) {
@@ -239,6 +346,16 @@ export const EditorMixin = (Base) => class extends Base {
     if (diag) diag.hidden = true;
     const insp = this.shadowRoot.getElementById("entity-inspector");
     if (insp) insp.hidden = true;
+    const tplInsp = this.shadowRoot.getElementById("template-inspector");
+    if (tplInsp) tplInsp.hidden = true;
+    const picker = this.shadowRoot.getElementById("entity-list-picker");
+    if (picker) picker.hidden = true;
+    this._templateInspectorDismissed = false;
+    this._templateInspectorDismissLine = -1;
+    this._entityListPickerDismissed = false;
+    this._entityListPickerDismissKey = null;
+    this._entityListContextKey = null;
+    this._entityListPickerOpen = false;
     // Restore button labels
     const saveBtn = this.shadowRoot.getElementById("btn-save");
     if (saveBtn) { saveBtn.textContent = "Save"; saveBtn.disabled = true; }
@@ -246,6 +363,13 @@ export const EditorMixin = (Base) => class extends Base {
     const sel = this.shadowRoot.getElementById("dashboard-select");
     if (sel) sel.style.display = "none";
     this._updateBlueprintButton(null);
+    // Reset sim pane and tab state
+    const simPane = this.shadowRoot.getElementById("sim-pane");
+    if (simPane) { simPane.hidden = true; simPane.innerHTML = ""; }
+    this.shadowRoot.getElementById("app-container")?.classList.remove("sim-open");
+    const editor = this._editor?.dom;
+    if (editor) editor.style.display = "";
+    this.shadowRoot.getElementById("btn-tab-test")?.classList.remove("active");
   }
 
   async _openDashboard(targetUrlPath = null) {
@@ -272,6 +396,9 @@ export const EditorMixin = (Base) => class extends Base {
     });
     this.shadowRoot.getElementById("btn-save").textContent = "Save dashboard";
     this._setEditorContextLabel("dashboard", "Dashboard editor");
+    // Hide test tab — not applicable for dashboards
+    const testBtnD = this.shadowRoot.getElementById("btn-tab-test");
+    if (testBtnD) testBtnD.style.display = "none";
     this._setStatus("Opening…");
     this.shadowRoot.getElementById("btn-save").disabled = true;
 
@@ -709,6 +836,12 @@ export const EditorMixin = (Base) => class extends Base {
       diag.hidden = true;
       return;
     }
+    // Don't wipe open Miller-column drilldowns — defer re-render until they close.
+    if (diag.querySelector(".adg-dd")) {
+      this._pendingDiagramRefresh = true;
+      return;
+    }
+    this._pendingDiagramRefresh = false;
 
     const cfg = this._currentAutomationConfig;
     if (cfg) {
@@ -1532,10 +1665,6 @@ export const EditorMixin = (Base) => class extends Base {
 
   _jumpEditorToBlock(fromLine, toLine, cursorOnly = false) {
     if (!this._editor) return;
-    // If this jump comes from a diagram click, cancel pending debounced re-renders.
-    // Otherwise a delayed parse/render can wipe active drilldown columns right after click.
-    clearTimeout(this._diagramDebounce);
-    clearTimeout(this._configReparseDebounce);
     // Prevent immediate drilldown collapse after diagram-initiated cursor jumps.
     this._suppressDiagramAutoCollapseUntil = Date.now() + 400;
     const doc = this._editor.state.doc;
@@ -1574,6 +1703,13 @@ export const EditorMixin = (Base) => class extends Base {
       item.classList.toggle("adg-cond-selected", active);
     });
 
+    if (depth === 0 && this._pendingDiagramRefresh && !diag.querySelector(".adg-dd")) {
+      this._pendingDiagramRefresh = false;
+      const yaml = this._editor?.state?.doc?.toString?.() || "";
+      this._renderAutomationDiagram(yaml);
+      return;
+    }
+
     // Do not auto-collapse expanded drilldowns on cursor changes.
     // Collapsing is user-driven (clicking nodes/columns), which avoids losing context
     // while editing nested choose/repeat sequences.
@@ -1596,7 +1732,6 @@ export const EditorMixin = (Base) => class extends Base {
     if (!tplInsp || !this._hass) return;
 
     const lines = yamlText.split("\n");
-    const line = lines[cursorLine] || "";
 
     // Detect value_template on current line or ±1 line
     let templateStr = null;
@@ -1613,6 +1748,8 @@ export const EditorMixin = (Base) => class extends Base {
     if (!templateStr) {
       tplInsp.hidden = true;
       this._templateInspectorLine = -1;
+      this._templateInspectorDismissed = false;
+      this._templateInspectorDismissLine = -1;
       return;
     }
 
@@ -1624,8 +1761,21 @@ export const EditorMixin = (Base) => class extends Base {
     // Unescape YAML escaped quotes
     templateStr = templateStr.replace(/\\"/g, '"').replace(/\\'/g, "'");
 
+    if (this._templateInspectorDismissed && this._templateInspectorDismissLine !== templateLine) {
+      this._templateInspectorDismissed = false;
+      this._templateInspectorDismissLine = -1;
+    }
+    if (this._templateInspectorDismissed && this._templateInspectorDismissLine === templateLine) {
+      tplInsp.hidden = true;
+      this._templateInspectorLine = templateLine;
+      this._templateInspectorStr = templateStr;
+      return;
+    }
+
     // Don't re-render if same template line and content
-    if (this._templateInspectorLine === templateLine && this._templateInspectorStr === templateStr) return;
+    if (!tplInsp.hidden &&
+        this._templateInspectorLine === templateLine &&
+        this._templateInspectorStr === templateStr) return;
     this._templateInspectorLine = templateLine;
     this._templateInspectorStr = templateStr;
 
@@ -1634,7 +1784,11 @@ export const EditorMixin = (Base) => class extends Base {
     if (entInsp) entInsp.hidden = true;
 
     // Position near the cursor
-    if (this._editor && cursorPos !== undefined) {
+    if (this._templateInspectorPinnedPos) {
+      tplInsp.style.left = `${this._templateInspectorPinnedPos.left}px`;
+      tplInsp.style.top = `${this._templateInspectorPinnedPos.top}px`;
+      tplInsp.style.right = "auto";
+    } else if (this._editor && cursorPos !== undefined) {
       try {
         const coords = this._editor.coordsAtPos(cursorPos);
         const pane = tplInsp.parentElement;
@@ -1685,7 +1839,7 @@ export const EditorMixin = (Base) => class extends Base {
     tplInsp.style.setProperty("background", "#111827", "important");
     tplInsp.style.setProperty("border", "1px solid #334155", "important");
     tplInsp.style.setProperty("color", "#f8fafc", "important");
-    tplInsp.style.setProperty("width", "420px", "important");
+    tplInsp.style.setProperty("width", "360px", "important");
     const exprEl = tplInsp.querySelector(".ti-expr");
     const exprCodeEl = tplInsp.querySelector(".ti-expr code");
     const hdrEl = tplInsp.querySelector(".ti-header");
@@ -1719,7 +1873,8 @@ export const EditorMixin = (Base) => class extends Base {
     if (previewLabelEl) previewLabelEl.style.setProperty("color", "#cbd5e1", "important");
     tplInsp.querySelector(".ti-close").addEventListener("click", () => {
       tplInsp.hidden = true;
-      this._templateInspectorLine = -1;
+      this._templateInspectorDismissed = true;
+      this._templateInspectorDismissLine = templateLine;
     });
 
     // Call HA /api/template to render the template live
@@ -1820,7 +1975,6 @@ export const EditorMixin = (Base) => class extends Base {
     if (!picker || !this._hass) return;
 
     const lines = yamlText.split("\n");
-    const line = lines[cursorLine] || "";
 
     // Detect if we're on an entity_id/entity_ids list line or its items
     // Look backwards for the parent key
@@ -1847,6 +2001,21 @@ export const EditorMixin = (Base) => class extends Base {
     if (!isEntityList) {
       if (!picker.hidden) this._entityListPickerOpen = false;
       picker.hidden = true;
+      this._entityListContextKey = null;
+      this._entityListPickerDismissed = false;
+      this._entityListPickerDismissKey = null;
+      return;
+    }
+
+    const contextKey = `${parentKeyLine}:${listIndent}`;
+    this._entityListContextKey = contextKey;
+    if (this._entityListPickerDismissed && this._entityListPickerDismissKey !== contextKey) {
+      this._entityListPickerDismissed = false;
+      this._entityListPickerDismissKey = null;
+    }
+    if (this._entityListPickerDismissed && this._entityListPickerDismissKey === contextKey) {
+      picker.hidden = true;
+      this._entityListPickerOpen = false;
       return;
     }
 
@@ -1876,7 +2045,11 @@ export const EditorMixin = (Base) => class extends Base {
     this._entityListParentHasInlineValue = parentKeyHasInlineValue;
 
     // Position picker on the right side of the editor pane (avoids covering code)
-    if (this._editor && cursorPos !== undefined) {
+    if (this._entityListPickerPinnedPos) {
+      picker.style.left = `${this._entityListPickerPinnedPos.left}px`;
+      picker.style.top = `${this._entityListPickerPinnedPos.top}px`;
+      picker.style.right = "auto";
+    } else if (this._editor && cursorPos !== undefined) {
       try {
         const coords = this._editor.coordsAtPos(cursorPos);
         const pane = picker.parentElement;
@@ -2084,10 +2257,17 @@ export const EditorMixin = (Base) => class extends Base {
       container.classList.add("editor-open");
       editorPane.classList.add("open");
       this.shadowRoot.querySelectorAll(".editor-controls").forEach((el) => { el.style.display = "block"; });
+      // Show YAML + Test tabs for blueprints (same as automations)
+      this._showYamlTab();
+      const testBtnB = this.shadowRoot.getElementById("btn-tab-test");
+      if (testBtnB) testBtnB.style.display = "";
+      const yamlBtnB = this.shadowRoot.getElementById("btn-tab-yaml");
+      if (yamlBtnB) yamlBtnB.style.display = "";
 
       this._editorMode = "blueprint";
       this._currentBlueprintPath = path;
       this._currentAutomationId = null;
+      this._currentAutomationConfig = data.config || null; // store parsed config for simulator
       this._setEditorContextLabel("blueprint", path.split("/").pop());
       this._setEditorContent(data.yaml);
       this._dirty = false;
@@ -2174,7 +2354,16 @@ export const EditorMixin = (Base) => class extends Base {
       const { config } = await resp.json();
       if (config) {
         this._currentAutomationConfig = config;
-        this._renderAutomationDiagram(yamlText);
+        const diag = this.shadowRoot.getElementById("automation-diagram");
+        const hasOpenDrilldown = !!diag?.querySelector(".adg-dd");
+        // Avoid wiping open Miller columns during delayed background reparse.
+        // Defer full rerender until drilldown columns are closed.
+        if (hasOpenDrilldown) {
+          this._pendingDiagramRefresh = true;
+        } else {
+          this._pendingDiagramRefresh = false;
+          this._renderAutomationDiagram(yamlText);
+        }
       }
     } catch {
       /* silent — diagram uses previous config */
@@ -2183,6 +2372,7 @@ export const EditorMixin = (Base) => class extends Base {
 
   _showYamlError(errMsg, yamlText) {
     this._lastYamlError = errMsg;
+    let displayErrMsg = errMsg;
     // Extract error line number from YAML error message (e.g. "line 36, column 1")
     const lineMatch = errMsg.match(/line\s+(\d+)/i);
     if (lineMatch) {
@@ -2191,6 +2381,10 @@ export const EditorMixin = (Base) => class extends Base {
         ? (this._parseLineToEditorLine[parseLine - 1] || parseLine)
         : parseLine;
       this._setErrorLine(editorLine);
+      // Keep error-bar line number aligned with the editor marker line.
+      if (editorLine !== parseLine) {
+        displayErrMsg = errMsg.replace(/line\s+\d+/i, `line ${editorLine}`);
+      }
     }
     let errorBar = this.shadowRoot.getElementById("yaml-error-bar");
     if (!errorBar) {
@@ -2204,11 +2398,14 @@ export const EditorMixin = (Base) => class extends Base {
     errorBar.hidden = false;
     errorBar.innerHTML = `
       <span class="yeb-icon">⚠</span>
-      <span class="yeb-msg">${this._escH(errMsg).slice(0, 120)}</span>
+      <button class="yeb-msg yeb-jump" title="Click to jump to error line">${this._escH(displayErrMsg).slice(0, 120)}</button>
       <button class="yeb-btn yeb-autofix" title="Ask AI to fix this error">🤖 Auto-fix</button>
       <button class="yeb-btn yeb-guided" title="Guided error resolution">💡 Guide me</button>
       <button class="yeb-close" title="Dismiss">✕</button>
     `;
+    errorBar.querySelector(".yeb-jump").addEventListener("click", () => {
+      if (this._errorLineNum) this._setErrorLine(this._errorLineNum);
+    });
     errorBar.querySelector(".yeb-autofix").addEventListener("click", () => {
       this._aiAutofix(errMsg, yamlText);
     });
@@ -2245,12 +2442,131 @@ export const EditorMixin = (Base) => class extends Base {
     this._clearErrorDecorations();
   }
 
+  _clearErrorLine() {
+    this._errorLineNum = null;
+    this._clearErrorDecorations();
+  }
+
   _clearErrorDecorations() {
     if (!this.shadowRoot) return;
     const overlay = this.shadowRoot.getElementById("yaml-error-line-overlay");
     const badge = this.shadowRoot.getElementById("yaml-error-line-badge");
     if (overlay) overlay.hidden = true;
     if (badge) badge.hidden = true;
+  }
+
+  // ── Node selection highlight ─────────────────────────────────────────────
+
+  _findYamlLinesForNode(type, idx) {
+    if (!this._editor) return null;
+    const text = this._editor.state.doc.toString();
+    const lines = text.split("\n");
+    const aliases = {
+      trigger:   ["trigger", "triggers"],
+      condition: ["condition", "conditions"],
+      action:    ["action", "actions", "sequence"],
+    }[type];
+    if (!aliases) return null;
+
+    let sectionLineIdx = -1;
+    let sectionIndent = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^(\s*)(\w+)\s*:/);
+      if (m && aliases.includes(m[2])) {
+        sectionLineIdx = i;
+        sectionIndent = m[1].length;
+        break;
+      }
+    }
+    if (sectionLineIdx === -1) return null;
+
+    let itemCount = -1;
+    let itemStartLineIdx = -1;
+    let itemEndLineIdx = lines.length - 1;
+
+    for (let i = sectionLineIdx + 1; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const rawIndent = line.search(/\S/);
+      if (rawIndent <= sectionIndent) {
+        if (itemStartLineIdx !== -1) itemEndLineIdx = i - 1;
+        break;
+      }
+      if ((trimmed.startsWith("- ") || trimmed === "-") && rawIndent === line.indexOf("-")) {
+        itemCount++;
+        if (itemCount === idx) {
+          itemStartLineIdx = i;
+        } else if (itemCount > idx && itemStartLineIdx !== -1) {
+          itemEndLineIdx = i - 1;
+          break;
+        }
+      }
+    }
+    if (itemStartLineIdx === -1) return null;
+    while (itemEndLineIdx > itemStartLineIdx && !lines[itemEndLineIdx].trim()) itemEndLineIdx--;
+    return { from: itemStartLineIdx + 1, to: itemEndLineIdx + 1 }; // 1-indexed
+  }
+
+  _highlightNodeInEditor(type, idx) {
+    const range = this._findYamlLinesForNode(type, idx);
+    if (!range || !this._editor) return;
+    try {
+      const doc = this._editor.state.doc;
+      if (range.from > doc.lines) return;
+      const toLine = Math.min(range.to, doc.lines);
+      const fromPos = doc.line(range.from).from;
+      const toPos   = doc.line(toLine).to;
+      this._editor.dispatch({ selection: { anchor: fromPos, head: toPos }, scrollIntoView: true });
+      this._nodeHighlightRange = range;
+      requestAnimationFrame(() => this._applyNodeHighlight());
+    } catch { /* ignore */ }
+  }
+
+  _clearNodeHighlight() {
+    this._nodeHighlightRange = null;
+    if (!this.shadowRoot) return;
+    const overlay = this.shadowRoot.getElementById("yaml-node-highlight-overlay");
+    if (overlay) overlay.hidden = true;
+  }
+
+  _applyNodeHighlight() {
+    if (!this._editor || !this._nodeHighlightRange) return;
+    try {
+      const doc = this._editor.state.doc;
+      const { from, to } = this._nodeHighlightRange;
+      if (from < 1 || from > doc.lines) { this._clearNodeHighlight(); return; }
+      const toLine = Math.min(to, doc.lines);
+      const fromBlock = this._editor.lineBlockAt(doc.line(from).from);
+      const toBlock   = this._editor.lineBlockAt(doc.line(toLine).from);
+      const scroller  = this._editor.dom.querySelector(".cm-scroller");
+      if (!fromBlock || !toBlock || !scroller) { this._clearNodeHighlight(); return; }
+      if (getComputedStyle(scroller).position === "static") scroller.style.position = "relative";
+
+      let overlay = this.shadowRoot.getElementById("yaml-node-highlight-overlay");
+      if (!overlay) {
+        overlay = document.createElement("div");
+        overlay.id = "yaml-node-highlight-overlay";
+        overlay.className = "yaml-node-highlight-overlay";
+        scroller.appendChild(overlay);
+      }
+      if (overlay.parentElement !== scroller) scroller.appendChild(overlay);
+
+      const top    = Math.round(fromBlock.top);
+      const bottom = Math.round(toBlock.top + Math.max(18, toBlock.height || 20));
+      const height = Math.max(18, bottom - top);
+      const width  = Math.max(40, scroller.clientWidth || 200);
+      const visibleTop = top - scroller.scrollTop;
+      if (visibleTop + height < 0 || visibleTop > scroller.clientHeight) {
+        overlay.hidden = true;
+        return;
+      }
+      overlay.hidden = false;
+      overlay.style.top    = `${top}px`;
+      overlay.style.left   = "0px";
+      overlay.style.width  = `${width}px`;
+      overlay.style.height = `${height}px`;
+    } catch { this._clearNodeHighlight(); }
   }
 
   _applyErrorDecorations() {
@@ -2263,10 +2579,9 @@ export const EditorMixin = (Base) => class extends Base {
         return;
       }
       const lineObj = doc.line(lineNum);
-      const startCoords = this._editor.coordsAtPos(lineObj.from);
-      const endCoords = this._editor.coordsAtPos(Math.max(lineObj.from, lineObj.to));
+      const block = this._editor.lineBlockAt(lineObj.from);
       const scroller = this._editor.dom.querySelector(".cm-scroller");
-      if (!startCoords || !scroller || !this.shadowRoot) {
+      if (!block || !scroller || !this.shadowRoot) {
         this._clearErrorDecorations();
         return;
       }
@@ -2289,15 +2604,13 @@ export const EditorMixin = (Base) => class extends Base {
       }
       if (badge.parentElement !== scroller) scroller.appendChild(badge);
 
-      const scrollerRect = scroller.getBoundingClientRect();
-      const top = Math.round(startCoords.top - scrollerRect.top);
-      const height = Math.max(
-        18,
-        Math.round(((endCoords && endCoords.bottom) ? endCoords.bottom : startCoords.bottom) - startCoords.top),
-      );
+      // Keep marker in scroller content coordinates so it tracks correctly while scrolling.
+      const top = Math.round(block.top);
+      const height = Math.max(18, Math.round(block.height || 20));
       const width = Math.max(40, scroller.clientWidth || this._editor.dom.clientWidth || 200);
+      const visibleTop = top - scroller.scrollTop;
       // Line not visible in viewport: hide marker for now.
-      if (top + height < 0 || top > scroller.clientHeight) {
+      if (visibleTop + height < 0 || visibleTop > scroller.clientHeight) {
         overlay.hidden = true;
         badge.hidden = true;
         return;

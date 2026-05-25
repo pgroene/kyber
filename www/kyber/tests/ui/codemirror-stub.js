@@ -10,10 +10,14 @@ export class EditorState {
 }
 
 export class EditorView {
-  constructor() {}
+  constructor(opts) {
+    this.dom = document.createElement("div");
+  }
   destroy() {}
   dispatch() {}
-  get state() { return { doc: { toString: () => "" } }; }
+  focus() {}
+  requestMeasure() {}
+  get state() { return { doc: { toString: () => "", lines: 1, line: () => ({ from: 0, to: 0 }), lineAt: () => ({ number: 1 }) }, selection: { main: { head: 0 } } }; }
   static updateListener = { of: () => ({}) };
 }
 

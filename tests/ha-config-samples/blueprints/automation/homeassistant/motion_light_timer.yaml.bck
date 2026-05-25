@@ -1,0 +1,220 @@
+blueprint:
+  name: Timer based motion-activated Light
+  description: Turn on a light when motion is detected and turn lights off when timer expires. This automation uses a timer to ensure the lights are turned off.
+  domain: automation
+  source_url: https://raw.githubusercontent.com/pgroene/home_assistant/main/blueprints/automation/pgroene/motion_light_timer.yaml
+  author: Peter Groenewegen
+  input:
+    motion_entity:
+      name: Motion Sensor
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: 
+            - motion
+            - occupancy
+    automation_switch:
+      name: Automation switch
+      description: (Optional) switch to turn of motion detection
+      default: null
+      selector:
+        entity:
+          domain: input_boolean
+    lux_entity:
+      name: Illuminance Sensor
+      description: (Optional) light sensor
+      default: null
+      selector:
+        entity:
+          domain: sensor
+          device_class: illuminance
+    lux_level:
+      name: Illuminance level
+      description: If lux is below this value and motion is detected, the light will turn on. Only if light sensor is selected
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 1000 
+    
+    light_target:
+      name: Light
+      selector:
+        target:
+          entity:
+            domain: 
+              - light
+    
+    fade_time:
+      name: Fade time
+      description: Time it takes to turn off the light.
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds
+
+    timer_entity:
+      name: Timer
+      description: Select a timer
+      selector:
+        entity:
+          domain: timer     
+    no_motion_wait:
+      name: Wait time
+      description: Time to leave the light on after last motion is detected.
+      default: 120
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds
+
+
+# If motion is detected within the delay,
+# we restart the script.
+mode: restart
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: !input motion_entity
+    from: "off"
+    to: "on"
+    id: motion
+  - platform: state
+    entity_id: !input motion_entity
+    from: "on"
+    to: "off"
+    id: stopmotion
+  - platform: event
+    event_type: timer.finished
+    event_data:
+      entity_id: !input timer_entity
+    id: timer
+  - platform: numeric_state
+    entity_id: !input lux_entity
+    below: !input lux_level
+    id: luxbelow
+  - platform: numeric_state
+    entity_id: !input lux_entity
+    above: !input lux_level
+    id: luxabove
+
+variables:
+  automation_switch: !input automation_switch
+  lux_entity: !input lux_entity
+  lux_level: !input lux_level
+
+condition:
+  - condition: template
+    value_template: "{{ automation_switch is none or is_state( automation_switch, 'on') }}"
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: motion
+          - condition: template 
+            value_template: "{{ states(lux_entity) | int <= lux_level | int }}"
+        sequence:
+          - alias: "Turn on the light"
+            service: light.turn_on
+            target: !input light_target
+          - alias: "Stop timer"
+            service: timer.cancel
+            target:
+              entity_id: !input timer_entity
+          - service: timer.start
+            data:
+              duration: !input no_motion_wait 
+            target:
+              entity_id: !input timer_entity
+
+      - conditions:
+          - condition: trigger
+            id: luxbelow
+        sequence:
+          - choose:
+              - conditions:         
+                  - condition: state
+                    entity_id: !input motion_entity
+                    state: "on"
+                sequence:
+                  - alias: "Turn on the light"
+                    service: light.turn_on
+                    target: !input light_target
+                  - alias: "Stop timer"
+                    service: timer.cancel
+                    target:
+                      entity_id: !input timer_entity
+                  - service: timer.start
+                    data:
+                      duration: !input no_motion_wait 
+                    target:
+                      entity_id: !input timer_entity
+
+      - conditions:
+          - condition: trigger
+            id: stopmotion
+          - condition: template 
+            value_template: "{{ states(lux_entity) | int <= lux_level | int }}"
+        sequence:
+          - alias: "Stop timer"
+            service: timer.cancel
+            target:
+              entity_id: !input timer_entity
+          - service: timer.start
+            data:
+              duration: !input no_motion_wait 
+            target:
+              entity_id: !input timer_entity
+
+      - conditions:
+          - condition: trigger
+            id: luxabove
+        sequence:
+          - choose:
+              - conditions:         
+                  - condition: state
+                    entity_id: !input motion_entity
+                    state: "on"
+                sequence:
+                  - alias: "Turn on the light"
+                    service: light.turn_off
+                    target: !input light_target
+                    data:
+                      transition: !input fade_time
+                  - alias: "Stop timer"
+                    service: timer.cancel
+                    target:
+                      entity_id: !input timer_entity
+
+      - conditions:
+          - condition: trigger
+            id: 'timer'
+        sequence:
+          - choose:
+              - conditions:         
+                  - condition: state
+                    entity_id: !input motion_entity
+                    state: "on"
+                  - condition: template 
+                    value_template: "{{ states(lux_entity) | int <= lux_level | int }}"
+                sequence:
+                  - alias: "Stop timer"
+                    service: timer.cancel
+                    target:
+                      entity_id: !input timer_entity
+                  - service: timer.start
+                    data:
+                      duration: !input no_motion_wait 
+                    target:
+                      entity_id: !input timer_entity
+            default:
+              - alias: "Turn off the light"
+                service: light.turn_off
+                target: !input light_target
+                data:
+                  transition: !input fade_time

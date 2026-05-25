@@ -1,0 +1,86 @@
+blueprint:
+  name: Adaptive lights control template
+  description: Control sleepmode for an area
+  domain: automation
+  source_url: https://raw.githubusercontent.com/pgroene/home_assistant/main/blueprints/automation/pgroene/adaptive_lights_control.yaml
+  author: Peter Groenewegen
+  input:
+    automation_switch:
+      name: Automation switch
+      default: null
+      description: switch to turn on/off the automation
+      selector:
+        entity:
+          domain: input_boolean    
+    
+    cct_sleep_switch:
+      name: Cct sleep switch
+      description: switch to turn on/off the cct sleep
+      selector:
+        entity:
+          domain: switch    
+    rgb_sleep_switch:
+      name: Rgb sleep switch
+      description: switch to turn on/off the Rgb sleep
+      selector:
+        entity:
+          domain: switch    
+    
+    sleep_off_time:
+      name: Sleep off time
+      description: Time to turn off the sleep
+      selector:
+        entity:
+          domain: input_datetime
+
+    sleep_on_time:
+      name: Sleep on time
+      description: Time to turn on the sleep
+      selector:
+        entity:
+          domain: input_datetime
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: time
+    id: sleep_off
+    at: !input sleep_off_time
+  - platform: time
+    id: sleep_on
+    at: !input sleep_on_time
+
+variables: 
+  automation_switch: !input automation_switch
+  
+condition:
+  - condition: template
+    value_template: "{{ automation_switch is none or is_state( automation_switch, 'on') }}"
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: sleep_off
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: 
+                - !input cct_sleep_switch
+          - service: switch.turn_off
+            target:
+              entity_id: 
+                - !input rgb_sleep_switch
+      - conditions:
+          - condition: trigger
+            id: sleep_on
+        sequence:
+          - service: switch.turn_on
+            target:
+              entity_id: 
+                - !input cct_sleep_switch
+          - service: switch.turn_on
+            target:
+              entity_id: 
+                - !input rgb_sleep_switch

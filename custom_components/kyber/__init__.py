@@ -609,7 +609,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
             sidebar_icon="mdi:robot",
-            module_url="/local/kyber/kyber-panel.js?v=304",
+            module_url="/local/kyber/kyber-panel.js?v=321",
         )
     except Exception:  # noqa: BLE001
         _LOGGER.debug("Panel registration skipped (test environment)")
@@ -624,8 +624,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
                 webcomponent_name="kyber-panel",
                 sidebar_title="Kyber Debug",
                 sidebar_icon="mdi:bug",
-                module_url="/local/kyber/kyber-panel.js?v=304",
-                config={"mode": "debug"},
+                module_url="/local/kyber/kyber-panel.js?v=321",
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Debug panel registration skipped (test environment)")
@@ -686,4 +685,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bo
     if _handler:
         logging.getLogger("custom_components.kyber").removeHandler(_handler)
     return True
+
+
+
+
+
+
 

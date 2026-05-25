@@ -1,0 +1,189 @@
+blueprint:
+  name: Single layer motion activated light
+  description: Keep the lights on for certain time and use a lux value to see if the automation is enabled
+  domain: automation
+  author: Peter Groenewegen
+  input:
+    motion_entity:
+      name: Motion Sensor
+      selector:
+        entity:
+          domain:
+          - binary_sensor
+          device_class:
+          - motion
+          - occupancy
+          - presence
+          multiple: false
+    automation_switch:
+      name: Automation switch
+      description: (Optional) switch to turn of motion detection
+      default:
+      selector:
+        entity:
+          domain:
+          - input_boolean
+          multiple: false
+    sleepmode:
+      name: Sleep Mode
+      description: Used to check if room is in sleep mode 
+      selector:
+        entity:
+          domain: switch 
+          multiple: false
+      default: ''
+    lux_entity:
+      name: Illuminance Sensor
+      description: (Optional) light sensor
+      default:
+      selector:
+        entity:
+          domain:
+          - sensor
+          device_class:
+          - illuminance
+          multiple: false
+    lux_level:
+      name: Illuminance level
+      description: If lux is below this value and motion is detected, the light will
+        turn on. Only if light sensor is selected
+      default: 100
+      selector:
+        number:
+          min: 0.0
+          max: 1000.0
+          step: 1.0
+          mode: slider
+    light_target:
+      name: Light
+      selector:
+        target:
+          entity:
+          - domain:
+            - light
+    light_level:
+      name: Light level
+      description: Set light level when motion is detected
+      default: 200
+      selector:
+        number:
+          min: 0
+          max: 254
+    transition_time:
+      name: Transition time
+      description: Time between transitions.
+      default: 3
+      selector:
+        number:
+          min: 0
+          max: 20
+          unit_of_measurement: seconds
+          step: 1
+          mode: slider
+    no_motion_wait:
+      name: Wait time
+      description: Time to leave the light on after last motion is detected.
+      default: 120
+      selector:
+        number:
+          min: 0.0
+          max: 3600.0
+          unit_of_measurement: seconds
+          step: 1.0
+          mode: slider
+mode: restart
+max_exceeded: silent
+trigger:
+- platform: state
+  entity_id: !input motion_entity
+  from: 'off'
+  to: 'on'
+  id: motion
+- platform: state
+  entity_id: !input motion_entity
+  from: 'on'
+  to: 'off'
+  id: stopmotion
+- platform: numeric_state
+  entity_id: !input lux_entity
+  below: !input lux_level
+  id: luxbelow
+- platform: numeric_state
+  entity_id: !input lux_entity
+  above: !input lux_level
+  id: luxabove
+variables:
+  automation_switch: !input automation_switch
+  lux_entity: !input lux_entity
+  lux_level: !input lux_level
+  sleepmode: !input "sleepmode"
+condition:
+- condition: template
+  value_template: '{{ automation_switch is none or is_state( automation_switch, ''on'')
+    }}'
+action:
+- choose:
+  - conditions:
+    - condition: trigger
+      id: motion
+    - condition: template
+      value_template: "{{ states(lux_entity) | int <= lux_level | int }}"
+    sequence:
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ is_state(sleepmode, 'on') }}"
+          sequence:
+            - alias: Turn on the light sleepmode
+              service: light.turn_on
+              target: !input light_target
+      default:
+        - alias: Turn on the light
+          service: light.turn_on
+          target: !input light_target
+          data:
+            brightness: !input light_level
+            transition: !input transition_time
+
+
+  - conditions:
+    - condition: trigger
+      id: luxbelow
+    sequence:
+    - choose:
+      - conditions:
+        - condition: state
+          entity_id: !input motion_entity
+          state: 'on'
+        sequence:
+        - choose:
+            - conditions:
+               - condition: template
+                 value_template: "{{ is_state(sleepmode, 'on') }}"
+              sequence:
+                - alias: Turn on the light sleepmode
+                  service: light.turn_on
+                  target: !input light_target
+          default:
+            - alias: Turn on the light
+              service: light.turn_on
+              target: !input light_target
+              data:
+                brightness: !input light_level
+                transition: !input transition_time
+  
+  - conditions:
+    - condition: trigger
+      id: luxabove
+    sequence:
+    - alias: Turn on the light
+      service: light.turn_off
+      target: !input light_target
+  - conditions:
+    - condition: trigger
+      id: stopmotion
+    sequence:
+      - delay: !input no_motion_wait
+      - alias: Turn off the light
+        service: light.turn_off
+        target: !input light_target

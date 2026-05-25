@@ -585,6 +585,9 @@ export const PlanCardsMixin = (Base) => class extends Base {
   }
 
   _evalConditionWithMocks(cond, mocks) {
+    // Handle shorthand string template conditions: "{{ states('x') == 'y' }}"
+    if (typeof cond === "string") return this._evalTemplateSimple(cond, mocks);
+
     const type = cond.condition || "";
     const getState = (eid) => mocks[eid] ?? this._hass?.states[eid]?.state ?? null;
     switch (type) {
@@ -611,10 +614,64 @@ export const PlanCardsMixin = (Base) => class extends Base {
         if (results.includes(null)) return null;
         return results.every(Boolean);
       }
+      case "template": {
+        const tpl = cond.value_template || cond.template || "";
+        return this._evalTemplateSimple(tpl, mocks);
+      }
       case "and": return (cond.conditions || []).every((c) => this._evalConditionWithMocks(c, mocks));
       case "or": return (cond.conditions || []).some((c) => this._evalConditionWithMocks(c, mocks));
       case "not": return !(cond.conditions || []).some((c) => this._evalConditionWithMocks(c, mocks));
       default: return null;
+    }
+  }
+
+  /**
+   * Evaluate common Jinja2 template expressions using mock entity values.
+   * Handles the most common HA patterns; returns null if it can't evaluate.
+   */
+  _evalTemplateSimple(tpl, mocks) {
+    if (!tpl) return null;
+    const getState = (eid) => mocks[eid] ?? this._hass?.states[eid]?.state ?? null;
+
+    // Strip {{ }} delimiters
+    let expr = tpl.trim().replace(/^\{\{([\s\S]*)\}\}$/, "$1").trim();
+
+    // Replace is_state('entity', 'value') → true/false
+    expr = expr.replace(/is_state\(['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\)/g, (_, eid, st) => {
+      const val = getState(eid);
+      return val === null ? "null" : (String(val) === st ? "true" : "false");
+    });
+
+    // Replace states('entity') → "value" (quoted string)
+    expr = expr.replace(/states\(['"]([^'"]+)['"]\)/g, (_, eid) => {
+      const val = getState(eid);
+      if (val === null) return "null";
+      return `"${String(val).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+    });
+
+    // Replace float("value") or int("value") → number
+    expr = expr.replace(/(?:float|int)\("([^"]*)"\)/g, (_, v) => {
+      const n = parseFloat(v);
+      return isNaN(n) ? "null" : String(n);
+    });
+
+    // Replace none/None/null/NULL → null; True/False → true/false
+    expr = expr.replace(/\bNone\b/g, "null").replace(/\bnone\b/g, "null");
+    expr = expr.replace(/\bTrue\b/g, "true").replace(/\bFalse\b/g, "false");
+
+    // Unescape Jinja-escaped quotes (\"...\")
+    expr = expr.replace(/\\"/g, '"');
+
+    // Only evaluate if expression looks safe (no function calls or identifiers left)
+    if (/[a-zA-Z_$][a-zA-Z0-9_$]*\s*\(/.test(expr)) return null;
+
+    try {
+      // eslint-disable-next-line no-new-func
+      const result = Function('"use strict"; return (' + expr + ');')();
+      if (result === null || result === undefined) return null;
+      return !!result;
+    } catch {
+      return null;
     }
   }
 
@@ -707,112 +764,691 @@ export const PlanCardsMixin = (Base) => class extends Base {
   }
 
   _buildAutomationTester(config, _automationId, container) {
+    const self = this;
+
+    // ── Detect config type — blueprint wins over sequence ─────────────────
+    const isBlueprint = !!(config.blueprint?.input || config.blueprint?.name);
+    const isScript    = !isBlueprint && !!(config.sequence);
+    const configType  = isBlueprint ? "blueprint" : isScript ? "script" : "automation";
+
+    // ── Collect entity IDs + extra mock fields ──────────────────────────────
     const allEntityIds = this._extractEntityIds(config);
-    const mocks = {};
-    const currentStates = {};
-    allEntityIds.forEach((eid) => {
-      currentStates[eid] = this._hass?.states[eid]?.state ?? "?";
-    });
 
-    const buildMockUI = () => {
-      container.innerHTML = `
-        <div class="ae-tester-header">🧪 Automation simulatie</div>
-        ${allEntityIds.length ? `
-          <div class="ae-tester-desc">Overschrijf waarden om te simuleren:</div>
-          <div class="ae-tester-mocks"></div>
-        ` : ""}
-        <button class="ae-tester-run">▶ Simuleer</button>
-        <div class="ae-tester-results"></div>
-      `;
-      const mocksEl = container.querySelector(".ae-tester-mocks");
-      if (mocksEl) {
-        allEntityIds.forEach((eid) => {
-          const row = document.createElement("div");
-          row.className = "ae-mock-row";
-          row.innerHTML = `
-            <span class="ae-mock-eid">${this._escapeHtml(eid)}</span>
-            <span class="ae-mock-live">live: ${this._escapeHtml(currentStates[eid])}</span>
-            <input class="ae-mock-input" data-eid="${this._escapeHtml(eid)}"
-                   placeholder="${this._escapeHtml(currentStates[eid])}"
-                   value="${this._escapeHtml(mocks[eid] || "")}">
-          `;
-          mocksEl.appendChild(row);
-        });
+    // Blueprint inputs become named mocks (not just entity_ids)
+    const blueprintInputs = isBlueprint
+      ? Object.entries(config.blueprint?.input || {}).map(([key, def]) => ({
+          key,
+          name: def?.name || key,
+          defaultVal: def?.default !== undefined ? String(def.default) : "",
+          description: def?.description || "",
+        }))
+      : [];
+
+    // Script fields become named mocks
+    const scriptFields = isScript
+      ? Object.entries(config.fields || {}).map(([key, def]) => ({
+          key,
+          name: def?.name || key,
+          defaultVal: def?.example !== undefined ? String(def.example) : (def?.default !== undefined ? String(def.default) : ""),
+          description: def?.description || "",
+        }))
+      : [];
+
+    const mocks = {};            // entity_id → mock value
+    const inputMocks = {};       // blueprint input key → mock value
+    const firedTriggers = new Set();
+    const nodeEls = {};
+
+    const getLive = (eid) => self._hass?.states[eid]?.state ?? "?";
+
+    const triggers   = config.trigger   || config.triggers   || [];
+    const conditions = config.condition || config.conditions || [];
+    const actions    = isScript
+      ? (config.sequence || [])
+      : (config.action   || config.actions || config.sequence || []);
+
+    const titleMap = { script: "🔧 Script Simulator", blueprint: "📐 Blueprint Simulator", automation: "🧪 Automation Simulator" };
+
+    container.innerHTML = `
+      <div class="sim-toolbar">
+        <button class="sim-back-btn" id="sim-back-btn">← YAML</button>
+        <div class="sim-toolbar-title">${titleMap[configType]}</div>
+        <button class="sim-run-btn" id="sim-run-btn">▶ Run</button>
+        <div class="sim-result-badge" id="sim-result-badge"></div>
+      </div>
+      <div class="sim-body">
+        <div class="sim-flow" id="sim-flow"></div>
+        ${(allEntityIds.length || blueprintInputs.length || scriptFields.length) ? `<div class="sim-mock-panel" id="sim-mock-panel">
+          <div class="sim-mock-header">${isBlueprint ? "Blueprint inputs" : isScript ? "Script fields" : "Override entity values"}</div>
+          <div class="sim-mock-rows" id="sim-mock-rows"></div>
+        </div>` : ""}
+      </div>
+      ${allEntityIds.length ? `<div class="sim-overrides-bar" id="sim-overrides-bar" hidden>
+        <span class="sim-overrides-label">Overridden:</span>
+        <div class="sim-overrides-chips" id="sim-overrides-chips"></div>
+        <button class="sim-reset-all-btn" id="sim-reset-all-btn">↺ Reset all</button>
+      </div>` : ""}
+    `;
+
+    const flowEl = container.querySelector("#sim-flow");
+
+    // Build flow sections based on config type
+    if (isScript) {
+      // Scripts: just a SEQUENCE of actions, no triggers/conditions
+      flowEl.appendChild(buildSection("SEQUENCE", actions, "action"));
+    } else if (isBlueprint) {
+      // Blueprints: trigger → conditions → actions (same as automation)
+      // !input references shown as blueprint input name
+      if (triggers.length) {
+        flowEl.appendChild(buildSection("TRIGGERS", triggers, "trigger"));
+        flowEl.appendChild(makeArrow());
       }
-      container.querySelector(".ae-tester-run").addEventListener("click", () => {
-        container.querySelectorAll(".ae-mock-input").forEach((inp) => {
-          const val = inp.value.trim();
-          if (val) mocks[inp.dataset.eid] = val;
-          else delete mocks[inp.dataset.eid];
-        });
-        runSimulation();
-      });
-    };
-
-    const runSimulation = () => {
-      const resultsEl = container.querySelector(".ae-tester-results");
-      resultsEl.innerHTML = "";
-      const triggers = config.trigger || config.triggers || [];
-      const conditions = config.condition || config.conditions || [];
-      const actions = config.action || config.actions || [];
-
-      let anyTriggerFires = triggers.length === 0;
-      const trigSection = document.createElement("div");
-      trigSection.className = "ae-sim-section";
-      trigSection.innerHTML = `<div class="ae-sim-label">TRIGGERS</div>`;
-      triggers.forEach((t) => {
-        const result = this._evalTriggerWithMocks(t, mocks);
-        if (result === true) anyTriggerFires = true;
-        const item = document.createElement("div");
-        item.className = "ae-sim-item";
-        item.textContent = `${result === true ? "✅" : result === false ? "❌" : "❓"} ${this._describeTrigger(t)}`;
-        if (result === null) item.style.opacity = "0.6";
-        trigSection.appendChild(item);
-      });
-      resultsEl.appendChild(trigSection);
-
-      let allConditionsPass = true;
       if (conditions.length) {
-        const condSection = document.createElement("div");
-        condSection.className = "ae-sim-section";
-        condSection.innerHTML = `<div class="ae-sim-label">CONDITIONS</div>`;
-        conditions.forEach((c) => {
-          const result = this._evalConditionWithMocks(c, mocks);
-          if (result === false) allConditionsPass = false;
-          const item = document.createElement("div");
-          item.className = "ae-sim-item";
-          item.textContent = `${result === true ? "✅" : result === false ? "❌" : "❓"} ${this._describeCondition(c)}`;
-          if (result === false) { item.style.fontWeight = "600"; item.style.color = "var(--danger, #e53935)"; }
-          condSection.appendChild(item);
-        });
-        resultsEl.appendChild(condSection);
+        flowEl.appendChild(buildSection("CONDITIONS", conditions, "condition"));
+        flowEl.appendChild(makeArrow());
       }
-
-      const automationWouldRun = anyTriggerFires && allConditionsPass;
-      if (actions.length) {
-        const actSection = document.createElement("div");
-        actSection.className = "ae-sim-section";
-        actSection.innerHTML = `<div class="ae-sim-label">ACTIONS${automationWouldRun ? "" : " (overgeslagen)"}</div>`;
-        actions.forEach((a) => {
-          const item = document.createElement("div");
-          item.className = "ae-sim-item";
-          item.textContent = `${automationWouldRun ? "✅" : "⬜"} ${this._describeAction(a)}`;
-          if (!automationWouldRun) item.style.opacity = "0.5";
-          actSection.appendChild(item);
-        });
-        resultsEl.appendChild(actSection);
+      flowEl.appendChild(buildSection("ACTIONS", actions.length ? actions : [], "action"));
+    } else {
+      // Standard automation
+      flowEl.appendChild(buildSection("TRIGGERS", triggers, "trigger"));
+      if (conditions.length) {
+        flowEl.appendChild(makeArrow());
+        flowEl.appendChild(buildSection("CONDITIONS", conditions, "condition"));
       }
+      flowEl.appendChild(makeArrow());
+      flowEl.appendChild(buildSection("ACTIONS", actions, "action"));
+    }
 
-      const resultDiv = document.createElement("div");
-      resultDiv.className = `ae-sim-result ${automationWouldRun ? "pass" : "fail"}`;
-      resultDiv.textContent = automationWouldRun
-        ? "✅ Automation ZOU draaien"
-        : `❌ Automation zou NIET draaien${!anyTriggerFires ? " (geen trigger vuurt)" : !allConditionsPass ? " (conditie faalt)" : ""}`;
-      resultsEl.appendChild(resultDiv);
-    };
+    buildMockRows();
 
-    buildMockUI();
+    container.querySelector("#sim-run-btn").addEventListener("click", runSimulation);
+    container.querySelector("#sim-back-btn")?.addEventListener("click", () => self._showYamlTab?.());
+    container.querySelector("#sim-reset-all-btn")?.addEventListener("click", resetAll);
+
     runSimulation();
+
+    // ── Auto-run debounce ─────────────────────────────────────────────────────
+    let _autoRunTimer = null;
+    function scheduleAutoRun() {
+      clearTimeout(_autoRunTimer);
+      _autoRunTimer = setTimeout(runSimulation, 350);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    function buildSection(label, items, type) {
+      const sec = document.createElement("div");
+      sec.className = `sim-section${type === "trigger" ? " sim-section-triggers" : ""}`;
+      const labelEl = document.createElement("div");
+      labelEl.className = "sim-section-label";
+      labelEl.textContent = label;
+      sec.appendChild(labelEl);
+      const nodesEl = document.createElement("div");
+      nodesEl.className = "sim-nodes";
+      items.forEach((item, idx) => {
+        const node = buildNode(item, type, idx);
+        nodeEls[`${type}:${idx}`] = node;
+        nodesEl.appendChild(node);
+      });
+      sec.appendChild(nodesEl);
+      return sec;
+    }
+
+    let _selectedNodeKey = null;
+
+    function selectNode(type, idx, nodeEl) {
+      // Deselect previous
+      if (_selectedNodeKey) {
+        const prev = container.querySelector(`.sim-node[data-node-key="${_selectedNodeKey}"]`);
+        if (prev) prev.classList.remove("sim-selected");
+      }
+      const key = `${type}:${idx}`;
+      if (_selectedNodeKey === key) {
+        // Toggle off
+        _selectedNodeKey = null;
+        self._clearNodeHighlight?.();
+        return;
+      }
+      _selectedNodeKey = key;
+      nodeEl.classList.add("sim-selected");
+      self._highlightNodeInEditor?.(type, idx);
+    }
+
+    function buildNode(item, type, idx) {
+      const node = document.createElement("div");
+      node.className = `sim-node sim-node-${type}`;
+      node.dataset.type = type;
+      node.dataset.idx = idx;
+      node.dataset.nodeKey = `${type}:${idx}`;
+      const { icon, title, sub } = describeNode(item, type);
+
+      const header = document.createElement("div");
+      header.className = "sim-node-header";
+      header.innerHTML = `
+        <div class="adg-icon">${icon}</div>
+        <div class="adg-title">${self._escapeHtml(title)}</div>
+        ${sub ? `<div class="adg-sub">${self._escapeHtml(sub)}</div>` : ""}
+        ${type === "trigger" ? `<button class="sim-fire-btn" title="Click to manually fire this trigger">⚡ Fire</button>` : ""}
+      `;
+      node.appendChild(header);
+
+      // Expand complex action types (choose / if / repeat / parallel)
+      if (type === "action") {
+        const body = buildComplexBody(item, `action:${idx}`);
+        if (body) {
+          const toggle = document.createElement("button");
+          toggle.className = "sim-expand-btn";
+          toggle.textContent = "▾";
+          toggle.title = "Collapse";
+          header.appendChild(toggle);
+          node.appendChild(body);
+          node.classList.add("sim-node-complex");
+          toggle.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const collapsed = node.classList.toggle("sim-node-collapsed");
+            toggle.textContent = collapsed ? "▸" : "▾";
+            toggle.title = collapsed ? "Expand" : "Collapse";
+          });
+        }
+      }
+
+      if (type === "trigger") {
+        // Clicking anywhere on the trigger node fires/unfires it AND selects it for YAML highlight
+        node.addEventListener("click", () => {
+          if (firedTriggers.has(idx)) {
+            firedTriggers.delete(idx);
+            node.classList.remove("sim-fired");
+          } else {
+            firedTriggers.add(idx);
+            node.classList.add("sim-fired");
+          }
+          selectNode(type, idx, node);
+        });
+      } else {
+        header.addEventListener("click", () => selectNode(type, idx, node));
+      }
+      return node;
+    }
+
+    // ── Complex-node body builders ───────────────────────────────────────────
+
+    function buildComplexBody(item, pathPrefix) {
+      if (item.choose !== undefined) return buildChooseBody(item.choose, item.default, pathPrefix);
+      if (item.if    !== undefined) return buildIfBody(item, pathPrefix);
+      if (item.repeat !== undefined && (item.repeat.sequence || []).length > 0) return buildRepeatBody(item.repeat, pathPrefix);
+      if (item.parallel !== undefined) return buildParallelBody(item.parallel, pathPrefix);
+      return null;
+    }
+
+    function buildChooseBody(options, defaultSeq, pathPrefix) {
+      const body = document.createElement("div");
+      body.className = "sim-complex-body sim-complex-body-choose";
+      (options || []).forEach((opt, oi) => {
+        const optEl = document.createElement("div");
+        optEl.className = "sim-branch";
+        optEl.dataset.branchKey = `${pathPrefix}:opt:${oi}`;
+        const conds = opt.conditions || opt.condition || [];
+        const condText = conds.length === 0 ? "Always" : conds.map(describeCondShort).join(" & ");
+        const label = document.createElement("div");
+        label.className = "sim-branch-label";
+        label.textContent = `Option ${oi + 1}: ${condText}`;
+        optEl.appendChild(label);
+        buildSubSequence(opt.sequence || [], `${pathPrefix}:opt:${oi}`, optEl);
+        body.appendChild(optEl);
+      });
+      if (defaultSeq && defaultSeq.length > 0) {
+        const defEl = document.createElement("div");
+        defEl.className = "sim-branch sim-branch-default";
+        defEl.dataset.branchKey = `${pathPrefix}:default`;
+        const label = document.createElement("div");
+        label.className = "sim-branch-label sim-branch-default-label";
+        label.textContent = "Default:";
+        defEl.appendChild(label);
+        buildSubSequence(defaultSeq, `${pathPrefix}:default`, defEl);
+        body.appendChild(defEl);
+      }
+      return body;
+    }
+
+    function buildIfBody(item, pathPrefix) {
+      const body = document.createElement("div");
+      body.className = "sim-complex-body";
+      if (item.then && item.then.length > 0) {
+        const el = document.createElement("div");
+        el.className = "sim-branch sim-branch-then";
+        el.dataset.branchKey = `${pathPrefix}:then`;
+        const lbl = document.createElement("div");
+        lbl.className = "sim-branch-label sim-branch-then-label";
+        lbl.textContent = "Then:";
+        el.appendChild(lbl);
+        buildSubSequence(item.then, `${pathPrefix}:then`, el);
+        body.appendChild(el);
+      }
+      if (item.else && item.else.length > 0) {
+        const el = document.createElement("div");
+        el.className = "sim-branch sim-branch-else";
+        el.dataset.branchKey = `${pathPrefix}:else`;
+        const lbl = document.createElement("div");
+        lbl.className = "sim-branch-label sim-branch-else-label";
+        lbl.textContent = "Else:";
+        el.appendChild(lbl);
+        buildSubSequence(item.else, `${pathPrefix}:else`, el);
+        body.appendChild(el);
+      }
+      return body.children.length > 0 ? body : null;
+    }
+
+    function buildRepeatBody(repeat, pathPrefix) {
+      const body = document.createElement("div");
+      body.className = "sim-complex-body";
+      const el = document.createElement("div");
+      el.className = "sim-branch";
+      el.dataset.branchKey = `${pathPrefix}:repeat`;
+      const lbl = document.createElement("div");
+      lbl.className = "sim-branch-label";
+      lbl.textContent = repeat.count ? `Repeats ${repeat.count}×:` : repeat.while ? "While:" : repeat.for_each ? "For each:" : "Sequence:";
+      el.appendChild(lbl);
+      buildSubSequence(repeat.sequence || [], `${pathPrefix}:repeat`, el);
+      body.appendChild(el);
+      return body;
+    }
+
+    function buildParallelBody(parallel, pathPrefix) {
+      const body = document.createElement("div");
+      body.className = "sim-complex-body";
+      (parallel || []).forEach((branch, bi) => {
+        const el = document.createElement("div");
+        el.className = "sim-branch";
+        el.dataset.branchKey = `${pathPrefix}:par:${bi}`;
+        const lbl = document.createElement("div");
+        lbl.className = "sim-branch-label";
+        lbl.textContent = `Branch ${bi + 1}:`;
+        el.appendChild(lbl);
+        const seq = Array.isArray(branch) ? branch : (branch.sequence || [branch]);
+        buildSubSequence(seq, `${pathPrefix}:par:${bi}`, el);
+        body.appendChild(el);
+      });
+      return body.children.length > 0 ? body : null;
+    }
+
+    function buildSubSequence(items, pathPrefix, container) {
+      items.forEach((item, idx) => {
+        const key = `${pathPrefix}:${idx}`;
+        const subNode = buildSubNode(item, key);
+        nodeEls[key] = subNode;
+        container.appendChild(subNode);
+        // Recurse into nested complex nodes
+        const nestedBody = buildComplexBody(item, key);
+        if (nestedBody) {
+          subNode.appendChild(nestedBody);
+          subNode.classList.add("sim-sub-node-complex");
+        }
+      });
+    }
+
+    function buildSubNode(item, key) {
+      const node = document.createElement("div");
+      node.className = "sim-sub-node";
+      node.dataset.key = key;
+      const { icon, title, sub } = describeNode(item, "action");
+      node.innerHTML = `<span class="sim-sub-icon">${icon}</span><span class="sim-sub-title">${self._escapeHtml(title)}</span>${sub ? `<span class="sim-sub-sub"> — ${self._escapeHtml(sub)}</span>` : ""}`;
+      return node;
+    }
+
+    function describeCondShort(c) {
+      // Plain string template shorthand
+      if (typeof c === "string") {
+        const m = c.match(/(?:states|is_state)\(['"]([^'"]+)['"]/);
+        return m ? m[1].split(".").pop() : "template";
+      }
+      const t = c.condition || "";
+      if (t === "state")         return `${String(c.entity_id || "?").split(".").pop()} = ${c.state || "?"}`;
+      if (t === "trigger")       return `trigger: ${Array.isArray(c.id) ? c.id.join("/") : (c.id || "?")}`;
+      if (t === "template")      return "template";
+      if (t === "numeric_state") return `${String(c.entity_id || "?").split(".").pop()} (numeric)`;
+      if (t === "device")        return "device";
+      return t || "condition";
+    }
+
+    // ── Evaluate sub-nodes after a run ───────────────────────────────────────
+
+    function runSubNodesForAction(item, pathPrefix, parentPass) {
+      const cls = parentPass ? "sim-pass" : "sim-skip";
+
+      if (item.choose !== undefined) {
+        const options = item.choose || [];
+        let matched = false;
+        options.forEach((opt, oi) => {
+          const optKey = `${pathPrefix}:opt:${oi}`;
+          const conds = opt.conditions || opt.condition || [];
+          // null = unknown/unevaluatable → do NOT treat as match; only true counts
+          const result = conds.length === 0 ? true
+            : conds.every(c => self._evalConditionWithMocks(c, mocks) === true);
+          const branchPass = parentPass && !matched && result;
+          if (branchPass) matched = true;
+          const branchCls = parentPass ? (branchPass ? "sim-pass" : "sim-skip") : "sim-skip";
+          markSubBranch(optKey, opt.sequence || [], branchCls);
+        });
+        // Default
+        if (item.default && item.default.length > 0) {
+          const defKey = `${pathPrefix}:default`;
+          const defPass = parentPass && !matched;
+          markSubBranch(defKey, item.default, defPass ? "sim-pass" : "sim-skip");
+        }
+        return;
+      }
+
+      if (item.if !== undefined) {
+        const conds = Array.isArray(item.if) ? item.if : [item.if];
+        const ifResult = parentPass
+          ? conds.every(c => self._evalConditionWithMocks(c, mocks) === true)
+          : false;
+        if (item.then && item.then.length > 0) {
+          markSubBranch(`${pathPrefix}:then`, item.then, parentPass ? (ifResult ? "sim-pass" : "sim-skip") : "sim-skip");
+        }
+        if (item.else && item.else.length > 0) {
+          markSubBranch(`${pathPrefix}:else`, item.else, parentPass ? (!ifResult ? "sim-pass" : "sim-skip") : "sim-skip");
+        }
+        return;
+      }
+
+      if (item.repeat !== undefined) {
+        markSubBranch(`${pathPrefix}:repeat`, item.repeat.sequence || [], cls);
+        return;
+      }
+
+      if (item.parallel !== undefined) {
+        (item.parallel || []).forEach((branch, bi) => {
+          const seq = Array.isArray(branch) ? branch : (branch.sequence || [branch]);
+          markSubBranch(`${pathPrefix}:par:${bi}`, seq, cls);
+        });
+      }
+    }
+
+    function markSubBranch(branchKey, seq, cls) {
+      const branchEl = container.querySelector(`[data-branch-key="${CSS.escape(branchKey)}"]`);
+      if (branchEl) {
+        branchEl.classList.remove("sim-pass", "sim-skip", "sim-fail");
+        if (cls) branchEl.classList.add(cls);
+      }
+      seq.forEach((item, idx) => {
+        const key = `${branchKey}:${idx}`;
+        const subNode = nodeEls[key];
+        if (subNode) {
+          subNode.classList.remove("sim-pass", "sim-skip", "sim-fail");
+          subNode.classList.add(cls);
+        }
+        // Recurse
+        runSubNodesForAction(item, key, cls === "sim-pass");
+      });
+    }
+
+    function describeNode(item, type) {
+      if (type === "trigger") {
+        const p = item.platform || item.trigger || "";
+        switch (p) {
+          case "time": return { icon: "🕐", title: "Time trigger", sub: `At ${item.at || "?"}` };
+          case "time_pattern": return { icon: "🕐", title: "Time pattern", sub: `${item.hours ? `${item.hours}h` : ""}${item.minutes ? ` ${item.minutes}m` : ""}` };
+          case "state": { const e = Array.isArray(item.entity_id) ? item.entity_id[0] : (item.entity_id || "?"); return { icon: "🔄", title: "State change", sub: e + (item.to != null ? ` → ${item.to}` : "") }; }
+          case "sun": return { icon: "🌅", title: "Sun", sub: item.event || "?" };
+          case "homeassistant": return { icon: "🏠", title: "HA startup", sub: item.event || "start" };
+          case "template": return { icon: "📋", title: "Template trigger", sub: "" };
+          case "numeric_state": { const e = Array.isArray(item.entity_id) ? item.entity_id[0] : (item.entity_id || "?"); return { icon: "🔢", title: "Numeric state", sub: e }; }
+          case "zone": return { icon: "📍", title: "Zone", sub: `${item.entity_id || "?"} ${item.event || ""}` };
+          case "webhook": return { icon: "🌐", title: "Webhook", sub: item.webhook_id || "?" };
+          case "conversation": return { icon: "💬", title: "Voice command", sub: Array.isArray(item.command) ? item.command[0] : (item.command || "?") };
+          default: return { icon: "⚡", title: p || "Trigger", sub: "" };
+        }
+      } else if (type === "condition") {
+        const t = item.condition || "";
+        switch (t) {
+          case "state": { const e = Array.isArray(item.entity_id) ? item.entity_id[0] : (item.entity_id || "?"); const s = Array.isArray(item.state) ? item.state.join("/") : (item.state ?? "?"); return { icon: "🔀", title: "State", sub: `${e} = ${s}` }; }
+          case "not": return { icon: "🚫", title: "Not", sub: `${(item.conditions || []).length} condition(s)` };
+          case "and": return { icon: "🔗", title: "All of", sub: `${(item.conditions || []).length} conditions` };
+          case "or": return { icon: "⚡", title: "Any of", sub: `${(item.conditions || []).length} conditions` };
+          case "template": return { icon: "📋", title: "Template", sub: "" };
+          case "time": return { icon: "🕐", title: "Time range", sub: `${item.after || ""}–${item.before || ""}` };
+          case "numeric_state": { const e = Array.isArray(item.entity_id) ? item.entity_id[0] : (item.entity_id || "?"); return { icon: "🔢", title: "Numeric state", sub: e }; }
+          case "zone": return { icon: "📍", title: "Zone", sub: `${item.entity_id || "?"} in ${item.zone || "?"}` };
+          default: return { icon: "❓", title: t || "Condition", sub: "" };
+        }
+      } else {
+        const svc = item.service || item.action || "";
+        if (svc) { const tgt = item.target?.entity_id || item.entity_id || ""; const t = Array.isArray(tgt) ? tgt[0] : tgt; return { icon: "▶", title: svc, sub: t || "" }; }
+        if (item.delay !== undefined) return { icon: "⏱", title: "Delay", sub: typeof item.delay === "object" ? JSON.stringify(item.delay) : String(item.delay) };
+        if (item.wait_template !== undefined) return { icon: "⏳", title: "Wait for template", sub: "" };
+        if (item.choose !== undefined) return { icon: "🔀", title: "Choose", sub: `${(item.choose || []).length} option(s)` };
+        if (item.if !== undefined) return { icon: "❓", title: "If-then-else", sub: "" };
+        if (item.repeat !== undefined) return { icon: "🔁", title: "Repeat", sub: item.repeat?.count ? `${item.repeat.count}×` : "" };
+        if (item.parallel !== undefined) return { icon: "⚡", title: "Parallel", sub: "" };
+        if (item.variables !== undefined) return { icon: "📦", title: "Set variables", sub: "" };
+        if (item.event !== undefined) return { icon: "📣", title: "Fire event", sub: item.event };
+        return { icon: "⚡", title: "Action", sub: "" };
+      }
+    }
+
+    function makeArrow() {
+      const el = document.createElement("div");
+      el.className = "sim-section-arrow";
+      el.textContent = "↓";
+      return el;
+    }
+
+    function buildMockRows() {
+      const mockRows = container.querySelector("#sim-mock-rows");
+      if (!mockRows) return;
+      mockRows.innerHTML = "";
+
+      // Blueprint inputs — named fields with defaults
+      blueprintInputs.forEach(({ key, name, defaultVal, description }) => {
+        const current = inputMocks[key] !== undefined ? inputMocks[key] : defaultVal;
+        const row = document.createElement("div");
+        row.className = "sim-mock-row sim-mock-named-row";
+        row.dataset.key = key;
+        row.innerHTML = `
+          <span class="sim-mock-eid">${self._escapeHtml(name)}</span>
+          ${description ? `<span class="sim-mock-live">${self._escapeHtml(description)}</span>` : ""}
+          <div class="sim-mock-input-row">
+            <input class="sim-mock-input sim-blueprint-input" data-key="${self._escapeHtml(key)}"
+                   placeholder="${self._escapeHtml(defaultVal || key)}"
+                   value="${self._escapeHtml(current)}">
+          </div>
+        `;
+        const input = row.querySelector(".sim-blueprint-input");
+        input.addEventListener("input", () => {
+          const val = input.value.trim();
+          if (val) inputMocks[key] = val;
+          else delete inputMocks[key];
+          scheduleAutoRun();
+        });
+        mockRows.appendChild(row);
+      });
+
+      // Script fields
+      scriptFields.forEach(({ key, name, defaultVal, description }) => {
+        const current = inputMocks[key] !== undefined ? inputMocks[key] : defaultVal;
+        const row = document.createElement("div");
+        row.className = "sim-mock-row sim-mock-named-row";
+        row.dataset.key = key;
+        row.innerHTML = `
+          <span class="sim-mock-eid">${self._escapeHtml(name)}</span>
+          ${description ? `<span class="sim-mock-live">${self._escapeHtml(description)}</span>` : ""}
+          <div class="sim-mock-input-row">
+            <input class="sim-mock-input sim-script-input" data-key="${self._escapeHtml(key)}"
+                   placeholder="${self._escapeHtml(defaultVal || key)}"
+                   value="${self._escapeHtml(current)}">
+          </div>
+        `;
+        const input = row.querySelector(".sim-script-input");
+        input.addEventListener("input", () => {
+          const val = input.value.trim();
+          if (val) inputMocks[key] = val;
+          else delete inputMocks[key];
+          scheduleAutoRun();
+        });
+        mockRows.appendChild(row);
+      });
+
+      // Entity overrides (for automations and blueprints with entity references)
+      allEntityIds.forEach((eid) => {
+        const liveVal = getLive(eid);
+        const overridden = mocks[eid] !== undefined;
+        const isUnavailable = liveVal === "unavailable" || liveVal === "unknown" || liveVal === "?";
+        const placeholder = isUnavailable ? "type override…" : liveVal;
+        const row = document.createElement("div");
+        row.className = `sim-mock-row${overridden ? " sim-override" : ""}`;
+        row.dataset.eid = eid;
+        row.innerHTML = `
+          <span class="sim-mock-eid">${self._escapeHtml(eid)}</span>
+          <span class="sim-mock-live${isUnavailable ? " sim-mock-unavailable" : ""}">live: ${self._escapeHtml(liveVal)}</span>
+          <div class="sim-mock-input-row">
+            <input class="sim-mock-input" data-eid="${self._escapeHtml(eid)}"
+                   placeholder="${self._escapeHtml(placeholder)}"
+                   value="${self._escapeHtml(overridden ? mocks[eid] : "")}">
+          </div>
+        `;
+        if (overridden) {
+          const resetBtn = document.createElement("button");
+          resetBtn.className = "sim-entity-reset-btn";
+          resetBtn.title = "Reset to live value";
+          resetBtn.textContent = "↺";
+          resetBtn.addEventListener("click", () => { resetEntity(eid); });
+          row.querySelector(".sim-mock-input-row").appendChild(resetBtn);
+        }
+        const input = row.querySelector(".sim-mock-input");
+        input.addEventListener("input", () => {
+          const val = input.value.trim();
+          if (val) mocks[eid] = val;
+          else delete mocks[eid];
+          const isOverride = !!mocks[eid];
+          row.classList.toggle("sim-override", isOverride);
+          let resetBtn = row.querySelector(".sim-entity-reset-btn");
+          if (isOverride && !resetBtn) {
+            resetBtn = document.createElement("button");
+            resetBtn.className = "sim-entity-reset-btn";
+            resetBtn.title = "Reset to live value";
+            resetBtn.textContent = "↺";
+            resetBtn.addEventListener("click", () => { resetEntity(eid); });
+            row.querySelector(".sim-mock-input-row").appendChild(resetBtn);
+          } else if (!isOverride && resetBtn) {
+            resetBtn.remove();
+          }
+          updateOverridesBar();
+          scheduleAutoRun();
+        });
+        row.querySelector(".sim-entity-reset-btn")?.addEventListener("click", () => { resetEntity(eid); });
+        mockRows.appendChild(row);
+      });
+    }
+
+    function resetEntity(eid) {
+      delete mocks[eid];
+      buildMockRows();
+      updateOverridesBar();
+      scheduleAutoRun();
+    }
+
+    function resetAll() {
+      Object.keys(mocks).forEach((k) => delete mocks[k]);
+      buildMockRows();
+      updateOverridesBar();
+      scheduleAutoRun();
+    }
+
+    function updateOverridesBar() {
+      const bar = container.querySelector("#sim-overrides-bar");
+      const chips = container.querySelector("#sim-overrides-chips");
+      if (!bar || !chips) return;
+      const keys = Object.keys(mocks);
+      bar.hidden = keys.length === 0;
+      if (keys.length) {
+        chips.innerHTML = keys.map((eid) =>
+          `<span class="sim-override-chip">${self._escapeHtml(eid.split(".").pop())} = <b>${self._escapeHtml(mocks[eid])}</b>
+            <button class="sim-chip-reset" data-eid="${self._escapeHtml(eid)}" title="Reset">✕</button>
+          </span>`
+        ).join("");
+        chips.querySelectorAll(".sim-chip-reset").forEach((btn) => {
+          btn.addEventListener("click", () => resetEntity(btn.dataset.eid));
+        });
+      }
+    }
+
+    function runSimulation() {
+      // Clear previous result states
+      Object.values(nodeEls).forEach((n) => {
+        n.classList.remove("sim-pass", "sim-fail", "sim-skip");
+        n.querySelector(".sim-node-result")?.remove();
+      });
+
+      // ── Script: all sequence steps always execute ─────────────────────────
+      if (isScript) {
+        actions.forEach((action, idx) => {
+          const node = nodeEls[`action:${idx}`];
+          if (node) node.classList.add("sim-pass");
+          runSubNodesForAction(action, `action:${idx}`, true);
+        });
+        const badge = container.querySelector("#sim-result-badge");
+        if (badge) { badge.className = "sim-result-badge pass"; badge.textContent = "✅ Script executed"; }
+        return;
+      }
+
+      // ── Blueprint / Automation: evaluate trigger → condition → action ──────
+
+      // Evaluate triggers
+      let anyTriggerFires = triggers.length === 0;
+      triggers.forEach((t, idx) => {
+        const node = nodeEls[`trigger:${idx}`];
+        const manuallyFired = firedTriggers.has(idx);
+        const result = manuallyFired ? true : self._evalTriggerWithMocks(t, mocks);
+        if (result === true) anyTriggerFires = true;
+        if (node) {
+          const badge = document.createElement("div");
+          badge.className = "sim-node-result";
+          badge.textContent = result === true ? "✅" : result === false ? "❌" : "❓";
+          node.appendChild(badge);
+          if (result === true) node.classList.add("sim-pass");
+          else if (result === false) node.classList.add("sim-fail");
+        }
+      });
+
+      // Evaluate conditions
+      let allConditionsPass = true;
+      if (anyTriggerFires && conditions.length) {
+        conditions.forEach((c, idx) => {
+          const node = nodeEls[`condition:${idx}`];
+          const result = self._evalConditionWithMocks(c, mocks);
+          if (result === false) allConditionsPass = false;
+          if (node) {
+            const badge = document.createElement("div");
+            badge.className = "sim-node-result";
+            badge.textContent = result === true ? "✅" : result === false ? "❌" : "❓";
+            node.appendChild(badge);
+            if (result === true) node.classList.add("sim-pass");
+            else if (result === false) node.classList.add("sim-fail");
+            else node.classList.add("sim-skip");
+          }
+        });
+      } else if (!anyTriggerFires) {
+        conditions.forEach((_, idx) => nodeEls[`condition:${idx}`]?.classList.add("sim-skip"));
+      }
+
+      // Mark actions + expand sub-nodes
+      const wouldRun = anyTriggerFires && allConditionsPass;
+      actions.forEach((action, idx) => {
+        const node = nodeEls[`action:${idx}`];
+        if (node) node.classList.add(wouldRun ? "sim-pass" : "sim-skip");
+        runSubNodesForAction(action, `action:${idx}`, wouldRun);
+      });
+
+      // Update result badge
+      const badge = container.querySelector("#sim-result-badge");
+      if (badge) {
+        badge.className = `sim-result-badge ${wouldRun ? "pass" : "fail"}`;
+        badge.textContent = wouldRun
+          ? (isBlueprint ? "✅ Would trigger" : "✅ Would run")
+          : `❌ Would NOT run${!anyTriggerFires ? " (no trigger fires)" : !allConditionsPass ? " (condition fails)" : ""}`;
+      }
+    }
   }
 
   _buildAutomationSections(workingConfig, changedSections, sectionsEl, yamlPre) {

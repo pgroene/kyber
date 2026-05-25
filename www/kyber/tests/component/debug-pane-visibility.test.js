@@ -90,4 +90,30 @@ describe("debug pane visibility", () => {
     expect(fetchMock.mock.calls.some(([url]) => url === "/api/kyber/debug/mode")).toBe(false);
     expect(element._renderDebugTab).not.toHaveBeenCalled();
   });
+
+  it("applies debug mode when panel config arrives after first render", async () => {
+    const element = document.createElement("kyber-panel");
+    document.body.appendChild(element);
+
+    element._loadMemoryCount = vi.fn();
+    element._startStatusPolling = vi.fn();
+    element._renderDebugTab = vi.fn();
+
+    element.hass = {
+      auth: { data: { access_token: "test-token" } },
+      user: { is_admin: true },
+      states: {},
+      panels: {},
+      callApi: vi.fn().mockResolvedValue({ enabled: true }),
+    };
+
+    element.panel = { config: { mode: "debug" } };
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const pane = element.shadowRoot.getElementById("debug-pane");
+    const chat = element.shadowRoot.querySelector(".chat-pane");
+
+    expect(pane.hasAttribute("hidden")).toBe(false);
+    expect(chat.classList.contains("debug-standalone")).toBe(true);
+  });
 });

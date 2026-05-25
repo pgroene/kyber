@@ -328,8 +328,9 @@ test.describe("Automation tester", () => {
     await page.locator(".ae-btn-expand").first().click();
     await page.locator(".ae-btn-test").first().click();
 
+    // ae-tester is the container; sim-result-badge is the new result element
     await expect(page.locator(".ae-tester").first()).toBeVisible();
-    await expect(page.locator(".ae-sim-result").first()).toBeVisible();
+    await expect(page.locator(".sim-result-badge").first()).toBeVisible();
 
     await page.screenshot({ path: "screenshots/automation-tester.png" });
   });
@@ -339,8 +340,8 @@ test.describe("Automation tester", () => {
     await page.locator(".ae-btn-expand").first().click();
     await page.locator(".ae-btn-test").first().click();
 
-    await expect(page.locator(".ae-sim-section").first()).toBeVisible();
-    await expect(page.locator(".ae-tester-results")).toContainText("TRIGGERS");
+    await expect(page.locator(".sim-section").first()).toBeVisible();
+    await expect(page.locator(".sim-section-label").first()).toContainText("TRIGGERS");
   });
 
   test("changing mock and clicking simulate updates result", async ({ page }) => {
@@ -358,15 +359,15 @@ test.describe("Automation tester", () => {
     await page.locator(".ae-btn-test").first().click();
 
     // Initially with peter = home, all conditions pass — automation would run
-    const result = page.locator(".ae-sim-result").first();
+    const result = page.locator(".sim-result-badge").first();
     await expect(result).toBeVisible();
 
     // Change person.peter mock to "not_home" → condition should fail
-    const mockInput = page.locator('.ae-mock-input[data-eid="person.peter"]').first();
+    const mockInput = page.locator('.sim-mock-input[data-eid="person.peter"]').first();
     if (await mockInput.count() > 0) {
       await mockInput.fill("not_home");
-      await page.locator(".ae-tester-run").first().click();
-      await expect(result).toContainText("NIET draaien", { timeout: 3000 });
+      await page.locator(".sim-run-btn").first().click();
+      await expect(result).toContainText("Would NOT run", { timeout: 3000 });
     }
   });
 });
@@ -402,7 +403,7 @@ test.describe("run_simulation plan block", () => {
 
     // Wait for tester to appear and run
     await expect(page.locator(".ae-tester").first()).toBeVisible({ timeout: 3000 });
-    await expect(page.locator(".ae-sim-result").first()).toBeVisible({ timeout: 3000 });
+    await expect(page.locator(".sim-result-badge").first()).toBeVisible({ timeout: 3000 });
 
     await page.screenshot({ path: "screenshots/automation-run-simulation.png" });
   });

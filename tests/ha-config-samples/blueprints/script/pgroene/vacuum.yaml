@@ -1,0 +1,64 @@
+#Home assistant script blueprint for starting a vacuum cleaner
+blueprint:
+  name: Vacuum
+  description: Start a vacuum cleaner
+  domain: script
+  input:
+    vacuum:
+      name: Vacuum
+      description: The vacuum to start
+      selector:
+        entity:
+          domain: vacuum
+    room:
+      name: Room
+      description: The room
+      selector:
+        entity:
+          domain: input_text
+    current_room:
+      name: Current room
+      description: Input text to store the current room
+      selector:
+        entity:
+          domain: input_text
+
+mode: single
+
+variables:
+  room: !input 'room'
+  room_text: "{{ states(room) }}"
+  room_number: "{{ states(room).split(',')[2] | int}}"
+  pmap_id: "{{ states(room).split(',')[5] }}"
+  
+
+sequence:
+  - condition: state # check if the vacuum is docked
+    entity_id: !input 'vacuum'
+    state: docked
+  - service: vacuum.send_command # start the vacuum
+    target:
+      entity_id: !input 'vacuum'
+    data:
+      command: start
+      params:
+        pmap_id: "{{ pmap_id }}"
+        regions:
+          - region_id: |
+              {{ '0' ~ room_number }}
+            type: 'rid'
+  - delay: '00:00:10'
+  - condition: not
+    conditions:
+      - condition: state # check if the vacuum started cleaning
+        entity_id: !input 'vacuum'
+        state: docked
+  - service: input_text.set_value # store the current room
+    target:
+      entity_id: !input 'current_room'
+    data:
+      value: "{{ room.split('.')[1] }}"
+  - service: script.1717681909594 # script to remove the room from the list
+    data:
+      number: "{{ room.split('.')[1] }}"
+      mode: Remove

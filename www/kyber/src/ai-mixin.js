@@ -1310,10 +1310,10 @@ export const AIMixin = (Base) => class extends Base {
     const applyMocksAndRun = () => {
       const mocks = plan.mocks || {};
       Object.entries(mocks).forEach(([eid, val]) => {
-        const inp = targetCard.querySelector(`.ae-mock-input[data-eid="${eid}"]`);
-        if (inp) inp.value = val;
+        const inp = targetCard.querySelector(`.sim-mock-input[data-eid="${eid}"]`);
+        if (inp) { inp.value = val; inp.dispatchEvent(new Event("input")); }
       });
-      targetCard.querySelector(".ae-tester-run")?.click();
+      targetCard.querySelector(".sim-run-btn")?.click();
     };
 
     const existingTester = targetCard.querySelector(".ae-tester");

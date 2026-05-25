@@ -1,0 +1,1106 @@
+- id: '1682478836533'
+  alias: 'Toggle lamp '
+  description: ''
+  trigger:
+  - device_id: 548093d8828388dd93bb677c3b788384
+    domain: zha
+    platform: device
+    type: remote_button_short_press
+    subtype: turn_on
+  condition: []
+  action:
+  - service: light.toggle
+    data: {}
+    target:
+      area_id: slaapkamer_lobke
+  mode: single
+- id: '1682478945357'
+  alias: Increase brightness
+  description: ''
+  trigger:
+  - device_id: 548093d8828388dd93bb677c3b788384
+    domain: zha
+    platform: device
+    type: remote_button_short_press
+    subtype: dim_up
+  condition: []
+  action:
+  - device_id: f57b66f62510ba06d926f2e035386256
+    domain: light
+    entity_id: light.light_lobke_bed
+    type: brightness_increase
+  mode: single
+- id: '1682479037730'
+  alias: Decrease brightness
+  description: ''
+  trigger:
+  - device_id: 548093d8828388dd93bb677c3b788384
+    domain: zha
+    platform: device
+    type: remote_button_short_press
+    subtype: dim_down
+  condition: []
+  action:
+  - device_id: f57b66f62510ba06d926f2e035386256
+    domain: light
+    entity_id: light.light_lobke_bed
+    type: brightness_decrease
+  mode: single
+- id: '1682484604225'
+  alias: Change color up
+  description: ''
+  trigger:
+  - device_id: 548093d8828388dd93bb677c3b788384
+    domain: zha
+    platform: device
+    type: remote_button_short_press
+    subtype: right
+  condition: []
+  action:
+  - service: script.change_color_up
+    data: {}
+  mode: single
+- id: '1682484721093'
+  alias: Color down
+  description: ''
+  trigger:
+  - device_id: 548093d8828388dd93bb677c3b788384
+    domain: zha
+    platform: device
+    type: remote_button_short_press
+    subtype: left
+  condition: []
+  action:
+  - service: script.change_color_down
+    data: {}
+  mode: single
+- id: '1682554393871'
+  alias: Set cool light
+  description: ''
+  trigger:
+  - device_id: 548093d8828388dd93bb677c3b788384
+    domain: zha
+    platform: device
+    type: remote_button_long_release
+    subtype: dim_down
+  condition: []
+  action:
+  - service: script.new_script_2
+    data: {}
+  mode: single
+- id: '1682554434998'
+  alias: Set warm light lobke
+  description: ''
+  trigger:
+  - device_id: 548093d8828388dd93bb677c3b788384
+    domain: zha
+    platform: device
+    type: remote_button_long_release
+    subtype: dim_up
+  condition: []
+  action:
+  - service: script.1683400778743
+    data: {}
+  mode: single
+- id: '1683076963047'
+  alias: Toggle Bed light Fedde
+  description: ''
+  trigger:
+  - device_id: 99e637554b4ffe4216513c0ff40b1b27
+    domain: zha
+    platform: device
+    type: remote_button_short_press
+    subtype: turn_on
+  - device_id: 99e637554b4ffe4216513c0ff40b1b27
+    domain: zha
+    platform: device
+    type: remote_button_long_press
+    subtype: right
+  condition: []
+  action:
+  - service: light.toggle
+    data: {}
+    target:
+      entity_id:
+      - light.light_fedde_bed_light
+      - light.light_led_3_fedde_bed_light
+  mode: single
+- id: '1683351463843'
+  alias: Lights off on sunrise
+  description: ''
+  trigger:
+  - platform: sun
+    event: sunrise
+    offset: '10'
+  condition: []
+  action:
+  - type: turn_off
+    device_id: 6227797f2b4c2e4968636220e01caa8c
+    entity_id: light.ikea_of_sweden_tradfri_bulb_e26_ws_opal_980lm_light
+    domain: light
+  mode: single
+- id: '1683351512380'
+  alias: LIghts on on sun set
+  description: ''
+  trigger:
+  - platform: sun
+    event: sunset
+    offset: 0
+  condition: []
+  action:
+  - type: turn_on
+    device_id: 6227797f2b4c2e4968636220e01caa8c
+    entity_id: light.ikea_of_sweden_tradfri_bulb_e26_ws_opal_980lm_light
+    domain: light
+  mode: single
+- id: '1683397188748'
+  alias: Fedde light up
+  description: ''
+  trigger:
+  - device_id: 99e637554b4ffe4216513c0ff40b1b27
+    domain: zha
+    platform: device
+    type: remote_button_short_press
+    subtype: dim_up
+  condition: []
+  action:
+  - device_id: 9ee91ece4cc6a31cfd16009141a3ff8c
+    domain: light
+    entity_id: light.light_fedde_bed_light
+    type: brightness_increase
+  mode: single
+- id: '1683397237568'
+  alias: Fedde light down
+  description: ''
+  trigger:
+  - device_id: 99e637554b4ffe4216513c0ff40b1b27
+    domain: zha
+    platform: device
+    type: remote_button_short_press
+    subtype: dim_down
+  condition: []
+  action:
+  - device_id: 9ee91ece4cc6a31cfd16009141a3ff8c
+    domain: light
+    entity_id: light.light_fedde_bed_light
+    type: brightness_decrease
+  mode: single
+- id: '1683401017238'
+  alias: Change fedde light color down
+  description: ''
+  trigger:
+  - device_id: 99e637554b4ffe4216513c0ff40b1b27
+    domain: zha
+    platform: device
+    type: remote_button_short_press
+    subtype: left
+  condition: []
+  action:
+  - service: script.1683400486079
+    data: {}
+  mode: single
+- id: '1683401087741'
+  alias: Change fedde light color up
+  description: ''
+  trigger:
+  - device_id: 99e637554b4ffe4216513c0ff40b1b27
+    domain: zha
+    platform: device
+    type: remote_button_short_press
+    subtype: right
+  condition: []
+  action:
+  - service: script.1683400588003
+    data: {}
+  mode: single
+- id: '1683401340540'
+  alias: Set fedde ligth to cool
+  description: ''
+  trigger:
+  - device_id: 99e637554b4ffe4216513c0ff40b1b27
+    domain: zha
+    platform: device
+    type: remote_button_long_release
+    subtype: dim_down
+  condition: []
+  action:
+  - service: script.1683400734906
+    data: {}
+  mode: single
+- id: '1683401427222'
+  alias: Set fedde light to warm
+  description: ''
+  trigger:
+  - device_id: 99e637554b4ffe4216513c0ff40b1b27
+    domain: zha
+    platform: device
+    type: remote_button_long_release
+    subtype: dim_up
+  condition: []
+  action:
+  - service: script.set_warm
+    data: {}
+  mode: single
+- id: '1683402831171'
+  alias: Turn fedde disco on
+  description: ''
+  trigger:
+  - device_id: 99e637554b4ffe4216513c0ff40b1b27
+    domain: zha
+    platform: device
+    type: remote_button_long_press
+    subtype: right
+  condition: []
+  action:
+  - service: input_boolean.turn_on
+    target:
+      entity_id: input_boolean.disco_fedde
+  mode: single
+- id: '1683402879162'
+  alias: Turn fedde disco off
+  description: ''
+  trigger:
+  - device_id: 99e637554b4ffe4216513c0ff40b1b27
+    domain: zha
+    platform: device
+    type: remote_button_long_press
+    subtype: left
+  condition: []
+  action:
+  - service: input_boolean.turn_off
+    target:
+      entity_id: input_boolean.disco_fedde
+  mode: single
+- id: '1683404027401'
+  alias: Toggle disco lobke light
+  description: ''
+  trigger:
+  - device_id: 548093d8828388dd93bb677c3b788384
+    domain: zha
+    platform: device
+    type: remote_button_long_press
+    subtype: right
+  - platform: event
+    event_type: timer.finished
+    event_data:
+      entity_id: timer.test_timer
+    id: timer
+  condition: []
+  action:
+  - parallel:
+    - service: light.turn_on
+      data_template:
+        entity_id: light.light_led_adapter_1_lobke_light
+        hs_color:
+        - '{{(states.light.light_led_adapter_1_light.attributes.hs_color[0] + 10)
+          % 360}}'
+        - 100
+        transition: 30
+    - service: light.turn_on
+      data_template:
+        entity_id: light.light_lobke_bed
+        hs_color:
+        - '{{(states.light.light_led_adapter_1_light.attributes.hs_color[0] + 10 +
+          180) % 360}}'
+        - 100
+        transition: 30
+  - service: timer.start
+    target:
+      entity_id: timer.test_timer
+    data:
+      duration: 180
+  mode: single
+- id: '1683404106870'
+  alias: Disco off lobke
+  description: ''
+  trigger:
+  - device_id: 548093d8828388dd93bb677c3b788384
+    domain: zha
+    platform: device
+    type: remote_button_long_press
+    subtype: left
+  condition: []
+  action:
+  - service: input_boolean.turn_off
+    target:
+      entity_id: input_boolean.disco_lobke
+  mode: single
+- id: '1683404378714'
+  alias: Start disco lobke automation on trigger
+  description: ''
+  trigger:
+  - platform: state
+    entity_id:
+    - input_boolean.disco_lobke
+    from: 'off'
+    to: 'on'
+  condition: []
+  action:
+  - service: script.1683400686045
+    data: {}
+  mode: single
+- id: '1683404518154'
+  alias: Start disco light fedde on toggle on
+  description: ''
+  trigger:
+  - platform: state
+    entity_id:
+    - input_boolean.disco_fedde
+    from: 'off'
+    to: 'on'
+  condition: []
+  action:
+  - service: script.new_script
+    data: {}
+  mode: single
+- id: '1683429499179'
+  alias: Start disco slaapkamer
+  description: ''
+  trigger:
+  - platform: state
+    entity_id:
+    - input_boolean.slaapkamer
+    from: 'off'
+    to: 'on'
+  condition: []
+  action:
+  - service: script.disco_lights_slaapkamer
+    data: {}
+  mode: single
+- id: '1685907722714'
+  alias: Timer based motion-activated Light Lobke bed
+  description: ''
+  use_blueprint:
+    path: homeassistant/motion_light_timer.yaml
+    input:
+      lux_entity: sensor.presence_900_zitkamer_illuminance_lux
+      automation_switch: input_boolean.automation_motion_slaapkamer_lobke
+      motion_entity: binary_sensor.psi_1_slaapkamer_lobke_motion
+      lux_level: 100
+      light_target:
+        entity_id: light.light_lobke_bed
+      timer_entity: timer.timer_motion_slaapkamer_lobke
+      no_motion_wait: 40
+- id: '1691726874302'
+  alias: Sleep mode ON huis
+  description: ''
+  trigger:
+  - platform: time
+    at: input_datetime.time_sleep_house
+  condition: []
+  action:
+  - service: switch.turn_on
+    data: {}
+    target:
+      entity_id:
+      - switch.adaptive_lighting_sleep_mode_zitkamer
+      - switch.adaptive_lighting_sleep_mode_temperature_only_house
+  mode: single
+- id: '1691727181675'
+  alias: Wakeup house
+  description: ''
+  trigger:
+  - platform: time
+    at: input_datetime.time_wakeup_house
+  - platform: sun
+    event: sunrise
+  condition: []
+  action:
+  - service: switch.turn_off
+    data: {}
+    target:
+      entity_id:
+      - switch.adaptive_lighting_sleep_mode_zitkamer
+      - switch.adaptive_lighting_sleep_mode_temperature_only_house
+  mode: single
+- id: '1693790276050'
+  alias: Turn ON bed light
+  description: ''
+  trigger:
+  - device_id: ea2bf7398653e62d3535a9eea3288bf3
+    domain: zha
+    platform: device
+    type: remote_button_short_press
+    subtype: turn_on
+  condition: []
+  action:
+  - type: turn_on
+    device_id: c0262098e0e83d1b2d34e9c6aa54e371
+    entity_id: f7cf172294fb422273e1ad1b020a42a4
+    domain: light
+  - type: turn_on
+    device_id: 5278c8fcd6c14249018fbc33600ea279
+    entity_id: b84dc78731e1d35322330bca2dda8736
+    domain: light
+  mode: single
+- id: '1693790346092'
+  alias: Turn OFF bed light
+  description: ''
+  trigger:
+  - device_id: ea2bf7398653e62d3535a9eea3288bf3
+    domain: zha
+    platform: device
+    type: remote_button_short_press
+    subtype: turn_off
+  condition: []
+  action:
+  - type: turn_off
+    device_id: c0262098e0e83d1b2d34e9c6aa54e371
+    entity_id: f7cf172294fb422273e1ad1b020a42a4
+    domain: light
+  - type: turn_off
+    device_id: 5278c8fcd6c14249018fbc33600ea279
+    entity_id: b84dc78731e1d35322330bca2dda8736
+    domain: light
+  mode: single
+- id: '1693798465700'
+  alias: Dim regien remote Down
+  description: ''
+  trigger:
+  - device_id: ea2bf7398653e62d3535a9eea3288bf3
+    domain: zha
+    platform: device
+    type: remote_button_long_press
+    subtype: dim_down
+  condition: []
+  action:
+  - device_id: 5278c8fcd6c14249018fbc33600ea279
+    domain: light
+    entity_id: b84dc78731e1d35322330bca2dda8736
+    type: brightness_decrease
+  - device_id: c0262098e0e83d1b2d34e9c6aa54e371
+    domain: light
+    entity_id: f7cf172294fb422273e1ad1b020a42a4
+    type: brightness_decrease
+  mode: single
+- id: '1693798584491'
+  alias: Dim regien bed UP
+  description: ''
+  trigger:
+  - device_id: ea2bf7398653e62d3535a9eea3288bf3
+    domain: zha
+    platform: device
+    type: remote_button_long_press
+    subtype: dim_up
+  condition: []
+  action:
+  - device_id: 5278c8fcd6c14249018fbc33600ea279
+    domain: light
+    entity_id: b84dc78731e1d35322330bca2dda8736
+    type: brightness_increase
+  - device_id: c0262098e0e83d1b2d34e9c6aa54e371
+    domain: light
+    entity_id: f7cf172294fb422273e1ad1b020a42a4
+    type: brightness_increase
+  mode: single
+- id: '1700028687614'
+  alias: Slaapkamer wake up
+  description: ''
+  trigger:
+  - platform: time
+    at: input_datetime.slaapkamer_wake_up
+  condition:
+  - type: is_on
+    condition: device
+    device_id: 791ad2df74c0301949b866407d05e57f
+    entity_id: 308a74aa858ea31570f62ab4c492bbd9
+    domain: binary_sensor
+  - condition: state
+    entity_id: input_boolean.slaapkamer_wakeup_onoff
+    state: 'on'
+  action:
+  - service: script.1700031087782
+    data:
+      duration: 25
+      target:
+      - light.slaapkamer_bed
+      - light.light_bed_regien_light_5
+      max_brightness: 100
+    enabled: true
+  mode: single
+- id: '1700121664315'
+  alias: Reload themes
+  description: ''
+  trigger: []
+  condition: []
+  action:
+  - service: frontend.reload_themes
+    data: {}
+  mode: single
+- id: '1700435113071'
+  alias: Sleep lobke
+  description: ''
+  trigger:
+  - platform: time
+    at: input_datetime.time_sleep_lobke
+  condition: []
+  action:
+  - choose:
+    - conditions:
+      - condition: device
+        type: is_on
+        device_id: a26f8bd0b230236eee146dbd6ca3190a
+        entity_id: a8001bcf46676f3bce8a16e121a01a70
+        domain: light
+      sequence:
+      - service: light.turn_off
+        data:
+          transition: 300
+          flash: short
+        target:
+          device_id: a26f8bd0b230236eee146dbd6ca3190a
+  - service: switch.turn_on
+    data: {}
+    target:
+      entity_id: switch.adaptive_lighting_sleep_mode_kids_bed
+  mode: single
+- id: '1700435174591'
+  alias: Sleep slaapkamer
+  description: ''
+  trigger:
+  - platform: time
+    at: input_datetime.time_slaapkamer_sleep
+  condition: []
+  action:
+  - service: switch.turn_on
+    data: {}
+    target:
+      entity_id: switch.adaptive_lighting_sleep_mode_adaptive_lights_slaapkamer
+  - service: switch.turn_on
+    target:
+      entity_id: switch.adaptive_lighting_sleep_mode_adaptive_lights_slaapkamer_rgb
+    data: {}
+  mode: single
+- id: '1700435237171'
+  alias: Wakeup lobke
+  description: ''
+  trigger:
+  - platform: time
+    at: input_datetime.time_wakeup_lobke
+  condition: []
+  action:
+  - service: switch.turn_off
+    data: {}
+    target:
+      entity_id: switch.adaptive_lighting_sleep_mode_kids_bed
+  mode: single
+- id: '1700435297216'
+  alias: Wakeup slaapkamer
+  description: ''
+  trigger:
+  - platform: time
+    at: input_datetime.slaapkamer_wake_up
+  condition: []
+  action:
+  - service: switch.turn_off
+    data: {}
+    target:
+      entity_id: switch.adaptive_lighting_sleep_mode_adaptive_lights_slaapkamer
+  - service: switch.turn_off
+    target:
+      entity_id: switch.adaptive_lighting_sleep_mode_adaptive_lights_slaapkamer_rgb
+    data: {}
+  mode: single
+- id: '1700435454314'
+  alias: Wakeup Fedde
+  description: ''
+  trigger:
+  - platform: time
+    at: input_datetime.time_wakeup_fedde
+  condition: []
+  action:
+  - service: switch.turn_off
+    data: {}
+    target:
+      entity_id: switch.adaptive_lighting_sleep_mode_adaptive_lights_slaapkamer_fedde
+  mode: single
+- id: '1700435498954'
+  alias: Sleep fedde
+  description: ''
+  trigger:
+  - platform: time
+    at: input_datetime.time_sleep_fedde
+  condition: []
+  action:
+  - service: switch.turn_on
+    data: {}
+    target:
+      entity_id: switch.adaptive_lighting_sleep_mode_adaptive_lights_slaapkamer_fedde
+  mode: single
+- id: '1700764492102'
+  alias: Button espresso ON OFF
+  description: ''
+  trigger:
+  - device_id: c0fb40c943eeca39cfbd6b0d350fb1b3
+    domain: zha
+    platform: device
+    type: remote_button_short_press
+    subtype: turn_on
+  condition: []
+  action:
+  - type: toggle
+    device_id: ecdee3f8b5e1cb95465a9c4a67ae55ab
+    entity_id: 6d3024496250db9f1d35d923b6e46fbd
+    domain: switch
+  mode: single
+- id: '1701238341719'
+  alias: Timer based motion-activated Light Wasruimte
+  description: ''
+  use_blueprint:
+    path: homeassistant/motion_light_timer.yaml
+    input:
+      motion_entity: binary_sensor.presence_904_wasruimte
+      automation_switch: input_boolean.automation_motion_wasruimte
+      light_target:
+        entity_id: light.light_wasruimte_light
+      timer_entity: timer.timer_motion_wasruimte
+      no_motion_wait: 30
+      lux_entity: sensor.presence_904_wasruimte_illuminance_lux
+      fade_time: 10
+- id: '1701239217095'
+  alias: Timer based motion-activated Light Slaapkamer bed
+  description: ''
+  use_blueprint:
+    path: homeassistant/motion_light_timer.yaml
+    input:
+      motion_entity: binary_sensor.ewelink_ms01_iaszone_3
+      automation_switch: input_boolean.automation_motion_speelkamer
+      light_target:
+        entity_id: light.slaapkamer_bed
+      timer_entity: timer.timer_motion_slaapkamer
+      no_motion_wait: 25
+      lux_entity: sensor.presence_900_zitkamer_illuminance_lux
+- id: '1701240561482'
+  alias: Timer based motion-activated Light Fedde bed
+  description: ''
+  use_blueprint:
+    path: homeassistant/motion_light_timer.yaml
+    input:
+      motion_entity: binary_sensor.ewelink_ms01_iaszone
+      automation_switch: input_boolean.automation_motion_slaapkamer_fedde
+      lux_entity: sensor.presence_900_zitkamer_illuminance_lux
+      light_target:
+        entity_id: light.light_fedde_bed_light
+      timer_entity: timer.timer_motion_slaapkamer_fedde
+      no_motion_wait: 45
+- id: '1701240879552'
+  alias: Timer based motion-activated Light Speelkamer
+  description: ''
+  use_blueprint:
+    path: homeassistant/motion_light_timer.yaml
+    input:
+      motion_entity: binary_sensor.presence_906_speelkamer
+      automation_switch: input_boolean.automation_motion_speelkamer
+      lux_entity: sensor.presence_908_slaapkamer_illuminance_lux
+      lux_level: 50
+      light_target:
+        area_id: speelkamer
+      timer_entity: timer.timer_motion_speelkamer
+      no_motion_wait: 30
+- id: '1701414475654'
+  alias: Timer based and motion based turn off werkkamer
+  description: ''
+  use_blueprint:
+    path: homeassistant/device_off_timer.yaml
+    input:
+      motion_entity: binary_sensor.presence_907_werkkamer
+      automation_switch: input_boolean.auto_turnoff_werkkamer
+      device_target:
+      - switch.onoff_404_desk
+      - switch.onoff_403_music
+      timer_entity: timer.timer_autoturnoff_werkkamer
+      no_motion_wait: 3600
+- id: '1701414542262'
+  alias: Timer based and motion based turn off espresso
+  description: ''
+  use_blueprint:
+    path: homeassistant/device_off_timer.yaml
+    input:
+      motion_entity: binary_sensor.presence_901_keukentafel
+      automation_switch: input_boolean.auto_turnoff_espresso
+      device_target: switch.onoff_400_espresso
+      timer_entity: timer.timer_autoturnoff_espresso
+      no_motion_wait: 3409
+- id: '1701993318702'
+  alias: Test leave work
+  description: ''
+  use_blueprint:
+    path: homeassistant/notify_leaving_zone.yaml
+    input:
+      person_entity: person.peter
+      zone_entity: zone.microsoft
+      notify_device: 7eabce463ee793665f7d9e4a2805d8b8
+- id: '1702498487868'
+  alias: Water detected wasmachine
+  description: ''
+  trigger:
+  - platform: state
+    entity_id:
+    - binary_sensor.water_leak_sensor_1_wasmachine_moisture
+    from: 'off'
+    to: 'on'
+  condition: []
+  action:
+  - service: notify.mobile_app_peter_phone
+    data:
+      message: water leak detected wasmachine
+      title: Water water water everywhere!
+  - service: notify.mobile_app_telefoon_regien
+    data:
+      message: "\U0001F4A6 Water detected wasmachine!\U0001F4A6"
+  mode: single
+- id: '1702750996954'
+  alias: Adaptive lights Slaapkamer
+  description: ''
+  use_blueprint:
+    path: pgroene/adaptive_lights_control.yaml
+    input:
+      cct_sleep_switch: switch.adaptive_lighting_sleep_mode_adaptive_lights_slaapkamer
+      rgb_sleep_switch: switch.adaptive_lighting_sleep_mode_adaptive_lights_slaapkamer_rgb
+      sleep_off_time: input_datetime.slaapkamer_wake_up
+      sleep_on_time: input_datetime.time_slaapkamer_sleep
+- id: '1702755613568'
+  alias: Adaptive lights Lobke
+  description: ''
+  use_blueprint:
+    path: pgroene/adaptive_lights_control.yaml
+    input:
+      cct_sleep_switch: switch.adaptive_lighting_sleep_mode_kids_bed
+      rgb_sleep_switch: switch.adaptive_lighting_sleep_mode_adaptive_lights_slaapkamer_lobke_rgb
+      sleep_off_time: input_datetime.time_wakeup_lobke
+      sleep_on_time: input_datetime.time_sleep_lobke
+- id: '1702771699325'
+  alias: Color loop lobke
+  description: ''
+  use_blueprint:
+    path: pgroene/timer_based_multilight_colorloop.yaml
+    input:
+      automation_switch: input_boolean.disco_lobke
+      light_target_1:
+        entity_id: light.slaapkamer_bed
+      light_target_2:
+        entity_id:
+        - light.light_led_adapter_1_lobke_light
+      timer_entity: timer.test_timer
+- id: '1703719559961'
+  alias: Timer based motion-activated Light eiland keuken
+  description: ''
+  use_blueprint:
+    path: homeassistant/motion_light_timer.yaml
+    input:
+      motion_entity: binary_sensor.presence_902_keuken
+      automation_switch: input_boolean.automation_motion_keuken
+      lux_entity: sensor.presence_900_zitkamer_illuminance_lux
+      light_target:
+        entity_id:
+        - light.light_keuken_eiland_1_light_2
+        - light.light_keuken_eiland_2_light
+      timer_entity: timer.timer_motion_keuken_eiland
+      no_motion_wait: 30
+- id: '1707094002999'
+  alias: test group
+  description: ''
+  trigger:
+  - platform: device
+    type: changed_states
+    device_id: c791c780ec043a7be60ba75b74d1a682
+    entity_id: 1696469e8b3fa3b828b5e64b6e9f9a96
+    domain: light
+  condition: []
+  action:
+  - service: light.toggle
+    target:
+      entity_id: light.texas_instruments_coordinator_test_lights_group
+    data: {}
+  mode: single
+- id: '1707117337152'
+  alias: Light keuken on timer
+  description: ''
+  use_blueprint:
+    path: pgroene/new_motion_light_time.yaml
+    input:
+      lights_target:
+        entity_id: light.ikea_of_sweden_tradfri_bulb_e26_ws_opal_980lm_light_4
+      motion_entity_primary:
+      - binary_sensor.presence_901_keukentafel
+      motion_entity_secondary:
+      - binary_sensor.presence_902_keuken
+      - binary_sensor.presence_900_zitkamer
+      - binary_sensor.presence_905_eetkamer
+      automation_switch: input_boolean.automation_motion_keuken
+      timer_entity: timer.timer_motion_keuken
+      lux_entity: sensor.presence_900_zitkamer_illuminance_lux
+      sleep_time: '22:30:00'
+      wake_time: 06:30:00
+      lux_level: 50
+- id: '1707118484998'
+  alias: Test turn light on
+  description: ''
+  trigger: []
+  condition: []
+  action:
+  - service: light.turn_on
+    target:
+      entity_id: light.ikea_of_sweden_tradfri_bulb_e26_ws_opal_980lm_light_4
+    data:
+      transition: 3
+      brightness: 2
+  mode: single
+- id: '1707120717188'
+  alias: Light eiland keuken on timer
+  description: ''
+  use_blueprint:
+    path: pgroene/new_motion_light_time.yaml
+    input:
+      lights_target:
+        entity_id:
+        - light.light_keuken_eiland_1_light_2
+        - light.light_keuken_eiland_2_light
+      motion_entity_primary:
+      - binary_sensor.presence_902_keuken
+      motion_entity_secondary:
+      - binary_sensor.presence_901_keukentafel
+      - binary_sensor.presence_900_zitkamer
+      light_level_day_primary: 81
+      light_level_night_primary: 40
+      light_level_day_secondary: 36
+      light_level_night_secondary: 5
+      wake_time: 06:30:00
+      automation_switch: input_boolean.automation_motion_keuken
+      lux_entity: sensor.presence_900_zitkamer_illuminance_lux
+      timer_entity: timer.timer_motion_keuken_eiland
+      no_motion_wait: 60
+      lux_level: 54
+- id: '1707290681275'
+  alias: Light zitkamer on timer
+  description: ''
+  use_blueprint:
+    path: pgroene/new_motion_light_time.yaml
+    input:
+      motion_entity_primary:
+      - binary_sensor.presence_900_zitkamer
+      motion_entity_secondary:
+      - binary_sensor.presence_901_keukentafel
+      - binary_sensor.presence_902_keuken
+      - binary_sensor.presence_800_kiosk
+      light_level_day_primary: 65
+      light_level_night_primary: 30
+      light_level_day_secondary: 50
+      sleep_time: '23:00:00'
+      wake_time: 06:30:00
+      automation_switch: input_boolean.automation_motion_zitkamer
+      lux_entity: sensor.presence_900_zitkamer_illuminance_lux
+      lux_level: 50
+      timer_entity: timer.timer_motion_zitkamer
+      no_motion_wait: 60
+      lights_target:
+        entity_id:
+        - light.light_602_zitkamer_light_5
+        - light.light_602_zitkamer_light_6
+        - light.light_600_zitkamer_light_5
+- id: '1711238500342'
+  alias: Kiosk display
+  description: ''
+  trigger:
+  - platform: state
+    entity_id:
+    - binary_sensor.presence_800_kiosk
+    to: 'on'
+    id: KioskOn
+  - platform: state
+    entity_id:
+    - binary_sensor.presence_800_kiosk
+    to: 'off'
+    for:
+      hours: 0
+      minutes: 1
+      seconds: 0
+    id: KioskOff
+  condition: []
+  action:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id:
+        - KioskOn
+      sequence:
+      - service: shell_command.display_on
+        data: {}
+    - conditions:
+      - condition: trigger
+        id:
+        - KioskOff
+      sequence:
+      - service: shell_command.display_off
+        data: {}
+  mode: restart
+- id: '1712113465138'
+  alias: Toggle werkamer
+  description: ''
+  trigger:
+  - device_id: 574eeeab0f0531b70414166b49af39b2
+    domain: zha
+    platform: device
+    type: remote_button_short_press
+    subtype: remote_button_short_press
+  condition: []
+  action:
+  - service: switch.toggle
+    data: {}
+    target:
+      entity_id:
+      - switch.onoff_403_music
+      - switch.onoff_404_desk
+  - service: light.toggle
+    target:
+      entity_id: light.light_led_2_werkkamer_light
+    data: {}
+  mode: single
+- id: '1714771228842'
+  alias: Weather aware lights ON OFF
+  description: ''
+  trigger:
+  - platform: sun
+    event: sunset
+    offset: 00:05:00
+    id: Sunny
+  - platform: sun
+    event: sunset
+    offset: -00:15:00
+    id: Cloudy
+  - platform: sun
+    event: sunset
+    offset: -00:30:00
+    id: Rainy
+  - platform: sun
+    event: sunset
+    offset: -01:00:00
+    id: Darky
+  - platform: time
+    at: '21:30:00'
+    id: 'Off'
+  condition:
+  - condition: template
+    value_template: '{{ ((is_state(''weather.forecast_thuis'', ''sunny'')  or is_state(''weather.forecast_thuis'',
+      ''clear-night'')  or is_state(''weather.forecast_thuis'', ''windy'')  or is_state(''weather.forecast_thuis'',
+      ''windy-variant'')) and ( trigger.id == ''Sunny'')) or ((is_state(''weather.forecast_thuis'',
+      ''fog'')  or is_state(''weather.forecast_thuis'', ''partlycloudy'') or is_state(''weather.forecast_thuis'',
+      ''cloudy'')) and ( trigger.id == ''Cloudy'')) or ((is_state(''weather.forecast_thuis'',
+      ''pouring'')  or is_state(''weather.forecast_thuis'', ''rainy'')  or is_state(''weather.forecast_thuis'',
+      ''snowy-rainy'')  or is_state(''weather.forecast_thuis'', ''lightning'')  or
+      is_state(''weather.forecast_thuis'', ''hail'')  or is_state(''weather.forecast_thuis'',
+      ''lightning-rainy'')) and ( trigger.id == ''Rainy''))  or (is_state(''weather.forecast_thuis'',
+      ''exceptional'') and ( trigger.id == ''Badly''))  or ( trigger.id == ''Off'')
+      }}'
+  action:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id:
+        - Sunny
+        - Cloudy
+        - Rainy
+        - Darky
+      sequence:
+      - service: switch.turn_on
+        target:
+          entity_id: switch.onoff_407_front_yard
+        data: {}
+    - conditions:
+      - condition: trigger
+        id:
+        - 'Off'
+      sequence:
+      - service: switch.turn_off
+        metadata: {}
+        data: {}
+        target:
+          entity_id: switch.onoff_407_front_yard
+  mode: single
+- id: '1716700058875'
+  alias: Clean house when AWAY
+  description: ''
+  trigger:
+  - platform: state
+    entity_id:
+    - binary_sensor.home_presence_2
+    from: 'on'
+    to: 'off'
+    for:
+      hours: 0
+      minutes: 10
+      seconds: 0
+    id: Away
+  condition:
+  - condition: template
+    value_template: '{{ is_state(''input_boolean.automation_motion_houseclean'', ''on'')
+      }}'
+  - condition: time
+    before: '19:00:00'
+    weekday:
+    - sat
+    - fri
+    - thu
+    - wed
+    - tue
+    - mon
+    - sun
+    after: 07:00:00
+  action:
+  variables:
+    next_clean_script: vacuum_keuken
+  mode: single
+- id: '1717605758745'
+  alias: Clean house when AWAY 2
+  description: ''
+  trigger:
+  - platform: state
+    entity_id:
+    - binary_sensor.home_presence_2
+    from: 'on'
+    to: 'off'
+    for:
+      hours: 0
+      minutes: 10
+      seconds: 0
+    id: Away
+  condition:
+  - condition: template
+    value_template: '{{ is_state(''input_boolean.automation_motion_houseclean'', ''on'')
+      }}'
+  - condition: time
+    before: '19:00:00'
+    weekday:
+    - sat
+    - fri
+    - thu
+    - wed
+    - tue
+    - mon
+    - sun
+    after: 07:00:00
+  action:
+  - service: script.turn_on
+    data:
+      entity_id: script.{{next_clean_script}}
+  variables:
+    clean_queue:
+      '[object Object]':
+    next_clean_id:
+    next_clean_row: "{% if states('input_text.badkamer').split(\",\")[1] == next_clean_id
+      %} \n  {{ states('input_text.badkamer').split(',') }}\n{% elif states('input_text.slaapkamer').split(\",\")[1]
+      == next_clean_id %} \n    {{ states('input_text.slaapkamer').split(',') }}\n{%
+      elif states('input_text.eetkamer').split(\",\")[1] == next_clean_id %} \n    {{
+      states('input_text.eetkamer').split(',') }}\n{% elif states('input_text.eetkamer2').split(\",\")[1]
+      == next_clean_id %} \n    {{ states('input_text.eetkamer2').split(',') }}\n{%
+      elif states('input_text.hall').split(\",\")[1] == next_clean_id %} \n    {{
+      states('input_text.hall').split(',') }}\n{% elif states('input_text.entree').split(\",\")[1]
+      == next_clean_id %} \n    {{ states('input_text.entree').split(',') }}\n{% elif
+      states('input_text.zitkamer').split(\",\")[1] == next_clean_id %} \n    {{ states('input_text.zitkamer').split(',')
+      }}\n{% elif states('input_text.speelkamer').split(\",\")[1] == next_clean_id
+      %} \n    {{ states('input_text.speelkamer').split(',') }}\n{% elif states('input_text.werkkamer').split(\",\")[1]
+      == next_clean_id %} \n    {{ states('input_text.werkkamer').split(',') }}\n{%
+      elif states('input_text.keuken').split(\",\")[1] == next_clean_id %} \n    {{
+      states('input_text.keuken').split(',') }}\n{% endif%}\n"
+    next_clean_script: vacuum_kitchen
+  mode: single

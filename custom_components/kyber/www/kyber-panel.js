@@ -32,16 +32,16 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=203";
+import { STYLES } from "./src/styles.js?v=212";
 import { getT } from "./src/i18n.js?v=3";
 import { UtilsMixin } from "./src/utils-mixin.js?v=101";
 import { SessionMixin } from "./src/session-mixin.js?v=88";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=89";
 import { DebugMixin } from "./src/debug-mixin.js?v=112";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=98";
-import { EditorMixin } from "./src/editor-mixin.js?v=204";
-import { AIMixin } from "./src/ai-mixin.js?v=119";
-import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=102";
+import { EditorMixin } from "./src/editor-mixin.js?v=213";
+import { AIMixin } from "./src/ai-mixin.js?v=120";
+import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=112";
 
 // ---------------------------------------------------------------------------
 // Custom Element
@@ -119,7 +119,12 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
   set panel(panel) {
     // HA passes panel.config when registering via panel_custom.
     this._panelConfig = panel?.config || {};
-    this._mode = this._panelConfig.mode || "chat";
+    const nextMode = this._panelConfig.mode || this._mode || "chat";
+    const prevMode = this._mode;
+    this._mode = nextMode;
+    if (this._rendered && prevMode !== nextMode) {
+      void this._applyModeAndDebugFlag();
+    }
   }
 
   connectedCallback() {
@@ -169,6 +174,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
           </span>
           <button class="btn-save editor-controls" id="btn-save" disabled>${this._t("btn_save")}</button>
           <button class="btn-edit-blueprint editor-controls" id="btn-edit-blueprint" style="display:none" title="Open this automation's blueprint for editing">📋 Edit blueprint</button>
+          <button class="editor-tab-btn editor-controls" id="btn-tab-test" title="Toggle simulator">🧪 Test</button>
           <button class="btn-close-editor editor-controls" id="btn-close-editor">${this._t("btn_close_editor")}</button>
         </div>
         <div class="chat-pane">
@@ -223,7 +229,9 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <div class="debug-body" id="debug-body"><em>${this._t("debug_loading")}</em></div>
           </div>
         </div>
-        <div class="editor-pane" id="editor-container"></div>
+        <div class="sim-pane" id="sim-pane" hidden></div>
+        <div class="editor-pane" id="editor-container">
+        </div>
         <div class="status-bar" id="status-bar">
           <span id="status-text"></span>
         </div>
@@ -337,6 +345,15 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
 
     shadow.getElementById("btn-close-editor").addEventListener("click", () => {
       this._closeEditor();
+    });
+
+    shadow.getElementById("btn-tab-test").addEventListener("click", () => {
+      const btn = this.shadowRoot.getElementById("btn-tab-test");
+      if (btn && btn.classList.contains("active")) {
+        this._showYamlTab();
+      } else {
+        this._showTestTab();
+      }
     });
 
 
@@ -642,3 +659,4 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
 if (!customElements.get("kyber-panel")) {
   customElements.define("kyber-panel", KyberPanel);
 }
+
