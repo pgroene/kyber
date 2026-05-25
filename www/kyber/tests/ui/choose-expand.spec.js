@@ -558,3 +558,76 @@ test("weather switch: rainy mock → option 1 sim-pass, others skip", async ({ p
   const firstSubNode = branches.nth(0).locator(".sim-sub-node");
   await expect(firstSubNode).toHaveClass(/sim-pass/);
 });
+
+/* ── Choose horizontal layout ────────────────────────────────────────────── */
+
+test("choose branches are laid out in a row (horizontal)", async ({ page }) => {
+  await openSim(page, {
+    trigger: [{ platform: "state", entity_id: "sensor.x" }],
+    condition: [],
+    action: [
+      {
+        choose: [
+          { conditions: [], sequence: [{ service: "light.turn_on", entity_id: "light.a" }] },
+          { conditions: [], sequence: [{ service: "light.turn_off", entity_id: "light.b" }] },
+          { conditions: [], sequence: [{ service: "notify.mobile", data: { message: "c" } }] },
+        ],
+      },
+    ],
+  });
+
+  const chooseBody = page.locator(".sim-complex-body-choose").first();
+  await expect(chooseBody).toBeVisible();
+
+  // Verify branches are laid out horizontally — second branch should NOT be below the first
+  const branches = chooseBody.locator(".sim-branch");
+  const box0 = await branches.nth(0).boundingBox();
+  const box1 = await branches.nth(1).boundingBox();
+  expect(box0).toBeTruthy();
+  expect(box1).toBeTruthy();
+  // In a row layout the y-positions are approximately equal (within 20px)
+  expect(Math.abs(box0.y - box1.y)).toBeLessThan(20);
+  await page.screenshot({ path: "screenshots/choose-horizontal.png" });
+});
+
+/* ── Inactive option opacity ──────────────────────────────────────────────── */
+
+test("skipped choose branch has readable opacity (>=0.6)", async ({ page }) => {
+  await openSim(page, {
+    trigger: [{ platform: "state", entity_id: "input_select.mode" }],
+    condition: [],
+    action: [
+      {
+        choose: [
+          {
+            conditions: [{ condition: "state", entity_id: "input_select.mode", state: "home" }],
+            sequence: [{ service: "light.turn_on", entity_id: "light.living" }],
+          },
+          {
+            conditions: [{ condition: "state", entity_id: "input_select.mode", state: "away" }],
+            sequence: [{ service: "light.turn_off", entity_id: "light.living" }],
+          },
+        ],
+      },
+    ],
+  });
+
+  const simPane = page.locator("#sim-pane-test");
+  // Run with first option matching
+  const modeInput = simPane.locator(`input[data-eid="input_select.mode"]`);
+  if (await modeInput.count() > 0) {
+    await modeInput.fill("home");
+    await modeInput.dispatchEvent("input");
+  }
+  const fireBtn = simPane.locator(".sim-fire-btn").first();
+  if (await fireBtn.count() > 0) await fireBtn.click();
+  await simPane.locator("#sim-run-btn").click();
+
+  // Second branch should be sim-skip with readable opacity
+  const skippedBranch = simPane.locator(".sim-branch.sim-skip").first();
+  await expect(skippedBranch).toBeVisible();
+  const opacity = await skippedBranch.evaluate((el) => parseFloat(window.getComputedStyle(el).opacity));
+  expect(opacity).toBeGreaterThanOrEqual(0.6);
+  await page.screenshot({ path: "screenshots/choose-skip-opacity.png" });
+});
+

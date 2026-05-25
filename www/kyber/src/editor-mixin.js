@@ -285,13 +285,6 @@ export const EditorMixin = (Base) => class extends Base {
     container.classList.add("editor-open");
     editorPane.classList.add("open");
 
-    // If the debug pane is visible, close it so the editor can occupy column 2.
-    const debugPaneCheck = this.shadowRoot.getElementById("debug-pane");
-    if (debugPaneCheck && !debugPaneCheck.hasAttribute("hidden")) {
-      this._debugWasVisible = true;
-      this._toggleDebugPane(false);
-    }
-
     this.shadowRoot.querySelectorAll(".editor-controls").forEach((el) => {
       el.style.display = "block";
     });
@@ -320,12 +313,6 @@ export const EditorMixin = (Base) => class extends Base {
     container.classList.remove("editor-open");
     const editorPane = this.shadowRoot.getElementById("editor-container");
     editorPane.classList.remove("open");
-
-    // Restore the debug pane if it was open when the editor was launched.
-    if (this._debugWasVisible) {
-      this._debugWasVisible = false;
-      this._toggleDebugPane(true);
-    }
 
     this.shadowRoot.querySelectorAll(".editor-controls").forEach((el) => {
       el.style.display = "";
@@ -2393,8 +2380,8 @@ export const EditorMixin = (Base) => class extends Base {
       errorBar = document.createElement("div");
       errorBar.id = "yaml-error-bar";
       errorBar.className = "yaml-error-bar";
-      const statusBar = this.shadowRoot.getElementById("status-bar");
-      if (statusBar) statusBar.parentElement.insertBefore(errorBar, statusBar);
+      const editorContainer = this.shadowRoot.getElementById("editor-container");
+      if (editorContainer) editorContainer.appendChild(errorBar);
       else return;
     }
     errorBar.hidden = false;

@@ -1921,7 +1921,7 @@ export const STYLES = `
   .sim-node-condition.sim-pass { border-left-color: #4caf50; }
   .sim-node-action.sim-pass { border-left-color: #4caf50; }
   .sim-node.sim-fail { border-left-color: #e53935 !important; box-shadow: 0 0 0 1px rgba(229,57,53,0.35); background: rgba(229,57,53,0.06); }
-  .sim-node.sim-skip { opacity: 0.4; }
+  .sim-node.sim-skip { opacity: 0.65; }
   .sim-node.sim-fired { border-left-color: #f59e0b !important; box-shadow: 0 0 0 1px rgba(245,158,11,0.4); background: rgba(245,158,11,0.08); }
   .sim-node.sim-selected { outline: 2px solid #38bdf8; outline-offset: 1px; }
   .sim-sub-node.sim-selected { outline: 2px solid #38bdf8; outline-offset: 1px; background: rgba(56,189,248,0.08); }
@@ -2121,12 +2121,12 @@ export const STYLES = `
     align-items: center;
     gap: 8px;
     padding: 6px 16px;
-    grid-column: 1 / -1;
     background: rgba(255,82,82,0.1);
     border-top: 2px solid #ff5252;
     font-size: 12px;
     color: #ff8a80;
     min-height: 28px;
+    flex: 0 0 auto;
     animation: yeb-slide-in 0.2s ease-out;
   }
   @keyframes yeb-slide-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
@@ -2956,12 +2956,13 @@ export const STYLES = `
     margin: 8px 0 0 0;
     padding-left: 0;
     flex-direction: row;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow-x: auto;
     align-items: flex-start;
     gap: 6px;
   }
   .sim-complex-body-choose > .sim-branch {
-    flex: 1 1 120px;
+    flex: 0 0 auto;
     min-width: 120px;
     max-width: 260px;
     background: var(--card-bg-inner, #0f172a);
@@ -2970,7 +2971,7 @@ export const STYLES = `
     padding: 6px 8px;
   }
   .sim-complex-body-choose > .sim-branch.sim-pass  { border-color: #4ade80; background: rgba(74,222,128,0.06); }
-  .sim-complex-body-choose > .sim-branch.sim-skip  { opacity: 0.4; }
+  .sim-complex-body-choose > .sim-branch.sim-skip  { opacity: 0.65; }
   .sim-node-collapsed .sim-complex-body { display: none; }
 
   .sim-branch {
@@ -3019,7 +3020,7 @@ export const STYLES = `
     background: rgba(248, 113, 113, 0.08);
     border-color: #f87171;
   }
-  .sim-sub-node.sim-skip { opacity: 0.35; }
+  .sim-sub-node.sim-skip { opacity: 0.6; }
   .sim-sub-node-complex { flex-direction: column; align-items: stretch; }
 
   .sim-sub-icon  { font-size: 13px; min-width: 16px; flex-shrink: 0; }

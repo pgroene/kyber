@@ -995,6 +995,24 @@ export const PlanCardsMixin = (Base) => class extends Base {
         const label = document.createElement("div");
         label.className = "sim-branch-label";
         label.textContent = `Option ${oi + 1}: ${condText}`;
+        label.style.cursor = "pointer";
+        label.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const parts = pathPrefix.split(":");
+          if (parts[0] === "action" && parts[1] !== undefined) {
+            const parentIdx = parseInt(parts[1], 10);
+            if (!isNaN(parentIdx)) {
+              const blocks = self._diagLineBlocks;
+              if (blocks?.actions?.[parentIdx] != null) {
+                const parentBlock = blocks.actions[parentIdx];
+                const chooseOpts = self._parseChooseBlocks?.(parentBlock.from_line, parentBlock.to_line) || [];
+                const optBlock = chooseOpts[oi];
+                if (optBlock) { self._jumpEditorToBlock?.(optBlock.from_line, optBlock.to_line); return; }
+              }
+              self._highlightNodeInEditor?.("action", parentIdx);
+            }
+          }
+        });
         optEl.appendChild(label);
         buildSubSequence(opt.sequence || [], `${pathPrefix}:opt:${oi}`, optEl);
         body.appendChild(optEl);
@@ -1096,7 +1114,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
       node.dataset.nodeKey = key;  // for unified querySelector
       const { icon, title, sub } = describeNode(item, "action");
       node.innerHTML = `<span class="sim-sub-icon">${icon}</span><span class="sim-sub-title">${self._escapeHtml(title)}</span>${sub ? `<span class="sim-sub-sub"> — ${self._escapeHtml(sub)}</span>` : ""}`;
-      // Sub-node selection: highlight parent action in editor
+      // Sub-node selection: highlight the specific YAML range in the editor
       node.addEventListener("click", (e) => {
         e.stopPropagation();
         const nodeKey = key; // e.g. "action:0:opt:1:2"
@@ -1112,11 +1130,34 @@ export const PlanCardsMixin = (Base) => class extends Base {
         }
         self._selectedSimNodeKey = nodeKey;
         node.classList.add("sim-selected");
-        // Find parent action index from key (format: "action:<idx>:...")
+        // Navigate editor to the specific YAML range for this sub-node
+        // Key format: "action:<parentIdx>:opt:<optIdx>:<subIdx>..."
         const parts = nodeKey.split(":");
         if (parts[0] === "action" && parts[1] !== undefined) {
           const parentIdx = parseInt(parts[1], 10);
-          if (!isNaN(parentIdx)) self._highlightNodeInEditor?.("action", parentIdx);
+          if (!isNaN(parentIdx)) {
+            const blocks = self._diagLineBlocks;
+            const optMarker = parts.indexOf("opt");
+            if (optMarker !== -1 && blocks?.actions?.[parentIdx] != null) {
+              const optIdx = parseInt(parts[optMarker + 1], 10);
+              const parentBlock = blocks.actions[parentIdx];
+              const chooseOpts = self._parseChooseBlocks?.(parentBlock.from_line, parentBlock.to_line) || [];
+              const optBlock = chooseOpts[optIdx];
+              if (optBlock) {
+                const subIdxStr = parts[optMarker + 2];
+                const subIdx = subIdxStr !== undefined ? parseInt(subIdxStr, 10) : NaN;
+                if (!isNaN(subIdx) && optBlock.actions?.[subIdx]) {
+                  const subAct = optBlock.actions[subIdx];
+                  self._jumpEditorToBlock?.(subAct.from_line, subAct.to_line);
+                } else {
+                  self._jumpEditorToBlock?.(optBlock.from_line, optBlock.to_line);
+                }
+                return;
+              }
+            }
+            // Fall back to highlighting the entire parent action block
+            self._highlightNodeInEditor?.("action", parentIdx);
+          }
         }
       });
       return node;

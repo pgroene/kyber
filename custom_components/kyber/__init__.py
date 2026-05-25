@@ -509,7 +509,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     """Set up Kyber from a config entry."""
     config = {**entry.data, **(entry.options or {})}
     import json as _json
-    _version = _json.loads(Path(__file__).parent.joinpath("manifest.json").read_text(encoding="utf-8"))["version"]
+    _manifest_path = Path(__file__).parent.joinpath("manifest.json")
+    _manifest_text = await hass.async_add_executor_job(
+        _manifest_path.read_text, "utf-8"
+    )
+    _version = _json.loads(_manifest_text)["version"]
     _LOGGER.info("Kyber: loading integration v%s", _version)
 
     debug_enabled = _resolve_debug_enabled(entry)

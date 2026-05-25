@@ -130,18 +130,15 @@ test.describe("Layout — debug pane placement", () => {
     await page.screenshot({ path: "screenshots/layout-debug-below-input.png" });
   });
 
-  test("debug pane is still in chat column when editor is open", async ({ page }) => {
+  test("debug pane stays visible when editor opens", async ({ page }) => {
     await gotoHarness(page);
-    await openEditor(page);
+    // First open the debug pane
     await showDebugPane(page);
-
-    const chatBox  = await page.locator(".chat-pane").boundingBox();
-    const debugBox = await page.locator("#debug-pane").boundingBox();
-
-    expect(chatBox).toBeTruthy();
-    expect(debugBox).toBeTruthy();
-    expect(debugBox.x).toBeGreaterThanOrEqual(chatBox.x - 2);
-    expect(debugBox.x + debugBox.width).toBeLessThanOrEqual(chatBox.x + chatBox.width + 2);
-    await page.screenshot({ path: "screenshots/layout-debug-with-editor.png" });
+    // Then open the editor — previously this would close the debug pane
+    await openEditor(page);
+    // Debug pane must still be visible
+    await expect(page.locator("#debug-pane")).toBeVisible();
+    await page.screenshot({ path: "screenshots/layout-debug-with-editor-open.png" });
   });
 });
+

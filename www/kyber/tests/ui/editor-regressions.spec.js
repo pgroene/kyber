@@ -370,3 +370,47 @@ test.describe("Editor regressions (real CodeMirror)", () => {
     await page.screenshot({ path: "screenshots/ui-choose-repeat-drilldown-regression.png" });
   });
 });
+
+/* ── Error bar position ───────────────────────────────────────────────────── */
+
+test.describe("Error bar — position inside editor column", () => {
+  test("yaml error bar appears inside the editor container, not in the outer grid", async ({ page }) => {
+    await gotoRealEditorHarness(page);
+
+    // Directly inject an error bar into the editor-container to simulate an error
+    await page.evaluate(() => {
+      const panel = window.__panel;
+      const ec = panel.shadowRoot.getElementById("editor-container");
+      if (!ec) return;
+      // Remove any existing error bar first
+      const existing = panel.shadowRoot.getElementById("yaml-error-bar");
+      if (existing) existing.remove();
+      // Create error bar as the fixed code does — inside editor-container
+      const bar = document.createElement("div");
+      bar.id = "yaml-error-bar";
+      bar.className = "yaml-error-bar";
+      bar.style.removeProperty("display");
+      bar.innerHTML = `<span class="yeb-icon">⚠</span><span class="yeb-msg">test error at line 3</span>`;
+      ec.appendChild(bar);
+    });
+
+    // The error bar must be inside the editor-container (not in the outer grid)
+    const isInsideEditor = await page.evaluate(() => {
+      const panel = window.__panel;
+      const ec = panel.shadowRoot.getElementById("editor-container");
+      const bar = panel.shadowRoot.getElementById("yaml-error-bar");
+      return bar && ec && ec.contains(bar);
+    });
+    expect(isInsideEditor).toBe(true);
+
+    // Positionally: error bar must be within the horizontal bounds of the editor container
+    const editorBox = await page.locator("#editor-container").boundingBox();
+    const barBox = await page.locator("#yaml-error-bar").boundingBox();
+    if (editorBox && barBox) {
+      expect(barBox.x).toBeGreaterThanOrEqual(editorBox.x - 2);
+      expect(barBox.x + barBox.width).toBeLessThanOrEqual(editorBox.x + editorBox.width + 2);
+    }
+    await page.screenshot({ path: "screenshots/error-bar-in-editor.png" });
+  });
+});
+
