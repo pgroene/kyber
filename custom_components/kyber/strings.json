@@ -95,6 +95,9 @@
               "label_assignment_mode": "Suggest or auto-apply kyber: device-type labels to entities in conversation."
             }
           },
+          "cloud_config": {
+            "name": "Cloud AI Provider"
+          },
           "developer": {
             "name": "Developer",
             "data": {
