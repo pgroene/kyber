@@ -742,11 +742,11 @@ export const DebugMixin = (Base) => class extends Base {
         · prompt: ${snap.char_count?.toLocaleString() ?? "?"} chars (~${snap.approx_tokens?.toLocaleString() ?? "?"} tokens)
         · auto_rating: ${snap.auto_rating ? `⚠ ${snap.auto_rating}/5` : "—"}
       </div>
-      <details class="debug-section" data-sid="user-prompt">
+      <details class="debug-section" data-sid="user-prompt" open>
         <summary><strong>User prompt</strong></summary>
         <pre class="dbg-pre">${this._escapeHtml(snap.user_prompt || "")}</pre>
       </details>
-      <details class="debug-section" data-sid="knowledge">
+      <details class="debug-section" data-sid="knowledge" open>
         <summary><strong>📌 Knowledge entries used this turn (${picked.length})</strong></summary>
         ${picked.length === 0 ? '<em>None injected.</em>' : '<div class="kn-list" id="dbg-picked-list"></div>'}
       </details>
@@ -1552,7 +1552,7 @@ export const DebugMixin = (Base) => class extends Base {
 
     body.innerHTML = `
       <!-- ── Compare tool ─────────────────────────────────────────── -->
-      <details class="debug-section" data-sid="mcp-compare">
+      <details class="debug-section" data-sid="mcp-compare" open>
         <div style="margin-top:10px">
           <div style="display:flex;gap:8px;margin-bottom:10px">
             <input id="mcp-cmp-input" type="text" placeholder="Ask a question…"
@@ -1582,7 +1582,7 @@ export const DebugMixin = (Base) => class extends Base {
       </details>
 
       <!-- ── Unified call log ──────────────────────────────────────── -->
-      <details class="debug-section" data-sid="mcp-calllog" style="margin-top:14px">
+      <details class="debug-section" data-sid="mcp-calllog" open style="margin-top:14px">
         <summary style="font-weight:600;cursor:pointer;padding:6px 0">
           📋 Call log — MCP &amp; Classic
           <span style="font-size:0.8rem;font-weight:400;color:var(--secondary-text-color);margin-left:8px"

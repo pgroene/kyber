@@ -212,22 +212,22 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <textarea id="prompt-input" placeholder="${this._t("placeholder")}" rows="3"></textarea>
             <button class="btn-ask" id="btn-ask">${this._t("btn_ask")}</button>
           </div>
-          <div class="debug-pane" id="debug-pane" hidden>
-            <div class="debug-header">
-              <strong>${this._t("debug_title")}</strong>
-              <nav class="debug-tabs">
-                <button class="debug-tab active" data-debug-tab="memory">${this._t("debug_tab_memory")}</button>
-                <button class="debug-tab" data-debug-tab="last_turn">${this._t("debug_tab_last")}</button>
-                <button class="debug-tab" data-debug-tab="status">${this._t("debug_tab_status")}</button>
-                <button class="debug-tab" data-debug-tab="logs">${this._t("debug_tab_logs")}</button>
-                <button class="debug-tab" data-debug-tab="tests">${this._t("debug_tab_tests")}</button>
-                <button class="debug-tab" data-debug-tab="mcp">${this._t("debug_tab_mcp")}</button>
-              </nav>
-              <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">↻</button>
-              <button class="btn-debug-close" id="btn-debug-close" title="Close debug">✕</button>
-            </div>
-            <div class="debug-body" id="debug-body"><em>${this._t("debug_loading")}</em></div>
+        </div>
+        <div class="debug-pane" id="debug-pane" hidden>
+          <div class="debug-header">
+            <strong>${this._t("debug_title")}</strong>
+            <nav class="debug-tabs">
+              <button class="debug-tab active" data-debug-tab="memory">${this._t("debug_tab_memory")}</button>
+              <button class="debug-tab" data-debug-tab="last_turn">${this._t("debug_tab_last")}</button>
+              <button class="debug-tab" data-debug-tab="status">${this._t("debug_tab_status")}</button>
+              <button class="debug-tab" data-debug-tab="logs">${this._t("debug_tab_logs")}</button>
+              <button class="debug-tab" data-debug-tab="tests">${this._t("debug_tab_tests")}</button>
+              <button class="debug-tab" data-debug-tab="mcp">${this._t("debug_tab_mcp")}</button>
+            </nav>
+            <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">↻</button>
+            <button class="btn-debug-close" id="btn-debug-close" title="Back to chat">✕</button>
           </div>
+          <div class="debug-body" id="debug-body"><em>${this._t("debug_loading")}</em></div>
         </div>
         <div class="sim-pane" id="sim-pane" hidden></div>
         <div class="editor-pane" id="editor-container">
