@@ -145,8 +145,10 @@ describe("_appendAIResponse", () => {
 
   it("appends open-editor prompt when plan.open_editor = true", () => {
     const { element } = makePanel();
+    vi.spyOn(element, "_openEditor").mockImplementation(() => {});
     const plan = { summary: "Edit automation", open_editor: true, automation_id: "automation.test" };
     element._appendAIResponse("Opening editor", [], plan);
+    expect(element._openEditor).toHaveBeenCalledWith("automation.test");
     expect(element.shadowRoot.querySelector(".open-editor-prompt")).not.toBeNull();
   });
 

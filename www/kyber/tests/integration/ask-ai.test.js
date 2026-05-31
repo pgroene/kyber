@@ -59,7 +59,13 @@ describe("_askAI — request payload", () => {
 
   it("sends prompt and editor yaml in request body", async () => {
     const { element } = makePanel();
-    element._editor = { state: { doc: { toString: () => "alias: test" } } };
+    element._editor = {
+      state: {
+        doc: { toString: () => "alias: test" },
+        selection: { main: { from: 0, to: 0 } },
+        sliceDoc: () => "",
+      },
+    };
     await askWithInput(element, "Check this YAML");
     const body = JSON.parse(fetch.mock.calls[0][1].body);
     expect(body.prompt).toBe("Check this YAML");

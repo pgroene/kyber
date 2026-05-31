@@ -25,6 +25,7 @@ Slash commands let you control Home Assistant resources directly from the Kyber 
 | `/script save` | Save the currently-open script |
 | `/script new` | Open HA's script editor in a new tab |
 | `/script delete <name>` | Delete a script |
+| `/blueprint open <path>` | Open a blueprint YAML file in the editor |
 | `/blueprint browse` | Open HA's Blueprint page in a new tab |
 | `/area new <name>` | Create a new area |
 | `/area delete <name>` | Delete an area |
@@ -258,7 +259,18 @@ Fuzzy-finds the script, shows a **danger confirm card**, then permanently delete
 
 ## Blueprint Commands
 
-### `/blueprint browse` / `/blueprint open`
+### `/blueprint open <path>`
+
+Opens a blueprint YAML file directly in the Kyber editor. The path is relative to `/config/blueprints/automation/`.
+
+```
+/blueprint open custom/my_blueprint.yaml
+/blueprint open homeassistant/motion_light.yaml
+```
+
+The blueprint file is loaded via `GET /api/kyber/blueprint?path=<path>`. Saving writes it back via `POST /api/kyber/blueprint`.
+
+### `/blueprint browse`
 
 Shows a confirm card, then opens HA's Blueprint management page (`/config/blueprint`) in a new tab.
 

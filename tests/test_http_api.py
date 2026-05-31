@@ -1432,3 +1432,100 @@ async def test_device_context_expansion_no_device_skipped(
     instructions = captured.get("instructions", "")
     # No sibling section when there's no device
     assert "Sibling entities on the same device" not in instructions
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# /execute — automation / script config actions
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def test_execute_create_automation_calls_ha_config_api(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """create_automation should POST to HA config API with the supplied config."""
+    from unittest.mock import patch as _patch
+
+    _api_calls: list[dict] = []
+
+    class _FakeResp:
+        ok = True
+        status = 200
+        async def text(self): return ""
+        async def __aenter__(self): return self
+        async def __aexit__(self, *_): pass
+
+    class _FakeSession:
+        def post(self, url, *, json=None, headers=None):
+            _api_calls.append({"url": url, "json": json, "headers": headers})
+            return _FakeResp()
+
+    client = await hass_client()
+    with _patch(
+        "custom_components.kyber.action_execution.async_get_clientsession",
+        return_value=_FakeSession(),
+    ):
+        resp = await client.post(
+            "/api/kyber/execute",
+            json={
+                "approved": True,
+                "actions": [{
+                    "type": "create_automation",
+                    "id": "test_auto_1",
+                    "config": {
+                        "alias": "Test Automation",
+                        "trigger": [{"platform": "time", "at": "07:00:00"}],
+                        "action": [{"service": "switch.turn_on", "entity_id": "switch.espresso"}],
+                    },
+                }],
+            },
+        )
+
+    assert resp.status == 200
+    data = await resp.json()
+    result = data["results"][0]
+    assert result["status"] == "ok"
+    assert result["type"] == "create_automation"
+    assert result["automation_id"] == "test_auto_1"
+    assert len(_api_calls) == 1
+    assert _api_calls[0]["url"].endswith("/api/config/automation/config/test_auto_1")
+    assert _api_calls[0]["json"]["alias"] == "Test Automation"
+    assert _api_calls[0]["headers"]["Authorization"].startswith("Bearer ")
+
+
+async def test_execute_create_automation_missing_config_returns_error(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """create_automation without 'config' should return an error result."""
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={
+            "approved": True,
+            "actions": [{"type": "create_automation", "id": "test_auto_x"}],
+        },
+    )
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["results"][0]["status"] == "error"
+    assert "config" in data["results"][0]["message"].lower()
+
+
+async def test_execute_update_automation_missing_id_returns_error(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """update_automation without 'automation_id' should return an error result."""
+    client = await hass_client()
+    resp = await client.post(
+        "/api/kyber/execute",
+        json={
+            "approved": True,
+            "actions": [{
+                "type": "update_automation",
+                "config": {"alias": "Test", "trigger": [], "action": []},
+            }],
+        },
+    )
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["results"][0]["status"] == "error"
+    assert "automation_id" in data["results"][0]["message"].lower()
+

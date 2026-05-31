@@ -1,0 +1,107 @@
+blueprint:
+  name: Handle cleaning for house
+  description: Manage a todo list for which rooms have to be cleaned when we are not home
+  domain: automation
+  input:
+    vacuum_selector:
+      name: Vacuum
+      description: Select the vacuum to use for cleaning
+      selector:
+        entity:
+          domain: vacuum
+    occupancy_home:
+      name: Detect if someone is home 
+      description: Use a binary sensor to see if someone is home
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+    allowed_cleaning_times_after:
+      name: Allowed cleaning times
+      description: Restrict the times that the cleaning can start
+      selector:
+        time:
+    allowed_cleaning_times_before:
+      name: Allowed cleaning times
+      description: Restrict the times that the cleaning can start
+      selector:
+        time:
+    vacuum_list:
+      name: Vacuum todo list
+      description: List to keep track of the rooms that need cleaning
+      selector:
+        entity:
+          domain: input_text
+    automation_vacuum_on:
+      name: Automation vacuum is on
+      description: Check if automation is on before starting the vacuum automation
+      selector:
+        entity:
+          filter:
+            - domain: input_boolean
+
+condition:
+  - condition: and
+    conditions:
+    - condition: state
+      entity_id: !input 'automation_vacuum_on'
+      state: 'on'
+    - condition: template
+      value_template: "{{ trigger.platform != 'state' }}"
+  - condition: and
+    conditions:
+    - condition: time
+      after: !input 'allowed_cleaning_times_after'
+      before: !input 'allowed_cleaning_times_before'
+    - condition: template
+      value_template: "{{ trigger.platform != 'state' }}"
+
+trigger:
+  - platform: state
+    entity_id: !input 'occupancy_home'
+    from: 'on'
+    to: 'off'
+    for:
+      minutes: 10
+
+variables:
+  vacuum_list: !input 'vacuum_list'
+  vacuum_selector: !input 'vacuum_selector'
+  clean_room: "{{ states( vacuum_list).split(',')[0] }}"
+  
+action:
+  - repeat:
+      while:
+        - condition: template
+          value_template: "{{ states( vacuum_list ) != '' }}"
+
+      sequence:
+      - choose:
+        - conditions:
+            - condition: state
+              entity_id: !input 'vacuum_selector'
+              state: 'docked'
+            - condition: template
+              value_template: "{{ state_attr( vacuum_selector, 'battery_level') | int > 75}}"
+          sequence:
+          - service: vacuum.send_command
+            target:
+              entity_id: !input 'vacuum_selector'
+            data:
+              command: start
+              params:
+                pmap_id: OV68p3N5TcS3wGkZT_R2bg
+                regions:
+                  - region_id:  >-
+                      '{{ clean_room }}'
+                    type: rid
+          - service: input_text.set_value
+            data:
+              entity_id: !input 'vacuum_list'
+              value: "{{ states(vacuum_list).split(',')[1:] | join(',') }}"
+          
+        default:  
+          - delay: 
+              minutes: 5
+
+mode: single

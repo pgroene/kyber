@@ -1,0 +1,654 @@
+'1700031087782':
+  alias: Sunrise Simulator Manual
+  sequence:
+  - parallel:
+    - if:
+      - condition: template
+        value_template: '{{ wled | count > 0 }}'
+      then:
+      - repeat:
+          for_each: '{{ wled }}'
+          sequence:
+          - data:
+              effect: Sunrise
+            target:
+              entity_id: '{{ repeat.item }}
+
+                '
+            action: light.turn_on
+          - data:
+              value: '{{ [(255 * (maxbri/100)) | int, 255] | min }}'
+            target:
+              entity_id: "{{ device_entities(device_id(repeat.item))\n      | select('search',
+                'number.')\n      | select('search', 'intensity')\n      | list }}\n"
+            action: number.set_value
+          - data:
+              value: '{{ [dur, 128] | min }}
+
+                '
+            target:
+              entity_id: "{{ device_entities(device_id(repeat.item))\n      | select('search',
+                'number.')\n      | select('search', 'speed')\n      | list }}\n"
+            action: number.set_value
+    - if:
+      - condition: template
+        value_template: '{{ bright | count > 0 }}'
+      then:
+      - repeat:
+          while:
+          - condition: template
+            value_template: "{{ repeat.index <= maxbri\n      and not ( repeat.index
+              > 1 \n                         and states.light\n                                    |
+              selectattr('entity_id', 'in', bright)\n                                    |
+              selectattr('state', 'eq', 'on') | list | count \n                                  ==
+              \ 0 ) }}\n"
+          sequence:
+          - variables:
+              bright: "{% if repeat.index > 1 %}\n  {{ expand(bright)\n        | selectattr('state',
+                'eq', 'on')\n        | map(attribute = 'entity_id')\n        | list
+                }}\n{% else %}\n  {{ bright }}\n{% endif %}\n"
+          - data:
+              transition: '{{ ( ( dur * 60 ) / (maxbri) ) | int }}
+
+                '
+              brightness_pct: '{{ [maxbri, ((repeat.index * maxbri) / 100)] | min
+                }}
+
+                '
+            target:
+              entity_id: '{{ bright }}
+
+                '
+            action: light.turn_on
+          - delay:
+              milliseconds: "{{ (  ( ( dur  * 60 ) / (maxbri) ) * 1000\n ) | int }}\n"
+    - if:
+      - condition: template
+        value_template: '{{ temp | count > 0 }}'
+      then:
+      - repeat:
+          while:
+          - condition: template
+            value_template: "{{ repeat.index <= 100\n      and not ( repeat.index
+              > 1 \n                         and states.light\n                                    |
+              selectattr('entity_id', 'in', temp)\n                                    |
+              selectattr('state', 'eq', 'on') | list | count \n                                  ==
+              \ 0 ) }}\n"
+          sequence:
+          - variables:
+              step: '{{ repeat.index }}'
+              temp: "{% if repeat.index > 1 %}\n  {{ expand(temp)\n        | selectattr('state',
+                'eq', 'on')\n        | map(attribute = 'entity_id')\n        | list
+                }}\n{% else %}\n  {{ temp }}\n{% endif %}\n"
+          - repeat:
+              for_each: '{{ temp }}'
+              sequence:
+              - data:
+                  transition: '{{ ( ( dur * 60) / 100 ) | int }}
+
+                    '
+                  brightness_pct: '{{ [ ((step * maxbri) / 100) | int, maxbri] | min
+                    }}
+
+                    '
+                target:
+                  entity_id: '{{ repeat.item }}
+
+                    '
+                action: light.turn_on
+              - data:
+                  color_temp: '{% set max = state_attr(repeat.item, ''max_mireds'')
+                    %} {% set min = state_attr(repeat.item, ''min_mireds'') %} {%
+                    set dec = (max-min) / 100 %} {{ iif( step < 100, ( max - (dec
+                    * (step - 1) ) ) | int, min ) }}
+
+                    '
+                target:
+                  entity_id: '{{ repeat.item }}
+
+                    '
+                action: light.turn_on
+          - delay:
+              milliseconds: "{{ (  ( ( dur  * 60 ) / 100 ) * 1000\n ) | int }}\n"
+    - if:
+      - condition: template
+        value_template: '{{ color | count > 0 }}'
+      then:
+      - repeat:
+          while:
+          - condition: template
+            value_template: "{{ repeat.index <= 100\n      and not ( repeat.index
+              > 1 \n                         and states.light\n                                    |
+              selectattr('entity_id', 'in', color)\n                                    |
+              selectattr('state', 'eq', 'on') | list | count \n                                  ==
+              0 ) }}\n"
+          sequence:
+          - variables:
+              color: "{% if repeat.index > 1 %}\n  {{ expand(color)\n        | selectattr('state',
+                'eq', 'on')\n        | map(attribute = 'entity_id')\n        | list
+                }}\n{% else %}\n  {{ color }}\n{% endif %}\n"
+          - data:
+              transition: '{{ (  ( dur * 60 ) / 100  ) | int }}
+
+                '
+              brightness_pct: '{{ [((repeat.index * maxbri) / 100) | int , maxbri]
+                | min }}
+
+                '
+            target:
+              entity_id: '{{ color }}
+
+                '
+            action: light.turn_on
+          - data:
+              rgb_color: "{% if repeat.index <= 20 %}\n  [255,0,0]\n{% elif repeat.index
+                <= 40  %}\n  [255,77,0]\n{% elif repeat.index <= 60 %}\n  [255,103,0]\n{%
+                elif repeat.index <= 80 %}\n  [255,129,0]  \n{% else %}\n  [255,167,0]\n{%
+                endif %}\n"
+            target:
+              entity_id: '{{ color }}
+
+                '
+            action: light.turn_on
+          - delay:
+              milliseconds: '{{ (  ( ( dur * 60 ) / 100 ) * 1000 ) | int }}
+
+                '
+  variables:
+    dur: '{{ duration | default(10, true) | int(10) }}
+
+      '
+    entities: "{% if target is defined %}\n  {% if target in states.light \n                     |
+      rejectattr('state','in', ['unavailable', 'unknown', None])\n                     |
+      selectattr('attributes.supported_color_modes', 'defined')\n                     |
+      rejectattr('attributes.supported_color_modes', 'eq', None)\n                     |
+      map(attribute='entity_id') \n                     | map('area_name')\n                     |
+      list %}\n    {% set target = area_entities(target) %}\n  {% endif %}\n  {{ expand(target)\n
+      \       | selectattr('domain', 'eq', 'light')\n        | selectattr('attributes.supported_color_modes',
+      'defined')\n        | rejectattr('attributes.supported_color_modes', 'eq', None)\n
+      \       | rejectattr('state', 'in', ['unavailable', 'unknown', None])\n        |
+      map(attribute='entity_id')\n        | list }}\n{% elif cct is not defined\n
+      \   and brightness is not defined %}\n  {{ states.light \n           | rejectattr('state','in',
+      ['unavailable', 'unknown', None])\n           | selectattr('attributes.supported_color_modes',
+      'defined')\n           | rejectattr('attributes.supported_color_modes', 'eq',
+      None)\n           | map(attribute='entity_id') \n           | list }}\n{% endif
+      %}\n"
+    bright: "{{ expand(entities)\n      | selectattr('attributes.supported_color_modes',
+      'eq', [ 'brightness'])\n      | map(attribute='entity_id')\n      | list + expand(
+      brightness | default([], true) )\n                  | rejectattr('state', 'in',
+      [ 'unavailable', 'unknown', None ])\n                  | rejectattr('entity_id',
+      'in', entities)\n                  | selectattr('attributes.supported_color_modes',
+      'defined')\n                  | selectattr('attributes.supported_color_modes',
+      'search', 'brightness')\n                  | map(attribute='entity_id')\n                  |
+      list  }}\n"
+    temp: "{{ expand(entities)\n      | selectattr('attributes.supported_color_modes',
+      'eq', [ 'color_temp'])\n      | map(attribute='entity_id')\n      | list + expand(
+      cct | default([], true) )\n                  | rejectattr('state', 'in', [ 'unavailable',
+      'unknown', None ])\n                  | rejectattr('entity_id', 'in', entities)\n
+      \                 | selectattr('attributes.supported_color_modes', 'defined')\n
+      \                 | selectattr('attributes.supported_color_modes', 'search',
+      'color_temp')\n                  | map(attribute='entity_id')\n                  |
+      list }}\n"
+    wled: "{{ integration_entities('wled')\n      | select('in', expand(entities)\n
+      \                       | selectattr('attributes.effect_list', 'defined')\n
+      \                       | selectattr('attributes.effect_list', 'search', 'Sunrise')\n
+      \                       | map(attribute='entity_id')\n                        |
+      list)\n      | list }}\n"
+    color: '{{ entities | reject(''in'', temp + wled + bright) | list  }}
+
+      '
+    maxbri: '{% set bri = max_brightness | default(100, true) | int(100) %} {{ bri
+      if bri < 100 else 100 }}
+
+      '
+  mode: parallel
+  icon: mdi:weather-sunset-up
+  max: 5
+vacuum_kitchen:
+  alias: vacuum_keuken
+  use_blueprint:
+    path: pgroene/vacuum.yaml
+    input:
+      vacuum: vacuum.freddy
+      room: input_text.keuken
+      current_room: input_text.vacuum_current_room
+  description: ''
+vacuum_entree:
+  alias: vacuum_entree
+  use_blueprint:
+    path: pgroene/vacuum.yaml
+    input:
+      vacuum: vacuum.freddy
+      room: input_text.entree
+      current_room: input_text.vacuum_current_room
+  icon: mdi:door
+  description: ''
+'1717681909594':
+  alias: Vacuum queue manager
+  sequence:
+  - variables:
+      current_list: '{{ states(''input_text.vacuum_queue'').split('','') }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{  mode == ''Remove'' }}'
+      sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.vacuum_queue
+        data:
+          value: '{{ (current_list | reject(''equalto'', number|string) | list) |
+            join('','') }}'
+    - conditions:
+      - condition: template
+        value_template: '{{ states(''input_text.vacuum_queue'') == '''' }}'
+      sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.vacuum_queue
+        data:
+          value: '{{ number }}'
+    - conditions:
+      - condition: template
+        value_template: '{{ number not in current_list }}'
+      sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.vacuum_queue
+        data:
+          value: '{{ states(''input_text.vacuum_queue'') ~ '','' ~ number }}'
+    - conditions:
+      - condition: template
+        value_template: '{{ number|string == current_list[0] }}'
+      sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.vacuum_queue
+        data:
+          value: '{{ current_list[1:] | join('','') }}'
+    - conditions:
+      - condition: template
+        value_template: '{{ number in current_list }}'
+      sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.vacuum_queue
+        data:
+          value: '{{ ([number|string] + (current_list | reject(''equalto'', number|string)
+            | list)) | join('','') }}'
+  fields:
+    number:
+      description: The number to append
+      required: true
+    mode:
+      description: Add or Remove
+      required: true
+  mode: queued
+vacuum_werkkamer:
+  alias: vacuum_werkkamer
+  use_blueprint:
+    path: pgroene/vacuum.yaml
+    input:
+      vacuum: vacuum.freddy
+      room: input_text.werkkamer
+      current_room: input_text.vacuum_current_room
+  description: ''
+vacuum_zitkamer:
+  alias: vacuum_zitkamer
+  use_blueprint:
+    path: pgroene/vacuum.yaml
+    input:
+      vacuum: vacuum.freddy
+      room: input_text.woonkamer
+      current_room: input_text.vacuum_current_room
+  description: ''
+vacuum_eetkamer:
+  alias: vacuum_eetkamer
+  use_blueprint:
+    path: pgroene/vacuum.yaml
+    input:
+      vacuum: vacuum.freddy
+      room: input_text.eetkamer
+      current_room: input_text.vacuum_current_room
+  description: ''
+vacuum_hal:
+  alias: vacuum_gang
+  use_blueprint:
+    path: pgroene/vacuum.yaml
+    input:
+      vacuum: vacuum.roomba
+      room: input_text.gang
+      current_room: input_text.vacuum_current_room
+  description: ''
+vacuum_badkamer:
+  alias: vacuum_badkamer
+  use_blueprint:
+    path: pgroene/vacuum.yaml
+    input:
+      vacuum: vacuum.roomba
+      room: input_text.badkamer
+      current_room: input_text.vacuum_current_room
+  description: ''
+kitchen_lights_on:
+  alias: Kitchen lights on
+  variables:
+    brightness: 100
+    transition: 5
+    delay: '00:00:00.500'
+    lights:
+    - entity_id: light.downlight_keuken_122
+    - entity_id: light.downlight_keuken_123
+    - entity_id: light.downlight_keuken_117
+    - entity_id: light.downlight_keuken_116
+    - entity_id: light.downlight_keuken_115
+    - entity_id: light.downlight_keuken_110
+    - entity_id: light.downlight_keuken_113
+    - entity_id: light.downlight_keuken_111
+    - entity_id: light.onoff_keuken_lamp_espresso_307
+  sequence:
+  - repeat:
+      count: '{{ lights | length }}'
+      sequence:
+      - data:
+          entity_id: '{{ lights[repeat.index-1].entity_id }}'
+          brightness: '{{ brightness }}'
+          transition: '{{ transition }}'
+        action: light.turn_on
+      - delay: '{{ delay }}'
+  mode: single
+  description: Turn on the lights in sequence
+  icon: mdi:light-recessed
+test_signal_when_action_is_complete:
+  alias: signal_zitkamer
+  description: ''
+  variables:
+    light_color: blue
+  sequence:
+  - if:
+    - condition: state
+      entity_id: binary_sensor.home_presence
+      state: 'on'
+    then:
+    - data:
+        scene_id: saved_lights_state
+        entities: {}
+        snapshot_entities:
+        - light.group_alert_lights
+      action: scene.create
+    - data:
+        transition: 1
+        brightness_pct: 100
+        color_name: '{{ light_color }}'
+      target:
+        entity_id:
+        - light.group_alert_lights
+      action: light.turn_on
+    - delay:
+        hours: 0
+        minutes: 0
+        seconds: 3
+    - action: light.turn_on
+      metadata: {}
+      data:
+        effect: blink
+      target:
+        entity_id: light.group_alert_lights
+    - delay:
+        hours: 0
+        minutes: 0
+        seconds: 3
+    - data:
+        transition: 2
+      target:
+        entity_id: scene.saved_lights_state
+      action: scene.turn_on
+    else:
+    - delay:
+        hours: 0
+        minutes: 0
+        seconds: 3
+  mode: single
+signal_till_stopped:
+  alias: wasmachine_finished_till_stopped
+  sequence:
+  - repeat:
+      count: 30
+      sequence:
+      - action: script.turn_on
+        metadata: {}
+        data:
+          variables:
+            light_color: blue
+        target:
+          entity_id: script.test_signal_when_action_is_complete
+      - delay:
+          hours: 0
+          minutes: 0
+          seconds: 60
+          milliseconds: 0
+  description: ''
+wasmachine_finished_till_stopped:
+  alias: steamoven_preheat_finished
+  sequence:
+  - repeat:
+      count: 2
+      sequence:
+      - action: script.turn_on
+        metadata: {}
+        data:
+          variables:
+            light_color: orange
+        target:
+          entity_id: script.test_signal_when_action_is_complete
+      - delay:
+          hours: 0
+          minutes: 0
+          seconds: 10
+          milliseconds: 0
+  description: ''
+dishwasher_finished_till_stopped:
+  alias: dishwasher_finished_till_stopped
+  sequence:
+  - repeat:
+      count: 200
+      sequence:
+      - action: script.turn_on
+        metadata: {}
+        data:
+          variables:
+            light_color: purple
+        target:
+          entity_id: script.test_signal_when_action_is_complete
+      - delay:
+          hours: 0
+          minutes: 0
+          seconds: 30
+          milliseconds: 0
+  description: ''
+all_lights_disco:
+  alias: All lights disco
+  variables:
+    lights: '{{ states.light | selectattr(''entity_id'', ''search'', ''^light.downlight'')
+      | selectattr(''state'', ''eq'', ''on'') | map(attribute=''entity_id'') | list
+      }}
+
+      '
+  sequence:
+  - repeat:
+      count: 100
+      sequence:
+      - repeat:
+          for_each: '{{ lights }}'
+          sequence:
+          - data:
+              entity_id: '{{ repeat.item }}'
+              brightness: 255
+              rgb_color: '[{{ (range(0, 256) | random) }}, {{ (range(0, 256) | random)
+                }}, {{ (range(0, 256) | random) }}]
+
+                '
+            action: light.turn_on
+      - delay: 00:00:01
+stop_all_disco_lights:
+  alias: Stop all disco lights
+  sequence:
+  - action: script.turn_off
+    metadata: {}
+    data: {}
+    target:
+      entity_id: script.all_lights_disco
+  description: ''
+tv_zitkamer_colors_changing:
+  alias: TV zitkamer colors changing
+  sequence:
+  - action: light.turn_on
+    metadata: {}
+    data:
+      effect: fireplace
+    target:
+      entity_id:
+      - light.0x0017880104874627
+      - light.light_zitkamer_main_407
+      - light.0x0017880104875063_2
+  - repeat:
+      count: 100
+      sequence:
+      - repeat:
+          for_each:
+          - light.downlight_zitkamer_108
+          - light.downlight_zitkamer_raam_104
+          - light.downlight_zitkamer_raam_106
+          - light.downlight_zitkamer_raam_107
+          - light.downlight_zitkamer_raam_109
+          - light.downlight_zitkamer_raam_deur_105
+          sequence:
+          - delay: 00:00:15
+          - data_template:
+              entity_id: '{{ repeat.item }}'
+              brightness: 200
+              transition: 25
+              rgb_color:
+              - '{{ range(0, 256) | random }}'
+              - '{{ range(0, 256) | random }}'
+              - '{{ range(0, 256) | random }}'
+            action: light.turn_on
+      - delay: 00:00:30
+  mode: single
+vacuum_peter:
+  alias: vacuum_peter
+  use_blueprint:
+    path: pgroene/vacuum.yaml
+    input:
+      vacuum: vacuum.roomba
+      room: input_text.peter
+      current_room: input_text.vacuum_current_room
+  description: ''
+vacuum_fedde:
+  alias: vacuum_fedde
+  use_blueprint:
+    path: pgroene/vacuum.yaml
+    input:
+      vacuum: vacuum.roomba
+      room: input_text.fedde
+      current_room: input_text.vacuum_current_room
+  description: ''
+vacuum_lobke:
+  alias: vacuum_lobke
+  use_blueprint:
+    path: pgroene/vacuum.yaml
+    input:
+      vacuum: vacuum.roomba
+      room: input_text.lobke
+      current_room: input_text.vacuum_current_room
+  description: ''
+vacuum_logeerkamer:
+  alias: vacuum_logeerkamer
+  use_blueprint:
+    path: pgroene/vacuum.yaml
+    input:
+      vacuum: vacuum.roomba
+      room: input_text.logeer
+      current_room: input_text.vacuum_current_room
+  description: ''
+vacuum_waskamer:
+  alias: vacuum_waskamer
+  use_blueprint:
+    path: pgroene/vacuum.yaml
+    input:
+      vacuum: vacuum.roomba
+      room: input_text.waskamer
+      current_room: input_text.vacuum_current_room
+  description: ''
+trigger_automation:
+  sequence:
+  - service: automation.trigger
+    data:
+      entity_id: '{{ automation }}'
+pomp_cycle_script:
+  alias: Pomp Cycle Script
+  description: Runs the pomp in cycles with a wait time and controls switch off.
+  fields:
+    cycles:
+      description: Number of cycles to run
+      example: 3
+      selector:
+        number:
+          min: 1
+          max: 10
+          step: 1
+      required: true
+    runtime:
+      description: Runtime per cycle (seconds)
+      example: 600
+      selector:
+        number:
+          min: 30
+          max: 3000
+          step: 30
+      required: true
+  sequence:
+  - data:
+      entity_id: input_boolean.irrigation_pump
+    action: input_boolean.turn_on
+  - target:
+      entity_id: switch.onoff_pomp_410
+    action: switch.turn_on
+    data: {}
+    enabled: true
+  - delay:
+      seconds: 1
+  - target:
+      entity_id: number.onoff_pomp_410_countdown
+    data:
+      value: '{{ runtime | float }}'
+    action: number.set_value
+  - repeat:
+      count: '{{ (cycles | int) - 1 }} '
+      sequence:
+      - delay:
+          seconds: '{{ runtime | float }}'
+      - delay:
+          seconds: '{{ runtime | float }}'
+      - target:
+          entity_id: switch.onoff_pomp_410
+        action: switch.turn_on
+        data: {}
+      - delay:
+          seconds: 1
+      - target:
+          entity_id: number.onoff_pomp_410_countdown
+        data:
+          value: '{{ runtime | float }}'
+        action: number.set_value
+  - delay:
+      seconds: '{{ runtime | float }}'
+  - data: {}
+    action: input_boolean.turn_off
+    target:
+      entity_id: input_boolean.irrigation_pump
+  - action: switch.turn_off
+    metadata: {}
+    data: {}
+    target:
+      entity_id: switch.onoff_pomp_410
+  mode: restart

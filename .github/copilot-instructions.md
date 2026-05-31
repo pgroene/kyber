@@ -170,8 +170,9 @@ www/kyber/tests/ui/
 
 1. Write or update a Playwright spec in `www/kyber/tests/ui/`
 2. Run the UI tests in Docker (command above)
-3. Include a screenshot in the PR — screenshots are in `www/kyber/screenshots/` after a run
-4. The CI `ui-tests` job will upload all screenshots as the `ui-screenshots` artifact — link to it in the PR description
+3. **All Playwright tests must pass before delivering any UX change to the user.** Do not report a UX task as done until the full suite passes.
+4. Include a screenshot in the PR — screenshots are in `www/kyber/screenshots/` after a run
+5. The CI `ui-tests` job will upload all screenshots as the `ui-screenshots` artifact — link to it in the PR description
 
 **If a UI test fails locally but passes in CI** (or vice versa): the likely cause is Alpine vs. glibc Chromium. The `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` env var selects the system binary; CI uses Playwright's downloaded binary.
 

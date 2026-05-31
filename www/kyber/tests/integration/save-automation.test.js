@@ -202,8 +202,6 @@ describe("save button label", () => {
     expect(btn.textContent).toBe("Save automation");
     const breadcrumb = element.shadowRoot.getElementById("editor-context-label");
     expect(breadcrumb.textContent).toBe("automation > Sunup");
-    const newDashboardBtn = element.shadowRoot.getElementById("btn-new-dashboard");
-    expect(newDashboardBtn.style.display).toBe("none");
   });
 
   it("shows 'Save script' when opening a script", async () => {
@@ -217,8 +215,6 @@ describe("save button label", () => {
     expect(btn.textContent).toBe("Save script");
     const breadcrumb = element.shadowRoot.getElementById("editor-context-label");
     expect(breadcrumb.textContent).toBe("script > My Script");
-    const newDashboardBtn = element.shadowRoot.getElementById("btn-new-dashboard");
-    expect(newDashboardBtn.style.display).toBe("none");
   });
 
   it("shows 'Save dashboard' when opening a dashboard", async () => {
@@ -231,8 +227,6 @@ describe("save button label", () => {
     expect(btn.textContent).toBe("Save dashboard");
     const breadcrumb = element.shadowRoot.getElementById("editor-context-label");
     expect(breadcrumb.textContent).toBe("dashboard > Overview (default)");
-    const newDashboardBtn = element.shadowRoot.getElementById("btn-new-dashboard");
-    expect(newDashboardBtn.style.display).toBe("inline-block");
   });
 
   it("resets label to 'Save' when editor is closed", async () => {

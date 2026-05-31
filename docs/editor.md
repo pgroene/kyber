@@ -80,6 +80,14 @@ The embedded editor is powered by [CodeMirror 6](https://codemirror.net/) and in
 
 While the editor is open, the current automation/script YAML is included in every AI request. The AI's suggestions apply directly to the open file — you can ask it to add a trigger, change a condition, or restructure actions and it will return an updated YAML block that can be applied to the editor.
 
+### Flow diagram
+
+Both automations and scripts show a visual flow diagram above the editor.
+
+**Automation diagram** — sections: **WHEN** (triggers) → **IF** (conditions, if any) → **THEN** (actions). Clicking any node jumps the editor cursor to that YAML block.
+
+**Script diagram** — sections: **PARAMETERS** (input fields, if any) → **DO** (sequence steps). Scripts have no triggers or conditions, so those sections are omitted. Each step in `sequence:` appears as a node with an icon derived from the action type.
+
 ---
 
 ## Dashboard Editor
@@ -164,6 +172,77 @@ If no stored config exists for a path (404), the editor pre-populates a blank st
 | `/dashboard close` | Close the dashboard editor |
 | `/dashboard save` | Save the currently open dashboard |
 | `/dashboard delete` | Delete the currently open dashboard (shows a danger confirmation card) |
+
+---
+
+## Blueprint Editor
+
+Blueprints are YAML files stored in `/config/blueprints/automation/<path>`. The blueprint editor
+lets you view and edit these files directly inside Kyber — no SSH or file manager needed.
+
+### Opening the editor
+
+**From an automation that uses a blueprint:**
+
+When you open an automation that references a blueprint (i.e. it has a `use_blueprint:` key), a
+**🗺 Edit blueprint** button appears in the toolbar. Clicking it opens the blueprint YAML file
+directly in the editor, so you can refine the template without leaving the chat.
+
+**Via slash command:**
+
+```
+/blueprint open custom/my_blueprint.yaml
+```
+
+The path is relative to `/config/blueprints/automation/`.
+
+**Browsing:**
+
+```
+/blueprint browse    ← opens HA's Blueprint page in a new tab
+```
+
+### Saving
+
+1. Edit the YAML.
+2. Click **Save blueprint**.
+3. Kyber POSTs the file to `/api/kyber/blueprint` which writes it to disk.
+4. The status bar confirms: **Blueprint saved: custom/my_blueprint.yaml**.
+
+> **Note:** Saving a blueprint does **not** automatically reload existing automations that use it.
+> Reload those automations manually in HA's Automations UI, or restart HA to pick up changes.
+
+### Session persistence
+
+Like the automation editor, if you navigate away and return, Kyber reopens the same blueprint file
+automatically.
+
+---
+
+## Editor feature parity
+
+All three editors (automation/script, blueprint, dashboard) share the same CodeMirror engine and
+must provide the same core features. The table below is the **canonical checklist** — any new
+feature added to one editor must be added to all applicable editors:
+
+| Feature | Automation | Script | Blueprint | Dashboard |
+|---|:---:|:---:|:---:|:---:|
+| CodeMirror 6 (syntax highlight, fold, autocomplete) | ✅ | ✅ | ✅ | ✅ |
+| Context breadcrumb label | ✅ | ✅ | ✅ | ✅ |
+| Save button (correct label per mode) | ✅ | ✅ | ✅ | ✅ |
+| Session persistence (reopen after navigation) | ✅ | ✅ | ✅ | ✅ |
+| Unsaved draft restore | ✅ | ✅ | — | — |
+| Floating entity inspector | ✅ | ✅ | ✅ | ✅ |
+| Entity list picker (cursor in entity list) | ✅ | ✅ | ✅ | ✅ |
+| Flow diagram | ✅ WHEN/IF/THEN | ✅ PARAMETERS/DO | — | — |
+| "Edit blueprint" toolbar button | ✅ | ✅ | — | — |
+| Debug pane (stays in left column) | ✅ | ✅ | ✅ | ✅ |
+
+**Rules for contributors:**
+- Any feature added to the Automation editor must also be verified/added for Script (same column).
+- Entity inspector and entity list picker must work in blueprint mode (blueprints reference `entity_id` inputs).
+- Diagram is hidden for dashboard and blueprint modes (wrong schema) — guard with `this._editorMode === "dashboard" || this._editorMode === "blueprint"`.
+- Script diagram uses `sequence:` (not `trigger:/action:`) and shows PARAMETERS/DO sections instead of WHEN/IF/THEN.
 
 ---
 

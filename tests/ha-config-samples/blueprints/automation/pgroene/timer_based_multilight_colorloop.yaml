@@ -1,0 +1,139 @@
+blueprint:
+  name: Timer based motion-activated Light
+  description: Turn on a light when motion is detected and turn lights off when timer expires. This automation uses a timer to ensure the lights are turned off.
+  domain: automation
+  source_url: https://raw.githubusercontent.com/pgroene/home_assistant/main/blueprints/automation/pgroene/xxx.yaml
+  author: Peter Groenewegen
+  input:
+    automation_switch:
+      name: Automation switch
+      description: switch to turn on/off the automation
+      selector:
+        entity:
+          domain: input_boolean    
+    
+    light_target_1:
+      name: Light
+      selector:
+        target:
+          entity:
+            domain: 
+              - light
+    light_target_2:
+      name: Light
+      selector:
+        target:
+          entity:
+            domain: 
+              - light
+
+    timer_entity:
+      name: Timer
+      description: Select a timer
+      selector:
+        entity:
+          domain: timer     
+
+    wait_time:
+      name: Wait time
+      description: Time to leave the light on after last motion is detected.
+      default: 120
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: !input automation_switch
+    from: "off"
+    to: "on"
+    id: automation_on
+  - platform: state
+    entity_id: !input automation_switch
+    from: "on"
+    to: "off"
+    id: automation_off
+  - platform: event
+    event_type: timer.finished
+    event_data:
+      entity_id: !input timer_entity
+    id: timer
+
+variables:
+  tansition_time: ((!input wait_time) / 4) | float
+  color_1: (states.light.light_led_adapter_1_light.attributes.hs_color[0] + 10) % 360 | float
+  color_2: (states.light.light_led_adapter_1_light.attributes.hs_color[0] + 190) % 360 | float
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: automation_on
+        sequence:
+          - alias: "Turn on the light 1"
+            service: light.turn_on
+            target: !input light_target_1
+          - alias: "Turn on the light 2"
+            service: light.turn_on
+            target: !input light_target_2
+          - alias: "Stop timer"
+            service: timer.cancel
+            target:
+              entity_id: !input timer_entity
+          - service: timer.start
+            data:
+              duration: !input wait_time 
+            target:
+              entity_id: !input timer_entity
+
+      - conditions:
+          - condition: trigger
+            id: automation_off
+        sequence:
+          - alias: "Turn on the light 1"
+            service: light.turn_off
+            target: !input light_target_1
+          - alias: "Turn on the light 2"
+            service: light.turn_off
+            target: !input light_target_2
+          - alias: "Stop timer"
+            service: timer.cancel
+            target:
+              entity_id: !input timer_entity
+          - service: timer.start
+            data:
+              duration: !input wait_time 
+            target:
+              entity_id: !input timer_entity
+
+      - conditions:
+          - condition: trigger
+            id: 'timer'
+        sequence:
+          - parallel:
+              - service: light.turn_on
+                target: !input light_target_1
+                data_template:
+                  hs_color:
+                    - >-
+                      {{ color_1 }}
+                    - 100
+                  transition: "{{ tansition_time }}"
+              - service: light.turn_on
+                target: !input light_target_2
+                data_template:
+                  hs_color:
+                    - >-
+                      {{ color_2 }}
+                    - 100
+                  transition: "{{ tansition_time }}"
+          - service: timer.start
+            target:
+              entity_id: timer.test_timer
+            data:
+              duration: !input wait_time

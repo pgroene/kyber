@@ -127,7 +127,7 @@ async def _async_background_deep_analysis(
             "duration_s": round(_DEEP_JOB["finished_at"] - (_DEEP_JOB["started_at"] or 0), 1),
         }
         _LOGGER.warning(
-            "Kyber deep analysis complete â€” %d items analyzed, %d facts stored in %d passes",
+            "Kyber deep analysis complete — %d items analyzed, %d facts stored in %d passes",
             _DEEP_JOB["analyzed"], _DEEP_JOB["facts"], _DEEP_JOB["run"],
         )
 
@@ -137,12 +137,12 @@ _FACT_EXTRACTION_PROMPT = """\
 You are a fact extractor for a Home Assistant AI assistant.
 Analyse the user message and conversation context for TWO types of learnable facts:
 
-TYPE 1 â€” ALIAS: User equates two terms ("X en Y zijn hetzelfde", "X is my Y", "X and Y are the same").
+TYPE 1 — ALIAS: User equates two terms ("X en Y zijn hetzelfde", "X is my Y", "X and Y are the same").
 Output: {{"type":"alias","subject":"<HA entity_id or area name>","user_term":"<colloquial word>",\
 "content":"When user says '<user_term>' they mean '<subject>'.","category":"entity_alias",\
 "tags":["<user_term>","<subject>"]}}
 
-TYPE 2 â€” ROUTINE: User expresses a recurring time/context preference ("elke ochtend", "als ik wakker word",
+TYPE 2 — ROUTINE: User expresses a recurring time/context preference ("elke ochtend", "als ik wakker word",
 "every morning", "next time I ...", "volgende keer als ...").
 Output: {{"type":"routine","subject":"<short label e.g. morning coffee>",\
 "content":"<when context> â†’ <action>","category":"routine","tags":["<context word>","<action word>"]}}
@@ -152,7 +152,7 @@ Recent conversation context:
 {context_snippet}
 
 Return a JSON array of found facts, e.g. [{{}}, {{}}], or [] if nothing learnable.
-Output ONLY valid JSON â€” no prose, no markdown fences.
+Output ONLY valid JSON — no prose, no markdown fences.
 """
 
 async def _try_extract_learned_facts(
@@ -217,7 +217,7 @@ async def _try_extract_learned_fact(
     user_prompt: str,
     context_snippet: str,
 ) -> dict[str, Any] | None:
-    """Legacy single-fact wrapper â€” returns first extracted fact or None."""
+    """Legacy single-fact wrapper — returns first extracted fact or None."""
     facts = await _try_extract_learned_facts(hass, entity_id, user_prompt, context_snippet)
     return facts[0] if facts else None
 

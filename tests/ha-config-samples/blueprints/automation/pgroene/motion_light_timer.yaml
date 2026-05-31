@@ -1,0 +1,346 @@
+blueprint:
+  name: Multi motion light with timer (current)
+  description: Turn the lights on to specified brightness when motion is detected and adjust based on where motion is detected. Turn the lights off after a specified time.
+  domain: automation
+  author: Peter Groenewegen
+  input:
+    lights_target:
+      name: Lights
+      description: Select lights
+      selector:
+        target:
+          entity:
+            domain: 
+              - light
+
+    light_level_primary:
+      name: Light level primary
+      description: Set light level when primary motion is detected
+      default: 200
+      selector:
+        number:
+          min: 0
+          max: 254
+          mode: slider 
+
+    light_level_secondary:
+      name: Light level secondary
+      description: Set light level when secondary motion is detected
+      default: 80
+      selector:
+        number:
+          min: 0
+          max: 254 
+          mode: slider
+
+    motion_entity_primary:
+      name: Motion Sensor
+      selector:
+        entity:
+          domain: binary_sensor
+          multiple: true
+          device_class: 
+            - motion
+            - occupancy
+            - presence
+
+    motion_entity_secondary:
+      name: Motion Sensor
+      selector:
+        entity:
+          domain: binary_sensor
+          multiple: true
+          device_class: 
+            - motion
+            - occupancy
+            - presence        
+
+    sleepmode:
+      name: Sleep Mode
+      description: Used to check if room is in sleep mode
+      selector:
+        entity:
+          domain: switch
+          multiple: false
+      default: ''
+
+    automation_switch:
+      name: Automation switch
+      description: (Optional) switch to turn of motion detection
+      default: null
+      selector:
+        entity:
+          domain: input_boolean
+
+    lux_entity:
+      name: Illuminance Sensor
+      description: (Optional) light sensor
+      default: null
+      selector:
+        entity:
+          domain: sensor
+          device_class: illuminance
+    lux_level:
+      name: Illuminance level
+      description: If lux is below this value and motion is detected, the light will turn on. Only if light sensor is selected
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 2000
+          step: 25
+          mode: slider 
+    
+    
+    transition_time:
+      name: Transition time
+      description: Time between transitions.
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 20
+          unit_of_measurement: seconds
+
+    no_motion_wait:
+      name: Wait time
+      description: Time to leave the light on after last motion is detected.
+      default: 120
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds
+
+    lights_on_script:
+      name: lights on script
+      description: optional script to turn the lights on
+      default: {}
+      selector:
+        entity:
+          domain:
+            - script
+
+# If motion is detected within the delay,
+# we restart the script.
+mode: restart
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: !input motion_entity_primary
+    from: "off"
+    to: "on"
+    id: motion_primary
+  - platform: state
+    entity_id: !input motion_entity_primary
+    from: "on"
+    to: "off"
+    id: stopmotion_primary
+  - platform: state
+    entity_id: !input motion_entity_secondary
+    from: "off"
+    to: "on"
+    id: motion_secondary
+  - platform: state
+    entity_id: !input motion_entity_secondary
+    from: "on"
+    to: "off"
+    id: stopmotion_secondary
+
+  - platform: numeric_state
+    entity_id: !input lux_entity
+    below: !input lux_level
+    id: luxbelow
+  - platform: numeric_state
+    entity_id: !input lux_entity
+    above: !input lux_level
+    id: luxabove
+
+variables:
+  automation_switch: !input automation_switch
+  lux_entity: !input lux_entity
+  lux_level: !input lux_level
+  motion_entity_primary: !input motion_entity_primary
+  motion_entity_secondary: !input motion_entity_secondary
+  lights_on_script: !input lights_on_script
+  sleepmode: !input "sleepmode"
+
+condition:
+  - condition: template
+    value_template: "{{ automation_switch is none or is_state( automation_switch, 'on') }}"
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: luxabove
+        sequence:
+          - alias: "Turn off the light lux is to light"
+            service: light.turn_off
+            target: !input lights_target
+            data:
+              transition: !input transition_time
+
+      - conditions:
+          - condition: trigger
+            id: motion_primary
+          - condition: template 
+            value_template: "{{ states(lux_entity) | default(0) | int <= lux_level | int }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ is_state(sleepmode, 'on') }}"
+                sequence:
+                  - alias: Turn on the light sleepmode
+                    service: light.turn_on
+                    target: !input lights_target
+            default:
+              - alias: Turn on the light
+                service: light.turn_on
+                target: !input lights_target
+                data:
+                  brightness: !input light_level_primary
+                  transition: !input transition_time
+
+      - conditions:
+          - condition: trigger
+            id: motion_secondary
+          - condition: template 
+            value_template: "{{ states(lux_entity) | default(0) | int <= lux_level | int }}"
+          - condition: template
+            value_template: "{{ expand(motion_entity_primary) | selectattr('state', 'eq', 'on') | list | count == 0 }}"  
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ script_to_execute == None }}"
+
+                sequence:
+                  - service: "{{ lights_on_script }}" 
+                    data:
+                      brightness: !input light_level_secondary
+                      transition: !input transition_time
+              
+              - conditions:
+                  - condition: template
+                    value_template: "{{ not scropt_to_execute == None }}"
+                sequence:
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ is_state(sleepmode, 'on') }}"
+                        sequence:
+                          - alias: Turn on the light sleepmode
+                            service: light.turn_on
+                            target: !input lights_target
+                    default:
+                      - alias: Turn on the light
+                        service: light.turn_on
+                        target: !input lights_target
+                        data:
+                          brightness: !input light_level_secondary
+                          transition: !input transition_time
+
+      - conditions:
+          - condition: trigger
+            id: luxbelow
+        sequence:
+          - choose:
+              - conditions:         
+                  - condition: template
+                    value_template: "{{ expand(motion_entity_primary) | selectattr('state', 'eq', 'on') | list | count > 0 }}"  
+                sequence:
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ not is_state('switch.' ~ (input.sleepmode | string), 'on') }}"
+                        sequence:
+                          - alias: Turn on the light sleepmode
+                            service: light.turn_on
+                            target: !input lights_target
+                    default:
+                      - alias: Turn on the light
+                        service: light.turn_on
+                        target: !input lights_target
+                        data:
+                          brightness: !input light_level_primary
+                          transition: !input transition_time
+
+              - conditions:         
+                  - condition: template
+                    value_template: "{{ expand(motion_entity_secondary) | selectattr('state', 'eq', 'on') | list | count > 0 }}"
+                sequence:
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ is_state(sleepmode, 'on') }}"
+                      sequence:
+                        - alias: Turn on the light sleepmode
+                          service: light.turn_on
+                          target: !input lights_target
+                  default:
+                    - alias: Turn on the light
+                      service: light.turn_on
+                      target: !input lights_target
+                      data:
+                        brightness: !input light_level_secondary
+                        transition: !input transition_time
+
+      - conditions:
+          - condition: trigger
+            id: stopmotion_primary
+          - condition: template 
+            value_template: "{{ states(lux_entity) | int <= lux_level | int }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ expand(motion_entity_secondary) | selectattr('state', 'eq', 'on') | list | count > 0 }}"
+                sequence:
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ is_state(sleepmode, 'on') }}"
+                      sequence:
+                        - alias: Turn on the light sleepmode
+                          service: light.turn_on
+                          target: !input lights_target
+                  default:
+                    - alias: Turn on the light
+                      service: light.turn_on
+                      target: !input lights_target
+                      data:
+                        brightness: !input light_level_secondary
+                        transition: !input transition_time
+
+            default:
+              - delay: !input no_motion_wait
+              - alias: "Turn off the light"
+                service: light.turn_off
+                target: !input lights_target
+                data:
+                  transition: !input transition_time
+
+
+      - conditions:
+          - condition: trigger
+            id: stopmotion_secondary
+          - condition: template 
+            value_template: "{{ states(lux_entity) | int <= lux_level | int }}"
+          - condition: template
+            value_template: >
+              {% set entities = [motion_entity_primary, motion_entity_secondary] %}
+              {{ expand(entities)
+                 | selectattr('state', 'eq', 'on')
+                 | list
+                 | count == 0 }}
+        sequence:
+        - delay: !input no_motion_wait
+        - alias: "Turn off the light"
+          service: light.turn_off
+          target: !input lights_target
+          data:
+            transition: !input transition_time
+

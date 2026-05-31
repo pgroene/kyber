@@ -1,0 +1,187 @@
+blueprint:
+  name: Timer based and motion based turn off
+  description: Turn on a device when time expires, this can be used to turn off devices that are left running.
+  domain: automation
+  source_url: https://raw.githubusercontent.com/pgroene/home_assistant/main/blueprints/automation/pgroene/device_off_timer.yaml
+  author: Peter Groenewegen
+  input:
+    motion_entity:
+      name: Motion Sensor
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: 
+            - motion
+            - occupancy
+
+    automation_switch:
+      name: Automation switch
+      description: (Optional) switch to turn of automation
+      default: null
+      selector:
+        entity:
+          domain: input_boolean
+    
+    device_target:
+      name: Switch
+      selector:
+        entity:
+          multiple: true
+          device_class: 
+            - switch
+            - light
+    
+    timer_entity:
+      name: Timer
+      description: Select a timer
+      selector:
+        entity:
+          domain: timer     
+    no_motion_wait:
+      name: Wait time
+      description: Time to leave the device on after last motion is detected.
+      default: 120
+      selector:
+        number:
+          min: 0
+          max: 36000
+          unit_of_measurement: seconds
+
+
+# If motion is detected within the delay,
+# we restart the script.
+mode: restart
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: !input motion_entity
+    from: "off"
+    to: "on"
+    id: motion
+  - platform: state
+    entity_id: !input motion_entity
+    from: "on"
+    to: "off"
+    id: stopmotion
+  - platform: state
+    entity_id: !input device_target
+    from: "off"
+    to: "on"
+    id: device_on
+  - platform: state
+    entity_id: !input device_target
+    from: "on"
+    to: "off"
+    id: device_off
+  - platform: event
+    event_type: timer.finished
+    event_data:
+      entity_id: !input timer_entity
+    id: timer
+
+variables:
+  automation_switch: !input automation_switch
+
+condition:
+  - condition: template
+    value_template: "{{ automation_switch is none or is_state( automation_switch, 'on') }}"
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: device_on
+        sequence:
+          - alias: "Stop timer"
+            service: timer.cancel
+            target:
+              entity_id: !input timer_entity
+          - service: timer.start
+            data:
+              duration: !input no_motion_wait 
+            target:
+              entity_id: !input timer_entity
+
+      - conditions:
+          - condition: trigger
+            id: device_off
+        sequence:
+          - alias: "Stop timer"
+            service: timer.cancel
+            target:
+              entity_id: !input timer_entity
+
+      - conditions:
+          - condition: trigger
+            id: stopmotion
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: state
+                    entity_id: !input device_target 
+                    state: "on"
+                sequence:
+                  - alias: "Stop timer"
+                    service: timer.cancel
+                    target:
+                      entity_id: !input timer_entity
+                  - service: timer.start
+                    data:
+                      duration: !input no_motion_wait
+                    target:
+                      entity_id: !input timer_entity
+
+      - conditions:
+          - condition: trigger
+            id: motion
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: state
+                    entity_id: !input device_target
+                    state: "on"
+                sequence:
+                  - alias: "Stop timer"
+                    service: timer.cancel
+                    target:
+                      entity_id: !input timer_entity
+                  - service: timer.start
+                    data:
+                      duration: !input no_motion_wait
+                    target:
+                      entity_id: !input timer_entity
+
+      - conditions:
+          - condition: trigger
+            id: timer
+        sequence:
+          - choose:
+              - conditions:         
+                  - condition: state
+                    entity_id: !input motion_entity
+                    state: "on"
+                sequence:
+                  - alias: "Stop timer"
+                    service: timer.cancel
+                    target:
+                      entity_id: !input timer_entity
+                  - service: timer.start
+                    data:
+                      duration: !input no_motion_wait 
+                    target:
+                      entity_id: !input timer_entity
+
+              - conditions:         
+                  - condition: state
+                    entity_id: !input motion_entity
+                    state: "off"
+                sequence:
+                  - alias: "Turn off the lights"
+                    service: light.turn_off
+                    target:
+                      entity_id: !input device_target
+                  - alias: "Turn off the switches"
+                    service: switch.turn_off
+                    target:
+                      entity_id: !input device_target

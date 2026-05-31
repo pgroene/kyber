@@ -51,13 +51,14 @@ describe("debug pane visibility", () => {
 
     pane.removeAttribute("hidden");
     pane.classList.add("debug-pane--standalone");
-    chat.style.display = "none";
+    chat.classList.add("debug-standalone");
     closeBtn.style.display = "none";
 
     await element._applyModeAndDebugFlag();
 
     expect(pane.hasAttribute("hidden")).toBe(true);
     expect(pane.classList.contains("debug-pane--standalone")).toBe(false);
+    expect(chat.classList.contains("debug-standalone")).toBe(false);
     expect(chat.style.display).toBe("");
     expect(closeBtn.style.display).toBe("");
   });
@@ -71,8 +72,9 @@ describe("debug pane visibility", () => {
     const closeBtn = element.shadowRoot.getElementById("btn-debug-close");
 
     expect(pane.hasAttribute("hidden")).toBe(false);
-    expect(pane.classList.contains("debug-pane--standalone")).toBe(true);
-    expect(chat.style.display).toBe("none");
+    expect(pane.classList.contains("debug-pane--standalone")).toBe(false);
+    expect(chat.classList.contains("debug-standalone")).toBe(true);
+    expect(chat.style.display).not.toBe("none");
     expect(closeBtn.style.display).toBe("none");
   });
 
@@ -87,5 +89,31 @@ describe("debug pane visibility", () => {
     expect(pane.hasAttribute("hidden")).toBe(true);
     expect(fetchMock.mock.calls.some(([url]) => url === "/api/kyber/debug/mode")).toBe(false);
     expect(element._renderDebugTab).not.toHaveBeenCalled();
+  });
+
+  it("applies debug mode when panel config arrives after first render", async () => {
+    const element = document.createElement("kyber-panel");
+    document.body.appendChild(element);
+
+    element._loadMemoryCount = vi.fn();
+    element._startStatusPolling = vi.fn();
+    element._renderDebugTab = vi.fn();
+
+    element.hass = {
+      auth: { data: { access_token: "test-token" } },
+      user: { is_admin: true },
+      states: {},
+      panels: {},
+      callApi: vi.fn().mockResolvedValue({ enabled: true }),
+    };
+
+    element.panel = { config: { mode: "debug" } };
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const pane = element.shadowRoot.getElementById("debug-pane");
+    const chat = element.shadowRoot.querySelector(".chat-pane");
+
+    expect(pane.hasAttribute("hidden")).toBe(false);
+    expect(chat.classList.contains("debug-standalone")).toBe(true);
   });
 });
