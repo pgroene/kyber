@@ -436,18 +436,14 @@ async def test_kyber_ask_rate_limiter_uses_check_and_record_separately(mcp_view)
 
 @pytest.mark.asyncio
 async def test_handle_kyber_ask_rate_limit_check_then_record():
-    """When rate limit allows, check() is called before record()."""
+    """When rate limit allows, check_and_record() is called and the AI pipeline runs."""
     from custom_components.kyber.mcp import _handle_kyber_ask
 
     hass = _make_hass()
     hass.data["kyber_config"] = {}
 
     mock_rl = MagicMock()
-    mock_rl.check.return_value = (True, 0)
-
-    call_order = []
-    mock_rl.check.side_effect = lambda *a: (call_order.append("check"), (True, 0))[1]
-    mock_rl.record.side_effect = lambda *a: call_order.append("record")
+    mock_rl.check_and_record.return_value = (True, 0)
 
     with patch("custom_components.kyber.mcp._rate_limiter", mock_rl), \
          patch("custom_components.kyber.http_api._run_ai_loop", new_callable=AsyncMock) as mock_loop, \
@@ -467,27 +463,28 @@ async def test_handle_kyber_ask_rate_limit_check_then_record():
             hass, {"prompt": "hello"}, {"ai_task_entity_id": "conversation.mock"}, "user-1", True
         )
 
-    assert call_order == ["check", "record"], f"Wrong order: {call_order}"
+    mock_rl.check_and_record.assert_called_once()
     assert result["response"] == "response"
 
 
 @pytest.mark.asyncio
 async def test_handle_kyber_ask_rate_limit_blocked():
-    """When rate limit blocks, record() must NOT be called."""
+    """When rate limit blocks, AI pipeline must NOT run."""
     from custom_components.kyber.mcp import _handle_kyber_ask
 
     hass = _make_hass()
     mock_rl = MagicMock()
-    mock_rl.check.return_value = (False, 42)
+    mock_rl.check_and_record.return_value = (False, 42)
 
-    with patch("custom_components.kyber.mcp._rate_limiter", mock_rl):
+    with patch("custom_components.kyber.mcp._rate_limiter", mock_rl), \
+         patch("custom_components.kyber.http_api._run_ai_loop", new_callable=AsyncMock) as mock_loop:
         result = await _handle_kyber_ask(
             hass, {"prompt": "hello"}, {"ai_task_entity_id": "conversation.mock"}, "user-1", True
         )
 
     assert "error" in result
     assert "42" in result["error"]
-    mock_rl.record.assert_not_called()
+    mock_loop.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -870,3 +867,409 @@ async def test_tools_call_execute_plan_disabled(mcp_view):
     }, "user-1", True)
     assert result["error"]["code"] == -32602
     assert "disabled" in result["error"]["message"].lower()
+
+
+# ===========================================================================
+# Tests: Entity filtering (#244)
+# ===========================================================================
+
+def test_build_mcp_policy_defaults():
+    from custom_components.kyber.mcp import _build_mcp_policy
+    from custom_components.kyber.const import DEFAULT_MCP_TOOL_MODE, DEFAULT_MCP_SESSION_TIMEOUT
+
+    policy = _build_mcp_policy({})
+    assert policy["allow_state_changes"] is False
+    assert policy["exposed_labels"] == set()
+    assert policy["exposed_areas"] == set()
+    assert policy["hidden_entities"] == set()
+    assert policy["tool_mode"] == DEFAULT_MCP_TOOL_MODE
+    assert policy["session_timeout"] == DEFAULT_MCP_SESSION_TIMEOUT
+
+
+def test_filter_no_filter_exposes_all():
+    """_is_entity_exposed: no labels/areas configured → expose everything."""
+    from custom_components.kyber.mcp import _is_entity_exposed
+    hass = _make_hass()
+    policy = {"hidden_entities": set(), "exposed_labels": set(), "exposed_areas": set()}
+    assert _is_entity_exposed(hass, "light.anything", policy) is True
+
+
+def test_filter_hidden_entity_always_blocked():
+    from custom_components.kyber.mcp import _is_entity_exposed
+    hass = _make_hass()
+    policy = {"hidden_entities": {"light.secret"}, "exposed_labels": set(), "exposed_areas": set()}
+    assert _is_entity_exposed(hass, "light.secret", policy) is False
+
+
+@pytest.mark.asyncio
+async def test_filter_get_entity_state_hidden_returns_not_found():
+    """_handle_get_entity_state returns found=False (not error) for hidden entities."""
+    hass = _make_hass({"light.secret": _make_state("light.secret", "on")})
+    policy = {"hidden_entities": {"light.secret"}, "exposed_labels": set(), "exposed_areas": set()}
+
+    with patch("homeassistant.helpers.entity_registry.async_get") as mock_er, \
+         patch("homeassistant.helpers.area_registry.async_get") as mock_ar:
+        mock_er.return_value.async_get = MagicMock(return_value=None)
+        mock_ar.return_value = MagicMock()
+        result = await _handle_get_entity_state(hass, {"entity_ids": ["light.secret"]}, policy=policy)
+
+    assert result["entities"][0]["found"] is False
+    # Must not leak the real state
+    assert result["entities"][0].get("state") is None
+
+
+@pytest.mark.asyncio
+async def test_filter_list_entities_hides_blocked_entity():
+    """_handle_list_entities excludes entities blocked by the hidden_entities filter."""
+    visible = _make_state("light.visible", "on")
+    secret = _make_state("light.secret", "off")
+    hass = _make_hass({"light.visible": visible, "light.secret": secret})
+    policy = {"hidden_entities": {"light.secret"}, "exposed_labels": set(), "exposed_areas": set()}
+
+    with patch("homeassistant.helpers.area_registry.async_get") as mock_ar, \
+         patch("homeassistant.helpers.entity_registry.async_get") as mock_er, \
+         patch("homeassistant.helpers.device_registry.async_get") as mock_dr:
+        mock_ar.return_value = MagicMock()
+        mock_er.return_value.entities = {}
+        mock_dr.return_value = MagicMock()
+
+        result = await _handle_list_entities(hass, {}, policy=policy)
+
+    ids = [e["entity_id"] for e in result["entities"]]
+    assert "light.visible" in ids
+    assert "light.secret" not in ids
+
+
+# ===========================================================================
+# Tests: Stateful sessions (#247)
+# ===========================================================================
+
+def test_session_key_without_session_id():
+    from custom_components.kyber.mcp import _session_key
+    assert _session_key("user1", None) == "user1"
+
+
+def test_session_key_with_session_id():
+    from custom_components.kyber.mcp import _session_key
+    assert _session_key("user1", "sess-a") == "user1:sess-a"
+
+
+def test_new_session_is_empty():
+    from custom_components.kyber.mcp import _get_session
+    hass = _make_hass()
+    session = _get_session(hass, "user1", None, timeout_minutes=30)
+    assert session["history"] == []
+
+
+def test_saved_history_is_retrieved():
+    from custom_components.kyber.mcp import _get_session, _save_session
+    hass = _make_hass()
+    _save_session(hass, "user1", None, [{"role": "user", "content": "hello"}])
+    session = _get_session(hass, "user1", None, timeout_minutes=30)
+    assert session["history"][0]["content"] == "hello"
+
+
+def test_clear_session_removes_history():
+    from custom_components.kyber.mcp import _get_session, _save_session, _clear_session
+    hass = _make_hass()
+    _save_session(hass, "user1", None, [{"role": "user", "content": "hello"}])
+    _clear_session(hass, "user1", None)
+    session = _get_session(hass, "user1", None, timeout_minutes=30)
+    assert session["history"] == []
+
+
+def test_different_users_have_separate_sessions():
+    from custom_components.kyber.mcp import _get_session, _save_session
+    hass = _make_hass()
+    _save_session(hass, "user1", None, [{"role": "user", "content": "user1 msg"}])
+    _save_session(hass, "user2", None, [{"role": "user", "content": "user2 msg"}])
+    s1 = _get_session(hass, "user1", None, timeout_minutes=30)
+    s2 = _get_session(hass, "user2", None, timeout_minutes=30)
+    assert s1["history"][0]["content"] == "user1 msg"
+    assert s2["history"][0]["content"] == "user2 msg"
+
+
+def test_different_session_ids_are_isolated():
+    from custom_components.kyber.mcp import _get_session, _save_session
+    hass = _make_hass()
+    _save_session(hass, "user1", "sess-a", [{"role": "user", "content": "session A"}])
+    _save_session(hass, "user1", "sess-b", [{"role": "user", "content": "session B"}])
+    sa = _get_session(hass, "user1", "sess-a", timeout_minutes=30)
+    sb = _get_session(hass, "user1", "sess-b", timeout_minutes=30)
+    assert sa["history"][0]["content"] == "session A"
+    assert sb["history"][0]["content"] == "session B"
+
+
+def test_expired_session_returns_fresh():
+    from custom_components.kyber.mcp import _get_session, _save_session, _MCP_SESSIONS_KEY
+    hass = _make_hass()
+    _save_session(hass, "user1", None, [{"role": "user", "content": "old"}])
+    # Backdate last_active to simulate expiry (set 1 hour ago)
+    hass.data[_MCP_SESSIONS_KEY]["user1"]["last_active"] = time.monotonic() - 3600
+    session = _get_session(hass, "user1", None, timeout_minutes=30)
+    assert session["history"] == []
+
+
+def test_session_timeout_zero_disables_expiry():
+    from custom_components.kyber.mcp import _get_session, _save_session, _MCP_SESSIONS_KEY
+    hass = _make_hass()
+    _save_session(hass, "user1", None, [{"role": "user", "content": "persistent"}])
+    hass.data[_MCP_SESSIONS_KEY]["user1"]["last_active"] = time.monotonic() - 7200
+    session = _get_session(hass, "user1", None, timeout_minutes=0)
+    assert session["history"][0]["content"] == "persistent"
+
+
+def test_session_max_turns_trimmed():
+    from custom_components.kyber.mcp import _get_session, _save_session, _SESSION_MAX_TURNS
+    hass = _make_hass()
+    big_history = [{"role": "user", "content": f"msg{i}"} for i in range(_SESSION_MAX_TURNS + 10)]
+    _save_session(hass, "user1", None, big_history)
+    session = _get_session(hass, "user1", None, timeout_minutes=30)
+    assert len(session["history"]) == _SESSION_MAX_TURNS
+
+
+# ===========================================================================
+# Tests: Dynamic tools / hybrid tool mode (#249)
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_dynamic_tool_blocked_without_allow_state_changes():
+    """hass_turn_on returns error when allow_state_changes is False."""
+    from custom_components.kyber.mcp import _handle_dynamic_tool
+    hass = _make_hass({"light.living": _make_state("light.living", "off")})
+    policy = {"allow_state_changes": False, "hidden_entities": set(), "exposed_labels": set(), "exposed_areas": set()}
+    result = await _handle_dynamic_tool(hass, "hass_turn_on", {"entity_id": "light.living"}, is_admin=True, policy=policy)
+    assert "error" in result
+    hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_dynamic_tool_blocked_for_hidden_entity():
+    """hass_turn_on returns error when entity is in hidden_entities denylist."""
+    from custom_components.kyber.mcp import _handle_dynamic_tool
+    hass = _make_hass({"light.secret": _make_state("light.secret", "off")})
+    policy = {"allow_state_changes": True, "hidden_entities": {"light.secret"}, "exposed_labels": set(), "exposed_areas": set()}
+    result = await _handle_dynamic_tool(hass, "hass_turn_on", {"entity_id": "light.secret"}, is_admin=True, policy=policy)
+    assert "error" in result
+    hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_hass_turn_on_calls_ha_service():
+    from custom_components.kyber.mcp import _handle_dynamic_tool
+    hass = _make_hass({"light.living": _make_state("light.living", "off")})
+    policy = {"allow_state_changes": True, "hidden_entities": set(), "exposed_labels": set(), "exposed_areas": set()}
+    result = await _handle_dynamic_tool(hass, "hass_turn_on", {"entity_id": "light.living"}, is_admin=True, policy=policy)
+    assert result["status"] == "ok"
+    hass.services.async_call.assert_awaited_once()
+    call_args = hass.services.async_call.call_args
+    assert call_args.args[0] == "homeassistant"
+    assert call_args.args[1] == "turn_on"
+
+
+@pytest.mark.asyncio
+async def test_hass_turn_off_calls_ha_service():
+    from custom_components.kyber.mcp import _handle_dynamic_tool
+    hass = _make_hass({"light.living": _make_state("light.living", "on")})
+    policy = {"allow_state_changes": True, "hidden_entities": set(), "exposed_labels": set(), "exposed_areas": set()}
+    result = await _handle_dynamic_tool(hass, "hass_turn_off", {"entity_id": "light.living"}, is_admin=True, policy=policy)
+    assert result["status"] == "ok"
+    call_args = hass.services.async_call.call_args
+    assert call_args.args[1] == "turn_off"
+
+
+@pytest.mark.asyncio
+async def test_hass_toggle_calls_ha_service():
+    from custom_components.kyber.mcp import _handle_dynamic_tool
+    hass = _make_hass({"switch.fan": _make_state("switch.fan", "off")})
+    policy = {"allow_state_changes": True, "hidden_entities": set(), "exposed_labels": set(), "exposed_areas": set()}
+    result = await _handle_dynamic_tool(hass, "hass_toggle", {"entity_id": "switch.fan"}, is_admin=True, policy=policy)
+    assert result["status"] == "ok"
+    call_args = hass.services.async_call.call_args
+    assert call_args.args[1] == "toggle"
+
+
+@pytest.mark.asyncio
+async def test_hass_set_value_input_number():
+    """hass_set_value calls input_number.set_value for input_number entities."""
+    from custom_components.kyber.mcp import _handle_dynamic_tool
+    hass = _make_hass({"input_number.brightness": _make_state("input_number.brightness", "50")})
+    policy = {"allow_state_changes": True, "hidden_entities": set(), "exposed_labels": set(), "exposed_areas": set()}
+    result = await _handle_dynamic_tool(
+        hass, "hass_set_value",
+        {"entity_id": "input_number.brightness", "value": 75},
+        is_admin=True, policy=policy,
+    )
+    assert result["status"] == "ok"
+    call_args = hass.services.async_call.call_args
+    assert call_args.args[0] == "input_number"
+    assert call_args.args[1] == "set_value"
+
+
+@pytest.mark.asyncio
+async def test_hass_set_value_unsupported_domain_returns_error():
+    """hass_set_value returns error for domains it does not support."""
+    from custom_components.kyber.mcp import _handle_dynamic_tool
+    hass = _make_hass({"climate.ac": _make_state("climate.ac", "cool")})
+    policy = {"allow_state_changes": True, "hidden_entities": set(), "exposed_labels": set(), "exposed_areas": set()}
+    result = await _handle_dynamic_tool(
+        hass, "hass_set_value",
+        {"entity_id": "climate.ac", "value": "heat"},
+        is_admin=True, policy=policy,
+    )
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_tools_list_kyber_only_excludes_dynamic(mcp_view):
+    """tools/list in kyber_only mode must not include hass_turn_on etc."""
+    hass = _make_hass()
+    with patch("custom_components.kyber.mcp._build_mcp_policy", return_value={
+        "tool_mode": "kyber_only",
+        "allow_state_changes": False,
+        "exposed_labels": set(),
+        "exposed_areas": set(),
+        "hidden_entities": set(),
+        "session_timeout": 30,
+    }):
+        result = await mcp_view._dispatch(hass, {
+            "jsonrpc": "2.0", "id": 1, "method": "tools/list",
+        }, "u", True)
+    tool_names = [t["name"] for t in result["result"]["tools"]]
+    assert "kyber_ask" in tool_names
+    assert "hass_turn_on" not in tool_names
+
+
+@pytest.mark.asyncio
+async def test_tools_list_hybrid_includes_dynamic(mcp_view):
+    """tools/list in hybrid mode includes hass_turn_on alongside kyber_ask."""
+    hass = _make_hass()
+    with patch("custom_components.kyber.mcp._build_mcp_policy", return_value={
+        "tool_mode": "hybrid",
+        "allow_state_changes": True,
+        "exposed_labels": set(),
+        "exposed_areas": set(),
+        "hidden_entities": set(),
+        "session_timeout": 30,
+    }):
+        result = await mcp_view._dispatch(hass, {
+            "jsonrpc": "2.0", "id": 1, "method": "tools/list",
+        }, "u", True)
+    tool_names = [t["name"] for t in result["result"]["tools"]]
+    assert "kyber_ask" in tool_names
+    assert "hass_turn_on" in tool_names
+
+
+# ===========================================================================
+# Tests: MCP sampling (#262)
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_initialize_advertises_sampling_capability(mcp_view):
+    """initialize response must include 'sampling' in capabilities (issue #262)."""
+    hass = _make_hass()
+    result = await mcp_view._dispatch(hass, {
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": MCP_PROTOCOL_VERSION, "clientInfo": {"name": "test"}},
+    }, "u", True)
+    assert "sampling" in result["result"]["capabilities"]
+
+
+@pytest.mark.asyncio
+async def test_sampling_create_message_returns_assistant_response(mcp_view):
+    """sampling/createMessage returns role=assistant text response."""
+    hass = _make_hass()
+
+    async def _fake_ask(hass, params, config, user_id, is_admin, policy=None):
+        return {"response": "AI says hello", "plan": None, "tool_log": []}
+
+    with patch("custom_components.kyber.mcp._handle_kyber_ask", side_effect=_fake_ask):
+        result = await mcp_view._dispatch(hass, {
+            "jsonrpc": "2.0", "id": 1, "method": "sampling/createMessage",
+            "params": {
+                "messages": [
+                    {"role": "user", "content": {"type": "text", "text": "What lights are on?"}},
+                ],
+                "maxTokens": 512,
+            },
+        }, "u", True)
+
+    assert "error" not in result
+    r = result["result"]
+    assert r["role"] == "assistant"
+    assert r["content"]["type"] == "text"
+    assert r["content"]["text"] == "AI says hello"
+    assert r["stopReason"] == "endTurn"
+    assert r["model"] == "kyber"
+
+
+@pytest.mark.asyncio
+async def test_sampling_empty_messages_returns_error(mcp_view):
+    """sampling/createMessage with empty messages must return an error."""
+    hass = _make_hass()
+    result = await mcp_view._dispatch(hass, {
+        "jsonrpc": "2.0", "id": 2, "method": "sampling/createMessage",
+        "params": {"messages": [], "maxTokens": 512},
+    }, "u", True)
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_sampling_no_user_message_returns_error(mcp_view):
+    """sampling/createMessage with only assistant messages must return an error."""
+    hass = _make_hass()
+    result = await mcp_view._dispatch(hass, {
+        "jsonrpc": "2.0", "id": 3, "method": "sampling/createMessage",
+        "params": {
+            "messages": [
+                {"role": "assistant", "content": {"type": "text", "text": "I am the AI"}},
+            ],
+            "maxTokens": 512,
+        },
+    }, "u", True)
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_sampling_model_is_kyber(mcp_view):
+    """sampling/createMessage response must report model='kyber'."""
+    hass = _make_hass()
+
+    async def _fake_ask(hass, params, config, user_id, is_admin, policy=None):
+        return {"response": "ok", "plan": None, "tool_log": []}
+
+    with patch("custom_components.kyber.mcp._handle_kyber_ask", side_effect=_fake_ask):
+        result = await mcp_view._dispatch(hass, {
+            "jsonrpc": "2.0", "id": 4, "method": "sampling/createMessage",
+            "params": {
+                "messages": [{"role": "user", "content": {"type": "text", "text": "hello"}}],
+                "maxTokens": 128,
+            },
+        }, "u", True)
+    assert result["result"]["model"] == "kyber"
+
+
+@pytest.mark.asyncio
+async def test_sampling_multi_turn_passes_last_user_message(mcp_view):
+    """sampling/createMessage extracts the LAST user message as the prompt."""
+    hass = _make_hass()
+    captured = {}
+
+    async def _fake_ask(hass, params, config, user_id, is_admin, policy=None):
+        captured["prompt"] = params.get("prompt")
+        return {"response": "done", "plan": None, "tool_log": []}
+
+    with patch("custom_components.kyber.mcp._handle_kyber_ask", side_effect=_fake_ask):
+        await mcp_view._dispatch(hass, {
+            "jsonrpc": "2.0", "id": 5, "method": "sampling/createMessage",
+            "params": {
+                "messages": [
+                    {"role": "user", "content": {"type": "text", "text": "first message"}},
+                    {"role": "assistant", "content": {"type": "text", "text": "first reply"}},
+                    {"role": "user", "content": {"type": "text", "text": "second message"}},
+                ],
+                "maxTokens": 256,
+            },
+        }, "u", True)
+
+    assert captured.get("prompt") == "second message"

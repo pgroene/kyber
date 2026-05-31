@@ -33,7 +33,14 @@ from .const import (
     CONF_AI_TASK_ENTITY_ID,
     CONF_MAX_REQUESTS_PER_MINUTE,
     CONF_MCP_ALLOW_STATE_CHANGES,
+    CONF_MCP_EXPOSED_LABELS,
+    CONF_MCP_EXPOSED_AREAS,
+    CONF_MCP_HIDDEN_ENTITIES,
+    CONF_MCP_TOOL_MODE,
+    CONF_MCP_SESSION_TIMEOUT,
     DEFAULT_MAX_REQUESTS_PER_MINUTE,
+    DEFAULT_MCP_TOOL_MODE,
+    DEFAULT_MCP_SESSION_TIMEOUT,
     DOMAIN,
     _sanitize_user_input,
 )
@@ -48,6 +55,10 @@ _SERVER_INFO = {"name": "kyber", "version": "1.0.0"}
 _MCP_LOG_KEY = "kyber_mcp_call_log"
 _MCP_LOG_MAX = 200  # keep last 200 calls
 
+# hass.data key for per-user MCP conversation sessions
+_MCP_SESSIONS_KEY = "kyber_mcp_sessions"
+_SESSION_MAX_TURNS = 20  # max history messages kept per session
+
 
 def _mcp_log(hass: HomeAssistant, entry: dict) -> None:
     """Append an entry to the MCP call log ring buffer."""
@@ -55,6 +66,110 @@ def _mcp_log(hass: HomeAssistant, entry: dict) -> None:
     buf.append(entry)
     if len(buf) > _MCP_LOG_MAX:
         del buf[: len(buf) - _MCP_LOG_MAX]
+
+
+# ---------------------------------------------------------------------------
+# Entity exposure filtering (#244)
+# ---------------------------------------------------------------------------
+
+def _build_mcp_policy(config: dict) -> dict:
+    """Derive a compact MCP policy object from raw config.
+
+    Computed once per request and passed down to handlers so they never
+    access the raw config dict directly.
+    """
+    return {
+        "allow_state_changes": bool(config.get(CONF_MCP_ALLOW_STATE_CHANGES, False)),
+        "exposed_labels": set(config.get(CONF_MCP_EXPOSED_LABELS) or []),
+        "exposed_areas": set(config.get(CONF_MCP_EXPOSED_AREAS) or []),
+        "hidden_entities": set(config.get(CONF_MCP_HIDDEN_ENTITIES) or []),
+        "tool_mode": str(config.get(CONF_MCP_TOOL_MODE) or DEFAULT_MCP_TOOL_MODE),
+        "session_timeout": int(config.get(CONF_MCP_SESSION_TIMEOUT) or DEFAULT_MCP_SESSION_TIMEOUT),
+    }
+
+
+def _is_entity_exposed(hass: HomeAssistant, entity_id: str, policy: dict) -> bool:
+    """Return True if entity_id should be visible to MCP clients.
+
+    Rules (in order):
+    1. Always deny if in hidden_entities denylist.
+    2. If no labels/areas configured, allow all.
+    3. Otherwise allow if entity has any of the allowed labels OR is in any of the allowed areas.
+       Device area is used as fallback when the entity itself has no area.
+    """
+    hidden_entities = policy.get("hidden_entities") or set()
+    if entity_id in hidden_entities:
+        return False
+
+    allowed_labels = policy.get("exposed_labels") or set()
+    allowed_areas = policy.get("exposed_areas") or set()
+    if not allowed_labels and not allowed_areas:
+        return True  # no filter configured → expose everything
+
+    from homeassistant.helpers import entity_registry as er, device_registry as dr
+
+    entity_reg = er.async_get(hass)
+    device_reg = dr.async_get(hass)
+    entry = entity_reg.async_get(entity_id)
+
+    if allowed_labels and entry and (entry.labels & allowed_labels):
+        return True
+
+    # Resolve area: entity area → device area → None
+    area_id = (entry.area_id if entry else None)
+    if not area_id and entry and entry.device_id:
+        dev = device_reg.async_get(entry.device_id)
+        area_id = dev.area_id if dev else None
+
+    if allowed_areas and area_id and area_id in allowed_areas:
+        return True
+
+    return False
+
+
+def _filter_entity_ids(hass: HomeAssistant, entity_ids: list[str], policy: dict) -> list[str]:
+    """Return only the entity IDs that pass the MCP exposure filter."""
+    return [eid for eid in entity_ids if _is_entity_exposed(hass, eid, policy)]
+
+
+# ---------------------------------------------------------------------------
+# Stateful conversation sessions (#247)
+# ---------------------------------------------------------------------------
+
+def _session_key(user_id: str, session_id: str | None) -> str:
+    """Build the hass.data session key from user + optional conversation ID."""
+    return f"{user_id}:{session_id}" if session_id else user_id
+
+
+def _get_session(hass: HomeAssistant, user_id: str, session_id: str | None, timeout_minutes: int) -> dict:
+    """Load (or create) the MCP conversation session for this user."""
+    sessions: dict = hass.data.setdefault(_MCP_SESSIONS_KEY, {})
+    key = _session_key(user_id, session_id)
+    now = time.monotonic()
+    session = sessions.get(key)
+    if session and timeout_minutes > 0 and (now - session["last_active"]) > timeout_minutes * 60:
+        del sessions[key]
+        session = None
+    if session is None:
+        session = {"history": [], "last_active": now}
+        sessions[key] = session
+    return session
+
+
+def _save_session(hass: HomeAssistant, user_id: str, session_id: str | None, history: list[dict]) -> None:
+    """Persist updated history back into the session store."""
+    sessions: dict = hass.data.setdefault(_MCP_SESSIONS_KEY, {})
+    key = _session_key(user_id, session_id)
+    sessions[key] = {
+        "history": history[-_SESSION_MAX_TURNS:],
+        "last_active": time.monotonic(),
+    }
+
+
+def _clear_session(hass: HomeAssistant, user_id: str, session_id: str | None) -> None:
+    """Delete the session for this user so the next call starts fresh."""
+    sessions: dict = hass.data.get(_MCP_SESSIONS_KEY) or {}
+    sessions.pop(_session_key(user_id, session_id), None)
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +435,89 @@ _EXECUTE_PLAN_TOOL: dict = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# Dynamic / hybrid tool definitions (#249)
+# These are exposed in "dynamic" and "hybrid" tool modes so capable LLMs
+# can call HA intents directly and execute multiple actions in parallel.
+# ---------------------------------------------------------------------------
+
+_DYNAMIC_TOOLS: list[dict] = [
+    {
+        "name": "hass_turn_on",
+        "description": (
+            "Turn on one or more Home Assistant entities (lights, switches, etc.). "
+            "Only available when 'MCP can change state of home' is enabled."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_id": {
+                    "oneOf": [
+                        {"type": "string", "description": "Single entity ID"},
+                        {"type": "array", "items": {"type": "string"}, "description": "Multiple entity IDs"},
+                    ],
+                },
+                "brightness_pct": {"type": "number", "description": "Light brightness 0-100 (optional)"},
+                "color_temp_kelvin": {"type": "number", "description": "Colour temperature in Kelvin (optional)"},
+            },
+            "required": ["entity_id"],
+        },
+    },
+    {
+        "name": "hass_turn_off",
+        "description": (
+            "Turn off one or more Home Assistant entities. "
+            "Only available when 'MCP can change state of home' is enabled."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_id": {
+                    "oneOf": [
+                        {"type": "string"},
+                        {"type": "array", "items": {"type": "string"}},
+                    ],
+                },
+            },
+            "required": ["entity_id"],
+        },
+    },
+    {
+        "name": "hass_toggle",
+        "description": (
+            "Toggle one or more Home Assistant entities. "
+            "Only available when 'MCP can change state of home' is enabled."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_id": {
+                    "oneOf": [
+                        {"type": "string"},
+                        {"type": "array", "items": {"type": "string"}},
+                    ],
+                },
+            },
+            "required": ["entity_id"],
+        },
+    },
+    {
+        "name": "hass_set_value",
+        "description": (
+            "Set the value of an input_number, input_text, input_select, or number entity. "
+            "Only available when 'MCP can change state of home' is enabled."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string"},
+                "value": {"description": "Value to set (string or number)"},
+            },
+            "required": ["entity_id", "value"],
+        },
+    },
+]
+
 
 # ---------------------------------------------------------------------------
 # Tool handlers
@@ -331,6 +529,7 @@ async def _handle_kyber_ask(
     config: dict,
     user_id: str,
     is_admin: bool,
+    policy: dict | None = None,
 ) -> dict:
     """Run the user prompt through Kyber's AI pipeline.
 
@@ -360,10 +559,9 @@ async def _handle_kyber_ask(
 
     # Rate limiting
     max_rpm = int(config.get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE))
-    allowed, retry_after = _rate_limiter.check(user_id, max_rpm)
+    allowed, retry_after = _rate_limiter.check_and_record(user_id, max_rpm)
     if not allowed:
         return {"error": f"Rate limit exceeded. Retry after {retry_after}s"}
-    _rate_limiter.record(user_id)
 
     entity_id: str = str(config.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
     if not entity_id:
@@ -377,10 +575,24 @@ async def _handle_kyber_ask(
     await kstore.async_load()
 
     # Build minimal body_fields (no dashboard context or editor mode for MCP)
+    # Load session history for stateful conversations (#247)
+    _policy = policy or {}
+    session_id: str | None = str(params.get("session_id") or "").strip() or None
+    clear_session: bool = bool(params.get("clear_session", False))
+    timeout_minutes: int = int(_policy.get("session_timeout", DEFAULT_MCP_SESSION_TIMEOUT))
+
+    if clear_session:
+        _clear_session(hass, user_id, session_id)
+
+    session_history: list[dict] = []
+    if timeout_minutes > 0:
+        session = _get_session(hass, user_id, session_id, timeout_minutes)
+        session_history = session.get("history", [])
+
     body_fields = {
         "user_prompt": prompt,
         "user_yaml": "",
-        "history": [],
+        "history": session_history,
         "compacted_summary": "",
         "editor_mode": "chat",
         "dashboards": [],
@@ -445,7 +657,7 @@ async def _handle_kyber_ask(
 
     try:
         response_text, tool_log, _exchange, _cache, _intent, _loop_instr, _aliases, token_usage = \
-            await _run_ai_loop(hass, entity_id, instructions, kstore, prompt, request_id, [], intent, config=config,
+            await _run_ai_loop(hass, entity_id, instructions, kstore, prompt, request_id, session_history, intent, config=config,
                                user_id=user_id, is_admin=is_admin)
     except Exception as err:  # noqa: BLE001
         _LOGGER.exception("Kyber MCP: AI loop error: %s", err)
@@ -457,6 +669,14 @@ async def _handle_kyber_ask(
         int(token_usage.get("total_tokens", 0) or 0),
         max_daily_tokens,
     )
+
+    # Update session with new user/assistant turn
+    if timeout_minutes > 0:
+        updated_history = session_history + [
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": response_text or ""},
+        ]
+        _save_session(hass, user_id, session_id, updated_history)
 
     actions_executed = [
         entry for entry in (tool_log or [])
@@ -480,12 +700,13 @@ async def _handle_kyber_ask(
         "token_usage": token_usage,
         "call_tokens": int(token_usage.get("total_tokens", 0) or 0),
         "mode": mode,
+        "session_id": session_id,
         "_tool_calls": tool_calls_log,
         "_prompt": prompt[:200],
     }
 
 
-async def _handle_get_entity_state(hass: HomeAssistant, params: dict) -> dict:
+async def _handle_get_entity_state(hass: HomeAssistant, params: dict, policy: dict | None = None) -> dict:
     """Return current state for requested entity IDs."""
     from homeassistant.helpers import area_registry as ar, entity_registry as er
 
@@ -493,11 +714,16 @@ async def _handle_get_entity_state(hass: HomeAssistant, params: dict) -> dict:
     if not entity_ids:
         return {"error": "entity_ids is required"}
 
+    _pol = policy or {}
     area_reg = ar.async_get(hass)
     entity_reg = er.async_get(hass)
 
     results = []
     for eid in entity_ids:
+        # Treat filtered entities as "not found" to avoid leaking their existence
+        if not _is_entity_exposed(hass, eid, _pol):
+            results.append({"entity_id": eid, "found": False})
+            continue
         state = hass.states.get(eid)
         if state is None:
             results.append({"entity_id": eid, "found": False})
@@ -550,10 +776,11 @@ async def _build_home_summary(hass: HomeAssistant) -> dict:
     }
 
 
-async def _handle_list_entities(hass: HomeAssistant, params: dict) -> dict:
+async def _handle_list_entities(hass: HomeAssistant, params: dict, policy: dict | None = None) -> dict:
     """List HA entities with optional domain/area filter."""
     from homeassistant.helpers import area_registry as ar, entity_registry as er, device_registry as dr
 
+    _pol = policy or {}
     domain_filter: str | None = params.get("domain", "").strip() or None
     area_filter: str | None = params.get("area", "").strip().lower() or None
 
@@ -578,6 +805,8 @@ async def _handle_list_entities(hass: HomeAssistant, params: dict) -> dict:
     results = []
     for state in hass.states.async_all():
         eid = state.entity_id
+        if not _is_entity_exposed(hass, eid, _pol):
+            continue
         if domain_filter and not eid.startswith(f"{domain_filter}."):
             continue
         area_name = entity_area.get(eid)
@@ -619,9 +848,10 @@ async def _handle_call_service(hass: HomeAssistant, params: dict, *, is_admin: b
     return {"status": "ok", "called": f"{domain}.{service}"}
 
 
-async def _handle_search_entities(hass: HomeAssistant, params: dict) -> dict:
+async def _handle_search_entities(hass: HomeAssistant, params: dict, policy: dict | None = None) -> dict:
     """Search entities by name/keyword — thin wrapper around Kyber's search_entities tool."""
     from .tool_execution import _execute_tool
+    _pol = policy or {}
     query: str = str(params.get("query", "")).strip()
     limit: int = int(params.get("limit") or 20)
     if not query:
@@ -630,7 +860,11 @@ async def _handle_search_entities(hass: HomeAssistant, params: dict) -> dict:
     if isinstance(result, dict) and "info" in result:
         return {"entities": [], "count": 0, "query": query}
     if isinstance(result, dict):
-        items = [{"entity_id": eid, **info} for eid, info in list(result.items())[:limit]]
+        items = [
+            {"entity_id": eid, **info}
+            for eid, info in list(result.items())[:limit]
+            if _is_entity_exposed(hass, eid, _pol)
+        ]
         return {"entities": items, "count": len(items), "query": query}
     return {"entities": [], "count": 0, "query": query}
 
@@ -693,6 +927,66 @@ async def _handle_kyber_execute_plan(
         approved=True,
     )
     return result
+
+
+async def _handle_dynamic_tool(
+    hass: HomeAssistant,
+    tool_name: str,
+    args: dict,
+    *,
+    is_admin: bool,
+    policy: dict,
+) -> dict:
+    """Execute a dynamic intent tool (hass_turn_on, hass_turn_off, hass_toggle, hass_set_value).
+
+    Safety: requires allow_state_changes AND validates all entity_id targets pass the exposure filter.
+    """
+    if not policy.get("allow_state_changes"):
+        return {"error": f"{tool_name} requires 'MCP can change state of home' to be enabled in Kyber settings."}
+
+    entity_id_raw = args.get("entity_id")
+    entity_ids: list[str] = (
+        [entity_id_raw] if isinstance(entity_id_raw, str)
+        else list(entity_id_raw or [])
+    )
+
+    if not entity_ids:
+        return {"error": "entity_id is required"}
+
+    # Validate all targets pass exposure filter
+    blocked = [eid for eid in entity_ids if not _is_entity_exposed(hass, eid, policy)]
+    if blocked:
+        return {"error": f"Entity not found or not exposed via MCP: {', '.join(blocked)}"}
+
+    try:
+        if tool_name == "hass_turn_on":
+            service_data: dict = {"entity_id": entity_ids}
+            extra = {k: v for k, v in args.items() if k not in ("entity_id",)}
+            service_data.update(extra)
+            await hass.services.async_call("homeassistant", "turn_on", service_data, blocking=True)
+        elif tool_name == "hass_turn_off":
+            await hass.services.async_call("homeassistant", "turn_off", {"entity_id": entity_ids}, blocking=True)
+        elif tool_name == "hass_toggle":
+            await hass.services.async_call("homeassistant", "toggle", {"entity_id": entity_ids}, blocking=True)
+        elif tool_name == "hass_set_value":
+            eid = entity_ids[0]
+            value = args.get("value")
+            domain = eid.split(".")[0]
+            service_map = {
+                "input_number": ("input_number", "set_value", "value"),
+                "number": ("number", "set_value", "value"),
+                "input_text": ("input_text", "set_value", "value"),
+                "input_select": ("input_select", "select_option", "option"),
+                "select": ("select", "select_option", "option"),
+            }
+            if domain not in service_map:
+                return {"error": f"hass_set_value not supported for domain '{domain}'"}
+            svc_domain, svc_name, svc_key = service_map[domain]
+            await hass.services.async_call(svc_domain, svc_name, {"entity_id": eid, svc_key: value}, blocking=True)
+    except Exception as err:  # noqa: BLE001
+        return {"error": str(err)}
+
+    return {"status": "ok", "tool": tool_name, "entity_id": entity_ids}
 
 
 async def _handle_calendar_get_events(hass: HomeAssistant, params: dict) -> dict:
@@ -961,6 +1255,8 @@ class KyberMCPView(HomeAssistantView):
         req_id = rpc.get("id")  # None for notifications
         method: str = str(rpc.get("method", ""))
         params: dict = rpc.get("params") or {}
+        policy = _build_mcp_policy(self._config)
+        tool_mode = policy["tool_mode"]
 
         # Notifications (no id) — handle but return None
         if method == "notifications/initialized":
@@ -976,6 +1272,7 @@ class KyberMCPView(HomeAssistantView):
                     "tools": {"listChanged": False},
                     "resources": {"listChanged": False, "subscribe": False},
                     "prompts": {"listChanged": False},
+                    "sampling": {},  # #262 — server supports sampling/createMessage
                 },
                 "serverInfo": _SERVER_INFO,
                 "instructions": (
@@ -991,15 +1288,25 @@ class KyberMCPView(HomeAssistantView):
             })
 
         if method == "tools/list":
-            tools = list(_TOOLS)
-            if self._config.get(CONF_MCP_ALLOW_STATE_CHANGES, False):
+            if tool_mode == "kyber_only":
+                tools = list(_TOOLS)
+            elif tool_mode == "dynamic":
+                tools = list(_DYNAMIC_TOOLS) + [t for t in _TOOLS if t["name"] not in {d["name"] for d in _DYNAMIC_TOOLS}
+                             and t["name"] not in ("kyber_ask",)]
+            else:  # hybrid
+                tools = list(_TOOLS) + _DYNAMIC_TOOLS
+            if policy["allow_state_changes"]:
                 tools.append(_EXECUTE_PLAN_TOOL)
             return _ok(req_id, {"tools": tools})
 
         if method == "tools/call":
             tool_name: str = str(params.get("name", ""))
             tool_args: dict = params.get("arguments") or {}
-            return await self._call_tool(hass, req_id, tool_name, tool_args, user_id, is_admin)
+            return await self._call_tool(hass, req_id, tool_name, tool_args, user_id, is_admin, policy)
+
+        if method == "sampling/createMessage":
+            # #262 — server-side LLM request from an MCP client
+            return await self._handle_sampling(hass, req_id, params, user_id, is_admin, policy)
 
         if method == "resources/list":
             return _ok(req_id, {"resources": [
@@ -1063,6 +1370,59 @@ class KyberMCPView(HomeAssistantView):
         # Unknown method
         return _err(req_id, -32601, f"Method not found: {method}")
 
+    async def _handle_sampling(
+        self,
+        hass: HomeAssistant,
+        req_id: Any,
+        params: dict,
+        user_id: str,
+        is_admin: bool,
+        policy: dict,
+    ) -> dict:
+        """Handle sampling/createMessage — MCP client asks Kyber to run an LLM call.
+
+        Converts the MCP messages array into Kyber history and runs kyber_ask (quick mode).
+        Only text-type messages are supported; others are ignored.
+        """
+        messages: list[dict] = params.get("messages") or []
+        max_tokens: int = int(params.get("maxTokens") or 1024)  # noqa: F841 — reserved for future
+
+        # Convert MCP messages to Kyber history format
+        history: list[dict] = []
+        last_prompt: str = ""
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content") or {}
+            text = content.get("text", "") if isinstance(content, dict) else str(content)
+            text = text.strip()
+            if not text:
+                continue
+            if role == "user":
+                last_prompt = text
+            history.append({"role": role, "content": text})
+
+        if not last_prompt:
+            return _err(req_id, -32602, "sampling/createMessage: no user message found in messages array")
+
+        # Run via kyber_ask in quick mode with the accumulated history as context
+        ask_params = {
+            "prompt": last_prompt,
+            "mode": "quick",
+        }
+        result = await _handle_kyber_ask(
+            hass, ask_params, self._config, user_id, is_admin, policy=policy
+        )
+
+        if "error" in result:
+            return _err(req_id, -32603, result["error"])
+
+        return _ok(req_id, {
+            "role": "assistant",
+            "content": {"type": "text", "text": result.get("response", "")},
+            "model": "kyber",
+            "stopReason": "endTurn",
+        })
+
     async def _call_tool(
         self,
         hass: HomeAssistant,
@@ -1071,20 +1431,22 @@ class KyberMCPView(HomeAssistantView):
         args: dict,
         user_id: str,
         is_admin: bool,
+        policy: dict | None = None,
     ) -> dict:
+        _pol = policy or {}
         try:
             if name == "kyber_ask":
-                result = await _handle_kyber_ask(hass, args, self._config, user_id, is_admin)
+                result = await _handle_kyber_ask(hass, args, self._config, user_id, is_admin, policy=_pol)
             elif name == "get_entity_state":
-                result = await _handle_get_entity_state(hass, args)
+                result = await _handle_get_entity_state(hass, args, policy=_pol)
             elif name == "search_entities":
-                result = await _handle_search_entities(hass, tool_args)
+                result = await _handle_search_entities(hass, args, policy=_pol)
             elif name == "kyber_remember":
-                result = await _handle_kyber_remember(hass, tool_args)
+                result = await _handle_kyber_remember(hass, args)
             elif name == "kyber_recall":
-                result = await _handle_kyber_recall(hass, tool_args)
+                result = await _handle_kyber_recall(hass, args)
             elif name == "list_entities":
-                result = await _handle_list_entities(hass, args)
+                result = await _handle_list_entities(hass, args, policy=_pol)
             elif name == "call_service":
                 result = await _handle_call_service(hass, args, is_admin=is_admin)
             elif name == "calendar_get_events":
@@ -1094,9 +1456,11 @@ class KyberMCPView(HomeAssistantView):
             elif name == "get_todo_items":
                 result = await _handle_get_todo_items(hass, args)
             elif name == "kyber_execute_plan":
-                if not self._config.get(CONF_MCP_ALLOW_STATE_CHANGES, False):
+                if not _pol.get("allow_state_changes"):
                     return _err(req_id, -32602, "kyber_execute_plan is disabled. Enable 'MCP can change state of home' in Kyber settings.")
                 result = await _handle_kyber_execute_plan(hass, args, user_id, is_admin)
+            elif name in ("hass_turn_on", "hass_turn_off", "hass_toggle", "hass_set_value"):
+                result = await _handle_dynamic_tool(hass, name, args, is_admin=is_admin, policy=_pol)
             else:
                 return _err(req_id, -32602, f"Unknown tool: {name}")
         except Exception as err:  # noqa: BLE001
