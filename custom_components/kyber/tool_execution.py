@@ -389,6 +389,15 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
     elif isinstance(fields_raw, str) and fields_raw.strip():
         fields_set = {f.strip() for f in fields_raw.split(",") if f.strip()}
 
+    def _humanize_name(raw: str) -> str:
+        """Replace underscores with spaces in names that look like internal identifiers.
+        e.g. 'light_slaapkamer_peter_410' → 'light slaapkamer peter 410'
+        Names that already contain spaces are returned unchanged.
+        """
+        if raw and "_" in raw and " " not in raw:
+            return raw.replace("_", " ")
+        return raw
+
     def _project_entity(eid: str, st, entry=None) -> dict:
         """Return a dict for an entity using the active fields_set, or the
         default {name, state, domain, device_class?} projection when no fields
@@ -404,7 +413,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             # For entity-discovery tools, domain is already encoded in the entity_id key —
             # omit it to keep each row lean and reduce token usage.
             row: dict = {
-                "name": attrs.get("friendly_name", eid),
+                "name": _humanize_name(attrs.get("friendly_name", eid)),
                 "state": st.state if st else "unknown",
             }
             dc = attrs.get("device_class")
@@ -417,7 +426,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             if f in ("entity_id", "id"):
                 out["entity_id"] = eid
             elif f == "name":
-                out["name"] = attrs.get("friendly_name", eid)
+                out["name"] = _humanize_name(attrs.get("friendly_name", eid))
             elif f == "state":
                 out["state"] = st.state if st else "unknown"
             elif f == "domain":

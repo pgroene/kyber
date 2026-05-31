@@ -578,7 +578,9 @@ async def _handle_kyber_ask(
     # Load session history for stateful conversations (#247)
     _policy = policy or {}
     session_id: str | None = str(params.get("session_id") or "").strip() or None
-    clear_session: bool = bool(params.get("clear_session", False))
+    # If no explicit session_id is given, default to clearing history so stale
+    # context from a previous unrelated query can't bleed in and confuse the model.
+    clear_session: bool = bool(params.get("clear_session", session_id is None))
     timeout_minutes: int = int(_policy.get("session_timeout", DEFAULT_MCP_SESSION_TIMEOUT))
 
     if clear_session:
