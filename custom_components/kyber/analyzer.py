@@ -178,7 +178,7 @@ def analyze_automations(hass: HomeAssistant) -> dict[str, Any]:
     for script in scripts:
         name = script.attributes.get("friendly_name") or script.entity_id
         toks = _tokens(name)
-        # Scripts often encode procedures â€” propose a procedure entry per script
+        # Scripts often encode procedures — propose a procedure entry per script
         if toks:
             proposals.append({
                 "category": "procedure",
