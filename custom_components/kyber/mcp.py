@@ -37,6 +37,12 @@ from .const import (
     DOMAIN,
     _sanitize_user_input,
 )
+from .ci_integration import (
+    handle_celebrate,
+    handle_ci_event,
+    handle_get_home_context,
+    handle_peace_briefing,
+)
 from .rate_limiter import _rate_limiter
 
 _LOGGER = logging.getLogger(__name__)
@@ -295,6 +301,60 @@ _TOOLS: list[dict] = [
                 },
             },
             "required": ["domain", "service"],
+        },
+    },
+    {
+        "name": "get_home_context",
+        "description": (
+            "Ask Kyber whether the current home context makes this a good time for a production deployment. "
+            "Uses Kyber's AI pipeline and the home's current state instead of hardcoded entity IDs."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "ci_event",
+        "description": (
+            "Record and broadcast a CI/CD event into Home Assistant so automations can react."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "description": "Event type, e.g. 'deploy_success' or 'build_failed'."},
+                "repo": {"type": "string", "description": "GitHub repository name, e.g. 'pgroene/ProspectPilot'."},
+                "branch": {"type": "string", "description": "Branch name, e.g. 'main'."},
+                "status": {"type": "string", "enum": ["success", "failure", "info"], "description": "Event status."},
+                "message": {"type": "string", "description": "Human-readable event summary."},
+            },
+            "required": ["type", "repo", "branch", "status", "message"],
+        },
+    },
+    {
+        "name": "celebrate",
+        "description": (
+            "Celebrate a successful manual merge or deployment so Home Assistant automations can reward it."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "reason": {"type": "string", "description": "Optional celebration reason."},
+                "repo": {"type": "string", "description": "Optional repository label for the event log."},
+                "branch": {"type": "string", "description": "Optional branch label for the event log."},
+            },
+        },
+    },
+    {
+        "name": "peace_briefing",
+        "description": (
+            "Summarize recent CI/CD events from Home Assistant into a calm briefing."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "max_events": {"type": "integer", "description": "Maximum number of recent events to include. Defaults to 10."},
+            },
         },
     },
 ]
@@ -1078,11 +1138,11 @@ class KyberMCPView(HomeAssistantView):
             elif name == "get_entity_state":
                 result = await _handle_get_entity_state(hass, args)
             elif name == "search_entities":
-                result = await _handle_search_entities(hass, tool_args)
+                result = await _handle_search_entities(hass, args)
             elif name == "kyber_remember":
-                result = await _handle_kyber_remember(hass, tool_args)
+                result = await _handle_kyber_remember(hass, args)
             elif name == "kyber_recall":
-                result = await _handle_kyber_recall(hass, tool_args)
+                result = await _handle_kyber_recall(hass, args)
             elif name == "list_entities":
                 result = await _handle_list_entities(hass, args)
             elif name == "call_service":
@@ -1093,6 +1153,14 @@ class KyberMCPView(HomeAssistantView):
                 result = await _handle_get_datetime(hass, args)
             elif name == "get_todo_items":
                 result = await _handle_get_todo_items(hass, args)
+            elif name == "get_home_context":
+                result = await handle_get_home_context(hass, args, self._config, user_id)
+            elif name == "ci_event":
+                result = await handle_ci_event(hass, args)
+            elif name == "celebrate":
+                result = await handle_celebrate(hass, args)
+            elif name == "peace_briefing":
+                result = await handle_peace_briefing(hass, args, self._config, user_id)
             elif name == "kyber_execute_plan":
                 if not self._config.get(CONF_MCP_ALLOW_STATE_CHANGES, False):
                     return _err(req_id, -32602, "kyber_execute_plan is disabled. Enable 'MCP can change state of home' in Kyber settings.")
