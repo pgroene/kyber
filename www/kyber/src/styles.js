@@ -41,6 +41,13 @@ export const STYLES = `
   .container.debug-mode .editor-pane { display: none !important; }
   .container.debug-mode .editor-controls { display: none !important; }
   .container.debug-mode .status-bar { display: none !important; }
+  .container.debug-mode .chat-pane { display: none !important; }
+  .container.debug-mode .debug-pane {
+    grid-column: 1;
+    grid-row: 2;
+    height: auto;
+    border-top: none;
+  }
 
   .toolbar {
     grid-column: 1 / -1;

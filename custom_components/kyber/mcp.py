@@ -1257,7 +1257,7 @@ class KyberMCPView(HomeAssistantView):
         req_id = rpc.get("id")  # None for notifications
         method: str = str(rpc.get("method", ""))
         params: dict = rpc.get("params") or {}
-        policy = _build_mcp_policy(self._config)
+        policy = _build_mcp_policy(hass.data.get("kyber_config") or self._config)
         tool_mode = policy["tool_mode"]
 
         # Notifications (no id) — handle but return None
@@ -1412,7 +1412,7 @@ class KyberMCPView(HomeAssistantView):
             "mode": "quick",
         }
         result = await _handle_kyber_ask(
-            hass, ask_params, self._config, user_id, is_admin, policy=policy
+            hass, ask_params, hass.data.get("kyber_config") or self._config, user_id, is_admin, policy=policy
         )
 
         if "error" in result:
@@ -1438,7 +1438,7 @@ class KyberMCPView(HomeAssistantView):
         _pol = policy or {}
         try:
             if name == "kyber_ask":
-                result = await _handle_kyber_ask(hass, args, self._config, user_id, is_admin, policy=_pol)
+                result = await _handle_kyber_ask(hass, args, hass.data.get("kyber_config") or self._config, user_id, is_admin, policy=_pol)
             elif name == "get_entity_state":
                 result = await _handle_get_entity_state(hass, args, policy=_pol)
             elif name == "search_entities":

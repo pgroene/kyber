@@ -447,7 +447,7 @@ class KyberSessionNameView(HomeAssistantView):
             f"Conversation:\n{transcript}\n\nTitle:"
         )
 
-        entity_id: str = self._config[CONF_AI_TASK_ENTITY_ID]
+        entity_id: str = (hass.data.get("kyber_config") or self._config)[CONF_AI_TASK_ENTITY_ID]
         from .api_utilities import async_ai_call  # local to avoid circular import
         try:
             result = await async_ai_call(
