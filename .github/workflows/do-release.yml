@@ -27,6 +27,8 @@ concurrency:
 permissions:
   contents: write
   issues: write
+  pull-requests: write
+  administration: write
 
 jobs:
   # ── Guard: skip release commits created by this workflow ─────────────────
@@ -253,7 +255,7 @@ jobs:
       # ── Commit, tag, push (bypass branch protection) ────────────────────
       - name: Commit and tag release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -267,24 +269,40 @@ jobs:
 
           if git diff --cached --quiet; then
             echo "Nothing changed — skipping commit"
+            HAS_COMMIT=false
           else
             git commit -m "chore: release ${{ steps.ver.outputs.tag }}"
+            HAS_COMMIT=true
           fi
 
           git tag ${{ steps.ver.outputs.tag }}
 
-          # Temporarily disable enforce_admins so the bot can push to main
-          gh api repos/${{ github.repository }}/branches/main/protection/enforce_admins \
-            --method DELETE || true
-
-          git push origin main
-          git push origin ${{ steps.ver.outputs.tag }}
-
-          # Re-enable enforce_admins
-          gh api repos/${{ github.repository }}/branches/main/protection/enforce_admins \
-            --method POST || true
-
-          echo "Pushed ${{ steps.ver.outputs.tag }}"
+          # Use RELEASE_PAT (a repo admin PAT) if available; it can bypass branch
+          # protection.  Without it, fall back to a PR-based release commit.
+          TOKEN="${{ secrets.RELEASE_PAT }}"
+          if [ -n "$TOKEN" ]; then
+            git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}.git"
+            git push origin main
+            git push origin ${{ steps.ver.outputs.tag }}
+            echo "Pushed ${{ steps.ver.outputs.tag }} directly via RELEASE_PAT"
+          else
+            echo "::warning::RELEASE_PAT secret not set — pushing tag only and opening a PR for the version-bump commit."
+            # Push the tag (tags are not subject to branch protection)
+            git push origin ${{ steps.ver.outputs.tag }}
+            if [ "$HAS_COMMIT" = "true" ]; then
+              # Push commit to a release branch and open a PR
+              BRANCH="release/${{ steps.ver.outputs.tag }}"
+              git checkout -b "$BRANCH"
+              git push origin "$BRANCH"
+              gh pr create \
+                --title "chore: release ${{ steps.ver.outputs.tag }}" \
+                --body "Automated version-bump commit for ${{ steps.ver.outputs.tag }}. Merge this to complete the release." \
+                --base main \
+                --head "$BRANCH" \
+                --label "release" || true
+              echo "Opened PR for version-bump commit. Merge it to complete the release."
+            fi
+          fi
 
       # ── Create GitHub Release ───────────────────────────────────────────
       - name: Create GitHub Release
