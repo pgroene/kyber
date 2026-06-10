@@ -2190,6 +2190,11 @@ class KyberView(HomeAssistantView):
         import time as _time
         _turn_started_at = _time.time()
 
+        # Always read the freshest config so settings changes take effect without
+        # a full HA restart (HTTP views may be registered once and not replaced on
+        # integration reload; hass.data["kyber_config"] is always up-to-date).
+        _cfg = hass.data.get("kyber_config") or self._config
+
         # Signal background tasks (narrator, deep-analyzer) to pause.
         # Fire the preempt event so mid-flight AI calls cancel immediately.
         hass.data[_CHAT_BUSY_KEY] = True
@@ -2237,7 +2242,7 @@ class KyberView(HomeAssistantView):
 
         ha_user = request.get("hass_user")
         user_id = str(getattr(ha_user, "id", "") or "unknown")
-        max_rpm = int(self._config.get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE))
+        max_rpm = int(_cfg.get(CONF_MAX_REQUESTS_PER_MINUTE, DEFAULT_MAX_REQUESTS_PER_MINUTE))
         allowed, retry_after = _rate_limiter.check_and_record(user_id, max_rpm)
         if not allowed:
             hass.data[_CHAT_BUSY_KEY] = False
@@ -2269,7 +2274,7 @@ class KyberView(HomeAssistantView):
 
         # Check for pending area-assignment proposals and warn the model that
         # area membership is currently incomplete.
-        entity_id: str = self._config[CONF_AI_TASK_ENTITY_ID]
+        entity_id: str = _cfg[CONF_AI_TASK_ENTITY_ID]
         kstore = get_knowledge_store(hass)
         await kstore.async_load()
         _pending_area = [
@@ -2310,8 +2315,8 @@ class KyberView(HomeAssistantView):
             is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)),
         )
 
-        budget_provider = get_budget_provider(self._config)
-        max_daily_tokens = int(self._config.get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS) or 0)
+        budget_provider = get_budget_provider(_cfg)
+        max_daily_tokens = int(_cfg.get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS) or 0)
         token_budget_store = get_token_budget_store(hass)
         estimated_prompt_tokens = (len(instructions) // 4) + sum(
             len(str(entry.get("content", ""))) // 4 for entry in history if entry.get("content")
@@ -2339,7 +2344,7 @@ class KyberView(HomeAssistantView):
 
         try:
             response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved, call_token_usage = \
-                await _run_ai_loop(hass, entity_id, instructions, kstore, user_prompt, request_id, history, intent, config=self._config,
+                await _run_ai_loop(hass, entity_id, instructions, kstore, user_prompt, request_id, history, intent, config=_cfg,
                                    user_id=str(getattr(request.get("hass_user"), "id", "") or "") or None,
                                    is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)),
                                    model_override=model_override)
@@ -2522,7 +2527,7 @@ class KyberView(HomeAssistantView):
                 from .area_assignment import async_detect_conversation_suggestions
                 area_suggestions = await async_detect_conversation_suggestions(
                     hass,
-                    self._config,
+                    _cfg,
                     plan_entity_ids,
                     user_prompt,
                     history,
@@ -2586,7 +2591,7 @@ class KyberView(HomeAssistantView):
                                 area_name=_aname2,
                             )
                         elif _atype == "assign_label":
-                            _label_mode = self._config.get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE)
+                            _label_mode = _cfg.get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE)
                             if _label_mode == LABEL_ASSIGNMENT_OFF:
                                 continue
                             _label_id2 = _action.get("label_id", "")
@@ -3188,7 +3193,7 @@ class KyberModelsView(HomeAssistantView):
         from homeassistant.helpers.aiohttp_client import async_get_clientsession
         hass: HomeAssistant = request.app["hass"]
 
-        cfg = self._config
+        cfg = hass.data.get("kyber_config") or self._config
         cloud_provider = str(cfg.get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER)).strip()
         azure_endpoint = str(cfg.get(CONF_AZURE_ENDPOINT, "")).strip()
         azure_api_key = str(cfg.get(CONF_AZURE_API_KEY, "")).strip()

@@ -455,7 +455,7 @@ class KyberKnowledgeDeepAnalyzeView(HomeAssistantView):
 
     async def post(self, request: web.Request) -> web.Response:
         hass: HomeAssistant = request.app["hass"]
-        ai_entity_id: str = self._config.get(CONF_AI_TASK_ENTITY_ID, "")
+        ai_entity_id: str = (hass.data.get("kyber_config") or self._config).get(CONF_AI_TASK_ENTITY_ID, "")
         if not ai_entity_id:
             return self.json_message("AI task entity not configured", HTTPStatus.SERVICE_UNAVAILABLE)
         try:
@@ -625,8 +625,9 @@ class KyberNarratorRunView(HomeAssistantView):
             DEFAULT_NARRATOR_MAX_TOKENS,
         )
         hass: HomeAssistant = request.app["hass"]
+        _cfg = hass.data.get("kyber_config") or self._config
 
-        narrator_enabled = bool(self._config.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED))
+        narrator_enabled = bool(_cfg.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED))
         if not narrator_enabled:
             return self.json({"status": "disabled", "reason": "Narrator is disabled in settings"})
 
@@ -635,14 +636,14 @@ class KyberNarratorRunView(HomeAssistantView):
             return self.json({"status": "already_running"})
 
         ai_entity_id = (
-            str(self._config.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip()
-            or str(self._config.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
+            str(_cfg.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip()
+            or str(_cfg.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
         )
         if not ai_entity_id:
             return self.json_message("AI task entity not configured", HTTPStatus.SERVICE_UNAVAILABLE)
 
-        max_batch = int(self._config.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH))
-        narrator_max_tokens = int(self._config.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS))
+        max_batch = int(_cfg.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH))
+        narrator_max_tokens = int(_cfg.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS))
         kstore = get_knowledge_store(hass)
         entity_reg = er.async_get(hass)
 

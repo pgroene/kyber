@@ -561,6 +561,7 @@ class KyberSummarizeView(HomeAssistantView):
     async def post(self, request: web.Request) -> web.Response:
         """Merge previous summary + overflow messages into a new summary."""
         hass: HomeAssistant = request.app["hass"]
+        _cfg = hass.data.get("kyber_config") or self._config
 
         try:
             body = await request.json()
@@ -587,7 +588,7 @@ class KyberSummarizeView(HomeAssistantView):
         instructions += f"\n\nNew messages to incorporate:\n" + "\n".join(msg_lines)
         instructions += "\n\nOutput the updated summary:"
 
-        entity_id: str = self._config[CONF_AI_TASK_ENTITY_ID]
+        entity_id: str = _cfg[CONF_AI_TASK_ENTITY_ID]
 
         try:
             result = await async_ai_call(
