@@ -279,7 +279,7 @@ Connect Kyber to a cloud AI model (Azure AI Foundry, OpenAI, or Anthropic) inste
 │  azure_endpoint   [https://…                           ]   │
 │  azure_api_key    [••••••••••••••••••••••••••••••   👁]   │
 │  azure_deployment [my-gpt4o-deployment             ]   │
-│  azure_api_version [2024-05-01-preview             ]   │
+│  azure_api_version [2025-04-01-preview             ]   │
 │                                                             │
 │  ── When OpenAI is selected ─────────────────────────────  │
 │                                                             │
@@ -302,7 +302,7 @@ Connect Kyber to a cloud AI model (Azure AI Foundry, OpenAI, or Anthropic) inste
 | Azure endpoint | `azure_endpoint` | — | Your Azure AI Foundry endpoint URL |
 | Azure API key | `azure_api_key` | — | Azure resource key |
 | Azure deployment | `azure_deployment` | — | Name of the deployed model (e.g. `gpt-4o`) |
-| Azure API version | `azure_api_version` | `2024-05-01-preview` | Azure REST API version string |
+| Azure API version | `azure_api_version` | `2025-04-01-preview` | Azure REST API version string (must be `2025-04-01-preview` or newer for GPT-5-series deployments) |
 | OpenAI API key | `openai_api_key` | — | Also works for Groq, Mistral, OpenRouter etc. with a custom base URL |
 | OpenAI model | `openai_model` | `gpt-4o` | Model name as expected by the API |
 | OpenAI base URL | `openai_base_url` | — | Override endpoint for compatible providers (e.g. `https://api.groq.com/openai/v1`) |

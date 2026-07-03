@@ -40,6 +40,7 @@ from custom_components.kyber.const import (
     CONF_OPENAI_API_KEY,
     CONF_OPENAI_MODEL,
     DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_AZURE_API_VERSION,
     DEFAULT_OPENAI_MODEL,
     DOMAIN,
 )
@@ -112,6 +113,14 @@ def test_cloud_provider_constants_have_expected_values() -> None:
     assert CLOUD_PROVIDER_ANTHROPIC == "anthropic"
 
 
+def test_default_azure_api_version_supports_gpt5_deployments() -> None:
+    """Regression: DEFAULT_AZURE_API_VERSION must be new enough for GPT-5-series
+    deployments (e.g. gpt-5.4-nano). Azure rejects requests with HTTP 400
+    "API version not supported" when api-version predates 2025-04-01-preview.
+    """
+    assert DEFAULT_AZURE_API_VERSION >= "2025-04-01-preview"
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Provider routing via HTTP API
 # ══════════════════════════════════════════════════════════════════════════════
@@ -180,6 +189,10 @@ async def test_azure_provider_routes_to_azure_call(
     mock_call.assert_called_once()
     kwargs = mock_call.call_args.kwargs
     assert "azure-key" in (kwargs.get("api_key") or "")
+    # Regression: GPT-5-series deployments require api-version >= 2025-04-01-preview.
+    # An older default (e.g. 2024-05-01-preview) causes Azure to reject the request
+    # with HTTP 400 "API version not supported".
+    assert kwargs.get("api_version") == DEFAULT_AZURE_API_VERSION
 
 
 async def test_none_provider_falls_back_to_ha_ai_task(

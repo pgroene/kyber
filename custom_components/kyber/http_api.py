@@ -2361,7 +2361,7 @@ class KyberView(HomeAssistantView):
             hass.data[_CHAT_BUSY_KEY] = False
             hass.data.get("kyber_preempt_event", None) and hass.data["kyber_preempt_event"].clear()
             return self.json_message(
-                "AI provider error. Check your AI Task configuration.", HTTPStatus.SERVICE_UNAVAILABLE
+                f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
             )
         except Exception as err:  # noqa: BLE001
             _LOGGER.exception("Kyber: unexpected error during AI loop (type=%s)", type(err).__name__)
