@@ -153,10 +153,20 @@ async def async_azure_ai_call(
     Retries up to 3 times on HTTP 429 (rate limit), honouring the Retry-After header.
     """
     import asyncio as _asyncio
+    from urllib.parse import urlsplit
     import aiohttp as _aiohttp
 
+    # Azure OpenAI chat completions always live at the resource root
+    # (https://{resource}.openai.azure.com or https://{resource}.services.ai.azure.com),
+    # never under a Foundry project path (e.g. /api/projects/{project}). Some Azure
+    # AI Foundry portals surface the project endpoint (with the /api/projects/...
+    # suffix) as "the" endpoint to copy, but using it verbatim here breaks routing
+    # and Azure responds with a misleading "API version not supported" 400 instead
+    # of a 404. Strip any path and keep only the scheme + host.
+    _split = urlsplit(endpoint)
+    _origin = f"{_split.scheme}://{_split.netloc}"
     url = (
-        f"{endpoint.rstrip('/')}/openai/deployments/{deployment}"
+        f"{_origin}/openai/deployments/{deployment}"
         f"/chat/completions?api-version={api_version}"
     )
     messages: list[dict] = []

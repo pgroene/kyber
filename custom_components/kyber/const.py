@@ -52,8 +52,8 @@ DEFAULT_CLOUD_USE_FOR_CHAT = True
 CONF_AZURE_ENDPOINT = "azure_endpoint"        # e.g. https://my-resource.openai.azure.com
 CONF_AZURE_API_KEY = "azure_api_key"          # resource API key
 CONF_AZURE_DEPLOYMENT = "azure_deployment"    # deployment name, e.g. gpt-4o
-CONF_AZURE_API_VERSION = "azure_api_version"  # e.g. 2024-05-01-preview
-DEFAULT_AZURE_API_VERSION = "2024-05-01-preview"
+CONF_AZURE_API_VERSION = "azure_api_version"  # e.g. 2025-04-01-preview
+DEFAULT_AZURE_API_VERSION = "2025-04-01-preview"
 AZURE_MAX_TOKENS = 128_000
 
 # OpenAI direct provider settings

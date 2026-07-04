@@ -58,6 +58,7 @@ HomeAssistantError = sys.modules["homeassistant.exceptions"].HomeAssistantError
 
 async_openai_ai_call = api_utilities.async_openai_ai_call
 async_anthropic_ai_call = api_utilities.async_anthropic_ai_call
+async_azure_ai_call = api_utilities.async_azure_ai_call
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -440,3 +441,135 @@ async def test_anthropic_uses_correct_endpoint_and_headers() -> None:
     assert captured_url[0] == "https://api.anthropic.com/v1/messages"
     assert captured_headers[0]["x-api-key"] == "sk-ant-mykey"
     assert captured_headers[0]["anthropic-version"] == "2023-06-01"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# async_azure_ai_call
+# ══════════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_azure_happy_path_returns_text() -> None:
+    """Happy path: returns the text from choices[0].message.content."""
+    resp = _mock_response(200, {"choices": [{"message": {"content": "Hello from Azure"}}]})
+    with _patch_session(resp):
+        result = await async_azure_ai_call(
+            task_name="test",
+            endpoint="https://my-resource.openai.azure.com",
+            api_key="azure-key",
+            deployment="gpt-4o",
+            api_version="2025-04-01-preview",
+            instructions="Hi",
+        )
+    assert result.data == "Hello from Azure"
+
+
+@pytest.mark.asyncio
+async def test_azure_url_uses_deployment_and_api_version() -> None:
+    """The request URL must target /openai/deployments/{deployment}/chat/completions."""
+    captured_url: list[str] = []
+
+    import aiohttp as _aiohttp_stub
+    resp = _mock_response(200, {"choices": [{"message": {"content": "ok"}}]})
+    session_mock = AsyncMock()
+
+    def _post(url, **kw):
+        captured_url.append(url)
+        return resp
+
+    session_mock.post = MagicMock(side_effect=_post)
+    session_mock.__aenter__ = AsyncMock(return_value=session_mock)
+    session_mock.__aexit__ = AsyncMock(return_value=None)
+
+    with patch.object(_aiohttp_stub, "ClientSession", return_value=session_mock):
+        await async_azure_ai_call(
+            task_name="test",
+            endpoint="https://my-resource.openai.azure.com",
+            api_key="azure-key",
+            deployment="gpt-5.4-nano",
+            api_version="2025-04-01-preview",
+            instructions="Hi",
+        )
+
+    assert captured_url[0] == (
+        "https://my-resource.openai.azure.com/openai/deployments/gpt-5.4-nano"
+        "/chat/completions?api-version=2025-04-01-preview"
+    )
+
+
+@pytest.mark.asyncio
+async def test_azure_strips_foundry_project_path_from_endpoint() -> None:
+    """Regression: an Azure AI Foundry *project* endpoint (with a /api/projects/...
+    path, as copied from the Foundry portal) must not be used verbatim — Azure
+    OpenAI chat completions only exist at the resource root. Using the project
+    path breaks routing and Azure returns a misleading HTTP 400
+    "API version not supported" instead of the real problem.
+    """
+    captured_url: list[str] = []
+
+    import aiohttp as _aiohttp_stub
+    resp = _mock_response(200, {"choices": [{"message": {"content": "ok"}}]})
+    session_mock = AsyncMock()
+
+    def _post(url, **kw):
+        captured_url.append(url)
+        return resp
+
+    session_mock.post = MagicMock(side_effect=_post)
+    session_mock.__aenter__ = AsyncMock(return_value=session_mock)
+    session_mock.__aexit__ = AsyncMock(return_value=None)
+
+    with patch.object(_aiohttp_stub, "ClientSession", return_value=session_mock):
+        await async_azure_ai_call(
+            task_name="test",
+            endpoint="https://my-resource.services.ai.azure.com/api/projects/proj-default",
+            api_key="azure-key",
+            deployment="gpt-5.4-nano",
+            api_version="2025-04-01-preview",
+            instructions="Hi",
+        )
+
+    assert captured_url[0] == (
+        "https://my-resource.services.ai.azure.com/openai/deployments/gpt-5.4-nano"
+        "/chat/completions?api-version=2025-04-01-preview"
+    )
+
+
+@pytest.mark.asyncio
+async def test_azure_non_200_raises_with_body_in_message() -> None:
+    """A non-200 response should raise HomeAssistantError including the response body."""
+    resp = _mock_response(400, text_data='{"error":{"code":"BadRequest","message":"API version not supported"}}')
+    with _patch_session(resp):
+        with pytest.raises(HomeAssistantError, match="API version not supported"):
+            await async_azure_ai_call(
+                task_name="test",
+                endpoint="https://my-resource.openai.azure.com",
+                api_key="azure-key",
+                deployment="gpt-4o",
+                api_version="2025-04-01-preview",
+                instructions="Hi",
+            )
+
+
+@pytest.mark.asyncio
+async def test_azure_429_exhausts_retries_raises_error() -> None:
+    """Three consecutive 429 responses should raise a rate-limit HomeAssistantError."""
+    resp = _mock_response(429)
+    resp.headers = {"Retry-After": "1"}
+
+    import aiohttp as _aiohttp_stub
+    session_mock = AsyncMock()
+    session_mock.post = MagicMock(return_value=resp)
+    session_mock.__aenter__ = AsyncMock(return_value=session_mock)
+    session_mock.__aexit__ = AsyncMock(return_value=None)
+
+    with patch.object(_aiohttp_stub, "ClientSession", return_value=session_mock):
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(HomeAssistantError, match="rate limit"):
+                await async_azure_ai_call(
+                    task_name="test",
+                    endpoint="https://my-resource.openai.azure.com",
+                    api_key="azure-key",
+                    deployment="gpt-4o",
+                    api_version="2025-04-01-preview",
+                    instructions="Hi",
+                )
