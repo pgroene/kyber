@@ -71,6 +71,9 @@ from .const import (
     SYSTEM_PROMPT_TEMPLATE,
     DEFAULT_LABEL_ASSIGNMENT_MODE,
     DEFAULT_MAX_DAILY_TOKENS,
+    MIN_AI_CALL_TIMEOUT,
+    MIN_CLOUD_HTTP_TIMEOUT,
+    get_chat_timeout,
     _sanitize_user_input,
 )
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
@@ -1021,6 +1024,13 @@ async def _run_ai_loop(
     """
     _cfg = config or {}
 
+    # Per-call limits grow with the user's chat timeout so the backend never gives up
+    # before the panel does, but never drop below the old fixed values (Ollama can be
+    # slow on loaded hardware).
+    _chat_timeout = get_chat_timeout(_cfg)
+    _AI_CALL_TIMEOUT = max(MIN_AI_CALL_TIMEOUT, _chat_timeout)
+    _CLOUD_HTTP_TIMEOUT = max(MIN_CLOUD_HTTP_TIMEOUT, _chat_timeout)
+
     # â”€â”€ Cloud provider detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Explicit cloud_provider key takes precedence; fall back to legacy Azure detection
     _cloud_provider = str(_cfg.get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER)).strip()
@@ -1251,6 +1261,7 @@ async def _run_ai_loop(
                 api_version=_azure_api_version,
                 system=fit.system,
                 messages=list(fit.messages),
+                http_timeout=_CLOUD_HTTP_TIMEOUT,
             )
         elif _use_openai:
             call = async_openai_ai_call(
@@ -1260,6 +1271,7 @@ async def _run_ai_loop(
                 base_url=_openai_base_url or None,
                 system=fit.system,
                 messages=list(fit.messages),
+                http_timeout=_CLOUD_HTTP_TIMEOUT,
             )
         elif _use_anthropic:
             call = async_anthropic_ai_call(
@@ -1268,6 +1280,7 @@ async def _run_ai_loop(
                 model=_anthropic_model,
                 system=fit.system,
                 messages=list(fit.messages),
+                http_timeout=_CLOUD_HTTP_TIMEOUT,
             )
         else:
             call = async_ai_call(
@@ -1318,7 +1331,6 @@ async def _run_ai_loop(
             "message": f"Asking AI (round {_round + 1})\u2026",
         })
         _t_start = time.monotonic()
-        _AI_CALL_TIMEOUT = 180  # seconds — Ollama can be slow on loaded hardware
         try:
             result = await _call_model(_fit)
         except asyncio.TimeoutError:
@@ -2672,6 +2684,18 @@ class KyberPingView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:  # noqa: ARG002
         return self.json({"ok": True})
+
+
+class KyberChatSettingsView(HomeAssistantView):
+    """GET /api/kyber/chat_settings — chat settings the panel needs (any logged-in user)."""
+
+    url = "/api/kyber/chat_settings"
+    name = "api:kyber:chat_settings"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        return self.json({"chat_timeout": get_chat_timeout(hass.data.get("kyber_config"))})
 
 
 class KyberSelfUpdateView(HomeAssistantView):

@@ -42,7 +42,7 @@ from .const import (
 from .analyzer import analyze_automations as _analyze_automations
 from . import deep_analyzer as _deep
 from .knowledge import get_knowledge_store
-from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeEntryView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView, KyberLabelsView, KyberAreaSuggestionsView, KyberProposalApproveView, KyberPingView, KyberSelfUpdateView, KyberNarratorRunView, KyberExplorerRunView, KyberClassicLogView, KyberBlueprintView
+from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarizeView, KyberHistoryView, KyberSessionsView, KyberSessionNameView, KyberProgressView, KyberKnowledgeView, KyberKnowledgeEntryView, KyberKnowledgeAnalyzeView, KyberKnowledgeDeepAnalyzeView, KyberKnowledgeFeedbackView, KyberKnowledgePurgeView, KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView, KyberDebugBundleView, KyberBugReportView, KyberDebugModeView, KyberPromptTestsView, KyberPromptTestsRunView, KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView, KyberLabelsView, KyberAreaSuggestionsView, KyberProposalApproveView, KyberPingView, KyberChatSettingsView, KyberSelfUpdateView, KyberNarratorRunView, KyberExplorerRunView, KyberClassicLogView, KyberBlueprintView
 from .action_history import KyberActionHistoryView, KyberActionHistoryUndoView, KyberActionHistoryEntryView
 from .debug_and_diagnostics import KyberHomeExportView, KyberMemoryExportView, KyberGlobalLogHandler, KyberDebugLogsView
 from .mcp import KyberMCPView, KyberMcpLogView
@@ -575,6 +575,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.http.register_view(KyberAreaSuggestionsView())
     hass.http.register_view(KyberProposalApproveView())
     hass.http.register_view(KyberPingView())
+    hass.http.register_view(KyberChatSettingsView())
     hass.http.register_view(KyberSelfUpdateView())
     hass.http.register_view(KyberNarratorRunView(config))
     hass.http.register_view(KyberExplorerRunView())

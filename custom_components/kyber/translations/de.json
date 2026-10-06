@@ -7,6 +7,7 @@
         "data": {
           "ai_task_entity_id": "Chat-Modell",
           "max_tokens": "Chat-Modell: Kontextfenster (Token)",
+          "chat_timeout": "Chat-Zeitlimit (Sekunden)",
           "narrator_ai_task_entity_id": "Operationsmodell (optional)",
           "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)",
           "enable_debug_views": "Debug-Ansichten aktivieren (Kyber-Debug-Seitenleiste + Debug-Tools pro Runde)",
@@ -26,6 +27,7 @@
         "data": {
           "ai_task_entity_id": "Chat-Modell",
           "max_tokens": "Chat-Modell: Kontextfenster (Token)",
+          "chat_timeout": "Chat-Zeitlimit (Sekunden)",
           "narrator_ai_task_entity_id": "Operationsmodell (optional)",
           "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)",
           "enable_debug_views": "Debug-Ansichten aktivieren (Kyber-Debug-Seitenleiste + Debug-Tools pro Runde)",
@@ -60,11 +62,13 @@
             "data": {
               "ai_task_entity_id": "Chat-Modell",
               "max_tokens": "Chat-Modell: Kontextfenster (Token)",
+              "chat_timeout": "Chat-Zeitlimit (Sekunden)",
               "narrator_ai_task_entity_id": "Operationsmodell (optional)",
               "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)"
             },
             "data_description": {
               "max_tokens": "{chat_stats}",
+              "chat_timeout": "Wie lange das Chat-Panel auf eine Antwort wartet, bevor es abbricht. Für langsame lokale Modelle (z. B. Ollama auf schwächerer Hardware) erhöhen.",
               "narrator_ai_task_entity_id": "Wird f?r Batch-Verarbeitung und kleine Aufgaben wie Entit?tsbeschreibungen verwendet. Ein kleineres, g?nstigeres Modell funktioniert hier gut. Standardm??ig das Chat-Modell.",
               "narrator_max_tokens": "{ops_stats}"
             }
