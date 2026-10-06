@@ -70,6 +70,23 @@ export const EN = {
   cmd_confirm_execute: "▶ Execute",
   cmd_cancel:          "Cancel",
 
+  // Automation edit/create card
+  ae_view:             "▼ View",
+  ae_hide:             "▲ Hide",
+  ae_apply:            "✓ Apply",
+  ae_create:           "✓ Create",
+  ae_cancel:           "✕ Cancel",
+  ae_saving:           "Saving…",
+  ae_saved:            "✓ Saved",
+  ae_undo:             "↩ Undo",
+  ae_restored:         "✓ Restored",
+  ae_reapply:          "↩ Apply again",
+  ae_restore_failed:   "⚠ Restore failed",
+  ae_creating:         "Creating…",
+  ae_created:          "✓ Created",
+  ae_error:            "Error:",
+  ae_new_automation:   "New automation",
+
   // Restart overlay
   restart_title:        "Home Assistant is restarting…",
   restart_subtitle:     "This page will reload automatically.",
@@ -147,6 +164,23 @@ export const NL = {
   cmd_confirm_execute: "▶ Uitvoeren",
   cmd_cancel:          "Annuleren",
 
+  // Automation edit/create card
+  ae_view:             "▼ Bekijk",
+  ae_hide:             "▲ Verberg",
+  ae_apply:            "✓ Toepassen",
+  ae_create:           "✓ Aanmaken",
+  ae_cancel:           "✕ Annuleren",
+  ae_saving:           "Opslaan…",
+  ae_saved:            "✓ Opgeslagen",
+  ae_undo:             "↩ Ongedaan maken",
+  ae_restored:         "✓ Hersteld",
+  ae_reapply:          "↩ Opnieuw toepassen",
+  ae_restore_failed:   "⚠ Herstel mislukt",
+  ae_creating:         "Aanmaken…",
+  ae_created:          "✓ Aangemaakt",
+  ae_error:            "Fout:",
+  ae_new_automation:   "Nieuwe automatisering",
+
   // Restart overlay
   restart_title:        "Home Assistant herstart…",
   restart_subtitle:     "Deze pagina wordt automatisch herladen.",
@@ -223,6 +257,23 @@ export const DE = {
   // Slash commands
   cmd_confirm_execute: "? Ausf?hren",
   cmd_cancel: "Abbrechen",
+
+  // Automation edit/create card
+  ae_view:             "▼ Anzeigen",
+  ae_hide:             "▲ Ausblenden",
+  ae_apply:            "✓ Übernehmen",
+  ae_create:           "✓ Anlegen",
+  ae_cancel:           "✕ Abbrechen",
+  ae_saving:           "Wird gespeichert …",
+  ae_saved:            "✓ Gespeichert",
+  ae_undo:             "↩ Rückgängig",
+  ae_restored:         "✓ Wiederhergestellt",
+  ae_reapply:          "↩ Erneut übernehmen",
+  ae_restore_failed:   "⚠ Wiederherstellen fehlgeschlagen",
+  ae_creating:         "Wird angelegt …",
+  ae_created:          "✓ Angelegt",
+  ae_error:            "Fehler:",
+  ae_new_automation:   "Neue Automatisierung",
 
   // Restart overlay
   restart_title: "Home Assistant wird neu gestartet?",

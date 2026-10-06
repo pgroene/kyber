@@ -1551,6 +1551,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
   }
 
   _buildEditAutomationCard(plan) {
+    const t = this._t || ((k) => k);
     const workingConfig = JSON.parse(JSON.stringify(plan.modified_config || plan.original_config || {}));
     const isScript = (plan.entity_id || "").startsWith("script.");
     const kind = isScript ? "script" : "automation";
@@ -1577,10 +1578,10 @@ export const PlanCardsMixin = (Base) => class extends Base {
         <pre class="ae-yaml-preview"></pre>
       </details>
       <div class="ae-actions">
-        <button class="ae-btn-expand">▼ Bekijk</button>
+        <button class="ae-btn-expand">${t("ae_view")}</button>
         <button class="ae-btn-test" style="display:none">🧪 Test</button>
-        <button class="ae-btn-apply">✓ Toepassen</button>
-        <button class="ae-btn-cancel">✕ Annuleren</button>
+        <button class="ae-btn-apply">${t("ae_apply")}</button>
+        <button class="ae-btn-cancel">${t("ae_cancel")}</button>
       </div>
       <div class="ae-result"></div>
     `;
@@ -1594,14 +1595,14 @@ export const PlanCardsMixin = (Base) => class extends Base {
       if (expanded) {
         sectionsEl.style.display = "none";
         yamlDetails.style.display = "none";
-        card.querySelector(".ae-btn-expand").textContent = "▼ Bekijk";
+        card.querySelector(".ae-btn-expand").textContent = t("ae_view");
         card.querySelector(".ae-btn-test").style.display = "none";
       } else {
         sectionsEl.style.display = "";
         yamlDetails.style.display = "";
         this._buildAutomationSections(workingConfig, changedSections, sectionsEl, yamlPre);
         yamlPre.textContent = this._configToYaml(workingConfig);
-        card.querySelector(".ae-btn-expand").textContent = "▲ Verberg";
+        card.querySelector(".ae-btn-expand").textContent = t("ae_hide");
         card.querySelector(".ae-btn-test").style.display = "";
       }
     });
@@ -1617,28 +1618,28 @@ export const PlanCardsMixin = (Base) => class extends Base {
       const cancelBtn = card.querySelector(".ae-btn-cancel");
       const resultEl = card.querySelector(".ae-result");
       applyBtn.disabled = true;
-      applyBtn.textContent = "Opslaan…";
+      applyBtn.textContent = t("ae_saving");
       try {
         const apiPath = isScript ? `config/script/config/${configId}` : `config/automation/config/${configId}`;
         await this._hass.callApi("POST", apiPath, { ...workingConfig, id: configId });
-        applyBtn.textContent = "✓ Opgeslagen";
+        applyBtn.textContent = t("ae_saved");
         applyBtn.style.background = "var(--success, #4caf50)";
-        cancelBtn.textContent = "↩ Ongedaan maken";
+        cancelBtn.textContent = t("ae_undo");
         cancelBtn.dataset.mode = "undo";
         cancelBtn.onclick = async () => {
           try {
             await this._hass.callApi("POST", apiPath, { ...(plan.original_config || workingConfig), id: configId });
-            cancelBtn.textContent = "✓ Hersteld";
+            cancelBtn.textContent = t("ae_restored");
             cancelBtn.disabled = true;
             // Re-enable apply so the user can re-apply after undo
             applyBtn.disabled = false;
-            applyBtn.textContent = "↩ Opnieuw toepassen";
+            applyBtn.textContent = t("ae_reapply");
             applyBtn.style.background = "";
             // Sync editor & diagram after undo
             if (this._currentAutomationId === String(configId) && this._loadAutomation) {
               this._loadAutomation(String(configId)).catch(() => {});
             }
-          } catch (e) { cancelBtn.textContent = "⚠ Herstel mislukt"; }
+          } catch (e) { cancelBtn.textContent = t("ae_restore_failed"); }
         };
         // If this automation is currently open in the editor, reload it to sync YAML + diagram
         if (this._currentAutomationId === String(configId) && this._loadAutomation) {
@@ -1646,8 +1647,8 @@ export const PlanCardsMixin = (Base) => class extends Base {
         }
       } catch (err) {
         applyBtn.disabled = false;
-        applyBtn.textContent = "✓ Toepassen";
-        resultEl.textContent = `Fout: ${err.message}`;
+        applyBtn.textContent = t("ae_apply");
+        resultEl.textContent = `${t("ae_error")} ${err.message}`;
         resultEl.className = "ae-result error";
       }
     });
@@ -1660,6 +1661,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
   }
 
   _buildCreateAutomationCard(plan) {
+    const t = this._t || ((k) => k);
     const workingConfig = JSON.parse(JSON.stringify(plan.config || {}));
     const changedSections = new Set();
 
@@ -1669,7 +1671,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
     card.innerHTML = `
       <div class="ae-header">
         <span class="ae-icon">🤖</span>
-        <span class="ae-title">${this._escapeHtml(plan.alias || "Nieuwe automatisering")}</span>
+        <span class="ae-title">${this._escapeHtml(plan.alias || t("ae_new_automation"))}</span>
         <span class="ae-badge">automation</span>
       </div>
       <div class="ae-summary">${this._escapeHtml(plan.summary || "")}</div>
@@ -1679,10 +1681,10 @@ export const PlanCardsMixin = (Base) => class extends Base {
         <pre class="ae-yaml-preview"></pre>
       </details>
       <div class="ae-actions">
-        <button class="ae-btn-expand">▼ Bekijk</button>
+        <button class="ae-btn-expand">${t("ae_view")}</button>
         <button class="ae-btn-test" style="display:none">🧪 Test</button>
-        <button class="ae-btn-apply">✓ Aanmaken</button>
-        <button class="ae-btn-cancel">✕ Annuleren</button>
+        <button class="ae-btn-apply">${t("ae_create")}</button>
+        <button class="ae-btn-cancel">${t("ae_cancel")}</button>
       </div>
       <div class="ae-result"></div>
     `;
@@ -1696,14 +1698,14 @@ export const PlanCardsMixin = (Base) => class extends Base {
       if (expanded) {
         sectionsEl.style.display = "none";
         yamlDetails.style.display = "none";
-        card.querySelector(".ae-btn-expand").textContent = "▼ Bekijk";
+        card.querySelector(".ae-btn-expand").textContent = t("ae_view");
         card.querySelector(".ae-btn-test").style.display = "none";
       } else {
         sectionsEl.style.display = "";
         yamlDetails.style.display = "";
         this._buildAutomationSections(workingConfig, changedSections, sectionsEl, yamlPre);
         yamlPre.textContent = this._configToYaml(workingConfig);
-        card.querySelector(".ae-btn-expand").textContent = "▲ Verberg";
+        card.querySelector(".ae-btn-expand").textContent = t("ae_hide");
         card.querySelector(".ae-btn-test").style.display = "";
       }
     });
@@ -1718,19 +1720,19 @@ export const PlanCardsMixin = (Base) => class extends Base {
       const applyBtn = card.querySelector(".ae-btn-apply");
       const resultEl = card.querySelector(".ae-result");
       applyBtn.disabled = true;
-      applyBtn.textContent = "Aanmaken…";
+      applyBtn.textContent = t("ae_creating");
       try {
         const newId = String(Date.now());
         const configToSave = { ...workingConfig, id: newId };
         if (!configToSave.alias) configToSave.alias = plan.alias || "New Automation";
         await this._hass.callApi("POST", `config/automation/config/${newId}`, configToSave);
-        applyBtn.textContent = "✓ Aangemaakt";
+        applyBtn.textContent = t("ae_created");
         applyBtn.style.background = "var(--success, #4caf50)";
         card.querySelector(".ae-btn-cancel").textContent = "✕ Sluiten";
       } catch (err) {
         applyBtn.disabled = false;
-        applyBtn.textContent = "✓ Aanmaken";
-        resultEl.textContent = `Fout: ${err.message}`;
+        applyBtn.textContent = t("ae_create");
+        resultEl.textContent = `${t("ae_error")} ${err.message}`;
         resultEl.className = "ae-result error";
       }
     });
