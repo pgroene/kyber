@@ -241,6 +241,63 @@ _SYNTHESIS_INSTRUCTIONS = (
 )
 
 
+_SWITCH_OFF_RE = re.compile(r"\b(?:uit|uitzetten|zet uit|turn off|turn_off)\b")
+_SWITCH_ON_RE = re.compile(r"\b(?:aan|aanzetten|zet aan|turn on|turn_on)\b")
+
+
+def _detect_switch_request(user_prompt: str, intent: str) -> str | None:
+    """Return "on"/"off" when an action prompt clearly asks to switch something.
+
+    Whole words only: plain substring checks matched "aan" in "staan"/"gaan" and
+    "uit" in "buiten"/"ruit", so informational questions such as
+    "Welke deuren staan open?" were filtered to the opposite state. Returns None
+    for informational prompts and when both directions are mentioned.
+    """
+    if intent != "action":
+        return None
+    lower = user_prompt.lower()
+    want_off = bool(_SWITCH_OFF_RE.search(lower))
+    want_on = bool(_SWITCH_ON_RE.search(lower))
+    if want_off == want_on:
+        return None
+    return "off" if want_off else "on"
+
+
+def _entity_rows(tool_result_data: dict) -> list[str]:
+    return [k for k in tool_result_data if isinstance(k, str) and "." in k and not k.startswith("_")]
+
+
+def _drop_already_seen_entities(tool_result_data: dict, seen_scores: dict[str, float]) -> tuple[dict, int]:
+    """Drop entity rows already shown in an earlier round with an equal or better _score.
+
+    A later query that returns the same entity with a higher score keeps it, so the
+    model sees the improved context. Rows without a real _score (search_entities
+    never sets one) are always kept: a follow-up search with other fields or
+    filters asks for new data. Returns (data, number of dropped rows).
+    """
+    to_drop = []
+    for eid in _entity_rows(tool_result_data):
+        raw_score = (tool_result_data[eid] or {}).get("_score")
+        if raw_score is None or eid not in seen_scores:
+            continue
+        if float(raw_score) <= seen_scores[eid]:
+            to_drop.append(eid)
+    if not to_drop:
+        return tool_result_data, 0
+    data = {k: v for k, v in tool_result_data.items() if k not in to_drop}
+    if not _entity_rows(data):
+        data["_note"] = "All matches already shown in a previous round with equal or better relevance."
+    return data, len(to_drop)
+
+
+def _record_seen_entity_scores(tool_result_data: dict, seen_scores: dict[str, float]) -> None:
+    """Remember the best _score per entity row (scored rows only) for later rounds."""
+    for eid in _entity_rows(tool_result_data):
+        raw_score = (tool_result_data[eid] or {}).get("_score")
+        if raw_score is not None and float(raw_score) > seen_scores.get(eid, -1):
+            seen_scores[eid] = float(raw_score)
+
+
 def _build_loop_redirect(tool_calls_filtered: list[tuple[str, dict]]) -> str | None:
     """Build a system hint to redirect the model when it repeated tool calls.
 
@@ -1581,9 +1638,9 @@ async def _run_ai_loop(
                 # State-filter: when the user wants to turn_off, drop entities that are
                 # already off (and vice versa). This reduces noise and helps the model
                 # auto-select the right entity without asking a follow-up.
-                _up = user_prompt.lower()
-                _want_off = any(w in _up for w in ("uit", "turn off", "turn_off", "uitzetten", "zet uit"))
-                _want_on  = any(w in _up for w in ("aan", "turn on", "turn_on", "aanzetten", "zet aan"))
+                _switch_to = _detect_switch_request(user_prompt, intent)
+                _want_off = _switch_to == "off"
+                _want_on = _switch_to == "on"
                 if (_want_off or _want_on) and not call.get("state"):
                     _target_state = "on" if _want_off else "off"
                     _all_eids = [k for k in tool_result_data if isinstance(k, str) and "." in k and not k.startswith("_")]
@@ -1603,30 +1660,13 @@ async def _run_ai_loop(
                         tool_result_data = _filtered
                         tool_result_str = json.dumps(_filtered)
 
-                # Seen-entity exclusion: on round 2+, drop entities whose score is no
-                # better than what was already shown in a previous search_entities round.
-                # If a later query returns the same entity with a higher score (more
-                # relevant match), it is kept so the model sees the improved context.
-                if _round > 0 and _seen_entity_scores:
-                    _eid_keys = [k for k in tool_result_data if isinstance(k, str) and "." in k and not k.startswith("_")]
-                    _to_drop = []
-                    for _eid in _eid_keys:
-                        _new_score = float((tool_result_data[_eid] or {}).get("_score") or 0)
-                        _old_score = _seen_entity_scores.get(_eid, -1)
-                        if _new_score <= _old_score:
-                            _to_drop.append(_eid)
-                    if _to_drop:
-                        tool_result_data = {k: v for k, v in tool_result_data.items() if k not in _to_drop}
-                        if not any(isinstance(k, str) and "." in k and not k.startswith("_") for k in tool_result_data):
-                            tool_result_data["_note"] = "All matches already shown in a previous round with equal or better relevance."
+                # Seen-entity exclusion (see _drop_already_seen_entities).
+                if _round > 0:
+                    tool_result_data, _dropped = _drop_already_seen_entities(tool_result_data, _seen_entity_scores)
+                    if _dropped:
                         tool_result_str = json.dumps(tool_result_data)
-                        _LOGGER.debug("Kyber: search_entities round %d — dropped %d already-seen entities (score not improved)", _round, len(_to_drop))
-
-                # Record best score seen per entity for future rounds
-                for _eid in (k for k in tool_result_data if isinstance(k, str) and "." in k and not k.startswith("_")):
-                    _score = float((tool_result_data[_eid] or {}).get("_score") or 0)
-                    if _score > _seen_entity_scores.get(_eid, -1):
-                        _seen_entity_scores[_eid] = _score
+                        _LOGGER.debug("Kyber: search_entities round %d — dropped %d already-seen entities (score not improved)", _round, _dropped)
+                _record_seen_entity_scores(tool_result_data, _seen_entity_scores)
 
             # Also record aliases from get_entity_state: when entity_id words
             # overlap with the user prompt we know the user was asking about that
