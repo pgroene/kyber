@@ -34,13 +34,13 @@ import {
 // ---------------------------------------------------------------------------
 import { STYLES } from "./src/styles.js?v=217";
 import { getT } from "./src/i18n.js?v=4";
-import { UtilsMixin } from "./src/utils-mixin.js?v=101";
+import { UtilsMixin } from "./src/utils-mixin.js?v=102";
 import { SessionMixin } from "./src/session-mixin.js?v=89";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=89";
 import { DebugMixin } from "./src/debug-mixin.js?v=112";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=98";
 import { EditorMixin } from "./src/editor-mixin.js?v=216";
-import { AIMixin } from "./src/ai-mixin.js?v=123";
+import { AIMixin } from "./src/ai-mixin.js?v=122";
 import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=117";
 
 // ---------------------------------------------------------------------------

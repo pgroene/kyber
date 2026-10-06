@@ -489,13 +489,26 @@ export const PlanCardsMixin = (Base) => class extends Base {
   // ─── Automation editing cards ──────────────────────────────────────────────
 
   /** Lightweight YAML serializer for automation config objects. */
+  // The backend parses this YAML with PyYAML (YAML 1.1). Unquoted, these strings
+  // would come back as bool/null/number ("on" → True), be cut at a comment
+  // ("Lights #2" → "Lights"), trimmed, or read as a sequence item.
+  _yamlNeedsQuotes(s) {
+    if (s === "") return true;
+    if (/^(true|false|yes|no|on|off|y|n|null|~)$/i.test(s)) return true;
+    if (/^[-+.]?\d/.test(s)) return true;
+    if (/[:{}\[\],&*?|<>=!%@`#'"]/.test(s)) return true;
+    if (/^[ \t]|[ \t]$/.test(s)) return true;
+    if (s === "-" || s.startsWith("- ")) return true;
+    return s.includes("\n");
+  }
+
   _configToYaml(obj, indent = 0) {
     const pad = "  ".repeat(indent);
     if (obj === null || obj === undefined) return "null";
     if (typeof obj === "boolean") return obj ? "true" : "false";
     if (typeof obj === "number") return String(obj);
     if (typeof obj === "string") {
-      if (/[:{}\[\],&*?|<>=!%@`]/.test(obj) || /^(true|false|yes|no|null|~|\d)/.test(obj) || obj.includes("\n")) {
+      if (this._yamlNeedsQuotes(obj)) {
         return `"${obj.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`;
       }
       return obj;
