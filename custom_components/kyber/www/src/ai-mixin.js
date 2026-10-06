@@ -1284,7 +1284,7 @@ export const AIMixin = (Base) => class extends Base {
         if (allToolCalls) {
           // Auto-execute read-only tool calls without showing proposal card.
           // Not repeated on reload: the reply text already carries the answer.
-          if (!restored) this._autoExecuteToolPlan(plan, promptInput);
+          if (!restored) this._autoExecuteToolPlan(plan);
         } else {
           history.appendChild(this._buildPlanCard(plan, planOpts));
         }
@@ -1399,7 +1399,7 @@ export const AIMixin = (Base) => class extends Base {
   }
 
 
-  async _autoExecuteToolPlan(plan, _originalPrompt) {
+  async _autoExecuteToolPlan(plan) {
     const history = this.shadowRoot?.getElementById("chat-history");
     if (!history) return;
     const t = this._t || ((k) => k);

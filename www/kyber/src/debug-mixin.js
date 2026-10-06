@@ -22,6 +22,17 @@ export const DebugMixin = (Base) => class extends Base {
     // and background re-renders triggered by AI turns.
     if (!this._debugSectionOpenState) this._debugSectionOpenState = {};
     const prevTab = this._debugTab;
+    // Timers started by a tab must not keep re-rendering after the user switched away
+    if (prevTab !== tab) {
+      if (this._explorerStatusTimer) {
+        clearInterval(this._explorerStatusTimer);
+        this._explorerStatusTimer = null;
+      }
+      if (this._deepPollTimer) {
+        clearInterval(this._deepPollTimer);
+        this._deepPollTimer = null;
+      }
+    }
     if (prevTab) {
       body.querySelectorAll("details[data-sid]").forEach((d) => {
         this._debugSectionOpenState[`${prevTab}:${d.dataset.sid}`] = d.open;
@@ -127,10 +138,7 @@ export const DebugMixin = (Base) => class extends Base {
       this._debugMemSort = e.target.value;
       this._renderDebugTab("memory");
     });
-    body.querySelector("#dbg-mem-text").addEventListener("input", (e) => {
-      this._debugMemText = e.target.value;
-      this._renderDebugTab("memory");
-    });
+    body.querySelector("#dbg-mem-text").addEventListener("input", (e) => this._onDebugMemTextInput(e));
     body.querySelector("#dbg-mem-add").addEventListener("click", () => this._showKnowledgeEditor(null, categories, null));
     body.querySelector("#dbg-mem-analyze").addEventListener("click", async () => {
       this._toggleDebugPane(false);
@@ -1076,7 +1084,14 @@ export const DebugMixin = (Base) => class extends Base {
     // Auto-refresh while explorer, narrator, or deep-analyzer is running/paused
     if (epRunning || epPaused) {
       if (!this._explorerStatusTimer) {
+        this._explorerStatusTab = this._debugTab;
         this._explorerStatusTimer = setInterval(() => {
+          // Stop re-rendering into the body once the user left the tab
+          if (this._debugTab !== this._explorerStatusTab) {
+            clearInterval(this._explorerStatusTimer);
+            this._explorerStatusTimer = null;
+            return;
+          }
           if (!this._pollAllowed()) return;
           const liveBody = this.shadowRoot?.getElementById("debug-body");
           if (liveBody) this._renderDebugStatus(liveBody);
@@ -1235,9 +1250,33 @@ export const DebugMixin = (Base) => class extends Base {
     return Math.min(10, Math.max(1, isNaN(val) ? 1 : val));
   }
 
+  // Re-rendering the memory tab rebuilds the filter input, so debounce it and
+  // put focus and caret back on the new input once the render has finished.
+  _onDebugMemTextInput(e) {
+    this._debugMemText = e.target.value;
+    if (this._dbgMemTextTimer) clearTimeout(this._dbgMemTextTimer);
+    const caret = e.target.selectionStart;
+    this._dbgMemTextTimer = setTimeout(async () => {
+      this._dbgMemTextTimer = null;
+      await this._renderDebugTab("memory");
+      const input = this.shadowRoot?.getElementById("dbg-mem-text");
+      if (input) {
+        input.focus();
+        try { input.setSelectionRange(caret, caret); } catch (_) { /* non-text input */ }
+      }
+    }, 250);
+  }
+
   _startDeepAnalysisPolling(body) {
     if (this._deepPollTimer) clearInterval(this._deepPollTimer);
+    this._deepPollTab = this._debugTab;
     this._deepPollTimer = setInterval(async () => {
+      // User switched away — stop polling, do not yank them back to this tab
+      if (this._debugTab !== this._deepPollTab) {
+        clearInterval(this._deepPollTimer);
+        this._deepPollTimer = null;
+        return;
+      }
       const alive = await this._refreshDeepAnalysisStatus(body);
       if (!alive) {
         clearInterval(this._deepPollTimer);

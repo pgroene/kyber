@@ -200,18 +200,23 @@ export const EditorMixin = (Base) => class extends Base {
     picker.querySelector(".elp-search").addEventListener("keydown", (e) => e.stopPropagation());
 
     // Close picker when clicking outside it
-    document.addEventListener("click", (e) => {
-      if (!picker.hidden && !picker.contains(e.target)) {
-        picker.hidden = true;
-        this._entityListPickerOpen = false;
-        this._entityListPickerDismissed = true;
-        this._entityListPickerDismissKey = this._entityListContextKey || null;
-      }
-    }, true);
+    document.addEventListener("click", (e) => this._handleEntityPickerOutsideClick(e, picker), true);
 
     container.addEventListener("keydown", (e) => e.stopPropagation());
     container.addEventListener("keyup", (e) => e.stopPropagation());
     container.addEventListener("keypress", (e) => e.stopPropagation());
+  }
+
+  // The picker lives in the shadow root, so a document listener sees e.target
+  // retargeted to the host; only composedPath() tells inside from outside.
+  _handleEntityPickerOutsideClick(e, picker) {
+    const path = e.composedPath ? e.composedPath() : [];
+    if (!picker.hidden && !path.includes(picker)) {
+      picker.hidden = true;
+      this._entityListPickerOpen = false;
+      this._entityListPickerDismissed = true;
+      this._entityListPickerDismissKey = this._entityListContextKey || null;
+    }
   }
 
   /** Execute a list of plan actions via the /execute endpoint. */
@@ -2951,7 +2956,7 @@ ${yamlText}`;
     const errorBar = this.shadowRoot.getElementById("yaml-error-bar");
     if (errorBar) errorBar.hidden = true;
   }
-
+
   /** Strip standalone {} and [] lines that HA writes for empty mappings/lists. */
   _stripEmptyYamlBlocks(yaml) {
     return yaml.replace(/^\s*(?:\{\}|\[\])\s*$/gm, "");
