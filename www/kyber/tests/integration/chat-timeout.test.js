@@ -100,6 +100,36 @@ describe("_askAI — configurable timeout", () => {
     expect(element.shadowRoot.textContent).toContain(`Request timed out (${DEFAULT_CHAT_TIMEOUT_SEC}s)`);
   });
 
+  it("re-reads a stale timeout before the request so a changed option applies at once", async () => {
+    vi.stubGlobal("fetch", hangingFetch({ chat_timeout: 300 }));
+    const { element } = makePanel();
+    element._chatTimeoutSec = 30;                          // old option value
+    element._chatSettingsTriedAt = Date.now() - 60_000;    // loaded a minute ago
+    const done = startAsk(element);
+
+    await vi.advanceTimersByTimeAsync(31_000);             // old value would have aborted here
+    expect(element.shadowRoot.getElementById("btn-ask").disabled).toBe(true);
+    const urls = fetch.mock.calls.map((c) => c[0]);
+    expect(urls.indexOf("/api/kyber/chat_settings")).toBeLessThan(urls.indexOf("/api/kyber/complete"));
+
+    await vi.advanceTimersByTimeAsync(270_000);
+    await done;
+    expect(element.shadowRoot.textContent).toContain("Request timed out (300s)");
+  });
+
+  it("does not re-read a fresh timeout before the request", async () => {
+    vi.stubGlobal("fetch", hangingFetch({ chat_timeout: 300 }));
+    const { element } = makePanel();
+    element._chatTimeoutSec = 60;
+    element._chatSettingsTriedAt = Date.now();
+    const done = startAsk(element);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch.mock.calls[0][0]).toBe("/api/kyber/complete");
+    await vi.advanceTimersByTimeAsync(60_000);
+    await done;
+    expect(element.shadowRoot.textContent).toContain("Request timed out (60s)");
+  });
+
   it("refreshes the setting after a request so option changes apply without reload", async () => {
     vi.stubGlobal("fetch", hangingFetch({ chat_timeout: 900 }));
     const { element } = makePanel();
