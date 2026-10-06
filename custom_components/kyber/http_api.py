@@ -76,7 +76,7 @@ from .const import (
     get_chat_timeout,
     _sanitize_user_input,
 )
-from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
+from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, alias_entity_ids, get_store as get_knowledge_store
 from .language_hints import detect_language, get_appliance_translations, translate_query_to_english
 from .analyzer import analyze_automations as _analyze_automations
 from .source import (
@@ -908,13 +908,15 @@ async def _inject_knowledge_into_prompt(
         # look up their sibling entities on the same HA device. This surfaces
         # related controls (e.g. the program-start switch alongside a halfload
         # option) without requiring exact entity naming in the knowledge store.
-        # Note: entity_alias stores human alias in `subject`, entity_id in `content`.
+        # Note: entity_alias stores the human alias in `subject`; `content` holds the
+        # entity_id, either bare or inside a sentence (auto-recorded search aliases).
         _entity_reg = er.async_get(hass)
         _device_reg = dr.async_get(hass)
         _alias_entity_ids = [
-            (e.get("content") or "").strip()
+            _eid
             for e in relevant_knowledge
-            if e.get("category") == "entity_alias" and "." in (e.get("content") or "")
+            if e.get("category") == "entity_alias"
+            for _eid in alias_entity_ids(e.get("content") or "")
         ]
         _seen_dev_ids: set[str] = set()
         _dev_context_lines: list[str] = []

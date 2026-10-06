@@ -200,6 +200,25 @@ def _entry_deletable_by_user(entry: dict[str, Any], user_id: str | None, is_admi
     return owner_id is not None and owner_id == _normalize_owner_id(user_id)
 
 
+# entity_id-shaped tokens ("light.kitchen", "switch.0x00124b_relay"), not part of a
+# longer dotted word or path such as a URL or file name.
+_ENTITY_ID_TOKEN_RE = re.compile(r"(?<![\w./])([a-z0-9_]+\.[a-z0-9_]+)(?![\w./])")
+
+
+def alias_entity_ids(content: str) -> list[str]:
+    """Return the entity_ids referenced by an entity_alias entry's content.
+
+    The prompt asks the model to store the bare entity_id, but auto-recorded
+    search aliases store a sentence ("When user searches for 'tv', the matching
+    entity is: media_player.tv") and other writers use their own wording. Callers
+    must still check that each returned id exists.
+    """
+    text = (content or "").strip()
+    if not text:
+        return []
+    return list(dict.fromkeys(_ENTITY_ID_TOKEN_RE.findall(text)))
+
+
 class KnowledgeStore:
     """In-memory cache backed by HA Store for persistence."""
 
