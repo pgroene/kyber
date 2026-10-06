@@ -371,11 +371,11 @@ def _truncate_tool_result(data: Any, budget: int) -> str:
     """Serialize a tool result to JSON and truncate it to fit within *budget* characters.
 
     Strategies (in order):
-    1. If the raw JSON already fits â†’ return it as-is.
-    2. Dict with one or more items â†’ drop items from the end, wrap with metadata
+    1. If the raw JSON already fits → return it as-is.
+    2. Dict with one or more items → drop items from the end, wrap with metadata
        so the model knows the result was truncated and how many items were omitted.
-    3. List with one or more items â†’ same strategy.
-    4. Anything else (primitives, empty collections) â†’ hard-slice the string with
+    3. List with one or more items → same strategy.
+    4. Anything else (primitives, empty collections) → hard-slice the string with
        an appended marker so it's never silently truncated.
 
     The wrapper always adds ~180 chars of metadata overhead, so the actual item
@@ -441,12 +441,12 @@ _RESPONSE_MODE_INFORMATIONAL = (
     "<<RULES — never echo or quote these>>\n"
     "INFORMATIONAL mode:\n"
     "⚠️ The 'Plans and approval' section above DOES NOT APPLY here. Do NOT use any code block at all.\n"
-    "- Areas/labels/automations/scripts are in context â†’ write them out as plain text bullets NOW. "
+    "- Areas/labels/automations/scripts are in context → write them out as plain text bullets NOW. "
     "If there are 0 labels in context, say so — do NOT call get_labels when count is already known to be 0.\n"
-    "- Entity IDs/states not in context â†’ output [TOOL_CALL:{\"name\":\"...\"}] immediately, nothing else.\n"
+    "- Entity IDs/states not in context → output [TOOL_CALL:{\"name\":\"...\"}] immediately, nothing else.\n"
     "- If question is about a SPECIFIC state (e.g. 'lights that are on', 'open doors'), ADD a \"state\" filter to the tool call (e.g. \"state\":\"on\"). This returns only matching items — list ALL of them.\n"
     "- After tool result (entity LIST): list EVERY SINGLE entity from the result. If result has 83 items, output 83 bullets. NEVER stop at 5/10/20. NEVER write '...' or 'and more'.\n"
-    "- After tool result (single entity state): extract ONLY the attribute(s) the user asked about. Do NOT dump all attributes. E.g. for 'what time does the sun set?' â†’ show only next_setting, NOT next_dawn/noon/elevation/azimuth.\n"
+    "- After tool result (single entity state): extract ONLY the attribute(s) the user asked about. Do NOT dump all attributes. E.g. for 'what time does the sun set?' → show only next_setting, NOT next_dawn/noon/elevation/azimuth.\n"
     "- Show times in the local timezone from context ('Timezone'), not UTC. Convert if needed.\n"
     "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, get_zones, get_zone_occupants, list_integrations, get_integration_entities, search_automations, get_automation, get_datetime, get_todo_items.\n"
     "- For questions about WHEN/WHAT TIME/SCHEDULE something happens (e.g. 'what time do the lights turn on', 'when does X trigger', 'what happens at sunrise'), use search_automations(query='<keyword>') — NOT search_entities. Then call get_automation(id='...') for details.\n"
@@ -454,8 +454,8 @@ _RESPONSE_MODE_INFORMATIONAL = (
     "call list_integrations ONCE, scan the result for a matching platform name and sample_entities, "
     "then IMMEDIATELY call get_integration_entities(integration='<platform_name>'). "
     "Do NOT call list_integrations more than once.\n"
-    "- HA domain quick-reference: 'alerts/notifications' â†’ domain='alert'; 'persistent notifications' â†’ domain='persistent_notification'; "
-    "'problems/issues' â†’ binary_sensor with state='on'; 'alarms' â†’ domain='alarm_control_panel'.\n"
+    "- HA domain quick-reference: 'alerts/notifications' → domain='alert'; 'persistent notifications' → domain='persistent_notification'; "
+    "'problems/issues' → binary_sensor with state='on'; 'alarms' → domain='alarm_control_panel'.\n"
     "- Do NOT output a clarify block. There is always a tool that can answer. If unsure of the domain, call search_entities(query='<keyword>').\n"
     "- No preamble. No footer. No 'What would you like to do?' No 'Please let me know'. No 'For other timezones, please specify...'.\n"
     "- Do NOT output a plan block, json code block, or ANY code fence with summary/actions/warnings fields. Plain text and tool calls ONLY.\n"
@@ -465,9 +465,9 @@ _RESPONSE_MODE_INFORMATIONAL = (
 _RESPONSE_MODE_ACTION = (
     "<<RULES — never echo or quote these>>\n"
     "ACTION mode:\n"
-    "- Need entity IDs not yet in context? â†’ output [TOOL_CALL:{\"name\":\"...\"}] immediately.\n"
-    "- Entity IDs already in context or tool results? â†’ output plan block directly.\n"
-    "- If user says 'those'/'them'/'it' â†’ use the entities from the conversation history above.\n"
+    "- Need entity IDs not yet in context? → output [TOOL_CALL:{\"name\":\"...\"}] immediately.\n"
+    "- Entity IDs already in context or tool results? → output plan block directly.\n"
+    "- If user says 'those'/'them'/'it' → use the entities from the conversation history above.\n"
     "- Control devices via plan/actions block (call_service). Editing areas/labels/names uses assign_area/rename_entity/assign_label actions. NOT open_editor.\n"
     "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, get_zones, get_zone_occupants, list_integrations, get_integration_entities, search_automations, get_automation, get_datetime, get_todo_items.\n"
     "- For 'fix/organise/order my entities': call list_entities_without_area, then propose a plan with assign_area actions.\n"
@@ -739,8 +739,8 @@ def _build_prompt_sections(
 async def _expand_search_query(hass: Any, entity_id: str, user_prompt: str) -> list[str]:
     """Ask the LLM to expand a user query into synonyms/related terms for better knowledge retrieval.
 
-    Examples: "koffie" â†’ ["koffie","coffee","espresso","nespresso","koffiezetapparaat"]
-              "licht woonkamer" â†’ ["licht","light","woonkamer","living room","lamp"]
+    Examples: "koffie" → ["koffie","coffee","espresso","nespresso","koffiezetapparaat"]
+              "licht woonkamer" → ["licht","light","woonkamer","living room","lamp"]
 
     Returns [] on any failure so callers always get a safe result.
     """
@@ -750,14 +750,14 @@ async def _expand_search_query(hass: Any, entity_id: str, user_prompt: str) -> l
         expansion_prompt = (
             "You are a smart home entity search assistant.\n"
             "Expand the following user query into 5-8 related lowercase search terms "
-            "for home automation knowledge retrieval. Include Dutchâ†”English synonyms, "
+            "for home automation knowledge retrieval. Include Dutch↔English synonyms, "
             "device names, room names, and brand names.\n"
             "Return ONLY a JSON array of strings, no explanation.\n\n"
             f'Query: "{user_prompt}"\n\n'
             "Examples:\n"
-            '- "koffie" â†’ ["koffie","coffee","espresso","nespresso","koffiezetapparaat","cappuccino"]\n'
-            '- "licht woonkamer" â†’ ["licht","light","woonkamer","living room","lamp","verlichting"]\n'
-            '- "tv" â†’ ["tv","television","televisie","media_player","samsung","shield"]\n'
+            '- "koffie" → ["koffie","coffee","espresso","nespresso","koffiezetapparaat","cappuccino"]\n'
+            '- "licht woonkamer" → ["licht","light","woonkamer","living room","lamp","verlichting"]\n'
+            '- "tv" → ["tv","television","televisie","media_player","samsung","shield"]\n'
         )
         result = await async_ai_call(
             hass,
@@ -772,7 +772,7 @@ async def _expand_search_query(hass: Any, entity_id: str, user_prompt: str) -> l
         if m:
             terms = json.loads(m.group())
             expanded = [str(t).lower().strip() for t in terms if isinstance(t, str) and t.strip()]
-            _LOGGER.debug("Kyber: query expansion '%s' â†’ %s", user_prompt[:60], expanded)
+            _LOGGER.debug("Kyber: query expansion '%s' → %s", user_prompt[:60], expanded)
             return expanded
     except Exception as err:  # noqa: BLE001
         _LOGGER.debug("Kyber: query expansion skipped: %s", err)
@@ -814,7 +814,7 @@ async def _inject_knowledge_into_prompt(
 
     if _translation_active and _detected_lang_early != "en":
         _en_query = translate_query_to_english(user_prompt)
-        _LOGGER.debug("Kyber: query translated '%s' â†’ '%s'", user_prompt[:60], _en_query[:60])
+        _LOGGER.debug("Kyber: query translated '%s' → '%s'", user_prompt[:60], _en_query[:60])
         search_query = _en_query
         extra_queries: list[str] = [user_prompt] if _en_query != user_prompt else []
     else:
@@ -1135,7 +1135,7 @@ async def _run_ai_loop(
     _AI_CALL_TIMEOUT = max(MIN_AI_CALL_TIMEOUT, _chat_timeout)
     _CLOUD_HTTP_TIMEOUT = max(MIN_CLOUD_HTTP_TIMEOUT, _chat_timeout)
 
-    # â”€â”€ Cloud provider detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Cloud provider detection ──────────────────────────────────────────────
     # Explicit cloud_provider key takes precedence; fall back to legacy Azure detection
     _cloud_provider = str(_cfg.get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER)).strip()
     _cloud_use_for_chat = bool(_cfg.get(CONF_CLOUD_USE_FOR_CHAT, DEFAULT_CLOUD_USE_FOR_CHAT))
@@ -1186,7 +1186,7 @@ async def _run_ai_loop(
         # Qwen3 reads it from the user message anyway.
         prompt = dataclasses.replace(prompt, request=prompt.request + "/no_think\n")
 
-    # â”€â”€ Pre-flight: log entity state + check Ollama health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Pre-flight: log entity state + check Ollama health ───────────────────
     if _use_azure:
         _model_name = f"azure/{_azure_deployment}"
         _LOGGER.info(
@@ -1195,7 +1195,7 @@ async def _run_ai_loop(
         )
         _progress_emit(hass, request_id, {
             "type": "debug",
-            "message": f"[AIâ†’] provider=Azure endpoint={_azure_endpoint} deployment={_azure_deployment}",
+            "message": f"[AI→] provider=Azure endpoint={_azure_endpoint} deployment={_azure_deployment}",
         })
     elif _use_openai:
         _model_name = f"openai/{_openai_model}"
@@ -1205,7 +1205,7 @@ async def _run_ai_loop(
         )
         _progress_emit(hass, request_id, {
             "type": "debug",
-            "message": f"[AIâ†’] provider=OpenAI model={_openai_model}",
+            "message": f"[AI→] provider=OpenAI model={_openai_model}",
         })
     elif _use_anthropic:
         _model_name = f"anthropic/{_anthropic_model}"
@@ -1215,7 +1215,7 @@ async def _run_ai_loop(
         )
         _progress_emit(hass, request_id, {
             "type": "debug",
-            "message": f"[AIâ†’] provider=Anthropic model={_anthropic_model}",
+            "message": f"[AI→] provider=Anthropic model={_anthropic_model}",
         })
     else:
         _entity_state = hass.states.get(entity_id)
@@ -1279,7 +1279,7 @@ async def _run_ai_loop(
             _progress_emit(hass, request_id, {
                 "type": "debug",
                 "message": (
-                    f"[AIâ†’] endpoint={_ollama_url} entity={entity_id} "
+                    f"[AI→] endpoint={_ollama_url} entity={entity_id} "
                     f"model={_model_name} | pulled: {', '.join(_available) or 'none'}"
                 ),
             })
@@ -1301,7 +1301,7 @@ async def _run_ai_loop(
                         f"Pulled models: {', '.join(_available) or 'none'}"
                     ),
                 })
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ─────────────────────────────────────────────────────────────────────────
 
     # Context window of the chat model: the provider's window for cloud chat,
     # otherwise the configured "Chat model: context window" option (pre-filled
@@ -1340,8 +1340,8 @@ async def _run_ai_loop(
     tool_rounds: list[ToolRound] = []  # tool call/result exchanges, one per round, oldest first
     tool_log: list = []  # summary of tool calls for UI feedback
     _aliases_saved: list[str] = []  # search aliases newly stored this turn
-    executed_calls_cache: dict = {}  # signature â†’ result str (dedup across rounds)
-    _seen_entity_scores: dict[str, float] = {}  # entity_id â†’ best score shown so far
+    executed_calls_cache: dict = {}  # signature → result str (dedup across rounds)
+    _seen_entity_scores: dict[str, float] = {}  # entity_id → best score shown so far
     response_text = ""
     _loop_redirect_given = False  # allow one redirect hint before falling back to synthesis
     _auto_plan_rescued = False    # set when call_service tool call is auto-converted to plan
@@ -1397,7 +1397,7 @@ async def _run_ai_loop(
             )
         return await asyncio.wait_for(call, timeout=_AI_CALL_TIMEOUT)
 
-    # â”€â”€ Quick-intent shortcut — skip the AI for trivially parseable requests
+    # ── Quick-intent shortcut — skip the AI for trivially parseable requests
     # like "create an area outside". Small local models loop on get_areas
     # because every action example in the prompt has an entity_id; bypassing
     # the model entirely is far more reliable for these patterns.
@@ -2544,7 +2544,7 @@ class KyberView(HomeAssistantView):
         learned_fact = learned_facts[0] if learned_facts else None
         # Auto-rate: detect negative cues in the response and auto-flag any
         # knowledge entries that were injected this turn. The user can
-        # override via the ðŸ‘/ðŸ‘Ž buttons on the message.
+        # override via the 👍/👎 buttons on the message.
         knowledge_used_ids = [e["id"] for e in (relevant_knowledge or [])]
         auto_rating: int | None = None
         if knowledge_used_ids:
@@ -2649,7 +2649,7 @@ class KyberView(HomeAssistantView):
                                 await _kstore.async_add_proposal(
                                     proposal_type="area_assignment",
                                     subject=_eid,
-                                    content=f"ðŸ“ {_fname} toewijzen aan {_aname}",
+                                    content=f"📍 {_fname} toewijzen aan {_aname}",
                                     pending_action={"type": "assign_area", "entity_id": _eid, "area_id": _aid},
                                     entity_name=_fname,
                                     area_name=_aname,
@@ -2687,7 +2687,7 @@ class KyberView(HomeAssistantView):
                             await _kstore2.async_add_proposal(
                                 proposal_type="area_assignment",
                                 subject=_eid2,
-                                content=f"ðŸ“ {_fname2} toewijzen aan {_aname2}",
+                                content=f"📍 {_fname2} toewijzen aan {_aname2}",
                                 pending_action={"type": "assign_area", "entity_id": _eid2, "area_id": _area_id2},
                                 entity_name=_fname2,
                                 area_name=_aname2,
@@ -2702,13 +2702,13 @@ class KyberView(HomeAssistantView):
                             if _label_mode == LABEL_ASSIGNMENT_AUTO:
                                 try:
                                     _er2.async_update_entity(_eid2, labels=(_er2.async_get(_eid2).labels or set()) | {_label_id2})
-                                    _LOGGER.info("Kyber label-assignment: auto-applied '%s' â†’ %s", _lname2, _eid2)
+                                    _LOGGER.info("Kyber label-assignment: auto-applied '%s' → %s", _lname2, _eid2)
                                 except Exception as _le:  # noqa: BLE001
                                     _LOGGER.warning("Kyber label-assignment: could not apply '%s': %s", _lname2, _le)
                             await _kstore2.async_add_proposal(
                                 proposal_type="label_assignment",
                                 subject=_eid2,
-                                content=f"ðŸ· Label '{_lname2}' toewijzen aan {_fname2}",
+                                content=f"🏷 Label '{_lname2}' toewijzen aan {_fname2}",
                                 pending_action={"type": "assign_label", "entity_id": _eid2, "label_id": _label_id2},
                                 entity_name=_fname2,
                                 label_name=_lname2,

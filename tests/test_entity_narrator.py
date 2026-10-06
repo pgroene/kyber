@@ -1,4 +1,4 @@
-﻿"""Tests for entity_narrator.py â€” Phase 3 AI-generated descriptions."""
+﻿"""Tests for entity_narrator.py — Phase 3 AI-generated descriptions."""
 from __future__ import annotations
 
 import importlib.util
@@ -228,7 +228,7 @@ class TestBuildEntityContext:
             name="Slaapkamer temperatuur",
             domain="sensor",
             device_class="temperature",
-            unit="Â°C",
+            unit="°C",
             area_name="Slaapkamer",
             state_str="21.5",
             attributes={"battery": "85", "linkquality": "200"},
