@@ -176,9 +176,20 @@ def _extract_plan_block(text: str) -> dict | None:
     if not match:
         return None
     try:
-        return json.loads(match.group(1))
+        parsed = json.loads(match.group(1))
     except (json.JSONDecodeError, ValueError):
         return None
+    # Guard against malformed plans (JSON lists, "actions": null / string,
+    # string entries) that would crash callers expecting a dict of dicts.
+    if not isinstance(parsed, dict):
+        return None
+    if "actions" in parsed:
+        actions = parsed.get("actions")
+        if not isinstance(actions, list):
+            parsed["actions"] = []
+        else:
+            parsed["actions"] = [a for a in actions if isinstance(a, dict)]
+    return parsed
 
 
 def _strip_plan_block(text: str) -> str:
@@ -233,8 +244,9 @@ def _normalize_json_plan_blocks(text: str) -> str:
         domain = obj.get("domain", obj.get("name", ""))
         if not domain and "." in eid:
             domain = eid.split(".")[0]
-        service = f"{domain}.{ha_svc}" if domain else ha_svc
-        normalized = {"type": "call_service", "service": service, "entity_id": eid}
+        normalized = {"type": "call_service", "service": ha_svc, "entity_id": eid}
+        if domain:
+            normalized["domain"] = domain
         for k, v in obj.items():
             if k not in ("type", "entity_id", "target", "entity", "domain", "name"):
                 normalized[k] = v
@@ -309,10 +321,11 @@ def _normalize_json_plan_blocks(text: str) -> str:
             eid = str(obj.get("entity_id", obj.get("target", "")))
             domain = eid.split(".")[0] if "." in eid else obj.get("domain", obj.get("name", ""))
             # Use "turn_on" as the safest default — aligns with "I want X" intent
-            inferred_svc = f"{domain}.turn_on" if domain else "turn_on"
-            action = {"type": "call_service", "service": inferred_svc,
+            action = {"type": "call_service", "service": "turn_on",
                       "entity_id": eid, **{k: v for k, v in obj.items()
                                             if k not in ("type", "entity_id", "domain", "name")}}
+            if domain:
+                action["domain"] = domain
         elif "summary" not in obj and "actions" not in obj:
             action = obj  # wrap bare action as-is
         else:

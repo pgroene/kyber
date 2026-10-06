@@ -83,6 +83,14 @@ def _classify_risk(action: dict, denylist: set[str] | None = None) -> dict[str, 
         return None
     domain = str(action.get("domain", "")).lower()
     service = str(action.get("service", "")).lower()
+    # Defensive split: a dotted "domain.service" in the service field would
+    # never match _DESTRUCTIVE_SERVICES, so split it before classifying.
+    if "." in service:
+        svc_domain, _, svc_name = service.partition(".")
+        if domain:
+            service = svc_name
+        else:
+            domain, service = svc_domain, svc_name
     if not domain:
         return None
     if (domain, service) in _DESTRUCTIVE_SERVICES or domain in deny:
@@ -476,6 +484,14 @@ async def async_execute_actions(
         if action_type == "call_service":
             domain: str = action.get("domain", "").strip().lower()
             service: str = action.get("service", "").strip().lower()
+            # Defensive split: "switch.turn_on" in the service field would be
+            # passed to async_call as-is and raise ServiceNotFound.
+            if "." in service:
+                svc_domain, _, svc_name = service.partition(".")
+                if domain:
+                    service = svc_name
+                else:
+                    domain, service = svc_domain, svc_name
             service_data: dict = action.get("service_data") or {}
             svc_entity_id: str = action.get("entity_id", "").strip()
             # Infer missing domain from entity_id (e.g. "switch.onoff_..." → "switch")

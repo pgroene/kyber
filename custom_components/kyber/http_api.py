@@ -2035,6 +2035,14 @@ def _extract_response_components(
                     eid_norm = action.get("entity_id", "").strip()
                     domain_norm = action.get("domain", "").strip().lower()
                     service_norm = action.get("service", "").strip().lower()
+                    # Defensive split: "domain.service" in the service field must
+                    # become separate domain + bare service keys.
+                    if "." in service_norm:
+                        svc_domain, _, svc_name = service_norm.partition(".")
+                        if domain_norm:
+                            service_norm = svc_name
+                        else:
+                            domain_norm, service_norm = svc_domain, svc_name
                     if not domain_norm and eid_norm and "." in eid_norm:
                         domain_norm = eid_norm.split(".", 1)[0]
                     if domain_norm != action.get("domain") or service_norm != action.get("service"):
