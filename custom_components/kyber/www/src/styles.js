@@ -1560,6 +1560,20 @@ export const STYLES = `
   .plan-result.success { color: var(--success); }
   .plan-result.error   { color: var(--danger); }
 
+  .plan-unreadable {
+    background: color-mix(in srgb, var(--danger, #e53935) 8%, var(--panel-bg));
+    border: 1px solid var(--danger, #e53935);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 4px 0;
+    font-size: 13px;
+  }
+  .plan-unreadable summary { cursor: pointer; margin-top: 6px; color: var(--secondary-text-color, #888); font-size: 12px; }
+  .plan-unreadable pre {
+    font-size: 11px; white-space: pre-wrap; word-break: break-word;
+    max-height: 240px; overflow-y: auto; margin: 6px 0 0;
+  }
+
   .open-editor-prompt {
     background: color-mix(in srgb, var(--accent) 8%, var(--panel-bg));
     border: 1px solid var(--accent);
