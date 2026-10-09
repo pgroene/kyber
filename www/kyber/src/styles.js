@@ -22,7 +22,13 @@ export const STYLES = `
     display: grid;
     grid-template-rows: 56px 1fr;
     grid-template-columns: 1fr;
-    height: 100%;
+    /* Bind to the viewport, not the host: HA does not always give the panel
+       element a definite height, and height:100% then grows to content height.
+       The whole page would scroll as one area and the editor column would stay
+       at the top, out of sight below a long chat history. Set here rather than
+       on :host, because outer styles on the panel element override :host. */
+    height: 100vh;
+    height: 100dvh;
     position: relative;
     background: var(--panel-bg);
     color: var(--text-color);

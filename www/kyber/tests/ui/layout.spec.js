@@ -85,6 +85,46 @@ test.describe("Layout — column order", () => {
   });
 });
 
+test.describe("Layout — independent scroll areas", () => {
+  test("long chat scrolls inside its pane while the editor stays in view", async ({ page }) => {
+    await gotoHarness(page);
+    // HA does not always give the panel element a definite height. Drop the
+    // harness' fixed height so the panel has to bind itself to the viewport.
+    await page.evaluate(() => { window.__panel.style.height = "auto"; });
+    await openEditor(page);
+    await page.evaluate(() => {
+      const history = window.__panel.shadowRoot.getElementById("chat-history");
+      for (let i = 0; i < 60; i++) {
+        const m = document.createElement("div");
+        m.className = "chat-message assistant";
+        m.textContent = `Message ${i} ` + "lorem ipsum ".repeat(20);
+        history.appendChild(m);
+      }
+      history.scrollTop = history.scrollHeight;
+    });
+
+    const metrics = await page.evaluate(() => {
+      const root = window.__panel.shadowRoot;
+      const history = root.getElementById("chat-history");
+      return {
+        docHeight: document.documentElement.scrollHeight,
+        viewport: window.innerHeight,
+        historyClient: history.clientHeight,
+        historyScroll: history.scrollHeight,
+        editorTop: root.getElementById("editor-container").getBoundingClientRect().top,
+      };
+    });
+
+    // The page itself must not scroll; the chat history scrolls on its own.
+    expect(metrics.docHeight).toBeLessThanOrEqual(metrics.viewport);
+    expect(metrics.historyScroll).toBeGreaterThan(metrics.historyClient);
+    // The editor pane starts right below the toolbar and stays visible.
+    expect(metrics.editorTop).toBeGreaterThanOrEqual(0);
+    expect(metrics.editorTop).toBeLessThan(metrics.viewport);
+    await page.screenshot({ path: "screenshots/layout-independent-scroll.png" });
+  });
+});
+
 test.describe("Layout — debug pane placement", () => {
   async function showDebugPane(page) {
     await page.evaluate(() => {
