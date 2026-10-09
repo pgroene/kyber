@@ -271,7 +271,11 @@ export const EditorMixin = (Base) => class extends Base {
   }
 
 
-  async _openEditor(entityId) {
+  /**
+   * opts.newConfigId opens an automation that does not exist in HA yet: nothing
+   * is loaded, the caller fills the editor and "Save" creates it under that id.
+   */
+  async _openEditor(entityId, opts = {}) {
     if (!this._hass) return;
 
     const editorPane = this.shadowRoot.getElementById("editor-container");
@@ -282,10 +286,11 @@ export const EditorMixin = (Base) => class extends Base {
     // Resolve entity_id → HA config id and API path
     const state = this._hass.states[entityId];
     const isScript = entityId.startsWith("script.");
-    const configId = (state && state.attributes.id)
-      ? state.attributes.id
-      : entityId.replace(/^(automation|script)\./, "");
-    const friendlyName = (state && state.attributes.friendly_name) || entityId;
+    const configId = opts.newConfigId
+      || ((state && state.attributes.id)
+        ? state.attributes.id
+        : entityId.replace(/^(automation|script)\./, ""));
+    const friendlyName = opts.name || (state && state.attributes.friendly_name) || entityId;
 
     const container = this.shadowRoot.getElementById("app-container");
     container.classList.add("editor-open");
@@ -308,7 +313,16 @@ export const EditorMixin = (Base) => class extends Base {
     this._showYamlTab();
     const testBtn = this.shadowRoot.getElementById("btn-tab-test");
     if (testBtn) testBtn.style.display = "";
-    await this._loadAutomation(configId);
+    if (opts.newConfigId) {
+      // No saved baseline: everything in the editor counts as unsaved
+      this._currentAutomationConfig = null;
+      this._savedYaml = null;
+      this._savedAutomationConfig = null;
+      this._currentBlueprintPath = null;
+      this._updateBlueprintButton(null);
+    } else {
+      await this._loadAutomation(configId);
+    }
 
     if (this._editor) {
       setTimeout(() => this._editor.requestMeasure(), 50);

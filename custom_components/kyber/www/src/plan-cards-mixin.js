@@ -530,6 +530,9 @@ export const PlanCardsMixin = (Base) => class extends Base {
       if (keys.length === 0) return "{}";
       return keys.map((k) => {
         const v = obj[k];
+        // Empty list/mapping stays on the key line: "condition:\n[]" is not valid YAML
+        const isEmpty = Array.isArray(v) ? v.length === 0 : (v !== null && typeof v === "object" && Object.keys(v).length === 0);
+        if (isEmpty) return `${pad}${k}: ${Array.isArray(v) ? "[]" : "{}"}`;
         if (typeof v === "object" && v !== null) {
           return `${pad}${k}:\n${this._configToYaml(v, indent + 1)}`;
         }
@@ -563,7 +566,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
       case "time_pattern": return t("pc_trig_every", { interval: `${trig.hours ? ` ${trig.hours}h` : ""}${trig.minutes ? ` ${trig.minutes}m` : ""}${trig.seconds ? ` ${trig.seconds}s` : ""}` });
       case "state": {
         const eid = Array.isArray(trig.entity_id) ? trig.entity_id.join(", ") : (trig.entity_id || "?");
-        return `🔄 ${eid}${trig.to != null ? ` → ${trig.to}` : ""}`;
+        return `🔄 ${eid}${trig.attribute ? ` · ${trig.attribute}` : ""}${trig.to != null ? ` → ${trig.to}` : ""}`;
       }
       case "sun": return t("pc_trig_sun", { event: trig.event || "?" });
       case "homeassistant": return `🏠 HA ${trig.event || "start"}`;
@@ -752,7 +755,6 @@ export const PlanCardsMixin = (Base) => class extends Base {
   _buildAutomationRow(item, section, idx, changedSections, onDelete) {
     const row = document.createElement("div");
     row.className = "ae-row";
-    row.draggable = true;
     row.dataset.idx = idx;
     const descFn = section === "trigger" ? this._describeTrigger.bind(this)
       : section === "condition" ? this._describeCondition.bind(this)
@@ -760,11 +762,26 @@ export const PlanCardsMixin = (Base) => class extends Base {
     const desc = descFn(item);
     const isChanged = changedSections.has(section);
     const t = this._t || ((k) => k);
+    // Only the handle drags, so the expanded YAML below stays selectable
     row.innerHTML = `
-      <span class="ae-drag-handle" title="${t("pc_drag_reorder")}">⠿</span>
+      <span class="ae-drag-handle" draggable="true" title="${t("pc_drag_reorder")}">⠿</span>
+      <button class="ae-row-toggle" aria-expanded="false" title="${t("pc_sim_expand")}">▸</button>
       <span class="ae-row-desc${isChanged ? " changed" : ""}">${this._escapeHtml(desc)}</span>
-      <button class="ae-row-delete" title="${t("pc_delete")}">🗑</button>
+      <button class="ae-row-delete" title="${t("pc_delete")}" aria-label="${t("pc_delete")}"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H16V19H8V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z"/></svg></button>
+      <pre class="ae-row-detail" hidden></pre>
     `;
+    const toggleBtn = row.querySelector(".ae-row-toggle");
+    const detail = row.querySelector(".ae-row-detail");
+    const toggle = () => {
+      const open = detail.hidden;
+      if (open) detail.textContent = this._configToYaml(item);
+      detail.hidden = !open;
+      toggleBtn.textContent = open ? "▾" : "▸";
+      toggleBtn.title = t(open ? "pc_sim_collapse" : "pc_sim_expand");
+      toggleBtn.setAttribute("aria-expanded", String(open));
+    };
+    toggleBtn.addEventListener("click", toggle);
+    row.querySelector(".ae-row-desc").addEventListener("click", toggle);
     row.querySelector(".ae-row-delete").addEventListener("click", (e) => {
       e.stopPropagation();
       onDelete();
@@ -780,6 +797,9 @@ export const PlanCardsMixin = (Base) => class extends Base {
       dragSrcIdx = parseInt(row.dataset.idx, 10);
       row.classList.add("dragging");
       e.dataTransfer.effectAllowed = "move";
+      // Firefox only starts a drag that carries data; show the whole row, not the handle
+      e.dataTransfer.setData("text/plain", "");
+      e.dataTransfer.setDragImage?.(row, 12, 12);
     });
     container.addEventListener("dragend", () => {
       container.querySelectorAll(".ae-row").forEach((r) => r.classList.remove("dragging", "drag-over"));
@@ -1588,7 +1608,11 @@ export const PlanCardsMixin = (Base) => class extends Base {
         });
         rowsEl.appendChild(row);
       });
-      this._setupDragAndDrop(rowsEl, workingConfig[section], () => { updateYaml(); });
+      // Redraw after a drop: rows and their delete handlers carry the old index
+      this._setupDragAndDrop(rowsEl, workingConfig[section], () => {
+        updateYaml();
+        this._buildAutomationSections(workingConfig, changedSections, sectionsEl, yamlPre);
+      });
       sectionsEl.appendChild(sectionDiv);
     });
   }
@@ -1608,6 +1632,27 @@ export const PlanCardsMixin = (Base) => class extends Base {
     } else {
       card.querySelector(".ae-actions")?.before(this._buildRestoredNote());
     }
+  }
+
+  /**
+   * "Open in editor": loads the card's current config into the YAML editor as an
+   * unsaved draft and locks the card's Apply, so saving the card cannot
+   * overwrite edits made in the editor. target: { entityId } for an existing
+   * automation/script, { newConfigId, name } for one HA does not have yet.
+   */
+  async _openProposalInEditor(card, workingConfig, target) {
+    const t = this._t || ((k) => k);
+    const entityId = target.entityId || `automation.${target.newConfigId}`;
+    await this._openEditor(entityId, target);
+    // The editor's change listener marks the draft dirty and enables Save
+    this._setEditorContent(this._configToYaml(workingConfig));
+    this._setStatus(t("ed_proposal_loaded"), "warning");
+    const applyBtn = card.querySelector(".ae-btn-apply");
+    applyBtn.disabled = true;
+    applyBtn.title = t("ae_in_editor");
+    const resultEl = card.querySelector(".ae-result");
+    resultEl.textContent = t("ae_in_editor");
+    resultEl.className = "ae-result info";
   }
 
   _buildEditAutomationCard(plan, opts = {}) {
@@ -1635,12 +1680,13 @@ export const PlanCardsMixin = (Base) => class extends Base {
       ` : ""}
       <div class="ae-sections" style="display:none"></div>
       <details class="ae-yaml-details" style="display:none">
-        <summary>▼ YAML</summary>
+        <summary>YAML</summary>
         <pre class="ae-yaml-preview"></pre>
       </details>
       <div class="ae-actions">
         <button class="ae-btn-expand">${t("ae_view")}</button>
         <button class="ae-btn-test" style="display:none">${t("pc_test")}</button>
+        <button class="ae-btn-editor">${t("ae_open_editor")}</button>
         <button class="ae-btn-apply">${t("ae_apply")}</button>
         <button class="ae-btn-cancel">${t("ae_cancel")}</button>
       </div>
@@ -1672,6 +1718,11 @@ export const PlanCardsMixin = (Base) => class extends Base {
       let testerEl = card.querySelector(".ae-tester");
       if (!testerEl) { testerEl = document.createElement("div"); testerEl.className = "ae-tester"; sectionsEl.after(testerEl); }
       this._buildAutomationTester(workingConfig, configId, testerEl);
+    });
+
+    card.querySelector(".ae-btn-editor").addEventListener("click", () => {
+      const entityId = plan.entity_id || `${kind}.${configId}`;
+      this._openProposalInEditor(card, workingConfig, { entityId }).catch(() => {});
     });
 
     card.querySelector(".ae-btn-apply").addEventListener("click", async () => {
@@ -1750,12 +1801,13 @@ export const PlanCardsMixin = (Base) => class extends Base {
       <div class="ae-summary">${this._escapeHtml(plan.summary || "")}</div>
       <div class="ae-sections" style="display:none"></div>
       <details class="ae-yaml-details" style="display:none">
-        <summary>▼ YAML</summary>
+        <summary>YAML</summary>
         <pre class="ae-yaml-preview"></pre>
       </details>
       <div class="ae-actions">
         <button class="ae-btn-expand">${t("ae_view")}</button>
         <button class="ae-btn-test" style="display:none">${t("pc_test")}</button>
+        <button class="ae-btn-editor">${t("ae_open_editor")}</button>
         <button class="ae-btn-apply">${t("ae_create")}</button>
         <button class="ae-btn-cancel">${t("ae_cancel")}</button>
       </div>
@@ -1787,6 +1839,15 @@ export const PlanCardsMixin = (Base) => class extends Base {
       let testerEl = card.querySelector(".ae-tester");
       if (!testerEl) { testerEl = document.createElement("div"); testerEl.className = "ae-tester"; sectionsEl.after(testerEl); }
       this._buildAutomationTester(workingConfig, null, testerEl);
+    });
+
+    // One id per card, so opening the editor twice still saves a single automation
+    let draftId = null;
+    card.querySelector(".ae-btn-editor").addEventListener("click", () => {
+      draftId = draftId || String(Date.now());
+      const name = workingConfig.alias || plan.alias || t("ae_new_automation");
+      const draft = { alias: name, ...workingConfig };
+      this._openProposalInEditor(card, draft, { newConfigId: draftId, name }).catch(() => {});
     });
 
     card.querySelector(".ae-btn-apply").addEventListener("click", async () => {

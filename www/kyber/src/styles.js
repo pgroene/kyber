@@ -1682,6 +1682,18 @@ export const STYLES = `
     padding: 7px 8px;
     cursor: default;
     user-select: none;
+    flex-wrap: wrap;
+  }
+  .ae-row-toggle {
+    background: none; border: none; cursor: pointer; padding: 0 2px; flex: 0 0 auto;
+    color: var(--secondary-text-color, #888); font-size: 12px;
+  }
+  .ae-row-desc { cursor: pointer; }
+  .ae-row-detail {
+    flex: 1 0 100%; min-width: 0; box-sizing: border-box; margin: 4px 0 0; padding: 6px 8px;
+    background: var(--card-background-color, #1c1c1c); border: 1px solid var(--border-color); border-radius: 4px;
+    font-family: monospace; font-size: 11px; white-space: pre; overflow-x: auto;
+    max-height: 260px; overflow-y: auto; user-select: text; cursor: text;
   }
   .ae-row.dragging { opacity: 0.4; }
   .ae-row.drag-over { border-color: var(--accent); border-style: dashed; background: color-mix(in srgb, var(--accent) 10%, var(--sidebar-bg)); }
@@ -1694,10 +1706,14 @@ export const STYLES = `
     padding: 1px 4px;
   }
   .ae-row-delete {
-    background: none; border: none; cursor: pointer; opacity: 0.4; font-size: 14px; padding: 2px;
-    flex: 0 0 auto;
+    background: none; border: none; cursor: pointer; padding: 2px; border-radius: 4px;
+    flex: 0 0 auto; display: inline-flex; align-items: center;
+    color: var(--secondary-text-color, #aaa);
   }
-  .ae-row-delete:hover { opacity: 1; }
+  .ae-row-delete:hover, .ae-row-delete:focus-visible {
+    color: var(--error-color, #db4437);
+    background: color-mix(in srgb, var(--error-color, #db4437) 15%, transparent);
+  }
   .ae-yaml-details {
     margin: 8px 0;
     font-size: 12px;
@@ -1717,7 +1733,7 @@ export const STYLES = `
     overflow-y: auto;
   }
   .ae-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
-  .ae-btn-expand, .ae-btn-test {
+  .ae-btn-expand, .ae-btn-test, .ae-btn-editor {
     padding: 6px 12px; background: transparent; color: var(--accent);
     border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; font-size: 12px;
   }
@@ -1732,6 +1748,7 @@ export const STYLES = `
   }
   .ae-result { margin-top: 6px; font-size: 12px; }
   .ae-result.error { color: var(--danger, #e53935); }
+  .ae-result.info { color: var(--accent); }
 
   /* Automation tester */
   .ae-tester {
