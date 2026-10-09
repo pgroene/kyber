@@ -20,7 +20,7 @@ const editActionPlan = {
 
 describe("getT placeholders", () => {
   it("fills named placeholders", () => {
-    expect(getT("en")("pc_failed", { n: 2, msg: "boom" })).toBe(EN.pc_failed.replace("{n}", "2").replace("{msg}", "boom"));
+    expect(getT("en")("pc_failed", { n: 2, msg: "boom" })).toBe("⚠ 2 actions failed: boom");
   });
 
   it("leaves unknown placeholders and plain lookups alone", () => {
@@ -30,8 +30,8 @@ describe("getT placeholders", () => {
   });
 });
 
-describe("getT singular", () => {
-  it("uses <key>_one when n is 1", () => {
+describe("getT plurals", () => {
+  it("picks the singular form for 1 and the plural otherwise", () => {
     expect(getT("en")("ss_delete_detail", { n: 1 })).toBe("1 message will be lost.");
     expect(getT("en")("ss_delete_detail", { n: 2 })).toBe("2 messages will be lost.");
     expect(getT("en")("ss_delete_detail", { n: 0 })).toBe("0 messages will be lost.");
@@ -40,24 +40,45 @@ describe("getT singular", () => {
     expect(getT("nl")("ut_ctx_entities", { n: 1 })).toBe("1 entiteit");
   });
 
-  it("accepts a numeric string", () => {
+  it("accepts a numeric string and leaves non-numbers plural", () => {
     expect(getT("en")("ut_ctx_entities", { n: "1" })).toBe("1 entity");
+    expect(getT("en")("dbg_chars_tokens", { chars: "1,234", tokens: "1" })).toBe("1,234 chars (~1 token)");
   });
 
-  it("keeps a locale's plural instead of borrowing the English singular", () => {
-    // FR has no ss_* texts of its own and falls back to English as a whole.
-    expect(getT("fr")("ss_delete_detail", { n: 1 })).toBe("1 message will be lost.");
+  it("handles several counts in one text, verbs included", () => {
+    expect(getT("en")("dbg_dj_progress", { analyzed: 4, facts: 1, errors: 2 })).toBe("4 analyzed · 1 fact · 2 errors");
+    expect(getT("de")("dbg_dj_progress", { analyzed: 4, facts: 1, errors: 1 })).toBe("4 analysiert · 1 Fakt · 1 Fehler");
+    expect(getT("de")("pc_approval_required", { n: 1 })).toBe("🔒 1 Aktion erfordert eine Freigabe.");
+    expect(getT("en")("pc_missing_entities", { n: 1, ids: "light.x" }))
+      .toBe("⛔ 1 entity ID not found in Home Assistant: light.x. This action will be skipped.");
+    expect(getT("de")("kn_no_proposals", { automations: 1, scenes: 0, scripts: 2 }))
+      .toBe("Keine neuen Vorschläge. 1 Automatisierung, 0 Szenen und 2 Skripte durchsucht.");
   });
 
-  it("no EN text with a plain {n} count lacks a singular", () => {
-    // "{n} <word>s" with n === 1 reads "1 messages"; such keys need a _one text
+  it("leaves a plural placeholder alone when its value is missing", () => {
+    expect(getT("en")("dbg_hits", { other: 1 })).toBe(EN.dbg_hits);
+  });
+
+  it("no EN text puts a plain count before a plural word", () => {
+    // "{x} <word>s" reads "1 messages" for x = 1: use "{x|# message|# messages}"
     // (or an explicit singular key the caller picks, like ed_n_action).
-    const explicitPairs = new Set(["ed_n_actions", "ed_n_conditions", "sc_msg_count_other"]);
-    const missing = Object.entries(EN)
-      .filter(([k, v]) => !k.endsWith("_one") && /\{n\}\s+[A-Za-z]+s\b/.test(v))
-      .filter(([k]) => !(`${k}_one` in EN) && !explicitPairs.has(k) && !/_(other|many)$/.test(k))
+    const allowed = new Set([
+      "ed_n_conditions", "sc_msg_count_other",  // caller picks ed_n_condition / sc_msg_count_one
+      "dbg_rv_hide_for_days",                   // {input} is an <input> field, not a number
+      "sc_cmd_list",                            // {cmd} is a command name
+    ]);
+    const plainCount = /(?<!v)\{\w+\}\s+[A-Za-z]+s\b/;  // not "v{ver} is"
+    const offenders = Object.entries(EN)
+      .filter(([k, v]) => plainCount.test(v) && !allowed.has(k) && !/_(other|many)$/.test(k))
       .map(([k]) => k);
-    expect(missing).toEqual([]);
+    expect(offenders).toEqual([]);
+  });
+
+  it("no hedged plurals like action(s) or Aktion(en)", () => {
+    const hedge = /\w\((s|en|n|'s)\)/;
+    for (const locale of [EN, NL, DE]) {
+      expect(Object.entries(locale).filter(([, v]) => hedge.test(v)).map(([k]) => k)).toEqual([]);
+    }
   });
 });
 
@@ -74,7 +95,8 @@ describe("session list and delete in the singular", () => {
 
 describe("locales stay complete", () => {
   it("NL and DE define every EN key and keep its placeholders", () => {
-    const ph = (s) => (s.match(/\{\w+\}/g) || []).sort().join(",");
+    // Placeholder names, plain "{n}" and plural "{n|…|…}" alike.
+    const ph = (s) => [...new Set([...s.matchAll(/\{(\w+)(?:\}|\|)/g)].map((m) => m[1]))].sort().join(",");
     for (const locale of [NL, DE]) {
       const broken = Object.keys(EN).filter((k) => !(k in locale) || ph(locale[k]) !== ph(EN[k]));
       expect(broken).toEqual([]);
