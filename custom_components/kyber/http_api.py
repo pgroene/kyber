@@ -1071,6 +1071,41 @@ async def _check_ollama_health(hass: Any, entity_id: str) -> dict:
     return result
 
 
+# Shown when the model produced no text at all. Same languages as the panel;
+# anything else gets English.
+_NO_ANSWER_MESSAGES: dict[str, dict[str, str]] = {
+    "no_action": {
+        "en": "I wasn't able to figure out the right action for that request — "
+              "could you rephrase or be more specific?",
+        "nl": "Ik kon geen passende actie vinden voor dit verzoek — "
+              "kun je het anders formuleren of specifieker zijn?",
+        "de": "Ich konnte für diese Anfrage keine passende Aktion finden. "
+              "Kannst du sie anders formulieren oder genauer beschreiben?",
+    },
+    "no_answer": {
+        "en": "I couldn't generate an answer for this request — "
+              "could you rephrase it or be more specific?",
+        "nl": "Ik kon geen antwoord genereren voor dit verzoek — "
+              "kun je het anders formuleren of specifieker zijn?",
+        "de": "Ich konnte auf diese Anfrage keine Antwort erzeugen. "
+              "Kannst du sie anders formulieren oder genauer beschreiben?",
+    },
+}
+
+
+def _no_answer_message(hass: Any, user_prompt: str, kind: str) -> str:
+    """Return the fallback message in the language of the prompt.
+
+    detect_language() returns "en" when it is unsure (short prompts such as
+    "prüfe die IDs"), so "en" falls back to the Home Assistant language.
+    """
+    lang = detect_language(user_prompt)
+    if lang == "en":
+        lang = str(getattr(getattr(hass, "config", None), "language", "") or "en")
+    texts = _NO_ANSWER_MESSAGES[kind]
+    return texts.get(lang.split("-")[0].lower(), texts["en"])
+
+
 async def _run_ai_loop(
     hass: Any,
     entity_id: str,
@@ -1825,10 +1860,7 @@ async def _run_ai_loop(
                     _LOGGER.warning("Kyber: synthesis pass failed: %s", _synth_err)
             # Final guard: if synthesis also produced nothing, show a helpful message.
             if not _strip_tool_calls(response_text).strip():
-                response_text = (
-                    "I wasn't able to figure out the right action for that "
-                    "request \u2014 could you rephrase or be more specific?"
-                )
+                response_text = _no_answer_message(hass, user_prompt, "no_action")
             break
 
     # Fallback: if the tool loop exhausted max rounds without producing a text
@@ -1836,10 +1868,7 @@ async def _run_ai_loop(
     # the user always gets a helpful message instead of an empty response.
     if not _strip_tool_calls(response_text).strip():
         _LOGGER.warning("Kyber: tool loop exhausted max rounds with no text response — returning fallback")
-        response_text = (
-            "Ik kon geen antwoord genereren voor dit verzoek — "
-            "kon je het anders formuleren of specifieker zijn?"
-        )
+        response_text = _no_answer_message(hass, user_prompt, "no_answer")
 
     tool_exchange = "".join(r.text for r in tool_rounds)
     return response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved, _token_usage
