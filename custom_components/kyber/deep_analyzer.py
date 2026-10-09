@@ -569,39 +569,40 @@ async def analyze_pending(
         if sweep is not None:
             sweep.add(_sweep_key(kind, ident))
 
-        try:
-            # Check preemption before each item (catches chat that started between items).
-            if hass.data.get(_CHAT_BUSY_KEY):
-                raise _ChatPreemptError()
+        # A chat preempts the item; it is retried once the chat is over.
+        raw: str | None = None
+        while True:
+            try:
+                # Check preemption before each attempt (catches chat that started between items).
+                if hass.data.get(_CHAT_BUSY_KEY):
+                    raise _ChatPreemptError()
 
-            _set_deep_progress(processed - 1, ident)
+                _set_deep_progress(processed - 1, ident)
 
-            prompt = _build_prompt(kind, item, prompt_variant, entity_names=entity_names, entity_areas=entity_areas, entity_devices=entity_devices)
-            raw = await _run_ai(hass, ai_entity_id, prompt)
-        except _ChatPreemptError:
-            _LOGGER.info("Kyber deep-analyzer: preempted by chat — pausing")
-            _set_deep_progress(processed - 1, ident, paused=True)
-            while hass.data.get(_CHAT_BUSY_KEY):
-                await asyncio.sleep(1)
-            backoff = _CHAT_BACKOFF_SECONDS[min(_chat_preempt_count, len(_CHAT_BACKOFF_SECONDS) - 1)]
-            _chat_preempt_count += 1
-            _LOGGER.info("Kyber deep-analyzer: chat ended — resuming in %ds (attempt %d)", backoff, _chat_preempt_count)
-            await asyncio.sleep(backoff)
-            _set_deep_progress(processed - 1, ident)
-            processed -= 1  # re-process this item
-            if sweep is not None:
-                sweep.discard(_sweep_key(kind, ident))
-            continue
-        except asyncio.TimeoutError:
-            _LOGGER.warning(
-                "Kyber deep_analyzer: AI call timed out (%ds) for %s:%s — skipping",
-                _AI_CALL_TIMEOUT, kind, ident,
-            )
-            errors.append({"kind": kind, "ident": ident, "error": f"AI timeout after {_AI_CALL_TIMEOUT}s"})
-            continue
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Kyber deep_analyzer: AI call failed for %s:%s: %s", kind, ident, err)
-            errors.append({"kind": kind, "ident": ident, "error": str(err)})
+                prompt = _build_prompt(kind, item, prompt_variant, entity_names=entity_names, entity_areas=entity_areas, entity_devices=entity_devices)
+                raw = await _run_ai(hass, ai_entity_id, prompt)
+                break
+            except _ChatPreemptError:
+                _LOGGER.info("Kyber deep-analyzer: preempted by chat — pausing")
+                _set_deep_progress(processed - 1, ident, paused=True)
+                while hass.data.get(_CHAT_BUSY_KEY):
+                    await asyncio.sleep(1)
+                backoff = _CHAT_BACKOFF_SECONDS[min(_chat_preempt_count, len(_CHAT_BACKOFF_SECONDS) - 1)]
+                _chat_preempt_count += 1
+                _LOGGER.info("Kyber deep-analyzer: chat ended — resuming in %ds (attempt %d)", backoff, _chat_preempt_count)
+                await asyncio.sleep(backoff)
+            except asyncio.TimeoutError:
+                _LOGGER.warning(
+                    "Kyber deep_analyzer: AI call timed out (%ds) for %s:%s — skipping",
+                    _AI_CALL_TIMEOUT, kind, ident,
+                )
+                errors.append({"kind": kind, "ident": ident, "error": f"AI timeout after {_AI_CALL_TIMEOUT}s"})
+                break
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Kyber deep_analyzer: AI call failed for %s:%s: %s", kind, ident, err)
+                errors.append({"kind": kind, "ident": ident, "error": str(err)})
+                break
+        if raw is None:
             continue
 
         # Successful item — reset chat preemption backoff counter.

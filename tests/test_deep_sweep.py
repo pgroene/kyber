@@ -106,3 +106,23 @@ async def test_without_sweep_least_recently_analysed_first(hass: HomeAssistant) 
 
     assert _idents(first) == ["a00", "a01", "a02"]
     assert _idents(second) == ["a03", "a04", "a05"]
+
+
+async def test_chat_preempted_item_is_retried(hass: HomeAssistant) -> None:
+    """A chat interrupting an item retries that item instead of skipping it."""
+    deep = _deep()
+    items = _automations(3)
+    calls: list[str] = []
+
+    async def _ai(_hass, _eid, prompt):
+        calls.append(prompt)
+        if len(calls) == 1:
+            raise deep._ChatPreemptError()
+        return "[]"
+
+    with patch("asyncio.sleep", AsyncMock()):
+        result = await _run(hass, items, AsyncMock(side_effect=_ai), limit=2)
+
+    assert _idents(result) == ["a00", "a01"]
+    assert result["errors"] == []
+    assert len(calls) == 3  # a00 twice (preempted, retried), then a01
