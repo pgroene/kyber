@@ -30,6 +30,48 @@ describe("getT placeholders", () => {
   });
 });
 
+describe("getT singular", () => {
+  it("uses <key>_one when n is 1", () => {
+    expect(getT("en")("ss_delete_detail", { n: 1 })).toBe("1 message will be lost.");
+    expect(getT("en")("ss_delete_detail", { n: 2 })).toBe("2 messages will be lost.");
+    expect(getT("en")("ss_delete_detail", { n: 0 })).toBe("0 messages will be lost.");
+    expect(getT("de")("ss_delete_detail", { n: 1 })).toBe("1 Nachricht geht verloren.");
+    expect(getT("de")("ss_delete_detail", { n: 3 })).toBe("3 Nachrichten gehen verloren.");
+    expect(getT("nl")("ut_ctx_entities", { n: 1 })).toBe("1 entiteit");
+  });
+
+  it("accepts a numeric string", () => {
+    expect(getT("en")("ut_ctx_entities", { n: "1" })).toBe("1 entity");
+  });
+
+  it("keeps a locale's plural instead of borrowing the English singular", () => {
+    // FR has no ss_* texts of its own and falls back to English as a whole.
+    expect(getT("fr")("ss_delete_detail", { n: 1 })).toBe("1 message will be lost.");
+  });
+
+  it("no EN text with a plain {n} count lacks a singular", () => {
+    // "{n} <word>s" with n === 1 reads "1 messages"; such keys need a _one text
+    // (or an explicit singular key the caller picks, like ed_n_action).
+    const explicitPairs = new Set(["ed_n_actions", "ed_n_conditions", "sc_msg_count_other"]);
+    const missing = Object.entries(EN)
+      .filter(([k, v]) => !k.endsWith("_one") && /\{n\}\s+[A-Za-z]+s\b/.test(v))
+      .filter(([k]) => !(`${k}_one` in EN) && !explicitPairs.has(k) && !/_(other|many)$/.test(k))
+      .map(([k]) => k);
+    expect(missing).toEqual([]);
+  });
+});
+
+describe("session list and delete in the singular", () => {
+  it("/session delete with one message", async () => {
+    const { element } = makePanel({ language: "en" });
+    element._chatHistory = [{ role: "user", content: "hi" }];
+    element._getActiveSession = () => ({ id: "s1", name: "Test" });
+    await element._handleSessionCommand("delete");
+    const card = element.shadowRoot.querySelector(".command-card");
+    expect(card.querySelector(".command-card-detail").textContent).toBe("1 message will be lost.");
+  });
+});
+
 describe("locales stay complete", () => {
   it("NL and DE define every EN key and keep its placeholders", () => {
     const ph = (s) => (s.match(/\{\w+\}/g) || []).sort().join(",");

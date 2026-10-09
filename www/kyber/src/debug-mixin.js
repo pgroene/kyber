@@ -89,7 +89,7 @@ export const DebugMixin = (Base) => class extends Base {
     body.innerHTML = `
       ${reviewQueue.length > 0 ? this._renderReviewCardHTML(reviewQueue, entries) : ""}
       <div class="debug-stats">
-        ${t("dbg_mem_stats", { n: `<strong>${entries.length}</strong>`, review: reviewCount })} · ${catBadges}
+        ${t("dbg_mem_stats", { n: entries.length, count: `<strong>${entries.length}</strong>`, review: reviewCount })} · ${catBadges}
       </div>
       <div class="debug-toolbar">
         <label>${t("dbg_filter")}
