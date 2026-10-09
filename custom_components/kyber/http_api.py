@@ -94,6 +94,7 @@ from .response_processing import (
     _rewrap_bare_action_fences, _normalize_json_plan_blocks, _NARRATION_PATTERNS, _BARE_JSON_TOOL_RESULT_RE,
     _strip_role_echo_prefix, _BRIGHTNESS_INTENT_RE, _DIM_INTENT_RE,
     _augment_brightness_intent, _extract_clarify_block, _strip_plan_block,
+    _lift_config_edit_plan,
 )
 from .intent_and_context import (
     _QUICK_CREATE_AREA_RE, _try_quick_intent,
@@ -122,6 +123,7 @@ from .debug_and_diagnostics import (
 from .action_execution import (
     _CONFIG_CHANGING_ACTION_TYPES, _DESTRUCTIVE_SERVICES, _classify_risk,
     _action_requires_approval, _annotate_plan_approval, _build_service_undo,
+    _resolve_config_target,
     KyberExecuteView,
 )
 from .knowledge_integration import (
@@ -1997,6 +1999,25 @@ def _extract_response_components(
                     aid,
                 )
                 plan_block = None
+
+    # Rescue: an automation/script edit emitted as an entry in "actions" goes to
+    # the automation edit card instead of the generic plan card, and the edit
+    # card gets the real config id (not the entity_id slug) to save to.
+    lifted = _lift_config_edit_plan(plan_block)
+    if lifted is not plan_block:
+        _LOGGER.info("Kyber: lifted %s action into an edit_automation plan", plan_block["actions"][0].get("type"))
+        plan_block = lifted
+    if plan_block and plan_block.get("edit_automation"):
+        try:
+            _domain, _config_id, _entity_id = _resolve_config_target(
+                hass, {**plan_block, "type": "edit_script" if plan_block.get("script") else "edit_automation"},
+            )
+            if _config_id:
+                plan_block["automation_id"] = _config_id
+            if _entity_id:
+                plan_block["entity_id"] = _entity_id
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Kyber: could not resolve edit_automation target: %s", err)
 
     # Plan auto-resolution: when a plan references an entity_id that does
     # not exist (e.g. `light.werkkamer`) but the local part matches an area

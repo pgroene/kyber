@@ -39,9 +39,11 @@ _CONFIG_CHANGING_ACTION_TYPES: set[str] = {
     "delete_label",
     "create_automation",
     "update_automation",
+    "edit_automation",
     "delete_automation",
     "create_script",
     "update_script",
+    "edit_script",
     "delete_script",
     "update_dashboard",
     "create_dashboard",
@@ -107,6 +109,54 @@ def _action_requires_approval(action: dict, denylist: set[str] | None = None) ->
     if atype in _CONFIG_CHANGING_ACTION_TYPES:
         return True
     return _classify_risk(action, denylist) is not None
+
+
+def _resolve_config_target(hass: HomeAssistant, action: dict) -> tuple[str, str, str]:
+    """Return (domain, config_id, entity_id) for an automation/script edit.
+
+    Models fill these fields inconsistently: the config id may be missing,
+    hold the entity_id ("automation.x") or only the alias may be known. The
+    config id of an automation is its ``id`` state attribute, which differs
+    from the entity_id slug; a script's config id is its object id.
+    """
+    atype = str(action.get("type", "")).lower()
+    config = action.get("modified_config") or action.get("config") or {}
+    entity_id = str(action.get("entity_id") or "").strip()
+    config_id = str(
+        action.get("automation_id") or action.get("script_id") or action.get("id") or ""
+    ).strip()
+    is_script = "script" in atype or entity_id.startswith("script.") or config_id.startswith("script.")
+    domain = "script" if is_script else "automation"
+
+    if config_id.startswith(f"{domain}."):
+        entity_id = entity_id or config_id
+        config_id = ""
+
+    if not entity_id and not config_id:
+        alias = str(action.get("alias") or (config.get("alias") if isinstance(config, dict) else "") or "")
+        alias = alias.strip().casefold()
+        if alias:
+            for state in hass.states.async_all(domain):
+                if str(state.attributes.get("friendly_name") or "").strip().casefold() == alias:
+                    entity_id = state.entity_id
+                    break
+
+    if entity_id and not config_id:
+        if domain == "script":
+            config_id = entity_id.split(".", 1)[1]
+        else:
+            state = hass.states.get(entity_id)
+            config_id = str((state.attributes.get("id") if state else "") or "")
+    elif config_id and not entity_id:
+        if domain == "script":
+            entity_id = f"script.{config_id}"
+        else:
+            for state in hass.states.async_all(domain):
+                if str(state.attributes.get("id") or "") == config_id:
+                    entity_id = state.entity_id
+                    break
+
+    return domain, config_id, entity_id
 
 
 def _annotate_plan_approval(plan: dict | None, denylist: set[str] | None = None) -> dict | None:
@@ -424,20 +474,31 @@ async def async_execute_actions(
             continue
 
         # ── Automation / script config actions ────────────────────────
-        if action_type in ("create_automation", "update_automation", "create_script", "update_script"):
-            _is_script = action_type in ("create_script", "update_script")
-            _config_domain = "script" if _is_script else "automation"
-            _automation_id = (
-                action.get("automation_id") or action.get("script_id") or action.get("id") or ""
-            ).strip()
+        if action_type in (
+            "create_automation", "update_automation", "edit_automation",
+            "create_script", "update_script", "edit_script",
+        ):
+            _is_update = action_type not in ("create_automation", "create_script")
             _config: dict = action.get("config") or action.get("modified_config") or {}
             if not _config:
                 results.append({"status": "error", "message": f"Missing 'config' for {action_type}"})
                 continue
-            if not _automation_id:
-                if action_type in ("update_automation", "update_script"):
-                    results.append({"status": "error", "message": f"Missing 'automation_id' / 'id' for {action_type}"})
+            if _is_update:
+                # edit_* is what the chat plan block calls it; it means update_*.
+                _config_domain, _automation_id, _ = _resolve_config_target(hass, action)
+                if not _automation_id:
+                    results.append({
+                        "status": "error",
+                        "message": f"Cannot find the {_config_domain} to change ({action_type}): "
+                                   "no automation_id, entity_id or matching alias",
+                    })
                     continue
+            else:
+                _config_domain = "script" if action_type == "create_script" else "automation"
+                _automation_id = (
+                    action.get("automation_id") or action.get("script_id") or action.get("id") or ""
+                ).strip()
+            if not _automation_id:
                 import time as _time
                 _automation_id = str(int(_time.time() * 1000))
             _config_with_id = {**_config, "id": _automation_id}
@@ -462,18 +523,30 @@ async def async_execute_actions(
                         results.append({"status": "error", "message": f"HA API {resp.status}: {_body[:200]}"})
                         continue
                 alias = _config.get("alias") or _automation_id
-                results.append({
-                    "status": "ok",
-                    "type": action_type,
-                    f"{_config_domain}_id": _automation_id,
-                    "alias": alias,
-                    "undo_action": {
+                _original = action.get("original_config")
+                if not _is_update:
+                    _undo: dict | None = {
                         "type": f"delete_{_config_domain}",
                         f"{_config_domain}_id": _automation_id,
                         "current_state": alias,
                         "new_state": "(deleted)",
                         "description": f"Delete {_config_domain} '{alias}' (undo create)",
-                    } if action_type in ("create_automation", "create_script") else None,
+                    }
+                elif isinstance(_original, dict) and _original:
+                    _undo = {
+                        "type": f"update_{_config_domain}",
+                        f"{_config_domain}_id": _automation_id,
+                        "config": _original,
+                        "description": f"Restore previous {_config_domain} '{alias}'",
+                    }
+                else:
+                    _undo = None
+                results.append({
+                    "status": "ok",
+                    "type": action_type,
+                    f"{_config_domain}_id": _automation_id,
+                    "alias": alias,
+                    "undo_action": _undo,
                 })
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error("%s '%s' failed: %s", action_type, _automation_id, err)

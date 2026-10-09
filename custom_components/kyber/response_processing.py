@@ -192,6 +192,47 @@ def _extract_plan_block(text: str) -> dict | None:
     return parsed
 
 
+_CONFIG_EDIT_ACTION_TYPES = {"edit_automation", "update_automation", "edit_script", "update_script"}
+
+
+def _lift_config_edit_plan(plan: dict | None) -> dict | None:
+    """Turn ``{"actions": [{"type": "edit_automation", ...}]}`` into an edit_automation plan.
+
+    The prompt asks for a top-level ``"edit_automation": true`` block, which the
+    panel renders as the automation edit card (diff view, apply, undo). Models
+    sometimes put it into ``actions`` instead; the generic plan card then sends
+    it to /api/kyber/execute as a plain action. Only a plan consisting of one
+    such action with a modified config is lifted; anything else is returned
+    unchanged.
+    """
+    if not isinstance(plan, dict) or plan.get("edit_automation") or plan.get("create_automation"):
+        return plan
+    actions = plan.get("actions")
+    if not isinstance(actions, list) or len(actions) != 1 or not isinstance(actions[0], dict):
+        return plan
+    action = actions[0]
+    if str(action.get("type", "")).lower() not in _CONFIG_EDIT_ACTION_TYPES:
+        return plan
+    modified = action.get("modified_config") or action.get("config")
+    if not isinstance(modified, dict) or not modified:
+        return plan
+
+    lifted: dict = {
+        "edit_automation": True,
+        "summary": plan.get("summary") or action.get("summary") or action.get("description") or "",
+        "modified_config": modified,
+    }
+    if "script" in str(action.get("type", "")).lower():
+        lifted["script"] = True
+    for key in ("entity_id", "automation_id", "script_id", "alias", "original_config"):
+        if action.get(key):
+            lifted[key] = action[key]
+    changes = action.get("changes") or plan.get("changes") or plan.get("warnings")
+    if isinstance(changes, list) and changes:
+        lifted["changes"] = [str(c) for c in changes]
+    return lifted
+
+
 def _strip_plan_block(text: str) -> str:
     """Remove ```plan```, bare ## Plan, and [PLAN]\\n{...} blocks from response text so the
     frontend does not render raw JSON in the chat bubble (the plan card handles it).

@@ -271,6 +271,7 @@ When the user wants to change/modify/update a specific automation:
 ```
 
 The frontend renders the changes visually — no YAML needed. The user approves or refines.
+`edit_automation` is a top-level key of the plan block as shown — never an entry in `actions`.
 
 #### Create new automation
 When the user wants to create a new automation, confirm all entity_ids exist first, then:
