@@ -6,7 +6,7 @@
  * these tests keep it — and the intact EN/NL locales — from regressing.
  */
 
-import { EN, NL, DE, getT } from "kyber-www/src/i18n.js";
+import { EN, NL, DE, FR, ES, IT, PT, PL, HU, SV, RU, ZH, getT } from "kyber-www/src/i18n.js";
 
 // Locales known to be intact. Add a locale here once it has been restored.
 const CLEAN_LOCALES = { en: EN, nl: NL, de: DE };
@@ -45,5 +45,25 @@ describe("i18n — intact locales", () => {
 
   it("de-AT falls back to de", () => {
     expect(getT("de-AT")("btn_clear_history")).toBe("Verlauf löschen");
+  });
+});
+
+describe("i18n — autopilot button", () => {
+  it("every locale shows the lightning symbol, not a replacement \"?\"", () => {
+    for (const [lang, locale] of Object.entries({ EN, NL, DE, FR, ES, IT, PT, PL, HU, SV, RU, ZH })) {
+      expect(locale.autopilot_badge, lang).toBe("⚡ Autopilot");
+    }
+  });
+
+  it("the tooltip says what runs alone and what still needs approval", () => {
+    const de = getT("de")("panel_autopilot_title");
+    expect(de).toContain("ohne Klick");
+    expect(de).toContain("Freigabe");
+    expect(de).toContain("Neuladen");
+    for (const locale of [EN, NL, DE]) {
+      // Inserted into a title="…" attribute without escaping
+      expect(locale.panel_autopilot_title).not.toContain('"');
+      expect(locale.panel_autopilot_title).not.toContain("—");
+    }
   });
 });

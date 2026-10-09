@@ -865,7 +865,7 @@ export const EN = {
   panel_history_toggle_title: "Show applied action history",
   panel_history_toggle: "🕘 History",
   panel_update_badge_title: "Update available — click to install",
-  panel_autopilot_title: "Toggle autopilot — auto-executes safe proposals",
+  panel_autopilot_title: "Autopilot on/off: run device commands (e.g. “lights on”) without a click.\nChanges to automations, areas or dashboards, and locks, alarms and covers, still need your approval.\nLasts until the page is reloaded.",
   panel_dismiss: "Dismiss",
   panel_history_header: "History",
   panel_history_refresh_title: "Refresh history",
@@ -1860,7 +1860,7 @@ export const NL = {
   panel_history_toggle_title: "Geschiedenis van uitgevoerde acties tonen",
   panel_history_toggle: "🕘 Geschiedenis",
   panel_update_badge_title: "Update beschikbaar — klik om te installeren",
-  panel_autopilot_title: "Autopilot aan/uit — voert veilige voorstellen automatisch uit",
+  panel_autopilot_title: "Autopilot aan/uit: schakelopdrachten (bijv. „licht aan“) zonder klik uitvoeren.\nWijzigingen aan automatiseringen, ruimtes of dashboards, en sloten, alarm en rolluiken hebben nog steeds je goedkeuring nodig.\nGeldt tot de pagina opnieuw wordt geladen.",
   panel_dismiss: "Sluiten",
   panel_history_header: "Geschiedenis",
   panel_history_refresh_title: "Geschiedenis vernieuwen",
@@ -2855,7 +2855,7 @@ export const DE = {
   panel_history_toggle_title: "Verlauf der ausgeführten Aktionen anzeigen",
   panel_history_toggle: "🕘 Verlauf",
   panel_update_badge_title: "Update verfügbar – zum Installieren klicken",
-  panel_autopilot_title: "Autopilot ein/aus – führt sichere Vorschläge automatisch aus",
+  panel_autopilot_title: "Autopilot ein/aus: Schaltbefehle (z. B. „Licht an“) ohne Klick ausführen.\nÄnderungen an Automatisierungen, Räumen oder Dashboards sowie Schlösser, Alarm und Rollläden brauchen weiter deine Freigabe.\nGilt bis zum Neuladen der Seite.",
   panel_dismiss: "Schließen",
   panel_history_header: "Verlauf",
   panel_history_refresh_title: "Verlauf aktualisieren",
@@ -3003,7 +3003,7 @@ export const FR = {
   brand: "Assistant Kyber",
   memory_badge_title: "Faits m?moris?s ? cliquez pour pr?visualiser les faits rappel?s",
   update_badge: "Mise ? jour",
-  autopilot_badge: "? Autopilot",
+  autopilot_badge: "⚡ Autopilot",
   btn_clear_history: "Effacer l?historique",
   btn_debug_title: "Ouvrir le d?bogage / inspecteur m?moire",
 
@@ -3080,7 +3080,7 @@ export const ES = {
   brand: "Asistente Kyber",
   memory_badge_title: "Datos de memoria ? haz clic para previsualizar los datos recordados",
   update_badge: "Actualizar",
-  autopilot_badge: "? Autopilot",
+  autopilot_badge: "⚡ Autopilot",
   btn_clear_history: "Borrar historial",
   btn_debug_title: "Abrir depuraci?n / inspector de memoria",
 
@@ -3156,7 +3156,7 @@ export const IT = {
   brand: "Assistente Kyber",
   memory_badge_title: "Fatti in memoria ? fai clic per visualizzare in anteprima i fatti richiamati",
   update_badge: "Aggiorna",
-  autopilot_badge: "? Autopilot",
+  autopilot_badge: "⚡ Autopilot",
   btn_clear_history: "Cancella cronologia",
   btn_debug_title: "Apri debug / ispettore memoria",
 
@@ -3232,7 +3232,7 @@ export const PT = {
   brand: "Assistente Kyber",
   memory_badge_title: "Factos da mem?ria ? clique para pr?-visualizar os factos recordados",
   update_badge: "Atualiza??o",
-  autopilot_badge: "? Autopilot",
+  autopilot_badge: "⚡ Autopilot",
   btn_clear_history: "Limpar hist?rico",
   btn_debug_title: "Abrir depura??o / inspetor de mem?ria",
 
@@ -3308,7 +3308,7 @@ export const PL = {
   brand: "Asystent Kyber",
   memory_badge_title: "Fakty pami?ci ? kliknij, aby podejrze? przywo?ane fakty",
   update_badge: "Aktualizacja",
-  autopilot_badge: "? Autopilot",
+  autopilot_badge: "⚡ Autopilot",
   btn_clear_history: "Wyczy?? histori?",
   btn_debug_title: "Otw?rz debugowanie / inspektor pami?ci",
 
@@ -3384,7 +3384,7 @@ export const HU = {
   brand: "Kyber Asszisztens",
   memory_badge_title: "Mem?riaadatok ? kattintson a felid?zett t?nyek el?n?zet?hez",
   update_badge: "Friss?t?s",
-  autopilot_badge: "? Autopilot",
+  autopilot_badge: "⚡ Autopilot",
   btn_clear_history: "El?zm?nyek t?rl?se",
   btn_debug_title: "Hibakeres?s / mem?riaellen?rz? megnyit?sa",
 
@@ -3460,7 +3460,7 @@ export const SV = {
   brand: "Kyber Assistent",
   memory_badge_title: "Minnesfakta ? klicka f?r att f?rhandsgranska ?terkallade fakta",
   update_badge: "Uppdatering",
-  autopilot_badge: "? Autopilot",
+  autopilot_badge: "⚡ Autopilot",
   btn_clear_history: "Rensa historik",
   btn_debug_title: "?ppna fels?kning / minnesinspekt?r",
 
@@ -3536,7 +3536,7 @@ export const RU = {
   brand: "????????? Kyber",
   memory_badge_title: "????? ?????? ? ???????, ????? ??????????? ????????? ?????",
   update_badge: "??????????",
-  autopilot_badge: "? Autopilot",
+  autopilot_badge: "⚡ Autopilot",
   btn_clear_history: "???????? ???????",
   btn_debug_title: "??????? ??????? / ????????? ??????",
 
@@ -3612,7 +3612,7 @@ export const ZH = {
   brand: "Kyber ??",
   memory_badge_title: "???? ? ???????????",
   update_badge: "??",
-  autopilot_badge: "? Autopilot",
+  autopilot_badge: "⚡ Autopilot",
   btn_clear_history: "??????",
   btn_debug_title: "???? / ?????",
 
