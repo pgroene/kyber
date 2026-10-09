@@ -995,14 +995,18 @@ async def _check_ollama_health(hass: Any, entity_id: str) -> dict:
 
     # 2. Find the Ollama config entry that owns this AI task entity via entity registry.
     #    Fall back to the first Ollama entry if the entity can't be matched.
+    #    An entity of another integration (OpenAI, Google, …) has no Ollama to
+    #    check: return "skipped" instead of an error the user cannot act on.
     ollama_url: str | None = None
     ollama_model: str | None = None
+    provider_domain: str | None = None
     try:
         from homeassistant.helpers import entity_registry as er
         ent_reg = er.async_get(hass)
         ent_entry = ent_reg.async_get(entity_id)
         if ent_entry and ent_entry.config_entry_id:
             cfg = hass.config_entries.async_get_entry(ent_entry.config_entry_id)
+            provider_domain = cfg.domain if cfg else None
             if cfg and cfg.domain == "ollama":
                 data = dict(cfg.data or {})
                 url = data.get("url") or data.get("base_url") or data.get("host")
@@ -1011,6 +1015,12 @@ async def _check_ollama_health(hass: Any, entity_id: str) -> dict:
                 ollama_model = data.get("model") or data.get("model_name")
     except Exception:  # noqa: BLE001
         pass
+
+    if (provider_domain is not None and provider_domain != "ollama") or (
+        provider_domain is None and not hass.config_entries.async_entries("ollama")
+    ):
+        result["skipped"] = True
+        return result
 
     if not ollama_url:
         # Fallback: pick the first Ollama config entry
@@ -1212,7 +1222,9 @@ async def _run_ai_loop(
 
         # Check Ollama health asynchronously (non-blocking — we still proceed)
         _health = await _check_ollama_health(hass, entity_id)
-        if _health.get("error"):
+        if _health.get("skipped"):
+            _LOGGER.debug("Kyber: AI entity %s is not an Ollama entity — no Ollama health check", entity_id)
+        elif _health.get("error"):
             _LOGGER.warning("Kyber: Ollama health check: %s", _health["error"])
             _progress_emit(hass, request_id, {
                 "type": "warning",
