@@ -87,6 +87,10 @@ export const EN = {
   ae_error:            "Error:",
   ae_new_automation:   "New automation",
 
+  // Cards restored from the persisted chat history after a page reload
+  restored_card_note:  "From an earlier visit – check before running it again.",
+  restored_card_done:  "✓ Already executed",
+
   // Restart overlay
   restart_title:        "Home Assistant is restarting…",
   restart_subtitle:     "This page will reload automatically.",
@@ -181,6 +185,9 @@ export const NL = {
   ae_error:            "Fout:",
   ae_new_automation:   "Nieuwe automatisering",
 
+  restored_card_note:  "Uit een eerder bezoek – controleer dit voordat je het opnieuw uitvoert.",
+  restored_card_done:  "✓ Al uitgevoerd",
+
   // Restart overlay
   restart_title:        "Home Assistant herstart…",
   restart_subtitle:     "Deze pagina wordt automatisch herladen.",
@@ -274,6 +281,9 @@ export const DE = {
   ae_created:          "✓ Angelegt",
   ae_error:            "Fehler:",
   ae_new_automation:   "Neue Automatisierung",
+
+  restored_card_note:  "Aus einem früheren Besuch – vor erneutem Ausführen prüfen.",
+  restored_card_done:  "✓ Bereits ausgeführt",
 
   // Restart overlay
   restart_title: "Home Assistant wird neu gestartet?",

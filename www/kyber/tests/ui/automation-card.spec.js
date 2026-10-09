@@ -263,7 +263,7 @@ test.describe("Edit automation card — apply", () => {
 
     // The cancel button now acts as undo
     await page.locator(".ae-btn-cancel").first().click();
-    await expect(page.locator(".ae-btn-cancel").first()).toContainText("Hersteld", { timeout: 5000 });
+    await expect(page.locator(".ae-btn-cancel").first()).toContainText("Restored", { timeout: 5000 });
 
     expect(calls.length).toBeGreaterThanOrEqual(2);
     const undoCall = calls[calls.length - 1];
@@ -307,7 +307,7 @@ test.describe("Create automation card", () => {
     await injectCreateCard(page);
     await page.locator(".ae-btn-apply").first().click();
 
-    await expect(page.locator(".ae-btn-apply").first()).toContainText("✓ Aangemaakt", { timeout: 5000 });
+    await expect(page.locator(".ae-btn-apply").first()).toContainText("✓ Created", { timeout: 5000 });
     expect(capturedPath).toMatch(/\/api\/config\/automation\/config\/\d+$/);
 
     await page.screenshot({ path: "screenshots/automation-created.png" });

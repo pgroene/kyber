@@ -921,6 +921,14 @@ export const STYLES = `
     border-radius: 4px;
   }
 
+  /* Card rebuilt from the chat history after a page reload */
+  .restored-card-note {
+    color: var(--secondary-text-color, #aaa);
+    font-size: 11px;
+    font-style: italic;
+    margin: 6px 0;
+  }
+
   /* Per-turn feedback banner (Debug → Last turn) */
   .dbg-turn-feedback {
     display: flex; gap: 10px; align-items: center; flex-wrap: wrap;

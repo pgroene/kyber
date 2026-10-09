@@ -22,6 +22,11 @@ _CHAT_HISTORY_STORE_KEY = f"{DOMAIN}_chat_history"
 _CHAT_HISTORY_MAX_MESSAGES = 20
 _CHAT_MESSAGE_MAX_CHARS = 2000
 _CHAT_SUMMARY_MAX_CHARS = 2000
+# Card payload (meta.render) of one AI reply; 20 messages × 20k stays well
+# below a few hundred kB per session.
+_CHAT_RENDER_MAX_CHARS = 20000
+_RENDER_STATUS_CARDS = frozenset({"plan", "clarify", "learned_fact"})
+_RENDER_STATUS_VALUES = frozenset({"done", "dismissed", "undone"})
 _SESSIONS_MAX = 20
 _SESSION_NAME_MAX_CHARS = 80
 
@@ -89,12 +94,63 @@ def _sanitize_history(messages: Any) -> list[dict]:
         if not content:
             continue
         entry: dict = {"role": role, "content": content[:_CHAT_MESSAGE_MAX_CHARS]}
-        # Preserve meta.history_entry_id for Undo button restoration — whitelist only
+        # Whitelisted meta: history_entry_id restores the Undo button, render
+        # rebuilds the cards of an AI reply after a page reload.
         raw_meta = msg.get("meta")
-        if isinstance(raw_meta, dict) and isinstance(raw_meta.get("history_entry_id"), str):
-            entry["meta"] = {"history_entry_id": raw_meta["history_entry_id"]}
+        if isinstance(raw_meta, dict):
+            meta: dict = {}
+            if isinstance(raw_meta.get("history_entry_id"), str):
+                meta["history_entry_id"] = raw_meta["history_entry_id"]
+            render = _sanitize_render(raw_meta.get("render"))
+            if render:
+                meta["render"] = render
+            if meta:
+                entry["meta"] = meta
         normalized.append(entry)
     return normalized[-_CHAT_HISTORY_MAX_MESSAGES:]
+
+
+def _sanitize_render(render: Any) -> dict | None:
+    """Keep the known card fields of an AI reply, typed and size-bounded.
+
+    The panel rebuilds plan/YAML/clarify/memory cards from this after a page
+    reload; the builders escape every value they render. A payload above
+    _CHAT_RENDER_MAX_CHARS is dropped as a whole, the reply then stays text.
+    """
+    if not isinstance(render, dict):
+        return None
+    out: dict = {}
+    for key in ("plan", "clarify", "learned_fact"):
+        if isinstance(render.get(key), dict):
+            out[key] = render[key]
+    yaml_blocks = render.get("yaml_blocks")
+    if isinstance(yaml_blocks, list):
+        blocks = [b for b in yaml_blocks if isinstance(b, str)]
+        if blocks:
+            out["yaml_blocks"] = blocks
+    knowledge_used = render.get("knowledge_used")
+    if isinstance(knowledge_used, list):
+        ids = [k for k in knowledge_used if isinstance(k, (str, int)) and not isinstance(k, bool)]
+        if ids:
+            out["knowledge_used"] = ids
+    status = render.get("status")
+    if isinstance(status, dict):
+        kept = {
+            card: state for card, state in status.items()
+            if card in _RENDER_STATUS_CARDS and state in _RENDER_STATUS_VALUES
+        }
+        if kept:
+            out["status"] = kept
+    if not out or set(out) == {"status"}:
+        return None
+    try:
+        size = len(json.dumps(out, ensure_ascii=False))
+    except (TypeError, ValueError):
+        return None
+    if size > _CHAT_RENDER_MAX_CHARS:
+        _LOGGER.debug("Chat history: dropping %d-char card payload (limit %d)", size, _CHAT_RENDER_MAX_CHARS)
+        return None
+    return out
 
 
 def _sanitize_summary(summary: Any) -> str:

@@ -25,7 +25,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
     history.scrollTop = history.scrollHeight;
   }
 
-  _buildMemoryCard(learnedFact) {
+  _buildMemoryCard(learnedFact, opts = {}) {
     const action = (learnedFact.actions || [])[0] || {};
     const userTerm = action.description?.match(/Save alias: (.+?) →/)?.[1]
       || learnedFact.summary?.match(/'(.+?)'/)?.[1]
@@ -45,6 +45,11 @@ export const PlanCardsMixin = (Base) => class extends Base {
     `;
 
     const btn = card.querySelector(".btn-remember");
+    if (opts.status === "done") {
+      btn.disabled = true;
+      btn.textContent = "✅ Remembered!";
+      return card;
+    }
     btn.addEventListener("click", async () => {
       btn.disabled = true;
       btn.textContent = "Saving…";
@@ -58,6 +63,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
         if (resp.ok) {
           btn.textContent = "✅ Remembered!";
           btn.style.background = "var(--success, #4caf50)";
+          this._setRenderStatus(opts.historyEntry, "learned_fact", "done");
         } else {
           btn.textContent = "⚠️ Failed";
           btn.disabled = false;
@@ -70,7 +76,16 @@ export const PlanCardsMixin = (Base) => class extends Base {
     return card;
   }
 
-  _buildPlanCard(plan) {
+  /**
+   * opts.restored: rebuilt after a page reload — autopilot never runs it.
+   * opts.status: "done" when it was executed before; Execute is then locked.
+   * opts.historyEntry: persisted reply; a successful run is recorded there.
+   */
+  _buildPlanCard(plan, opts = {}) {
+    const t = this._t || ((k) => k);
+    // Persisted chat entry of this reply; named apart because doExecute shadows
+    // `opts` and its success path has its own (action) historyEntry.
+    const chatEntry = opts.historyEntry || null;
     const card = document.createElement("div");
     card.className = "plan-card";
 
@@ -205,11 +220,12 @@ export const PlanCardsMixin = (Base) => class extends Base {
     const manualApprovalActions = approvalActions.filter((a) => !a.high_risk || !hasGuardrailOverride(a.risk_domain || a.domain));
     const autoActions = executableActions.filter((a) => !manualApprovalActions.includes(a));
     const requiresApproval = manualApprovalActions.length > 0;
-    const autopilotCanRun = this._autopilot && autoActions.length > 0 && !requiresApproval;
+    const alreadyDone = opts.status === "done";
+    const autopilotCanRun = this._autopilot && !opts.restored && autoActions.length > 0 && !requiresApproval;
     const approvalBadge = approvalActions.length > 0
       ? `<div class="plan-approval-note">🔒 ${approvalActions.length} action(s) require approval${highRiskDomains.length ? ` — high risk: ${highRiskDomains.map((d) => this._escapeHtml(d)).join(", ")}` : ""}.</div>`
       : "";
-    const guardrailPrompt = this._autopilot && highRiskDomains.length > 0
+    const guardrailPrompt = this._autopilot && !opts.restored && highRiskDomains.length > 0
       ? `<label class="plan-warning"><input type="checkbox" class="guardrail-override-checkbox"> Allow autopilot for ${this._escapeHtml(highRiskDomains.join(", "))} after I approve this plan.</label>`
       : "";
 
@@ -224,12 +240,17 @@ export const PlanCardsMixin = (Base) => class extends Base {
       ${warnings}
       ${approvalBadge}
       ${guardrailPrompt}
-      ${autopilotCanRun
+      ${alreadyDone
+        ? `<button class="btn-execute" disabled>${this._escapeHtml(t("restored_card_done"))}</button>`
+        : autopilotCanRun
         ? `<div class="plan-result" style="color:var(--warning-color,#ff9800);font-size:12px">⚡ Autopilot: executing in 2s…</div>`
         : `<button class="btn-execute"${hasExecutable ? "" : " disabled"}>✅ Execute${invalidEntities.size > 0 && hasExecutable ? ` (${executableActions.length} of ${(plan.actions || []).length})` : ""}</button>`
       }
       <div class="plan-result" id="plan-result-${Date.now()}"></div>
     `;
+    if (opts.restored && !alreadyDone) {
+      card.querySelector(".btn-execute")?.before(this._buildRestoredNote());
+    }
 
     // Grab the result element (last .plan-result in card)
     const allResults = card.querySelectorAll(".plan-result");
@@ -296,6 +317,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
             return `- ${svcLabel}${target ? " on " + target : ""}${fromTo ? ": " + fromTo : ""}${desc ? " (" + desc + ")" : ""}`;
           });
 
+          this._setRenderStatus(chatEntry, "plan", "done");
           this._addChatHistory("user", `I clicked Execute on the proposal: "${plan.summary || ""}".`);
 
           const historyEntry = data.history_entry || null;
@@ -1550,7 +1572,24 @@ export const PlanCardsMixin = (Base) => class extends Base {
     });
   }
 
-  _buildEditAutomationCard(plan) {
+  /**
+   * Restored cards (opts.restored, see _buildPlanCard) show a hint; a card
+   * saved before (opts.status "done") keeps Apply locked and loses Cancel.
+   * Apply/Cancel are recorded on opts.historyEntry.
+   */
+  _restoreAutomationCardState(card, opts, doneLabel) {
+    if (!opts.restored) return;
+    const applyBtn = card.querySelector(".ae-btn-apply");
+    if (opts.status === "done") {
+      applyBtn.disabled = true;
+      applyBtn.textContent = doneLabel;
+      card.querySelector(".ae-btn-cancel")?.remove();
+    } else {
+      card.querySelector(".ae-actions")?.before(this._buildRestoredNote());
+    }
+  }
+
+  _buildEditAutomationCard(plan, opts = {}) {
     const t = this._t || ((k) => k);
     const workingConfig = JSON.parse(JSON.stringify(plan.modified_config || plan.original_config || {}));
     const isScript = (plan.entity_id || "").startsWith("script.");
@@ -1622,6 +1661,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
       try {
         const apiPath = isScript ? `config/script/config/${configId}` : `config/automation/config/${configId}`;
         await this._hass.callApi("POST", apiPath, { ...workingConfig, id: configId });
+        this._setRenderStatus(opts.historyEntry, "plan", "done");
         applyBtn.textContent = t("ae_saved");
         applyBtn.style.background = "var(--success, #4caf50)";
         cancelBtn.textContent = t("ae_undo");
@@ -1629,6 +1669,8 @@ export const PlanCardsMixin = (Base) => class extends Base {
         cancelBtn.onclick = async () => {
           try {
             await this._hass.callApi("POST", apiPath, { ...(plan.original_config || workingConfig), id: configId });
+            // Undone: after a reload the card offers Apply again
+            this._setRenderStatus(opts.historyEntry, "plan", "undone");
             cancelBtn.textContent = t("ae_restored");
             cancelBtn.disabled = true;
             // Re-enable apply so the user can re-apply after undo
@@ -1655,12 +1697,14 @@ export const PlanCardsMixin = (Base) => class extends Base {
 
     card.querySelector(".ae-btn-cancel").addEventListener("click", (e) => {
       if (e.currentTarget.dataset.mode === "undo") return; // undo handler takes over
+      this._setRenderStatus(opts.historyEntry, "plan", "dismissed");
       card.remove();
     });
+    this._restoreAutomationCardState(card, opts, t("ae_saved"));
     return card;
   }
 
-  _buildCreateAutomationCard(plan) {
+  _buildCreateAutomationCard(plan, opts = {}) {
     const t = this._t || ((k) => k);
     const workingConfig = JSON.parse(JSON.stringify(plan.config || {}));
     const changedSections = new Set();
@@ -1726,6 +1770,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
         const configToSave = { ...workingConfig, id: newId };
         if (!configToSave.alias) configToSave.alias = plan.alias || "New Automation";
         await this._hass.callApi("POST", `config/automation/config/${newId}`, configToSave);
+        this._setRenderStatus(opts.historyEntry, "plan", "done");
         applyBtn.textContent = t("ae_created");
         applyBtn.style.background = "var(--success, #4caf50)";
         card.querySelector(".ae-btn-cancel").textContent = "✕ Sluiten";
@@ -1737,7 +1782,14 @@ export const PlanCardsMixin = (Base) => class extends Base {
       }
     });
 
-    card.querySelector(".ae-btn-cancel").addEventListener("click", () => card.remove());
+    card.querySelector(".ae-btn-cancel").addEventListener("click", () => {
+      // After a successful create the button only closes the card; keep it on reload
+      if (!card.querySelector(".ae-btn-apply").disabled) {
+        this._setRenderStatus(opts.historyEntry, "plan", "dismissed");
+      }
+      card.remove();
+    });
+    this._restoreAutomationCardState(card, opts, t("ae_created"));
     return card;
   }
 };

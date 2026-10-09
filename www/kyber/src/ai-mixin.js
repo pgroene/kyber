@@ -344,7 +344,9 @@ export const AIMixin = (Base) => class extends Base {
           request_id: requestId,
           // Send all prior messages (everything except the just-pushed current user msg),
           // capped at HISTORY_WINDOW most recent entries.
-          history: this._chatHistory.slice(0, -1).slice(-this._HISTORY_WINDOW),
+          // Only role/content reach the prompt; meta (cards, undo ids) stays local.
+          history: this._chatHistory.slice(0, -1).slice(-this._HISTORY_WINDOW)
+            .map(({ role, content }) => ({ role, content })),
           compacted_summary: this._compactedSummary,
         }),
       });
@@ -379,15 +381,19 @@ export const AIMixin = (Base) => class extends Base {
       this._hideThinking();
       this._clearWarningBanner(); // dismiss any prior "AI unavailable" banner on success
       this._updateTokenBadgeFromUsage?.(data.token_usage || this._tokenUsage);
-      // Store the assistant's text reply in history
+      // Store the assistant's text reply in history, together with the cards
+      // it renders (meta.render), so a page reload rebuilds them.
       const textOnly = data.response
         .replace(/```yaml[\s\S]*?```/gi, "")
         .replace(/```plan[\s\S]*?```/gi, "")
         .trim();
-      if (textOnly) {
-        this._addChatHistory("assistant", textOnly);
-      }
-      this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null, data.learned_fact || null, data.clarify || null, data.knowledge_used || []);
+      const render = this._buildRenderMeta(data);
+      // A reply that is only a card still needs a text line to be persisted
+      const historyText = textOnly || (render ? (data.clarify?.question || data.plan?.summary || "") : "");
+      const historyEntry = historyText
+        ? this._addChatHistory("assistant", historyText, render ? { render } : null)
+        : null;
+      this._appendAIResponse(data.response, data.yaml_blocks || [], data.plan || null, data.learned_fact || null, data.clarify || null, data.knowledge_used || [], { historyEntry });
 
       // Show "Onthouden" chips for newly saved search aliases
       if (data.aliases_saved && data.aliases_saved.length > 0) {
@@ -1008,8 +1014,38 @@ export const AIMixin = (Base) => class extends Base {
   }
 
 
-  _appendAIResponse(fullText, yamlBlocks, plan, learnedFact = null, clarify = null, knowledgeIds = []) {
+  /** Card payload of an AI reply that is persisted with the chat history (null if none). */
+  _buildRenderMeta(data) {
+    const render = {};
+    if (data?.plan && typeof data.plan === "object") render.plan = data.plan;
+    if (Array.isArray(data?.yaml_blocks) && data.yaml_blocks.length) render.yaml_blocks = data.yaml_blocks;
+    if (data?.clarify?.question) render.clarify = data.clarify;
+    if (data?.learned_fact && typeof data.learned_fact === "object") render.learned_fact = data.learned_fact;
+    if (Array.isArray(data?.knowledge_used) && data.knowledge_used.length) render.knowledge_used = data.knowledge_used;
+    return Object.keys(render).length ? render : null;
+  }
+
+  /** Small hint on a card that was rebuilt from the persisted history. */
+  _buildRestoredNote() {
+    const note = document.createElement("div");
+    note.className = "restored-card-note";
+    note.textContent = this._t ? this._t("restored_card_note") : "From an earlier visit – check before running it again.";
+    return note;
+  }
+
+  /**
+   * opts.restored: rebuilt from the persisted history after a reload — nothing
+   *   runs on its own (no autopilot, no auto-opened editor, no simulation, no
+   *   read-only tool re-fetch); finished/dismissed cards keep that state.
+   * opts.historyEntry: the persisted entry of this reply; cards record their
+   *   state in historyEntry.meta.render.status.
+   */
+  _appendAIResponse(fullText, yamlBlocks, plan, learnedFact = null, clarify = null, knowledgeIds = [], opts = {}) {
     const history = this.shadowRoot.getElementById("chat-history");
+    const restored = !!opts.restored;
+    const historyEntry = opts.historyEntry || null;
+    const cardStatus = historyEntry?.meta?.render?.status || {};
+    const cardOpts = { restored, historyEntry, status: null };
 
     // Render clarify block: question + option buttons.
     // Shown INSTEAD of (or before) prose when the AI emits a clarify block.
@@ -1029,7 +1065,8 @@ export const AIMixin = (Base) => class extends Base {
       q.textContent = clarify.question;
       clarifyCard.appendChild(q);
 
-      if (Array.isArray(clarify.options) && clarify.options.length > 0) {
+      // An answered question keeps its text after a reload, but no longer its options
+      if (Array.isArray(clarify.options) && clarify.options.length > 0 && cardStatus.clarify !== "done") {
         const chipRow = document.createElement("div");
         chipRow.className = "suggestion-chips";
         clarify.options.forEach((label) => {
@@ -1039,6 +1076,7 @@ export const AIMixin = (Base) => class extends Base {
           btn.addEventListener("click", () => {
             const input = this.shadowRoot.getElementById("prompt-input");
             if (input) input.value = label;
+            this._setRenderStatus(historyEntry, "clarify", "done");
             clarifyCard.remove();
             this._askAI();
           });
@@ -1187,23 +1225,26 @@ export const AIMixin = (Base) => class extends Base {
       }
     }
 
-    // Handle plan blocks
-    if (plan) {
+    // Handle plan blocks. A card the user dismissed stays gone after a reload.
+    if (plan && cardStatus.plan !== "dismissed") {
+      const planOpts = { ...cardOpts, status: cardStatus.plan || null };
       if (plan.edit_automation) {
-        history.appendChild(this._buildEditAutomationCard(plan));
+        history.appendChild(this._buildEditAutomationCard(plan, planOpts));
       } else if (plan.create_automation) {
-        history.appendChild(this._buildCreateAutomationCard(plan));
+        history.appendChild(this._buildCreateAutomationCard(plan, planOpts));
       } else if (plan.run_simulation) {
-        this._handleRunSimulation(plan);
+        if (!restored) this._handleRunSimulation(plan);
       } else if (plan.open_dashboard) {
         const card = this._buildOpenDashboardPrompt(plan);
         history.appendChild(card);
-        if (this._autopilot) {
+        if (this._autopilot && !restored) {
           setTimeout(() => card.querySelector(".btn-open-editor")?.click(), 300);
         }
       } else if (plan.open_editor) {
-        // Auto-open the editor directly — no confirmation needed
-        if (plan.automation_id && this._openEditor) {
+        // Auto-open the editor directly — no confirmation needed (but not on reload)
+        if (restored) {
+          history.appendChild(this._buildOpenEditorPrompt(plan));
+        } else if (plan.automation_id && this._openEditor) {
           this._openEditor(plan.automation_id);
           const card = document.createElement("div");
           card.className = "open-editor-prompt";
@@ -1220,17 +1261,18 @@ export const AIMixin = (Base) => class extends Base {
         ]);
         const allToolCalls = plan.actions.every((a) => READ_TOOL_TYPES.has(a.type));
         if (allToolCalls) {
-          // Auto-execute read-only tool calls without showing proposal card
-          this._autoExecuteToolPlan(plan, promptInput);
+          // Auto-execute read-only tool calls without showing proposal card.
+          // Not repeated on reload: the reply text already carries the answer.
+          if (!restored) this._autoExecuteToolPlan(plan, promptInput);
         } else {
-          history.appendChild(this._buildPlanCard(plan));
+          history.appendChild(this._buildPlanCard(plan, planOpts));
         }
       }
     }
 
     // Show memory suggestion card if the backend extracted a learned fact
     if (learnedFact) {
-      history.appendChild(this._buildMemoryCard(learnedFact));
+      history.appendChild(this._buildMemoryCard(learnedFact, { ...cardOpts, status: cardStatus.learned_fact || null }));
     }
 
     // Show each YAML block with an Apply button (when editor is open)
@@ -1253,7 +1295,7 @@ export const AIMixin = (Base) => class extends Base {
       });
       history.appendChild(container);
       // Autopilot: auto-apply YAML when editor is already open
-      if (this._autopilot && this.shadowRoot.getElementById("editor-container")?.classList.contains("open")) {
+      if (this._autopilot && !restored && this.shadowRoot.getElementById("editor-container")?.classList.contains("open")) {
         setTimeout(() => applyBtn.click(), 300);
       }
     });

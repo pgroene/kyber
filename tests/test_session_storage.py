@@ -259,6 +259,58 @@ class TestSanitizeHistory:
         assert "other" not in result[0]["meta"]
 
 
+# ── meta.render: cards of an AI reply survive a page reload ──────────────────
+
+_PLAN = {"summary": "Turn on", "actions": [{"type": "call_service", "entity_id": "light.k"}]}
+
+
+def _render_of(render):
+    result = _sanitize_history([{"role": "assistant", "content": "msg", "meta": {"render": render}}])
+    return result[0].get("meta", {}).get("render")
+
+
+class TestSanitizeRender:
+    def test_keeps_known_card_fields(self):
+        render = {
+            "plan": _PLAN,
+            "yaml_blocks": ["alias: x"],
+            "clarify": {"question": "Which?", "options": ["A", "B"]},
+            "learned_fact": {"summary": "'a' → 'b'"},
+            "knowledge_used": ["k1", 7],
+            "status": {"plan": "done"},
+        }
+        assert _render_of(render) == render
+
+    def test_drops_unknown_fields_and_wrong_types(self):
+        render = {
+            "plan": "not a dict",
+            "yaml_blocks": ["ok", 3, None],
+            "clarify": ["not", "a", "dict"],
+            "knowledge_used": [True, {"x": 1}, "k1"],
+            "extra": "dropped",
+        }
+        assert _render_of(render) == {"yaml_blocks": ["ok"], "knowledge_used": ["k1"]}
+
+    def test_status_is_whitelisted(self):
+        render = {"plan": _PLAN, "status": {"plan": "dismissed", "clarify": "bogus", "other": "done"}}
+        assert _render_of(render) == {"plan": _PLAN, "status": {"plan": "dismissed"}}
+
+    def test_status_alone_is_no_render(self):
+        assert _render_of({"status": {"plan": "done"}}) is None
+
+    def test_oversized_payload_is_dropped(self):
+        render = {"yaml_blocks": ["x" * (session_and_storage._CHAT_RENDER_MAX_CHARS + 10)]}
+        assert _render_of(render) is None
+
+    def test_render_and_history_entry_id_coexist(self):
+        msgs = [{"role": "assistant", "content": "m", "meta": {"history_entry_id": "e1", "render": {"plan": _PLAN}}}]
+        assert _sanitize_history(msgs)[0]["meta"] == {"history_entry_id": "e1", "render": {"plan": _PLAN}}
+
+    def test_non_dict_render_is_ignored(self):
+        msgs = [{"role": "assistant", "content": "m", "meta": {"render": "nope"}}]
+        assert "meta" not in _sanitize_history(msgs)[0]
+
+
 # ── _sanitize_summary ─────────────────────────────────────────────────────────
 
 class TestSanitizeSummary:
