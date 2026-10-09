@@ -15,6 +15,7 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   async _renderDebugTab(tab) {
+    const t = this._t || ((k) => k);
     const body = this.shadowRoot.getElementById("debug-body");
     if (!body) return;
     // Persist open/closed state keyed by "tab:sid" so it survives tab switches
@@ -43,7 +44,7 @@ export const DebugMixin = (Base) => class extends Base {
         await this._renderDebugMcp(body);
       }
     } catch (err) {
-      body.innerHTML = `<div class="debug-error">Error: ${this._escapeHtml(err.message)}</div>`;
+      body.innerHTML = `<div class="debug-error">${t("dbg_error", { msg: this._escapeHtml(err.message) })}</div>`;
     }
     // Restore persisted open/closed state for this tab
     body.querySelectorAll("details[data-sid]").forEach((d) => {
@@ -53,9 +54,10 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   async _renderDebugMemory(body) {
+    const t = this._t || ((k) => k);
     const token = this._hass.auth.data.access_token;
     const resp = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching knowledge`);
+    if (!resp.ok) throw new Error(t("dbg_err_fetch_knowledge", { status: resp.status }));
     const data = await resp.json();
     const entries = data.entries || [];
     const categories = data.categories || [];
@@ -87,31 +89,31 @@ export const DebugMixin = (Base) => class extends Base {
     body.innerHTML = `
       ${reviewQueue.length > 0 ? this._renderReviewCardHTML(reviewQueue, entries) : ""}
       <div class="debug-stats">
-        <strong>${entries.length}</strong> entries · ${reviewCount} need review · ${catBadges}
+        ${t("dbg_mem_stats", { n: `<strong>${entries.length}</strong>`, review: reviewCount })} · ${catBadges}
       </div>
       <div class="debug-toolbar">
-        <label>Filter
+        <label>${t("dbg_filter")}
           <select id="dbg-mem-filter">
-            <option value="all" ${(this._debugMemFilter||'all')==='all'?'selected':''}>All</option>
-            <option value="review" ${this._debugMemFilter==='review'?'selected':''}>⚠ needs review</option>
+            <option value="all" ${(this._debugMemFilter||'all')==='all'?'selected':''}>${t("dbg_all")}</option>
+            <option value="review" ${this._debugMemFilter==='review'?'selected':''}>${t("dbg_mem_filter_review")}</option>
           </select>
         </label>
-        <label>Sort
+        <label>${t("dbg_sort")}
           <select id="dbg-mem-sort">
-            <option value="updated" ${(this._debugMemSort||'updated')==='updated'?'selected':''}>Most recent</option>
-            <option value="hits" ${this._debugMemSort==='hits'?'selected':''}>Most hits</option>
-            <option value="confidence" ${this._debugMemSort==='confidence'?'selected':''}>Lowest confidence</option>
-            <option value="rating" ${this._debugMemSort==='rating'?'selected':''}>Highest rating</option>
+            <option value="updated" ${(this._debugMemSort||'updated')==='updated'?'selected':''}>${t("dbg_sort_recent")}</option>
+            <option value="hits" ${this._debugMemSort==='hits'?'selected':''}>${t("dbg_sort_hits")}</option>
+            <option value="confidence" ${this._debugMemSort==='confidence'?'selected':''}>${t("dbg_sort_conf_low")}</option>
+            <option value="rating" ${this._debugMemSort==='rating'?'selected':''}>${t("dbg_sort_rating")}</option>
           </select>
         </label>
-        <input type="text" id="dbg-mem-text" placeholder="🔍 Filter text…" value="${this._escapeAttr(this._debugMemText||'')}" style="padding:4px 8px;border:1px solid var(--divider-color,#ccc);border-radius:4px;font-size:0.88em;min-width:140px">
-        <button id="dbg-mem-add">➕ Add fact</button>
-        <button id="dbg-mem-analyze">🔍 Analyze my home</button>
-        <button id="dbg-mem-deep-analyze">🧬 Start deep analysis</button>
+        <input type="text" id="dbg-mem-text" placeholder="${t("dbg_filter_text")}" value="${this._escapeAttr(this._debugMemText||'')}" style="padding:4px 8px;border:1px solid var(--divider-color,#ccc);border-radius:4px;font-size:0.88em;min-width:140px">
+        <button id="dbg-mem-add">${t("dbg_mem_add")}</button>
+        <button id="dbg-mem-analyze">${t("dbg_mem_analyze")}</button>
+        <button id="dbg-mem-deep-analyze">${t("dbg_deep_start")}</button>
         <label style="display:flex;align-items:center;gap:4px;font-size:0.85em">
-          <input type="checkbox" id="dbg-deep-force"> Re-analyze all
+          <input type="checkbox" id="dbg-deep-force"> ${t("dbg_mem_reanalyze_all")}
         </label>
-        <button id="dbg-mem-purge" style="color:#c00">🗑 Purge facts</button>
+        <button id="dbg-mem-purge" style="color:#c00">${t("dbg_purge_title")}</button>
       </div>
       <div id="dbg-deep-status" style="display:none;margin:6px 0;padding:8px 10px;border-radius:6px;background:var(--secondary-background-color,#f0f0f0);font-size:0.88em;line-height:1.6"></div>
       <div class="kn-list">${filtered.map((e) => this._renderKnowledgeRow(e, categories)).join("")}</div>
@@ -147,7 +149,7 @@ export const DebugMixin = (Base) => class extends Base {
       });
       const j = await r.json();
       if (!r.ok || (j.status !== "started" && j.status !== "already_running")) {
-        alert("Failed to start: " + (j.message || r.statusText));
+        alert(t("dbg_deep_start_failed", { msg: j.message || r.statusText }));
         return;
       }
       this._startDeepAnalysisPolling(body);
@@ -155,7 +157,7 @@ export const DebugMixin = (Base) => class extends Base {
 
     body.querySelector("#dbg-mem-purge").addEventListener("click", () => {
       this._renderPurgeFacts(body).catch((err) => {
-        body.innerHTML = `<div class="debug-error">Purge panel error: ${this._escapeHtml(err.message)}</div>`;
+        body.innerHTML = `<div class="debug-error">${t("dbg_purge_panel_error", { msg: this._escapeHtml(err.message) })}</div>`;
       });
     });
 
@@ -200,9 +202,10 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   _reviewTypeMeta(type) {
-    if (type === "area_assignment") return { icon: "🏠", label: "area assignments" };
-    if (type === "label_assignment") return { icon: "🏷", label: "label assignments" };
-    return { icon: "🧠", label: "knowledge entries" };
+    const t = this._t || ((k) => k);
+    if (type === "area_assignment") return { icon: "🏠", label: t("dbg_rv_type_area") };
+    if (type === "label_assignment") return { icon: "🏷", label: t("dbg_rv_type_label") };
+    return { icon: "🧠", label: t("dbg_rv_type_knowledge") };
   }
 
   _reviewTypeForEntry(entry) {
@@ -246,17 +249,19 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   _renderRuleBadgesHTML(rules) {
+    const t = this._t || ((k) => k);
     return Object.entries(rules)
       .filter(([, mode]) => mode !== "review")
       .map(([type, mode]) => {
         const { icon, label } = this._reviewTypeMeta(type);
         const cls = mode === "auto" ? "rv-badge--auto" : "rv-badge--reject";
-        const modeLabel = mode === "auto" ? "Auto" : "Reject";
-        return `<span class="rv-badge ${cls}" data-badge-type="${type}" title="Reset ${label} to Review">${icon} ${modeLabel} ×</span>`;
+        const modeLabel = mode === "auto" ? t("dbg_rv_mode_auto") : t("dbg_rv_mode_reject");
+        return `<span class="rv-badge ${cls}" data-badge-type="${type}" title="${t("dbg_rv_badge_reset", { label })}">${icon} ${modeLabel} ×</span>`;
       }).join("");
   }
 
   _renderReviewCardHTML(queue, allEntries) {
+    const t = this._t || ((k) => k);
     const idx = Math.min(this._reviewIdx || 0, queue.length - 1);
     const entry = queue[idx];
     const total = queue.length;
@@ -276,17 +281,18 @@ export const DebugMixin = (Base) => class extends Base {
       const proposalType = entry.proposal_type || entryType;
       const proposalIcon = proposalType === "area_assignment" ? "📍" : "🏷";
       const action = proposalType === "area_assignment"
-        ? `Wijs <strong>${entityName}</strong> toe aan gebied <strong>${areaName}</strong>`
-        : `Ken label <strong>${labelName}</strong> toe aan <strong>${entityName}</strong>`;
+        ? t("dbg_rv_assign_area", { entity: `<strong>${entityName}</strong>`, area: `<strong>${areaName}</strong>` })
+        : t("dbg_rv_assign_label", { label: `<strong>${labelName}</strong>`, entity: `<strong>${entityName}</strong>` });
+      // Exactly the fact text the backend stores on approval (KyberProposalApproveView).
       const memory = proposalType === "area_assignment"
-        ? `De ${entityName} (${entityId}) staat in de ${areaName}.`
-        : `De ${entityName} (${entityId}) is gemarkeerd als ${labelName}.`;
+        ? `${entityName} (${entityId}) is in the area '${areaName}'.`
+        : `${entityName} (${entityId}) has the label '${labelName}'.`;
       cardContent = `
         <div class="review-flow-proposal-icon">${proposalIcon}</div>
         <div class="review-flow-proposal-action">${action}</div>
         <div class="review-flow-proposal-entity">${entityId}</div>
         <div class="review-flow-proposal-memory">
-          <span class="review-flow-memory-label">💾 Geheugen:</span>
+          <span class="review-flow-memory-label">${t("dbg_rv_memory_label")}</span>
           ${memory}
         </div>`;
     } else if (entry.category === "entity_alias") {
@@ -304,7 +310,7 @@ export const DebugMixin = (Base) => class extends Base {
         ? `${this._escapeHtml(fname)} <span class="rv-entity-id">(${this._escapeHtml(entityId)})</span>`
         : `<span class="rv-entity-id">${this._escapeHtml(entityId)}</span>`;
       cardContent = `
-        <div class="rv-alias-question">Is this alias correct?</div>
+        <div class="rv-alias-question">${t("dbg_rv_alias_question")}</div>
         <div class="rv-alias-term">"${aliasText}"</div>
         <div class="rv-alias-arrow">→ ${entityLabel}</div>
         <div class="rv-meta">entity_alias${conf}${prov}</div>`;
@@ -321,26 +327,26 @@ export const DebugMixin = (Base) => class extends Base {
     return `
       <div class="rv-wrap" id="review-flow">
         <div class="rv-head">
-          <span class="rv-title">⚠ Review</span>
+          <span class="rv-title">${t("dbg_rv_title")}</span>
           <span class="rv-prog">${idx + 1} / ${total}</span>
           <div class="rv-bar"><div class="rv-bar-fill" style="width:${pct}%"></div></div>
           ${badges}
         </div>
         <div class="rv-card">${cardContent}</div>
         <div class="rv-actions">
-          <button class="rv-btn rv-btn-approve" id="review-approve">✅ Approve</button>
-          <button class="rv-btn rv-btn-reject" id="review-reject">🗑 Reject</button>
+          <button class="rv-btn rv-btn-approve" id="review-approve">${t("dbg_rv_approve")}</button>
+          <button class="rv-btn rv-btn-reject" id="review-reject">${t("dbg_rv_reject")}</button>
           <div class="rv-skip-group">
-            <button class="rv-btn rv-btn-skip" id="review-skip">⏭ Skip</button>
+            <button class="rv-btn rv-btn-skip" id="review-skip">${t("dbg_rv_skip")}</button>
             <label class="rv-skip-days">
-              Hide for <input type="number" id="review-skip-days" min="1" max="365" value="${skipDays}" style="width:36px;padding:1px 3px"> days
+              ${t("dbg_rv_hide_for_days", { input: `<input type="number" id="review-skip-days" min="1" max="365" value="${skipDays}" style="width:36px;padding:1px 3px">` })}
             </label>
           </div>
         </div>
         <div class="rv-bulk">
-          For all ${label}:
-          <button class="rv-bulk-btn rv-bulk-approve" data-bulk-type="${entryType}">✅ Approve all</button>
-          <button class="rv-bulk-btn rv-bulk-reject" data-bulk-type="${entryType}">🗑 Reject all</button>
+          ${t("dbg_rv_for_all", { label })}
+          <button class="rv-bulk-btn rv-bulk-approve" data-bulk-type="${entryType}">${t("dbg_rv_approve_all")}</button>
+          <button class="rv-bulk-btn rv-bulk-reject" data-bulk-type="${entryType}">${t("dbg_rv_reject_all")}</button>
         </div>
       </div>`;
   }
@@ -377,6 +383,7 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   _wireReviewFlow(container, queue, allEntries, onDone) {
+    const t = this._t || ((k) => k);
     const flow = container.querySelector("#review-flow");
     if (!flow) return;
 
@@ -399,11 +406,11 @@ export const DebugMixin = (Base) => class extends Base {
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
-          this._setStatus(`Failed: ${err.message || resp.statusText}`, "error");
+          this._setStatus(t("dbg_failed", { msg: err.message || resp.statusText }), "error");
           return;
         }
         const result = await resp.json();
-        this._setStatus(`✓ ${result.memory || "Goedgekeurd"}`, "ok");
+        this._setStatus(`✓ ${result.memory || t("dbg_rv_approved")}`, "ok");
       } else {
         const resp = await fetch("/api/kyber/knowledge/feedback", {
           method: "POST",
@@ -412,7 +419,7 @@ export const DebugMixin = (Base) => class extends Base {
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
-          this._setStatus(`Failed: ${err.message || resp.statusText}`, "error");
+          this._setStatus(t("dbg_failed", { msg: err.message || resp.statusText }), "error");
           return;
         }
       }
@@ -424,7 +431,7 @@ export const DebugMixin = (Base) => class extends Base {
     flow.querySelector("#review-reject").addEventListener("click", async () => {
       const idx = Math.min(this._reviewIdx || 0, queue.length - 1);
       const entry = queue[idx];
-      if (!confirm(`Delete this fact?\n\n"${entry.content}"`)) return;
+      if (!confirm(t("dbg_rv_delete_confirm", { content: entry.content }))) return;
       const token = this._hass.auth.data.access_token;
       await fetch(`/api/kyber/knowledge?id=${encodeURIComponent(entry.id)}`, {
         method: "DELETE",
@@ -449,8 +456,8 @@ export const DebugMixin = (Base) => class extends Base {
         const type = btn.dataset.bulkType;
         const mode = btn.classList.contains("rv-bulk-approve") ? "auto" : "reject";
         const { label } = this._reviewTypeMeta(type);
-        const modeLabel = mode === "auto" ? "approve" : "reject";
-        if (!confirm(`Set all future ${label} to ${modeLabel} automatically?`)) return;
+        const confirmKey = mode === "auto" ? "dbg_rv_bulk_confirm_approve" : "dbg_rv_bulk_confirm_reject";
+        if (!confirm(t(confirmKey, { label }))) return;
         this._setReviewRule(type, mode);
         this._applyBulkRule(type, mode, queue, allEntries, container, onDone);
       });
@@ -508,15 +515,17 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   _timeAgo(unixTs) {
+    const t = this._t || ((k) => k);
     const secs = Math.floor(Date.now() / 1000) - unixTs;
-    if (secs < 60) return `${secs}s ago`;
-    if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-    if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
-    return `${Math.floor(secs / 86400)}d ago`;
+    if (secs < 60) return t("dbg_ago_s", { n: secs });
+    if (secs < 3600) return t("dbg_ago_m", { n: Math.floor(secs / 60) });
+    if (secs < 86400) return t("dbg_ago_h", { n: Math.floor(secs / 3600) });
+    return t("dbg_ago_d", { n: Math.floor(secs / 86400) });
   }
 
   async _renderPurgeFacts(body) {
-    body.innerHTML = "<em>Loading facts…</em>";
+    const t = this._t || ((k) => k);
+    body.innerHTML = `<em>${t("dbg_purge_loading")}</em>`;
     const token = this._hass.auth.data.access_token;
     const resp = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
     const data = await resp.json();
@@ -528,6 +537,7 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   _renderPurgeFacts_withData(body) {
+    const t = this._t || ((k) => k);
     const all = this._purgeAllEntries || [];
     const textQ = (this._purgeText || "").toLowerCase().trim();
     let filtered = all.filter((e) => {
@@ -565,7 +575,7 @@ export const DebugMixin = (Base) => class extends Base {
             <div style="font-size:0.78em;opacity:.65;margin-top:2px">
               <span class="kn-tag">${cat}</span>
               <span class="kn-tag">${src}</span>
-              <span>conf: ${conf}</span> · <span>${stars}</span> · <span>${e.hits || 0} hits</span> · <span>${ago}</span>
+              <span>${t("dbg_purge_conf", { conf })}</span> · <span>${stars}</span> · <span>${t("dbg_hits", { n: e.hits || 0 })}</span> · <span>${ago}</span>
             </div>
           </div>
         </label>`;
@@ -573,39 +583,39 @@ export const DebugMixin = (Base) => class extends Base {
 
     body.innerHTML = `
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-        <button id="purge-back" style="font-size:0.9em">← Back</button>
-        <strong style="font-size:1em">🗑 Purge facts</strong>
-        <span style="font-size:0.85em;opacity:.7">${all.length} total</span>
+        <button id="purge-back" style="font-size:0.9em">${t("dbg_back")}</button>
+        <strong style="font-size:1em">${t("dbg_purge_title")}</strong>
+        <span style="font-size:0.85em;opacity:.7">${t("dbg_purge_total", { n: all.length })}</span>
       </div>
 
       <div class="debug-toolbar" style="margin-bottom:6px">
-        <input type="text" id="purge-text" placeholder="🔍 Filter text…" value="${this._escapeAttr(this._purgeText||'')}"
+        <input type="text" id="purge-text" placeholder="${t("dbg_filter_text")}" value="${this._escapeAttr(this._purgeText||'')}"
           style="padding:4px 8px;border:1px solid var(--divider-color,#ccc);border-radius:4px;font-size:0.88em;min-width:150px">
-        <label>Sort
+        <label>${t("dbg_sort")}
           <select id="purge-sort">
-            <option value="updated" ${sort==='updated'?'selected':''}>Most recent</option>
-            <option value="hits" ${sort==='hits'?'selected':''}>Most hits</option>
-            <option value="confidence_asc" ${sort==='confidence_asc'?'selected':''}>Lowest confidence</option>
-            <option value="confidence_desc" ${sort==='confidence_desc'?'selected':''}>Highest confidence</option>
-            <option value="rating" ${sort==='rating'?'selected':''}>Highest rating</option>
+            <option value="updated" ${sort==='updated'?'selected':''}>${t("dbg_sort_recent")}</option>
+            <option value="hits" ${sort==='hits'?'selected':''}>${t("dbg_sort_hits")}</option>
+            <option value="confidence_asc" ${sort==='confidence_asc'?'selected':''}>${t("dbg_sort_conf_low")}</option>
+            <option value="confidence_desc" ${sort==='confidence_desc'?'selected':''}>${t("dbg_sort_conf_high")}</option>
+            <option value="rating" ${sort==='rating'?'selected':''}>${t("dbg_sort_rating")}</option>
           </select>
         </label>
       </div>
 
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;font-size:0.83em">
-        <span style="opacity:.7">Quick-select:</span>
+        <span style="opacity:.7">${t("dbg_purge_quick_select")}</span>
         ${sources.map((s) => {
           const n = all.filter((e) => e.source === s).length;
           return `<button class="qs-source" data-source="${this._escapeAttr(s)}" style="padding:2px 7px;font-size:0.9em">${this._escapeHtml(s)} (${n})</button>`;
         }).join("")}
-        <button class="qs-low-conf" style="padding:2px 7px;font-size:0.9em">Confidence &lt; 60%</button>
-        <button id="purge-sel-all" style="padding:2px 7px;font-size:0.9em">Select all visible</button>
-        <button id="purge-desel-all" style="padding:2px 7px;font-size:0.9em">Deselect all</button>
+        <button class="qs-low-conf" style="padding:2px 7px;font-size:0.9em">${this._escapeHtml(t("dbg_purge_low_conf"))}</button>
+        <button id="purge-sel-all" style="padding:2px 7px;font-size:0.9em">${t("dbg_purge_select_all")}</button>
+        <button id="purge-desel-all" style="padding:2px 7px;font-size:0.9em">${t("dbg_purge_deselect_all")}</button>
       </div>
 
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
         <button id="purge-do" style="background:#c00;color:#fff;padding:5px 14px;border-radius:4px;border:none;cursor:pointer;font-weight:600" ${selCount===0?'disabled':''}>
-          🗑 Delete selected (${selCount})
+          ${t("dbg_purge_delete_selected", { n: selCount })}
         </button>
         <span id="purge-msg" style="font-size:0.85em;opacity:.8"></span>
       </div>
@@ -673,11 +683,12 @@ export const DebugMixin = (Base) => class extends Base {
     const sel = this._purgeSelected;
     const ids = filtered.filter((e) => sel.has(e.id)).map((e) => e.id);
     if (!ids.length) return;
+    const t = this._t || ((k) => k);
     const msg = body.querySelector("#purge-msg");
     const btn = body.querySelector("#purge-do");
-    if (!confirm(`Delete ${ids.length} fact(s)? This cannot be undone.`)) return;
+    if (!confirm(t("dbg_purge_confirm", { n: ids.length }))) return;
     if (btn) btn.disabled = true;
-    if (msg) msg.textContent = "Deleting…";
+    if (msg) msg.textContent = t("dbg_purge_deleting");
     try {
       const token = this._hass.auth.data.access_token;
       const r = await fetch("/api/kyber/knowledge/purge", {
@@ -692,7 +703,7 @@ export const DebugMixin = (Base) => class extends Base {
       const resp2 = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
       const data2 = await resp2.json();
       this._purgeAllEntries = data2.entries || [];
-      if (msg) msg.textContent = `✅ Deleted ${j.deleted}`;
+      if (msg) msg.textContent = t("dbg_purge_deleted", { n: j.deleted });
       this._renderPurgeFacts_withData(body);
     } catch (err) {
       if (msg) msg.textContent = `❌ ${err.message}`;
@@ -701,65 +712,66 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   async _renderDebugLastTurn(body) {
+    const t = this._t || ((k) => k);
     const token = this._hass.auth.data.access_token;
     const resp = await fetch("/api/kyber/debug/last_turn", { headers: { Authorization: `Bearer ${token}` } });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching last turn`);
+    if (!resp.ok) throw new Error(t("dbg_err_fetch_last_turn", { status: resp.status }));
     const data = await resp.json();
     const snap = data.snapshot;
     if (!snap) {
-      body.innerHTML = `<div class="debug-empty">No turn captured yet. Ask Kyber something and come back.</div>`;
+      body.innerHTML = `<div class="debug-empty">${t("dbg_lt_empty")}</div>`;
       return;
     }
     const picked = snap.picked_knowledge || [];
-    const toolRows = (snap.tool_log || []).map((t) => `
+    const toolRows = (snap.tool_log || []).map((tl) => `
       <tr>
-        <td><code>${this._escapeHtml(t.name || t.tool || "?")}</code></td>
-        <td class="dbg-mono">${this._escapeHtml(JSON.stringify(t.args || t.arguments || {}))}</td>
-        <td>${t.status === "error" ? "❌" : "✓"}</td>
-        <td>${t.ms ?? ""}</td>
+        <td><code>${this._escapeHtml(tl.name || tl.tool || "?")}</code></td>
+        <td class="dbg-mono">${this._escapeHtml(JSON.stringify(tl.args || tl.arguments || {}))}</td>
+        <td>${tl.status === "error" ? "❌" : "✓"}</td>
+        <td>${tl.ms ?? ""}</td>
       </tr>`).join("");
     const ts = snap.ts ? new Date(snap.ts * 1000).toLocaleTimeString() : "—";
     const knowledgeIds = (picked || []).map((p) => p.id).filter(Boolean);
     const hasKnowledge = knowledgeIds.length > 0;
     const autoNote = snap.auto_rating
-      ? `<span class="tf-auto" title="Auto-flagged because the response looked uncertain">⚠ auto-rated ${snap.auto_rating}/5</span>`
+      ? `<span class="tf-auto" title="${t("dbg_lt_auto_flag_title")}">${t("dbg_lt_auto_rated", { n: snap.auto_rating })}</span>`
       : "";
     const feedbackBar = `
       <div class="dbg-turn-feedback" id="dbg-turn-feedback" data-request-id="${this._escapeAttr(snap.request_id || "")}">
-        <span class="tf-label">How was this turn?</span>
-        <button class="tf-btn tf-btn-rate tf-up" title="Helpful — boost related memory" ${hasKnowledge ? "" : "disabled"}>👍 helpful</button>
-        <button class="tf-btn tf-btn-rate tf-down" title="Not helpful — flag related memory for review" ${hasKnowledge ? "" : "disabled"}>👎 not helpful</button>
+        <span class="tf-label">${t("dbg_lt_how_was")}</span>
+        <button class="tf-btn tf-btn-rate tf-up" title="${t("dbg_lt_helpful_title")}" ${hasKnowledge ? "" : "disabled"}>${t("dbg_lt_helpful")}</button>
+        <button class="tf-btn tf-btn-rate tf-down" title="${t("dbg_lt_not_helpful_title")}" ${hasKnowledge ? "" : "disabled"}>${t("dbg_lt_not_helpful")}</button>
         ${autoNote}
         <span class="tf-status"></span>
-        <button class="tf-btn tf-bundle" title="Download a zip with the full snapshot + logs of this turn" ${snap.request_id ? "" : "disabled"}>⬇ download bundle</button>
-        <button class="tf-btn tf-bug-report" title="Create a GitHub bug report from this turn" ${snap.request_id ? "" : "disabled"}>🐛 bug report</button>
-        <button class="tf-btn tf-capture-test" title="Capture this turn as a prompt regression test case" ${snap.request_id ? "" : "disabled"}>📋 capture test</button>
+        <button class="tf-btn tf-bundle" title="${t("dbg_lt_bundle_title")}" ${snap.request_id ? "" : "disabled"}>${t("dbg_lt_bundle")}</button>
+        <button class="tf-btn tf-bug-report" title="${t("dbg_lt_bug_report_title")}" ${snap.request_id ? "" : "disabled"}>${t("dbg_lt_bug_report")}</button>
+        <button class="tf-btn tf-capture-test" title="${t("dbg_lt_capture_test_title")}" ${snap.request_id ? "" : "disabled"}>${t("dbg_lt_capture_test")}</button>
       </div>`;
     body.innerHTML = `
       ${feedbackBar}
       <div class="debug-stats">
-        <strong>Turn at ${ts}</strong> · ${snap.elapsed_ms ?? "?"} ms · intent: <code>${this._escapeHtml(snap.intent || "?")}</code>
-        · prompt: ${snap.char_count?.toLocaleString() ?? "?"} chars (~${snap.approx_tokens?.toLocaleString() ?? "?"} tokens)
+        <strong>${t("dbg_lt_turn_at", { ts })}</strong> · ${snap.elapsed_ms ?? "?"} ms · ${t("dbg_lt_intent")} <code>${this._escapeHtml(snap.intent || "?")}</code>
+        · ${t("dbg_lt_prompt")} ${t("dbg_chars_tokens", { chars: snap.char_count?.toLocaleString() ?? "?", tokens: snap.approx_tokens?.toLocaleString() ?? "?" })}
         · auto_rating: ${snap.auto_rating ? `⚠ ${snap.auto_rating}/5` : "—"}
       </div>
       <details class="debug-section" data-sid="user-prompt" open>
-        <summary><strong>User prompt</strong></summary>
+        <summary><strong>${t("dbg_lt_user_prompt")}</strong></summary>
         <pre class="dbg-pre">${this._escapeHtml(snap.user_prompt || "")}</pre>
       </details>
       <details class="debug-section" data-sid="knowledge" open>
-        <summary><strong>📌 Knowledge entries used this turn (${picked.length})</strong></summary>
-        ${picked.length === 0 ? '<em>None injected.</em>' : '<div class="kn-list" id="dbg-picked-list"></div>'}
+        <summary><strong>${t("dbg_lt_knowledge_used", { n: picked.length })}</strong></summary>
+        ${picked.length === 0 ? `<em>${t("dbg_lt_none_injected")}</em>` : '<div class="kn-list" id="dbg-picked-list"></div>'}
       </details>
       <details class="debug-section" data-sid="tool-calls">
-        <summary><strong>🔧 Tool calls (${(snap.tool_log || []).length})</strong></summary>
-        ${toolRows ? `<table class="dbg-tools"><thead><tr><th>tool</th><th>args</th><th>status</th><th>ms</th></tr></thead><tbody>${toolRows}</tbody></table>` : '<em>No tool calls.</em>'}
+        <summary><strong>${t("dbg_lt_tool_calls", { n: (snap.tool_log || []).length })}</strong></summary>
+        ${toolRows ? `<table class="dbg-tools"><thead><tr><th>${t("dbg_col_tool")}</th><th>${t("dbg_col_args")}</th><th>${t("dbg_col_status")}</th><th>ms</th></tr></thead><tbody>${toolRows}</tbody></table>` : `<em>${t("dbg_lt_no_tool_calls")}</em>`}
       </details>
       <details class="debug-section" data-sid="system-prompt">
-        <summary><strong>📜 Expanded system prompt</strong> (what the model actually saw)</summary>
+        <summary><strong>${t("dbg_lt_system_prompt")}</strong> ${t("dbg_lt_system_prompt_hint")}</summary>
         <pre class="dbg-pre">${this._escapeHtml(snap.expanded_prompt || "")}</pre>
       </details>
       <details class="debug-section" data-sid="response">
-        <summary><strong>💬 Response text</strong></summary>
+        <summary><strong>${t("dbg_lt_response_text")}</strong></summary>
         <pre class="dbg-pre">${this._escapeHtml(snap.response_text || "")}</pre>
       </details>
     `;
@@ -794,9 +806,10 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   async _renderDebugStatus(body) {
+    const t = this._t || ((k) => k);
     const token = this._hass.auth.data.access_token;
     const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching status`);
+    if (!resp.ok) throw new Error(t("dbg_err_fetch_status", { status: resp.status }));
     const data = await resp.json();
     const k = data.knowledge || {};
     const lt = data.last_turn;
@@ -820,15 +833,19 @@ export const DebugMixin = (Base) => class extends Base {
     const deepTotal = ep.deep_total ?? 0;
     const deepCurrent = ep.deep_current || "";
     const epLabel = epPaused
-      ? `⏸ Paused — chat active (deep: ${deepDone} / ${deepTotal}${deepCurrent ? `, ${deepCurrent}` : ""})`
+      ? (deepCurrent
+        ? t("dbg_ep_paused_item", { done: deepDone, total: deepTotal, item: deepCurrent })
+        : t("dbg_ep_paused", { done: deepDone, total: deepTotal }))
       : epStatus === "narrator"
-      ? `AI narrator ${narratorDone} / ${narratorTotal}…`
+      ? t("dbg_ep_narrator", { done: narratorDone, total: narratorTotal })
       : epStatus === "deep_learning"
-        ? `Deep analysis ${deepDone} / ${deepTotal}${deepCurrent ? ` — ${deepCurrent}` : ""}…`
+        ? (deepCurrent
+          ? t("dbg_ep_deep_item", { done: deepDone, total: deepTotal, item: deepCurrent })
+          : t("dbg_ep_deep", { done: deepDone, total: deepTotal }))
         : epRunning
-          ? (ep.phase === "summaries" ? `Indexing integrations… (${epStatus})` : `Indexing entities ${epDone} / ${epTotal} (${epPct}%)`)
-          : epStatus === "done" ? `Complete — ${epDone} entities indexed`
-          : "Not yet started";
+          ? (ep.phase === "summaries" ? t("dbg_ep_indexing_integrations", { status: epStatus }) : t("dbg_ep_indexing_entities", { done: epDone, total: epTotal, pct: epPct }))
+          : epStatus === "done" ? t("dbg_ep_complete", { n: epDone })
+          : t("dbg_ep_not_started");
     const epProgressBar = epTotal > 0
       ? `<progress value="${epDone}" max="${epTotal}" style="width:100%;margin-top:4px"></progress>` : "";
     const narratorProgressBar = narratorTotal > 0
@@ -841,8 +858,8 @@ export const DebugMixin = (Base) => class extends Base {
     const nsAccepted = (ns.accepted_first ?? 0) + (ns.accepted_retry ?? 0);
     const nsPct = nsTotal > 0 ? Math.round((nsAccepted / nsTotal) * 100) : 0;
     const nsLabel = nsTotal > 0
-      ? `${nsAccepted} accepted (${nsPct}%) · ${ns.rejected ?? 0} fallback · ${ns.errors ?? 0} errors`
-      : "Not yet run";
+      ? t("dbg_ns_summary", { accepted: nsAccepted, pct: nsPct, fallback: ns.rejected ?? 0, errors: ns.errors ?? 0 })
+      : t("dbg_not_yet_run");
 
     // Helpers for storage/resource display
     const fmtBytes = (b) => {
@@ -854,134 +871,134 @@ export const DebugMixin = (Base) => class extends Base {
     const fmtBuf = (n, max) => `${n} / ${max} (${max > 0 ? Math.round((n / max) * 100) : 0}%)`;
 
     body.innerHTML = `
-      <h3>Runtime</h3>
+      <h3>${t("dbg_st_h_runtime")}</h3>
       <table class="dbg-kv">
-        <tr><th>AI Task entity</th><td><code>${this._escapeHtml(data.ai_task_entity || "—")}</code></td></tr>
-        ${(data.ai_task_info && data.ai_task_info.friendly_name && data.ai_task_info.friendly_name !== data.ai_task_entity) ? `<tr><th>Display name</th><td>${this._escapeHtml(data.ai_task_info.friendly_name)}</td></tr>` : ""}
-        ${data.ai_task_info && data.ai_task_info.model ? `<tr><th>Model</th><td><code>${this._escapeHtml(data.ai_task_info.model)}</code> <a href="https://github.com/pgroene/kyber#choosing-a-model" target="_blank" rel="noopener" style="font-size:0.8em;margin-left:6px;opacity:0.7" title="How to choose a model">📖 how to choose</a></td></tr>` : ""}
-        ${data.ai_task_info && data.ai_task_info.server ? `<tr><th>Server</th><td><code>${this._escapeHtml(data.ai_task_info.server)}</code></td></tr>` : ""}
-        <tr><th>Autopilot</th><td>${this._autopilot ? "ON ⚡" : "OFF"}</td></tr>
-        <tr><th>Session</th><td>${this._escapeHtml(this._sessionName || "—")}</td></tr>
-        <tr><th>Tool history size</th><td>${data.tool_history_size}</td></tr>
+        <tr><th>${t("dbg_st_ai_task_entity")}</th><td><code>${this._escapeHtml(data.ai_task_entity || "—")}</code></td></tr>
+        ${(data.ai_task_info && data.ai_task_info.friendly_name && data.ai_task_info.friendly_name !== data.ai_task_entity) ? `<tr><th>${t("dbg_st_display_name")}</th><td>${this._escapeHtml(data.ai_task_info.friendly_name)}</td></tr>` : ""}
+        ${data.ai_task_info && data.ai_task_info.model ? `<tr><th>${t("dbg_st_model")}</th><td><code>${this._escapeHtml(data.ai_task_info.model)}</code> <a href="https://github.com/pgroene/kyber#choosing-a-model" target="_blank" rel="noopener" style="font-size:0.8em;margin-left:6px;opacity:0.7" title="${t("dbg_st_choose_model_title")}">${t("dbg_st_choose_model")}</a></td></tr>` : ""}
+        ${data.ai_task_info && data.ai_task_info.server ? `<tr><th>${t("dbg_st_server")}</th><td><code>${this._escapeHtml(data.ai_task_info.server)}</code></td></tr>` : ""}
+        <tr><th>${t("dbg_st_autopilot")}</th><td>${this._autopilot ? t("dbg_st_on") : t("dbg_st_off")}</td></tr>
+        <tr><th>${t("dbg_st_session")}</th><td>${this._escapeHtml(this._sessionName || "—")}</td></tr>
+        <tr><th>${t("dbg_st_tool_history_size")}</th><td>${data.tool_history_size}</td></tr>
       </table>
-      <h3>Storage</h3>
+      <h3>${t("dbg_st_h_storage")}</h3>
       <table class="dbg-kv">
-        ${st.total_bytes != null ? `<tr><th>Total (Kyber data)</th><td><strong>${fmtBytes(st.total_bytes)}</strong></td></tr>` : ""}
+        ${st.total_bytes != null ? `<tr><th>${t("dbg_st_total_kyber_data")}</th><td><strong>${fmtBytes(st.total_bytes)}</strong></td></tr>` : ""}
         ${Object.entries(st.files || {}).sort((a,b) => (b[1]||0)-(a[1]||0)).map(([name, size]) =>
           `<tr><td style="padding-left:1.2em"><code>${this._escapeHtml(name)}</code></td><td>${fmtBytes(size)}</td></tr>`
         ).join("")}
         ${st.total_bytes == null ? `
-          <tr><th>Knowledge store</th><td>${fmtBytes(st.knowledge_file_bytes)}</td></tr>
-          <tr><th>Chat history</th><td>${fmtBytes(st.chat_history_file_bytes)}</td></tr>
+          <tr><th>${t("dbg_st_knowledge_store")}</th><td>${fmtBytes(st.knowledge_file_bytes)}</td></tr>
+          <tr><th>${t("dbg_st_chat_history")}</th><td>${fmtBytes(st.chat_history_file_bytes)}</td></tr>
         ` : ""}
-        ${st.component_bytes != null ? `<tr><th>Component (code)</th><td>${fmtBytes(st.component_bytes)}</td></tr>` : ""}
+        ${st.component_bytes != null ? `<tr><th>${t("dbg_st_component_code")}</th><td>${fmtBytes(st.component_bytes)}</td></tr>` : ""}
       </table>
-      <h3>Resources (in-memory)</h3>
+      <h3>${t("dbg_st_h_resources")}</h3>
       <table class="dbg-kv">
-        ${res.process_rss_bytes != null ? `<tr><th>Process RSS</th><td>${fmtBytes(res.process_rss_bytes)}</td></tr>` : ""}
-        <tr><th>Debug snapshots</th><td>${fmtBuf(res.snapshots_buffered ?? 0, res.snapshots_max ?? 50)}</td></tr>
-        <tr><th>Global log buffer</th><td>${fmtBuf(res.global_log_entries ?? 0, res.global_log_max ?? 2000)}</td></tr>
-        <tr><th>TF-IDF index terms</th><td>${(res.tfidf_terms ?? 0).toLocaleString()}</td></tr>
-        <tr><th>Knowledge vectors</th><td>${(res.knowledge_vectors ?? 0).toLocaleString()}</td></tr>
+        ${res.process_rss_bytes != null ? `<tr><th>${t("dbg_st_process_rss")}</th><td>${fmtBytes(res.process_rss_bytes)}</td></tr>` : ""}
+        <tr><th>${t("dbg_st_debug_snapshots")}</th><td>${fmtBuf(res.snapshots_buffered ?? 0, res.snapshots_max ?? 50)}</td></tr>
+        <tr><th>${t("dbg_st_global_log_buffer")}</th><td>${fmtBuf(res.global_log_entries ?? 0, res.global_log_max ?? 2000)}</td></tr>
+        <tr><th>${t("dbg_st_tfidf_terms")}</th><td>${(res.tfidf_terms ?? 0).toLocaleString()}</td></tr>
+        <tr><th>${t("dbg_st_knowledge_vectors")}</th><td>${(res.knowledge_vectors ?? 0).toLocaleString()}</td></tr>
       </table>
-      <h3>Knowledge store</h3>
+      <h3>${t("dbg_st_knowledge_store")}</h3>
       <table class="dbg-kv">
-        <tr><th>Total entries</th><td>${k.total ?? 0}</td></tr>
-        <tr><th>Needs review</th><td>${k.needs_review ?? 0}</td></tr>
-        <tr><th>Total hits</th><td>${k.total_hits ?? 0}</td></tr>
+        <tr><th>${t("dbg_st_total_entries")}</th><td>${k.total ?? 0}</td></tr>
+        <tr><th>${t("dbg_st_needs_review")}</th><td>${k.needs_review ?? 0}</td></tr>
+        <tr><th>${t("dbg_st_total_hits")}</th><td>${k.total_hits ?? 0}</td></tr>
       </table>
-      ${catRows ? `<h4>By category</h4><table class="dbg-kv">${catRows}</table>` : ""}
-      <h3>Entity Explorer</h3>
+      ${catRows ? `<h4>${t("dbg_st_h_by_category")}</h4><table class="dbg-kv">${catRows}</table>` : ""}
+      <h3>${t("dbg_st_h_explorer")}</h3>
       <table class="dbg-kv">
-        <tr><th>Status</th><td>${this._escapeHtml(epLabel)}</td></tr>
-        ${ep.current_platform ? `<tr><th>Current</th><td><code>${this._escapeHtml(ep.current_platform)}</code></td></tr>` : ""}
-        ${ep.started_at ? `<tr><th>Started</th><td>${new Date(ep.started_at * 1000).toLocaleTimeString()}</td></tr>` : ""}
+        <tr><th>${t("dbg_st_status")}</th><td>${this._escapeHtml(epLabel)}</td></tr>
+        ${ep.current_platform ? `<tr><th>${t("dbg_st_current")}</th><td><code>${this._escapeHtml(ep.current_platform)}</code></td></tr>` : ""}
+        ${ep.started_at ? `<tr><th>${t("dbg_st_started")}</th><td>${new Date(ep.started_at * 1000).toLocaleTimeString()}</td></tr>` : ""}
       </table>
       ${epProgressBar}
       ${(epStatus === "narrator") ? narratorProgressBar : ""}
       ${(epStatus === "deep_learning" || epPaused) ? deepProgressBar : ""}
       <div style="margin:6px 0 12px">
         <button id="dbg-run-explorer" style="font-size:0.9em;padding:5px 14px" ${epRunning && epStatus !== "narrator" && epStatus !== "deep_learning" ? "disabled" : ""}>
-          🔍 Run Explorer now
+          ${t("dbg_st_run_explorer")}
         </button>
       </div>
-      <h3>AI Narrator</h3>
+      <h3>${t("dbg_st_h_narrator")}</h3>
       <table class="dbg-kv">
-        ${data.narrator_ai_task_entity ? `<tr><th>AI Task entity</th><td><code>${this._escapeHtml(data.narrator_ai_task_entity)}</code></td></tr>` : ""}
-        ${(data.narrator_ai_task_info && data.narrator_ai_task_info.friendly_name && data.narrator_ai_task_info.friendly_name !== data.narrator_ai_task_entity) ? `<tr><th>Display name</th><td>${this._escapeHtml(data.narrator_ai_task_info.friendly_name)}</td></tr>` : ""}
-        ${data.narrator_ai_task_info && data.narrator_ai_task_info.model ? `<tr><th>Model</th><td><code>${this._escapeHtml(data.narrator_ai_task_info.model)}</code> <a href="https://github.com/pgroene/kyber/blob/main/docs/narrator-bench-report-2026-05.md" target="_blank" rel="noopener" style="font-size:0.8em;margin-left:6px;opacity:0.7" title="Narrator model bench report">📖 bench report</a></td></tr>` : ""}
-        ${data.narrator_ai_task_info && data.narrator_ai_task_info.server ? `<tr><th>Server</th><td><code>${this._escapeHtml(data.narrator_ai_task_info.server)}</code></td></tr>` : ""}
-        <tr><th>Status</th><td>${this._escapeHtml(nsLabel)}</td></tr>
-        ${ns.last_run ? `<tr><th>Last run</th><td>${this._escapeHtml(ns.last_run)}</td></tr>` : ""}
+        ${data.narrator_ai_task_entity ? `<tr><th>${t("dbg_st_ai_task_entity")}</th><td><code>${this._escapeHtml(data.narrator_ai_task_entity)}</code></td></tr>` : ""}
+        ${(data.narrator_ai_task_info && data.narrator_ai_task_info.friendly_name && data.narrator_ai_task_info.friendly_name !== data.narrator_ai_task_entity) ? `<tr><th>${t("dbg_st_display_name")}</th><td>${this._escapeHtml(data.narrator_ai_task_info.friendly_name)}</td></tr>` : ""}
+        ${data.narrator_ai_task_info && data.narrator_ai_task_info.model ? `<tr><th>${t("dbg_st_model")}</th><td><code>${this._escapeHtml(data.narrator_ai_task_info.model)}</code> <a href="https://github.com/pgroene/kyber/blob/main/docs/narrator-bench-report-2026-05.md" target="_blank" rel="noopener" style="font-size:0.8em;margin-left:6px;opacity:0.7" title="${t("dbg_st_bench_report_title")}">${t("dbg_st_bench_report")}</a></td></tr>` : ""}
+        ${data.narrator_ai_task_info && data.narrator_ai_task_info.server ? `<tr><th>${t("dbg_st_server")}</th><td><code>${this._escapeHtml(data.narrator_ai_task_info.server)}</code></td></tr>` : ""}
+        <tr><th>${t("dbg_st_status")}</th><td>${this._escapeHtml(nsLabel)}</td></tr>
+        ${ns.last_run ? `<tr><th>${t("dbg_st_last_run")}</th><td>${this._escapeHtml(ns.last_run)}</td></tr>` : ""}
         ${nsTotal > 0 ? `
-          <tr><th>Accepted (1st try)</th><td>${ns.accepted_first ?? 0}</td></tr>
-          <tr><th>Accepted (retry)</th><td>${ns.accepted_retry ?? 0}</td></tr>
-          <tr><th>Fallback (all failed)</th><td>${ns.rejected ?? 0}</td></tr>
-          <tr><th>Errors</th><td>${ns.errors ?? 0}</td></tr>
+          <tr><th>${t("dbg_st_accepted_first")}</th><td>${ns.accepted_first ?? 0}</td></tr>
+          <tr><th>${t("dbg_st_accepted_retry")}</th><td>${ns.accepted_retry ?? 0}</td></tr>
+          <tr><th>${t("dbg_st_fallback")}</th><td>${ns.rejected ?? 0}</td></tr>
+          <tr><th>${t("dbg_st_errors")}</th><td>${ns.errors ?? 0}</td></tr>
         ` : ""}
       </table>
       <div style="margin:6px 0 12px">
         <button id="dbg-run-narrator" style="font-size:0.9em;padding:5px 14px" ${epStatus === "narrator" ? "disabled" : ""}>
-          ✍️ Run Narrator now
+          ${t("dbg_st_run_narrator")}
         </button>
       </div>
-      <h3>Deep Analysis</h3>
+      <h3>${t("dbg_st_h_deep")}</h3>
       ${(() => {
         const dj = data.deep_job || {};
         const djRunning = dj.running === true;
         const djLabel = djRunning
-          ? `Running — pass ${dj.run ?? "?"} / ${dj.runs ?? "?"}, item: ${dj.current_item || "…"}`
+          ? t("dbg_dj_running", { run: dj.run ?? "?", runs: dj.runs ?? "?", item: dj.current_item || "…" })
           : epPaused
-            ? `⏸ Paused — waiting for chat (${deepDone} / ${deepTotal} done)`
+            ? t("dbg_dj_paused", { done: deepDone, total: deepTotal })
             : dj.last_result
-            ? `Last run: ${dj.last_result.analyzed ?? 0} analyzed, ${dj.last_result.facts ?? 0} facts in ${dj.last_result.duration_s ?? "?"}s`
-            : "Not yet run";
+            ? t("dbg_dj_last_run", { analyzed: dj.last_result.analyzed ?? 0, facts: dj.last_result.facts ?? 0, secs: dj.last_result.duration_s ?? "?" })
+            : t("dbg_not_yet_run");
         return `
           <table class="dbg-kv">
-            <tr><th>Status</th><td>${this._escapeHtml(djLabel)}</td></tr>
-            ${dj.running ? `<tr><th>Progress</th><td>${dj.analyzed ?? 0} analyzed · ${dj.facts ?? 0} facts · ${dj.errors ?? 0} errors</td></tr>` : ""}
+            <tr><th>${t("dbg_st_status")}</th><td>${this._escapeHtml(djLabel)}</td></tr>
+            ${dj.running ? `<tr><th>${t("dbg_st_progress")}</th><td>${t("dbg_dj_progress", { analyzed: dj.analyzed ?? 0, facts: dj.facts ?? 0, errors: dj.errors ?? 0 })}</td></tr>` : ""}
           </table>
           <div style="margin:6px 0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <button id="dbg-run-deep" style="font-size:0.9em;padding:5px 14px" ${djRunning || epStatus === "deep_learning" || epPaused ? "disabled" : ""}>
-              🧠 Run Deep Analysis now
+              ${t("dbg_st_run_deep")}
             </button>
             <label style="font-size:0.85em;display:flex;align-items:center;gap:4px">
-              <input type="number" id="dbg-deep-runs" value="3" min="1" max="20" style="width:44px;font-size:0.9em;padding:2px 4px"> passes
+              <input type="number" id="dbg-deep-runs" value="3" min="1" max="20" style="width:44px;font-size:0.9em;padding:2px 4px"> ${t("dbg_passes")}
             </label>
             <label style="font-size:0.85em;display:flex;align-items:center;gap:4px">
-              <input type="number" id="dbg-deep-limit" value="10" min="1" max="50" style="width:44px;font-size:0.9em;padding:2px 4px"> items/pass
+              <input type="number" id="dbg-deep-limit" value="10" min="1" max="50" style="width:44px;font-size:0.9em;padding:2px 4px"> ${t("dbg_st_items_per_pass")}
             </label>
           </div>
         `;
       })()}
-      <h3>Last turn</h3>
+      <h3>${t("dbg_st_h_last_turn")}</h3>
       ${lt ? `
         <table class="dbg-kv">
-          <tr><th>When</th><td>${lt.ts ? new Date(lt.ts * 1000).toLocaleString() : "—"}</td></tr>
-          <tr><th>Elapsed</th><td>${lt.elapsed_ms} ms</td></tr>
-          <tr><th>Intent</th><td><code>${this._escapeHtml(lt.intent || "—")}</code></td></tr>
-          <tr><th>Prompt size</th><td>${lt.char_count?.toLocaleString() ?? "?"} chars (~${lt.approx_tokens?.toLocaleString() ?? "?"} tokens)</td></tr>
+          <tr><th>${t("dbg_st_when")}</th><td>${lt.ts ? new Date(lt.ts * 1000).toLocaleString() : "—"}</td></tr>
+          <tr><th>${t("dbg_st_elapsed")}</th><td>${lt.elapsed_ms} ms</td></tr>
+          <tr><th>${t("dbg_st_intent")}</th><td><code>${this._escapeHtml(lt.intent || "—")}</code></td></tr>
+          <tr><th>${t("dbg_st_prompt_size")}</th><td>${t("dbg_chars_tokens", { chars: lt.char_count?.toLocaleString() ?? "?", tokens: lt.approx_tokens?.toLocaleString() ?? "?" })}</td></tr>
         </table>
         ${lt.request_id ? `
         <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
           <button id="dbg-download-bundle" style="font-size:0.9em;padding:6px 14px">
-            📦 Download debug bundle
+            ${t("dbg_st_download_bundle")}
           </button>
           <button id="dbg-open-bug-report" style="font-size:0.9em;padding:6px 14px">
-            🐛 Bug report
+            ${t("dbg_st_bug_report")}
           </button>
         </div>` : ""}
-      ` : "<em>No turn captured yet.</em>"}
-      <h3>Export for Eval</h3>
+      ` : `<em>${t("dbg_st_no_turn")}</em>`}
+      <h3>${t("dbg_st_h_export")}</h3>
       <p style="margin:4px 0 8px;font-size:0.88em;color:var(--secondary-text-color)">
-        Download snapshots to create test scenarios. Drop them in chat to build an eval set.
+        ${t("dbg_st_export_hint")}
       </p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <button id="dbg-export-home" style="font-size:0.9em;padding:6px 14px">
-          📥 Home state
+          ${t("dbg_st_export_home")}
         </button>
         <button id="dbg-export-memory" style="font-size:0.9em;padding:6px 14px">
-          🧠 Memory export
+          ${t("dbg_st_export_memory")}
         </button>
         <span id="dbg-export-status" style="font-size:0.85em;color:var(--secondary-text-color)"></span>
       </div>
@@ -1011,7 +1028,7 @@ export const DebugMixin = (Base) => class extends Base {
       if (!btn || btn.disabled) return;
       const origText = btn.textContent;
       btn.disabled = true;
-      btn.textContent = "Starting…";
+      btn.textContent = t("dbg_run_starting");
       try {
         const token = this._hass.auth.data.access_token;
         const resp = await fetch(url, {
@@ -1020,7 +1037,7 @@ export const DebugMixin = (Base) => class extends Base {
           body: JSON.stringify(body_payload || {}),
         });
         const result = await resp.json();
-        btn.textContent = result.status === "started" ? "✓ Started" : result.status === "already_running" ? "Already running" : result.status || "Done";
+        btn.textContent = result.status === "started" ? t("dbg_run_started") : result.status === "already_running" ? t("dbg_run_already_running") : result.status || t("dbg_run_done");
         setTimeout(() => {
           btn.textContent = origText;
           btn.disabled = false;
@@ -1028,7 +1045,7 @@ export const DebugMixin = (Base) => class extends Base {
           if (liveBody) this._renderDebugStatus(liveBody);
         }, 2000);
       } catch (err) {
-        btn.textContent = "Error";
+        btn.textContent = t("dbg_run_error");
         setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 2000);
       }
     };
@@ -1065,12 +1082,13 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   async _renderDebugLogs(body) {
+    const t = this._t || ((k) => k);
     const token = this._hass.auth.data.access_token;
     const level = body.querySelector("#dbg-log-level")?.value || "";
     const url = `/api/kyber/debug/logs${level ? `?level=${level}` : ""}`;
     const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
     if (!resp.ok) {
-      body.innerHTML = `<em style="color:var(--error-color)">Debug logs endpoint not available (HTTP ${resp.status}). Try reloading the Kyber integration or restarting Home Assistant.</em>`;
+      body.innerHTML = `<em style="color:var(--error-color)">${t("dbg_logs_unavailable", { status: resp.status })}</em>`;
       return;
     }
     const data = await resp.json();
@@ -1085,7 +1103,7 @@ export const DebugMixin = (Base) => class extends Base {
     };
 
     const rows = logs.slice().reverse().map((r) => {
-      const ts = r.ts ? new Date(r.ts * 1000).toLocaleTimeString("nl", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+      const ts = r.ts ? new Date(r.ts * 1000).toLocaleTimeString(this._hass?.language || undefined, { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
       const color = LEVEL_COLOR[r.level] || "inherit";
       const logger = this._escapeHtml((r.logger || "").replace("custom_components.kyber.", "kyber."));
       const msg = this._escapeHtml(r.message || "");
@@ -1100,28 +1118,28 @@ export const DebugMixin = (Base) => class extends Base {
     body.innerHTML = `
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
         <select id="dbg-log-level" style="font-size:0.88em;padding:4px 8px">
-          <option value=""${!level ? " selected" : ""}>All levels</option>
+          <option value=""${!level ? " selected" : ""}>${t("dbg_logs_all_levels")}</option>
           <option value="INFO"${level === "INFO" ? " selected" : ""}>INFO+</option>
           <option value="WARNING"${level === "WARNING" ? " selected" : ""}>WARNING+</option>
           <option value="ERROR"${level === "ERROR" ? " selected" : ""}>ERROR+</option>
         </select>
-        <button id="dbg-log-refresh" style="font-size:0.88em;padding:4px 10px">🔄 Refresh</button>
-        <button id="dbg-log-download" style="font-size:0.88em;padding:4px 10px">📥 Download</button>
-        <button id="dbg-log-clear" style="font-size:0.88em;padding:4px 10px;color:var(--error-color)">🗑 Clear</button>
-        <span style="font-size:0.82em;color:var(--secondary-text-color)">${logs.length} records</span>
+        <button id="dbg-log-refresh" style="font-size:0.88em;padding:4px 10px">${t("dbg_refresh")}</button>
+        <button id="dbg-log-download" style="font-size:0.88em;padding:4px 10px">${t("dbg_logs_download")}</button>
+        <button id="dbg-log-clear" style="font-size:0.88em;padding:4px 10px;color:var(--error-color)">${t("dbg_logs_clear")}</button>
+        <span style="font-size:0.82em;color:var(--secondary-text-color)">${t("dbg_logs_records", { n: logs.length })}</span>
       </div>
       ${logs.length > 0 ? `
       <div style="overflow-x:auto;max-height:60vh">
         <table style="width:100%;border-collapse:collapse;font-family:monospace" id="dbg-log-table">
           <thead><tr style="font-size:0.78em;color:var(--secondary-text-color);border-bottom:1px solid var(--divider-color)">
-            <th style="text-align:left;padding:2px 8px 4px 0">Time</th>
-            <th style="text-align:left;padding:2px 8px 4px 0">Level</th>
-            <th style="text-align:left;padding:2px 8px 4px 0">Logger</th>
-            <th style="text-align:left;padding:2px 0 4px 0">Message</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">${t("dbg_col_time")}</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">${t("dbg_col_level")}</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">${t("dbg_col_logger")}</th>
+            <th style="text-align:left;padding:2px 0 4px 0">${t("dbg_col_message")}</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
-      </div>` : `<em style="color:var(--secondary-text-color)">No logs yet. Kyber logs are captured once debug mode is enabled and a first request is made.</em>`}
+      </div>` : `<em style="color:var(--secondary-text-color)">${t("dbg_logs_empty")}</em>`}
     `;
 
     body.querySelector("#dbg-log-refresh")?.addEventListener("click", () => this._renderDebugLogs(body));
@@ -1147,11 +1165,12 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   async _downloadHomeState(btn) {
+    const t = this._t || ((k) => k);
     const token = this._hass.auth.data.access_token;
     const statusEl = btn.parentElement.querySelector("#dbg-export-status");
     const orig = btn.textContent;
     btn.disabled = true;
-    btn.textContent = "⏳ exporting…";
+    btn.textContent = t("dbg_exporting");
     if (statusEl) statusEl.textContent = "";
     try {
       const resp = await fetch("/api/kyber/export/home-state", {
@@ -1168,8 +1187,8 @@ export const DebugMixin = (Base) => class extends Base {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      btn.textContent = "✓ downloaded";
-      if (statusEl) statusEl.textContent = "Drop this file in chat to create test scenarios";
+      btn.textContent = t("dbg_downloaded");
+      if (statusEl) statusEl.textContent = t("dbg_export_home_hint");
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
     } catch (err) {
       btn.textContent = `⚠ ${err.message}`;
@@ -1179,11 +1198,12 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   async _downloadMemoryExport(btn) {
+    const t = this._t || ((k) => k);
     const token = this._hass.auth.data.access_token;
     const statusEl = btn.parentElement.querySelector("#dbg-export-status");
     const orig = btn.textContent;
     btn.disabled = true;
-    btn.textContent = "⏳ exporting…";
+    btn.textContent = t("dbg_exporting");
     if (statusEl) statusEl.textContent = "";
     try {
       const resp = await fetch("/api/kyber/export/memory", {
@@ -1202,8 +1222,8 @@ export const DebugMixin = (Base) => class extends Base {
       a.remove();
       URL.revokeObjectURL(url);
       const counts = data.metadata?.triage_counts || {};
-      btn.textContent = "✓ downloaded";
-      if (statusEl) statusEl.textContent = `${counts.good || 0} good · ${counts.consider || 0} consider · ${counts.skip || 0} skip`;
+      btn.textContent = t("dbg_downloaded");
+      if (statusEl) statusEl.textContent = t("dbg_export_memory_counts", { good: counts.good || 0, consider: counts.consider || 0, skip: counts.skip || 0 });
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
     } catch (err) {
       btn.textContent = `⚠ ${err.message}`;
@@ -1231,6 +1251,7 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   async _refreshDeepAnalysisStatus(body) {
+    const t = this._t || ((k) => k);
     const statusDiv = body?.querySelector?.("#dbg-deep-status");
     const btn = body?.querySelector?.("#dbg-mem-deep-analyze");
     if (!statusDiv) return false;
@@ -1252,39 +1273,39 @@ export const DebugMixin = (Base) => class extends Base {
 
       statusDiv.style.display = "block";
       if (running) {
-        if (btn) { btn.disabled = true; btn.textContent = "🧬 Running…"; }
+        if (btn) { btn.disabled = true; btn.textContent = t("dbg_deep_running_btn"); }
         const elapsed = job.started_at ? Math.round(Date.now() / 1000 - job.started_at) : 0;
         statusDiv.innerHTML = `
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
             <span style="font-size:1.1em">🔄</span>
-            <strong>Deep analysis running</strong>
+            <strong>${t("dbg_deep_running")}</strong>
             <span style="color:var(--secondary-text-color)">${elapsed}s</span>
           </div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center">
-            <div><div style="font-size:1.4em;font-weight:bold">${job.run || 0}/${job.runs || 0}</div><div style="font-size:0.8em;opacity:.7">passes</div></div>
-            <div><div style="font-size:1.4em;font-weight:bold">${job.analyzed || 0}</div><div style="font-size:0.8em;opacity:.7">analyzed</div></div>
-            <div><div style="font-size:1.4em;font-weight:bold">${job.facts || 0}</div><div style="font-size:0.8em;opacity:.7">facts stored</div></div>
+            <div><div style="font-size:1.4em;font-weight:bold">${job.run || 0}/${job.runs || 0}</div><div style="font-size:0.8em;opacity:.7">${t("dbg_passes")}</div></div>
+            <div><div style="font-size:1.4em;font-weight:bold">${job.analyzed || 0}</div><div style="font-size:0.8em;opacity:.7">${t("dbg_deep_analyzed")}</div></div>
+            <div><div style="font-size:1.4em;font-weight:bold">${job.facts || 0}</div><div style="font-size:0.8em;opacity:.7">${t("dbg_deep_facts_stored")}</div></div>
           </div>
           ${job.current_item ? `<div style="margin-top:4px;font-size:0.8em;opacity:.6">📄 ${this._escapeHtml(job.current_item)}</div>` : ""}
-          ${job.errors ? `<div style="color:#e44;font-size:0.8em">⚠ ${job.errors} error(s)</div>` : ""}
+          ${job.errors ? `<div style="color:#e44;font-size:0.8em">${t("dbg_deep_errors", { n: job.errors })}</div>` : ""}
         `;
         return true;
       } else {
-        if (btn) { btn.disabled = false; btn.textContent = "🧬 Start deep analysis"; }
+        if (btn) { btn.disabled = false; btn.textContent = t("dbg_deep_start"); }
         const last = job.last_result || {};
         const dur = last.duration_s != null ? `${last.duration_s}s` : "";
         statusDiv.innerHTML = `
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
             <span style="font-size:1.1em">✅</span>
-            <strong>Last analysis complete</strong>
+            <strong>${t("dbg_deep_last_complete")}</strong>
             ${dur ? `<span style="color:var(--secondary-text-color)">${dur}</span>` : ""}
           </div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center">
-            <div><div style="font-size:1.4em;font-weight:bold">${last.runs_completed || 0}</div><div style="font-size:0.8em;opacity:.7">passes</div></div>
-            <div><div style="font-size:1.4em;font-weight:bold">${last.analyzed || 0}</div><div style="font-size:0.8em;opacity:.7">analyzed</div></div>
-            <div><div style="font-size:1.4em;font-weight:bold">${last.facts || 0}</div><div style="font-size:0.8em;opacity:.7">facts stored</div></div>
+            <div><div style="font-size:1.4em;font-weight:bold">${last.runs_completed || 0}</div><div style="font-size:0.8em;opacity:.7">${t("dbg_passes")}</div></div>
+            <div><div style="font-size:1.4em;font-weight:bold">${last.analyzed || 0}</div><div style="font-size:0.8em;opacity:.7">${t("dbg_deep_analyzed")}</div></div>
+            <div><div style="font-size:1.4em;font-weight:bold">${last.facts || 0}</div><div style="font-size:0.8em;opacity:.7">${t("dbg_deep_facts_stored")}</div></div>
           </div>
-          ${last.errors ? `<div style="color:#e44;font-size:0.8em">⚠ ${last.errors} error(s)</div>` : ""}
+          ${last.errors ? `<div style="color:#e44;font-size:0.8em">${t("dbg_deep_errors", { n: last.errors })}</div>` : ""}
         `;
         return false;
       }
@@ -1298,14 +1319,15 @@ export const DebugMixin = (Base) => class extends Base {
   // ---------------------------------------------------------------------------
 
   async _renderDebugTests(body) {
+    const t = this._t || ((k) => k);
     const token = this._hass.auth.data.access_token;
-    body.innerHTML = `<em>Loading test cases…</em>`;
+    body.innerHTML = `<em>${t("dbg_tests_loading")}</em>`;
     let data;
     try {
       const resp = await fetch("/api/kyber/prompt_tests", { headers: { Authorization: `Bearer ${token}` } });
       data = await resp.json();
     } catch (e) {
-      body.innerHTML = `<div class="debug-error">Could not load test cases: ${this._escapeHtml(e.message)}</div>`;
+      body.innerHTML = `<div class="debug-error">${t("dbg_tests_load_failed", { msg: this._escapeHtml(e.message) })}</div>`;
       return;
     }
     const cases = data.cases || [];
@@ -1316,19 +1338,19 @@ export const DebugMixin = (Base) => class extends Base {
 
     body.innerHTML = `
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-        <button id="dbg-tests-run-all" class="btn-primary" style="font-size:0.85rem;padding:5px 14px">▶ Run all</button>
-        <button id="dbg-tests-regenerate" class="btn-secondary" style="font-size:0.85rem;padding:5px 14px" title="Re-run all test questions on live HA to refresh snapshots">🔄 Regenerate</button>
-        <label style="font-size:0.8rem;color:var(--secondary-text-color);cursor:pointer" title="Drop prompts.txt to batch-capture test cases">
-          📁 <input id="dbg-tests-prompts-file" type="file" accept=".txt" style="display:none">batch capture
+        <button id="dbg-tests-run-all" class="btn-primary" style="font-size:0.85rem;padding:5px 14px">${t("dbg_tests_run_all")}</button>
+        <button id="dbg-tests-regenerate" class="btn-secondary" style="font-size:0.85rem;padding:5px 14px" title="${t("dbg_tests_regenerate_title")}">${t("dbg_tests_regenerate")}</button>
+        <label style="font-size:0.8rem;color:var(--secondary-text-color);cursor:pointer" title="${t("dbg_tests_batch_title")}">
+          📁 <input id="dbg-tests-prompts-file" type="file" accept=".txt" style="display:none">${t("dbg_tests_batch_capture")}
         </label>
         <span style="margin-left:auto;font-size:0.85rem;color:var(--secondary-text-color)" id="dbg-tests-status">
-          ${pct !== null ? `${pct}% passing (${totalPassed}/${totalAsserts}) · ${failing} failing` : 'No runs yet'}
+          ${pct !== null ? t("dbg_tests_summary", { pct, passed: totalPassed, total: totalAsserts, failing }) : t("dbg_tests_no_runs")}
         </span>
       </div>
       <div style="display:flex;gap:6px;margin-bottom:10px" id="dbg-tests-filter">
-        <button class="filter-btn active" data-filter="all">All (${cases.length})</button>
-        <button class="filter-btn" data-filter="fail">Failing (${failing})</button>
-        <button class="filter-btn" data-filter="pass">Passing (${cases.length - failing})</button>
+        <button class="filter-btn active" data-filter="all">${t("dbg_tests_filter_all", { n: cases.length })}</button>
+        <button class="filter-btn" data-filter="fail">${t("dbg_tests_filter_failing", { n: failing })}</button>
+        <button class="filter-btn" data-filter="pass">${t("dbg_tests_filter_passing", { n: cases.length - failing })}</button>
       </div>
       <div id="dbg-tests-table"></div>
     `;
@@ -1347,9 +1369,9 @@ export const DebugMixin = (Base) => class extends Base {
     // Run all
     body.querySelector("#dbg-tests-run-all").addEventListener("click", async (e) => {
       e.target.disabled = true;
-      e.target.textContent = "⏳ Running…";
+      e.target.textContent = t("dbg_tests_running_btn");
       const statusEl = body.querySelector("#dbg-tests-status");
-      if (statusEl) statusEl.textContent = "Running assertions…";
+      if (statusEl) statusEl.textContent = t("dbg_tests_running");
       try {
         const r = await fetch("/api/kyber/prompt_tests/run", {
           method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -1358,36 +1380,37 @@ export const DebugMixin = (Base) => class extends Base {
         const result = await r.json();
         if (statusEl) {
           const s = result.summary || {};
-          statusEl.textContent = `${Math.round((s.score || 0) * 100)}% passing (${s.passed}/${s.total_assertions}) · v${s.version} · ${s.model}`;
+          statusEl.textContent = t("dbg_tests_result", { pct: Math.round((s.score || 0) * 100), passed: s.passed, total: s.total_assertions, version: s.version, model: s.model });
         }
         // Refresh
         await this._renderDebugTests(body);
       } catch (err) {
-        if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+        if (statusEl) statusEl.textContent = t("dbg_error", { msg: err.message });
         e.target.disabled = false;
-        e.target.textContent = "▶ Run all";
+        e.target.textContent = t("dbg_tests_run_all");
       }
     });
 
     // Regenerate
     body.querySelector("#dbg-tests-regenerate").addEventListener("click", async (e) => {
       e.target.disabled = true;
-      e.target.textContent = "⏳ Regenerating…";
+      e.target.textContent = t("dbg_tests_regenerating");
       try {
         await fetch("/api/kyber/prompt_tests/regenerate", {
           method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({}),
         });
-        e.target.textContent = "✅ Done";
-        setTimeout(() => { e.target.textContent = "🔄 Regenerate"; e.target.disabled = false; }, 2000);
+        e.target.textContent = t("dbg_tests_done");
+        setTimeout(() => { e.target.textContent = t("dbg_tests_regenerate"); e.target.disabled = false; }, 2000);
       } catch (err) {
-        e.target.textContent = "❌ Error";
+        e.target.textContent = t("dbg_tests_error");
         e.target.disabled = false;
       }
     });
   }
 
   _renderTestsTable(body, cases, filter) {
+    const t = this._t || ((k) => k);
     const table = body.querySelector("#dbg-tests-table");
     if (!table) return;
     const filtered = cases.filter(c => {
@@ -1396,7 +1419,7 @@ export const DebugMixin = (Base) => class extends Base {
       return true;
     });
     if (filtered.length === 0) {
-      table.innerHTML = `<em style="color:var(--secondary-text-color)">No test cases found. Use 📋 Capture test in the Last turn tab to add some.</em>`;
+      table.innerHTML = `<em style="color:var(--secondary-text-color)">${t("dbg_tests_empty")}</em>`;
       return;
     }
     table.innerHTML = filtered.map((c, i) => {
@@ -1427,7 +1450,7 @@ export const DebugMixin = (Base) => class extends Base {
                 ${(run.assertion_details || []).map(a => `<span style="padding:2px 8px;border-radius:12px;font-size:0.8rem;font-weight:600;background:${a.passed ? '#16532440' : '#7f1d1d40'};color:${a.passed ? '#22c55e' : '#ef4444'};border:1px solid ${a.passed ? '#22c55e44' : '#ef444444'}">${a.passed ? '✅' : '❌'} ${this._escapeHtml(a.type)}: ${this._escapeHtml(String(a.value))}</span>`).join("")}
               </div>
               <pre style="background:#0a0c14;border-radius:4px;padding:8px;font-size:0.78rem;overflow-x:auto;white-space:pre-wrap;max-height:200px">${this._escapeHtml(run.response || "")}</pre>
-            ` : `<em>Not yet run. Click "▶ Run all" to execute.</em>`}
+            ` : `<em>${t("dbg_tests_not_run", { btn: t("dbg_tests_run_all") })}</em>`}
           </div>
         </div>`;
     }).join("");
@@ -1438,6 +1461,7 @@ export const DebugMixin = (Base) => class extends Base {
   // ---------------------------------------------------------------------------
 
   _openCaptureTestModal(snap, triggerBtn) {
+    const t = this._t || ((k) => k);
     const existing = this.shadowRoot.getElementById("capture-test-overlay");
     if (existing) existing.remove();
 
@@ -1447,23 +1471,23 @@ export const DebugMixin = (Base) => class extends Base {
     overlay.style.cssText = "position:fixed;inset:0;background:#00000099;z-index:9999;display:flex;align-items:center;justify-content:center";
     overlay.innerHTML = `
       <div style="background:var(--card-background-color);border-radius:10px;padding:24px;max-width:520px;width:90%;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px #0006">
-        <h3 style="margin:0 0 16px">📋 Capture regression test</h3>
-        <label style="font-size:0.85rem;display:block;margin-bottom:4px">Label</label>
-        <input id="ct-label" type="text" value="${this._escapeAttr(snap.intent || "New test")}"
+        <h3 style="margin:0 0 16px">${t("dbg_ct_title")}</h3>
+        <label style="font-size:0.85rem;display:block;margin-bottom:4px">${t("dbg_ct_label")}</label>
+        <input id="ct-label" type="text" value="${this._escapeAttr(snap.intent || t("dbg_ct_default_label"))}"
           style="width:100%;box-sizing:border-box;padding:6px 10px;border-radius:6px;border:1px solid var(--divider-color);background:var(--secondary-background-color);color:var(--primary-text-color);font-size:0.9rem;margin-bottom:12px">
-        <label style="font-size:0.85rem;display:block;margin-bottom:4px">Response must contain (comma-separated)</label>
+        <label style="font-size:0.85rem;display:block;margin-bottom:4px">${t("dbg_ct_contains")}</label>
         <input id="ct-contains" type="text" value="${this._escapeAttr(defaultContains.join(", "))}"
           style="width:100%;box-sizing:border-box;padding:6px 10px;border-radius:6px;border:1px solid var(--divider-color);background:var(--secondary-background-color);color:var(--primary-text-color);font-size:0.9rem;margin-bottom:12px">
-        <label style="font-size:0.85rem;display:block;margin-bottom:4px">Response must NOT contain (comma-separated)</label>
-        <input id="ct-not-contains" type="text" placeholder="unknown, error, ..."
+        <label style="font-size:0.85rem;display:block;margin-bottom:4px">${t("dbg_ct_not_contains")}</label>
+        <input id="ct-not-contains" type="text" placeholder="${t("dbg_ct_not_contains_ph")}"
           style="width:100%;box-sizing:border-box;padding:6px 10px;border-radius:6px;border:1px solid var(--divider-color);background:var(--secondary-background-color);color:var(--primary-text-color);font-size:0.9rem;margin-bottom:12px">
-        <label style="font-size:0.85rem;display:block;margin-bottom:4px">Describe the ideal response (for documentation)</label>
-        <textarea id="ct-ideal" rows="3" placeholder="The AI should mention the temperature and the correct room name…"
+        <label style="font-size:0.85rem;display:block;margin-bottom:4px">${t("dbg_ct_ideal")}</label>
+        <textarea id="ct-ideal" rows="3" placeholder="${t("dbg_ct_ideal_ph")}"
           style="width:100%;box-sizing:border-box;padding:6px 10px;border-radius:6px;border:1px solid var(--divider-color);background:var(--secondary-background-color);color:var(--primary-text-color);font-size:0.9rem;margin-bottom:16px;resize:vertical"></textarea>
         <div id="ct-status" style="font-size:0.85rem;margin-bottom:12px;min-height:20px"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
-          <button id="ct-cancel" class="btn-secondary" style="padding:6px 16px">Cancel</button>
-          <button id="ct-save" class="btn-primary" style="padding:6px 16px">💾 Save test case</button>
+          <button id="ct-cancel" class="btn-secondary" style="padding:6px 16px">${t("cmd_cancel")}</button>
+          <button id="ct-save" class="btn-primary" style="padding:6px 16px">${t("dbg_ct_save")}</button>
         </div>
       </div>`;
 
@@ -1480,7 +1504,7 @@ export const DebugMixin = (Base) => class extends Base {
       const ideal = overlay.querySelector("#ct-ideal").value.trim();
 
       saveBtn.disabled = true;
-      saveBtn.textContent = "⏳ Saving…";
+      saveBtn.textContent = t("dbg_ct_saving");
 
       const token = this._hass.auth.data.access_token;
       try {
@@ -1501,13 +1525,13 @@ export const DebugMixin = (Base) => class extends Base {
         });
         const result = await resp.json();
         if (result.error) throw new Error(result.error);
-        statusEl.innerHTML = `✅ Saved as <code>${this._escapeHtml(result.id)}</code>`;
-        saveBtn.textContent = "✅ Saved";
+        statusEl.innerHTML = t("dbg_ct_saved_as", { id: `<code>${this._escapeHtml(result.id)}</code>` });
+        saveBtn.textContent = t("dbg_ct_saved");
         setTimeout(() => overlay.remove(), 2000);
       } catch (err) {
         statusEl.innerHTML = `❌ ${this._escapeHtml(err.message)}`;
         saveBtn.disabled = false;
-        saveBtn.textContent = "💾 Save test case";
+        saveBtn.textContent = t("dbg_ct_save");
       }
     });
   }
@@ -1529,6 +1553,7 @@ export const DebugMixin = (Base) => class extends Base {
   // ---------------------------------------------------------------------------
 
   async _renderDebugMcp(body) {
+    const t = this._t || ((k) => k);
     const token = this._hass.auth.data.access_token;
 
     // Load both call logs in parallel
@@ -1555,15 +1580,15 @@ export const DebugMixin = (Base) => class extends Base {
       <details class="debug-section" data-sid="mcp-compare" open>
         <div style="margin-top:10px">
           <div style="display:flex;gap:8px;margin-bottom:10px">
-            <input id="mcp-cmp-input" type="text" placeholder="Ask a question…"
+            <input id="mcp-cmp-input" type="text" placeholder="${t("dbg_mcp_ask_ph")}"
               style="flex:1;padding:7px 11px;border-radius:6px;border:1px solid var(--divider-color);
                      background:var(--secondary-background-color);color:var(--primary-text-color);font-size:0.9rem">
-            <button id="mcp-cmp-btn" class="btn-primary" style="padding:7px 18px;white-space:nowrap">▶ Compare</button>
+            <button id="mcp-cmp-btn" class="btn-primary" style="padding:7px 18px;white-space:nowrap">${t("dbg_mcp_compare")}</button>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px" id="mcp-cmp-cols">
             <div>
               <div style="font-size:0.82rem;font-weight:600;color:var(--secondary-text-color);margin-bottom:6px">
-                🏠 Direct Kyber  <code style="font-weight:400;font-size:0.78rem">/api/kyber/complete</code>
+                ${t("dbg_mcp_direct")}  <code style="font-weight:400;font-size:0.78rem">/api/kyber/complete</code>
               </div>
               <div id="mcp-cmp-direct" style="min-height:80px;padding:10px;border-radius:6px;
                    border:1px solid var(--divider-color);background:var(--secondary-background-color);
@@ -1571,7 +1596,7 @@ export const DebugMixin = (Base) => class extends Base {
             </div>
             <div>
               <div style="font-size:0.82rem;font-weight:600;color:var(--secondary-text-color);margin-bottom:6px">
-                🔌 Via MCP  <code style="font-weight:400;font-size:0.78rem">/api/kyber/mcp</code>
+                ${t("dbg_mcp_via")}  <code style="font-weight:400;font-size:0.78rem">/api/kyber/mcp</code>
               </div>
               <div id="mcp-cmp-mcp" style="min-height:80px;padding:10px;border-radius:6px;
                    border:1px solid var(--divider-color);background:var(--secondary-background-color);
@@ -1584,20 +1609,20 @@ export const DebugMixin = (Base) => class extends Base {
       <!-- ── Unified call log ──────────────────────────────────────── -->
       <details class="debug-section" data-sid="mcp-calllog" open style="margin-top:14px">
         <summary style="font-weight:600;cursor:pointer;padding:6px 0">
-          📋 Call log — MCP &amp; Classic
+          ${this._escapeHtml(t("dbg_mcp_call_log"))}
           <span style="font-size:0.8rem;font-weight:400;color:var(--secondary-text-color);margin-left:8px"
-                id="mcp-log-count">${total} calls (${mcpCalls.length} MCP · ${classicCalls.length} classic)</span>
+                id="mcp-log-count">${t("dbg_mcp_calls_count", { total, mcp: mcpCalls.length, classic: classicCalls.length })}</span>
         </summary>
         <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap;align-items:center">
-          <button id="mcp-log-refresh" style="font-size:0.85rem;padding:4px 12px">🔄 Refresh</button>
-          <button id="mcp-log-clear-mcp" style="font-size:0.85rem;padding:4px 12px;color:var(--error-color)">🗑 Clear MCP</button>
-          <button id="mcp-log-clear-classic" style="font-size:0.85rem;padding:4px 12px;color:var(--error-color)">🗑 Clear Classic</button>
+          <button id="mcp-log-refresh" style="font-size:0.85rem;padding:4px 12px">${t("dbg_refresh")}</button>
+          <button id="mcp-log-clear-mcp" style="font-size:0.85rem;padding:4px 12px;color:var(--error-color)">${t("dbg_mcp_clear_mcp")}</button>
+          <button id="mcp-log-clear-classic" style="font-size:0.85rem;padding:4px 12px;color:var(--error-color)">${t("dbg_mcp_clear_classic")}</button>
           <label style="font-size:0.82rem;margin-left:auto">
-            Filter:
+            ${t("dbg_filter_colon")}
             <select id="mcp-log-filter" style="font-size:0.82rem;padding:2px 6px">
-              <option value="all">All</option>
-              <option value="mcp">🔌 MCP only</option>
-              <option value="classic">🏠 Classic only</option>
+              <option value="all">${t("dbg_all")}</option>
+              <option value="mcp">${t("dbg_mcp_only")}</option>
+              <option value="classic">${t("dbg_mcp_classic_only")}</option>
             </select>
           </label>
         </div>
@@ -1629,12 +1654,13 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   _renderMcpLogTable(body, allCalls, filter = "all") {
+    const t = this._t || ((k) => k);
     const tableEl = body.querySelector("#mcp-log-table");
     if (!tableEl) return;
 
     const filtered = filter === "all" ? allCalls : allCalls.filter(c => c.source === filter);
     if (!filtered.length) {
-      tableEl.innerHTML = `<em style="color:var(--secondary-text-color);font-size:0.88rem">No calls recorded yet.</em>`;
+      tableEl.innerHTML = `<em style="color:var(--secondary-text-color);font-size:0.88rem">${t("dbg_mcp_no_calls")}</em>`;
       return;
     }
 
@@ -1680,7 +1706,7 @@ export const DebugMixin = (Base) => class extends Base {
         let detailHtml = "";
 
         if (c.prompt) {
-          detailHtml += `<div style="margin-bottom:6px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">PROMPT</strong><div style="margin-top:2px;padding:6px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px;font-size:0.82rem;white-space:pre-wrap">${this._escapeHtml(c.prompt)}</div></div>`;
+          detailHtml += `<div style="margin-bottom:6px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">${t("dbg_mcp_lbl_prompt")}</strong><div style="margin-top:2px;padding:6px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px;font-size:0.82rem;white-space:pre-wrap">${this._escapeHtml(c.prompt)}</div></div>`;
         }
 
         if (c.tool_calls?.length) {
@@ -1689,25 +1715,25 @@ export const DebugMixin = (Base) => class extends Base {
               <div style="padding:3px 8px;background:var(--secondary-background-color);font-size:0.78rem;font-weight:600;font-family:monospace">🔧 ${this._escapeHtml(tc.tool || "?")}</div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
                 <div style="padding:4px 8px;border-right:1px solid var(--divider-color)">
-                  <div style="font-size:0.72rem;color:var(--secondary-text-color);margin-bottom:2px">IN</div>
+                  <div style="font-size:0.72rem;color:var(--secondary-text-color);margin-bottom:2px">${t("dbg_mcp_lbl_in")}</div>
                   <pre style="margin:0;font-size:0.75rem;white-space:pre-wrap;word-break:break-all">${this._escapeHtml(tc.input || "—")}</pre>
                 </div>
                 <div style="padding:4px 8px">
-                  <div style="font-size:0.72rem;color:var(--secondary-text-color);margin-bottom:2px">OUT</div>
+                  <div style="font-size:0.72rem;color:var(--secondary-text-color);margin-bottom:2px">${t("dbg_mcp_lbl_out")}</div>
                   <pre style="margin:0;font-size:0.75rem;white-space:pre-wrap;word-break:break-all">${this._escapeHtml(tc.output || "—")}</pre>
                 </div>
               </div>
             </div>`).join("");
-          detailHtml += `<div style="margin-bottom:6px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">TOOL CALLS (${c.tool_calls.length})</strong><div style="margin-top:4px">${callsHtml}</div></div>`;
+          detailHtml += `<div style="margin-bottom:6px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">${t("dbg_mcp_lbl_tool_calls", { n: c.tool_calls.length })}</strong><div style="margin-top:4px">${callsHtml}</div></div>`;
         }
 
         if (c.response) {
-          detailHtml += `<div style="margin-bottom:6px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">RESPONSE</strong><div style="margin-top:2px;padding:6px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px;font-size:0.82rem;white-space:pre-wrap">${this._escapeHtml(c.response)}</div></div>`;
+          detailHtml += `<div style="margin-bottom:6px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">${t("dbg_mcp_lbl_response")}</strong><div style="margin-top:2px;padding:6px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px;font-size:0.82rem;white-space:pre-wrap">${this._escapeHtml(c.response)}</div></div>`;
         }
 
         if (c.input && !c.tool_calls?.length) {
-          detailHtml += `<div style="margin-bottom:4px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">INPUT</strong><pre style="margin:2px 0 0;font-size:0.78rem;white-space:pre-wrap;padding:4px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px">${this._escapeHtml(c.input)}</pre></div>`;
-          detailHtml += `<div><strong style="font-size:0.78rem;color:var(--secondary-text-color)">OUTPUT</strong><pre style="margin:2px 0 0;font-size:0.78rem;white-space:pre-wrap;padding:4px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px">${this._escapeHtml(c.output || "—")}</pre></div>`;
+          detailHtml += `<div style="margin-bottom:4px"><strong style="font-size:0.78rem;color:var(--secondary-text-color)">${t("dbg_mcp_lbl_input")}</strong><pre style="margin:2px 0 0;font-size:0.78rem;white-space:pre-wrap;padding:4px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px">${this._escapeHtml(c.input)}</pre></div>`;
+          detailHtml += `<div><strong style="font-size:0.78rem;color:var(--secondary-text-color)">${t("dbg_mcp_lbl_output")}</strong><pre style="margin:2px 0 0;font-size:0.78rem;white-space:pre-wrap;padding:4px 8px;background:var(--card-background-color,#f5f5f5);border-radius:4px">${this._escapeHtml(c.output || "—")}</pre></div>`;
         }
 
         detailPanel = `<tr id="${rowId}" style="display:none">
@@ -1733,14 +1759,14 @@ export const DebugMixin = (Base) => class extends Base {
       <div style="overflow-x:auto;max-height:60vh">
         <table style="width:100%;border-collapse:collapse;font-family:monospace">
           <thead><tr style="font-size:0.77rem;color:var(--secondary-text-color);border-bottom:2px solid var(--divider-color)">
-            <th style="text-align:left;padding:2px 8px 4px 0">Time</th>
-            <th style="text-align:left;padding:2px 8px 4px 0">Source</th>
-            <th style="text-align:left;padding:2px 8px 4px 0">Detail</th>
-            <th style="text-align:left;padding:2px 8px 4px 0">User</th>
-            <th style="text-align:left;padding:2px 8px 4px 0">Latency</th>
-            <th style="text-align:left;padding:2px 8px 4px 0">Tokens</th>
-            <th style="text-align:left;padding:2px 8px 4px 0">Actions</th>
-            <th style="text-align:left;padding:2px 0 4px 0">Outcome</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">${t("dbg_col_time")}</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">${t("dbg_col_source")}</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">${t("dbg_col_detail")}</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">${t("dbg_col_user")}</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">${t("dbg_col_latency")}</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">${t("dbg_col_tokens")}</th>
+            <th style="text-align:left;padding:2px 8px 4px 0">${t("dbg_col_actions")}</th>
+            <th style="text-align:left;padding:2px 0 4px 0">${t("dbg_col_outcome")}</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -1759,6 +1785,7 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   async _runMcpCompare(body, token) {
+    const t = this._t || ((k) => k);
     const input = body.querySelector("#mcp-cmp-input");
     const prompt = (input?.value || "").trim();
     if (!prompt) return;
@@ -1768,14 +1795,14 @@ export const DebugMixin = (Base) => class extends Base {
     const btn = body.querySelector("#mcp-cmp-btn");
 
     btn.disabled = true;
-    directEl.textContent = "⏳ waiting…";
-    mcpEl.textContent = "⏳ waiting…";
+    directEl.textContent = t("dbg_mcp_waiting");
+    mcpEl.textContent = t("dbg_mcp_waiting");
 
     const requestId = `mcp-cmp-${Date.now()}`;
 
     // Run Direct Kyber first, then MCP — sequential so timing is comparable
-    btn.textContent = "⏳ 1/2 Direct…";
-    directEl.textContent = "⏳ asking…";
+    btn.textContent = t("dbg_mcp_step_direct");
+    directEl.textContent = t("dbg_mcp_asking");
     {
       const t0 = performance.now();
       try {
@@ -1790,16 +1817,16 @@ export const DebugMixin = (Base) => class extends Base {
         const tokens = d.call_tokens || d.token_usage?.total_tokens;
         const actions = (d.tool_log || []).filter(e => e.type === "tool_call").length;
         const mem = (d.knowledge_used || []).length;
-        const memStr = mem > 0 ? ` · 🧠 ${mem} memory` : "";
-        const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""} · ${actions} ⚙${memStr}`;
-        directEl.textContent = (d.response || "(no response)") + footer;
+        const memStr = mem > 0 ? ` · ${t("dbg_mcp_memory", { n: mem })}` : "";
+        const footer = `\n\n─── ${ms}ms${tokens ? ` · ${t("dbg_mcp_tokens", { n: tokens })}` : ""} · ${actions} ⚙${memStr}`;
+        directEl.textContent = (d.response || t("dbg_mcp_no_response")) + footer;
       } catch (e) {
         directEl.textContent = `❌ ${e.message}`;
       }
     }
 
-    btn.textContent = "⏳ 2/2 MCP…";
-    mcpEl.textContent = "⏳ asking…";
+    btn.textContent = t("dbg_mcp_step_mcp");
+    mcpEl.textContent = t("dbg_mcp_asking");
     {
       const t0 = performance.now();
       try {
@@ -1814,7 +1841,7 @@ export const DebugMixin = (Base) => class extends Base {
         const ms = Math.round(performance.now() - t0);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const d = await r.json();
-        if (d.error) throw new Error(d.error.message || "RPC error");
+        if (d.error) throw new Error(d.error.message || t("dbg_mcp_rpc_error"));
         const content = d.result?.content?.[0]?.text || "";
         let text = content;
         try {
@@ -1823,13 +1850,13 @@ export const DebugMixin = (Base) => class extends Base {
           const tokens = parsed.token_usage?.total_tokens;
           const actions = parsed.actions_executed;
           const mem = (parsed.knowledge_used || []).length;
-          const memStr = mem > 0 ? ` · 🧠 ${mem} memory` : "";
-          const footer = `\n\n─── ${ms}ms${tokens ? ` · ${tokens} tokens` : ""}${actions != null ? ` · ${actions} action(s)` : ""}${memStr}`;
+          const memStr = mem > 0 ? ` · ${t("dbg_mcp_memory", { n: mem })}` : "";
+          const footer = `\n\n─── ${ms}ms${tokens ? ` · ${t("dbg_mcp_tokens", { n: tokens })}` : ""}${actions != null ? ` · ${t("dbg_mcp_actions", { n: actions })}` : ""}${memStr}`;
           text += footer;
         } catch (_) {
           text += `\n\n─── ${ms}ms`;
         }
-        if (d.result?.isError) text = `⚠️ Tool error:\n${text}`;
+        if (d.result?.isError) text = t("dbg_mcp_tool_error", { text });
         mcpEl.textContent = text;
       } catch (e) {
         mcpEl.textContent = `❌ ${e.message}`;
@@ -1837,7 +1864,7 @@ export const DebugMixin = (Base) => class extends Base {
     }
 
     btn.disabled = false;
-    btn.textContent = "▶ Compare";
+    btn.textContent = t("dbg_mcp_compare");
 
     // Refresh the log table after compare
     try {
@@ -1846,6 +1873,7 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   async _refreshMcpLogTable(body, token) {
+    const t = this._t || ((k) => k);
     let mcpCalls = [], classicCalls = [];
     try {
       const [r1, r2] = await Promise.all([
@@ -1862,7 +1890,7 @@ export const DebugMixin = (Base) => class extends Base {
     const filter = body.querySelector("#mcp-log-filter")?.value || "all";
     this._renderMcpLogTable(body, allCalls, filter);
     const countEl = body.querySelector("#mcp-log-count");
-    if (countEl) countEl.textContent = `${allCalls.length} calls (${mcpCalls.length} MCP · ${classicCalls.length} classic)`;
+    if (countEl) countEl.textContent = t("dbg_mcp_calls_count", { total: allCalls.length, mcp: mcpCalls.length, classic: classicCalls.length });
     return allCalls;
   }
 };

@@ -1,4 +1,5 @@
 import { makePanel, makeUnrenderedPanel } from "../helpers.js";
+import { getT } from "kyber-www/src/i18n.js";
 
 describe("debug review flow", () => {
   const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -24,15 +25,38 @@ describe("debug review flow", () => {
     wrapper.innerHTML = html;
 
     expect(wrapper.querySelector(".review-flow-proposal-icon").textContent).toContain("📍");
-    expect(wrapper.querySelector(".review-flow-proposal-action").innerHTML).toContain("Wijs <strong>koffiezetapparaat</strong> toe aan gebied <strong>keuken</strong>");
-    expect(wrapper.querySelector(".review-flow-proposal-memory").textContent).toContain("De koffiezetapparaat (switch.koffiezetapparaat) staat in de keuken.");
+    // The action line follows the panel language (English by default) ...
+    expect(wrapper.querySelector(".review-flow-proposal-action").innerHTML).toContain("Assign <strong>koffiezetapparaat</strong> to area <strong>keuken</strong>");
+    // ... the memory preview shows the fact text exactly as the backend stores it.
+    expect(wrapper.querySelector(".review-flow-proposal-memory").textContent).toContain("koffiezetapparaat (switch.koffiezetapparaat) is in the area 'keuken'.");
+  });
+
+  it("renders the proposal action line in German", () => {
+    const element = makeUnrenderedPanel();
+    element._t = getT("de");
+    const html = element._renderReviewCardHTML([
+      {
+        id: "p1",
+        category: "proposal",
+        proposal_type: "area_assignment",
+        subject: "switch.kaffeemaschine",
+        entity_name: "Kaffeemaschine",
+        area_name: "Küche",
+        confidence: 0.9,
+      },
+    ], []);
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = html;
+
+    expect(wrapper.querySelector(".review-flow-proposal-action").innerHTML)
+      .toContain("<strong>Kaffeemaschine</strong> dem Bereich <strong>Küche</strong> zuweisen");
   });
 
   it("approves proposal entries through the proposal endpoint", async () => {
     const { element } = makePanel();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ memory: "De koffiezetapparaat (switch.koffiezetapparaat) staat in de keuken." }),
+      json: async () => ({ memory: "koffiezetapparaat (switch.koffiezetapparaat) is in the area 'keuken'." }),
     }));
     element._setStatus = vi.fn();
     element._renderDebugTab = vi.fn();
@@ -58,7 +82,7 @@ describe("debug review flow", () => {
     expect(url).toBe("/api/kyber/proposals/approve");
     expect(JSON.parse(opts.body)).toEqual({ entry_id: "p1" });
     expect(element._setStatus).toHaveBeenCalledWith(
-      "✓ De koffiezetapparaat (switch.koffiezetapparaat) staat in de keuken.",
+      "✓ koffiezetapparaat (switch.koffiezetapparaat) is in the area 'keuken'.",
       "ok",
     );
     expect(queue).toHaveLength(0);

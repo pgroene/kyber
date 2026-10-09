@@ -26,6 +26,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
   }
 
   _buildMemoryCard(learnedFact, opts = {}) {
+    const t = this._t || ((k) => k);
     const action = (learnedFact.actions || [])[0] || {};
     const userTerm = action.description?.match(/Save alias: (.+?) →/)?.[1]
       || learnedFact.summary?.match(/'(.+?)'/)?.[1]
@@ -36,23 +37,23 @@ export const PlanCardsMixin = (Base) => class extends Base {
     const card = document.createElement("div");
     card.className = "memory-card";
     card.innerHTML = `
-      <div class="memory-card-header">🧠 Suggested memory</div>
+      <div class="memory-card-header">${t("pc_memory_suggested")}</div>
       <div class="memory-card-content">
         "${this._escapeHtml(userTerm)}" → <strong>${this._escapeHtml(haTerm)}</strong><br>
         <small style="opacity:0.75">${this._escapeHtml(contentText)}</small>
       </div>
-      <button class="btn-remember">💾 Remember</button>
+      <button class="btn-remember">${t("pc_memory_remember")}</button>
     `;
 
     const btn = card.querySelector(".btn-remember");
     if (opts.status === "done") {
       btn.disabled = true;
-      btn.textContent = "✅ Remembered!";
+      btn.textContent = t("pc_memory_remembered");
       return card;
     }
     btn.addEventListener("click", async () => {
       btn.disabled = true;
-      btn.textContent = "Saving…";
+      btn.textContent = t("ae_saving");
       try {
         const token = this._hass?.auth?.data?.access_token;
         const resp = await fetch("/api/kyber/plan/execute", {
@@ -61,15 +62,15 @@ export const PlanCardsMixin = (Base) => class extends Base {
           body: JSON.stringify({ plan: learnedFact }),
         });
         if (resp.ok) {
-          btn.textContent = "✅ Remembered!";
+          btn.textContent = t("pc_memory_remembered");
           btn.style.background = "var(--success, #4caf50)";
           this._setRenderStatus(opts.historyEntry, "learned_fact", "done");
         } else {
-          btn.textContent = "⚠️ Failed";
+          btn.textContent = t("pc_memory_failed");
           btn.disabled = false;
         }
       } catch (err) {
-        btn.textContent = "⚠️ Error";
+        btn.textContent = t("pc_memory_error");
         btn.disabled = false;
       }
     });
@@ -125,14 +126,22 @@ export const PlanCardsMixin = (Base) => class extends Base {
       "heat", "cool", "auto", "fan_only", "dry", "heat_cool", "heat_cool"]);
 
     const typeLabels = {
-      assign_area: "Area",
-      rename_entity: "Name",
-      assign_label: "Label",
-      remove_label: "Remove label",
-      create_area: "Create area",
-      rename_area: "Rename area",
-      delete_area: "Delete area",
-      call_service: "Service",
+      assign_area: t("pc_type_assign_area"),
+      rename_entity: t("pc_type_rename_entity"),
+      assign_label: t("pc_type_assign_label"),
+      remove_label: t("pc_type_remove_label"),
+      create_area: t("pc_type_create_area"),
+      rename_area: t("pc_type_rename_area"),
+      delete_area: t("pc_type_delete_area"),
+      call_service: t("pc_type_call_service"),
+      edit_automation: t("pc_type_edit_automation"),
+      update_automation: t("pc_type_update_automation"),
+      create_automation: t("pc_type_create_automation"),
+      create_script: t("pc_type_create_script"),
+      update_script: t("pc_type_update_script"),
+      add_knowledge: t("pc_type_add_knowledge"),
+      update_knowledge: t("pc_type_update_knowledge"),
+      delete_knowledge: t("pc_type_delete_knowledge"),
     };
 
     // Area-only action types don't need an entity_id
@@ -186,7 +195,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
           <li class="change-row${missing ? " row-invalid" : ""}${a.high_risk ? " row-risk" : ""}">
             ${entityHtml}
             <span class="change-type-badge">${this._escapeHtml(typeLabel)}</span>
-            ${a.high_risk ? `<span class="change-type-badge">⚠ High risk</span>` : ""}
+            ${a.high_risk ? `<span class="change-type-badge">${t("pc_high_risk")}</span>` : ""}
             <span class="change-delta">${arrow}</span>
           </li>`;
       })
@@ -197,7 +206,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
       .join("");
 
     const missingWarning = invalidEntities.size > 0
-      ? `<div class="plan-warning plan-warning-error">⛔ ${invalidEntities.size} entity ID(s) not found in Home Assistant: ${[...invalidEntities].map((e) => this._escapeHtml(e)).join(", ")}. These actions will be skipped.</div>`
+      ? `<div class="plan-warning plan-warning-error">${t("pc_missing_entities", { n: invalidEntities.size, ids: [...invalidEntities].map((e) => this._escapeHtml(e)).join(", ") })}</div>`
       : "";
 
     // Only allow executing actions whose entity_ids are valid (or are area-only / service calls)
@@ -223,18 +232,20 @@ export const PlanCardsMixin = (Base) => class extends Base {
     const alreadyDone = opts.status === "done";
     const autopilotCanRun = this._autopilot && !opts.restored && autoActions.length > 0 && !requiresApproval;
     const approvalBadge = approvalActions.length > 0
-      ? `<div class="plan-approval-note">🔒 ${approvalActions.length} action(s) require approval${highRiskDomains.length ? ` — high risk: ${highRiskDomains.map((d) => this._escapeHtml(d)).join(", ")}` : ""}.</div>`
+      ? `<div class="plan-approval-note">${highRiskDomains.length
+        ? t("pc_approval_required_risk", { n: approvalActions.length, domains: highRiskDomains.map((d) => this._escapeHtml(d)).join(", ") })
+        : t("pc_approval_required", { n: approvalActions.length })}</div>`
       : "";
     const guardrailPrompt = this._autopilot && !opts.restored && highRiskDomains.length > 0
-      ? `<label class="plan-warning"><input type="checkbox" class="guardrail-override-checkbox"> Allow autopilot for ${this._escapeHtml(highRiskDomains.join(", "))} after I approve this plan.</label>`
+      ? `<label class="plan-warning"><input type="checkbox" class="guardrail-override-checkbox"> ${t("pc_guardrail_allow", { domains: this._escapeHtml(highRiskDomains.join(", ")) })}</label>`
       : "";
 
     card.innerHTML = `
       <div class="plan-overview">
-        <div class="plan-overview-label">📋 Proposal</div>
+        <div class="plan-overview-label">${t("pc_proposal")}</div>
         <div class="plan-overview-summary">${this._escapeHtml(plan.summary || "")}</div>
       </div>
-      <div class="plan-changes-header">What will change</div>
+      <div class="plan-changes-header">${t("pc_what_will_change")}</div>
       <ul class="plan-changes">${changeRows}</ul>
       ${missingWarning}
       ${warnings}
@@ -243,8 +254,10 @@ export const PlanCardsMixin = (Base) => class extends Base {
       ${alreadyDone
         ? `<button class="btn-execute" disabled>${this._escapeHtml(t("restored_card_done"))}</button>`
         : autopilotCanRun
-        ? `<div class="plan-result" style="color:var(--warning-color,#ff9800);font-size:12px">⚡ Autopilot: executing in 2s…</div>`
-        : `<button class="btn-execute"${hasExecutable ? "" : " disabled"}>✅ Execute${invalidEntities.size > 0 && hasExecutable ? ` (${executableActions.length} of ${(plan.actions || []).length})` : ""}</button>`
+        ? `<div class="plan-result" style="color:var(--warning-color,#ff9800);font-size:12px">${t("pc_autopilot_executing")}</div>`
+        : `<button class="btn-execute"${hasExecutable ? "" : " disabled"}>${invalidEntities.size > 0 && hasExecutable
+          ? t("pc_execute_partial", { n: executableActions.length, total: (plan.actions || []).length })
+          : t("pc_execute")}</button>`
       }
       <div class="plan-result" id="plan-result-${Date.now()}"></div>
     `;
@@ -264,7 +277,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
       if (card.querySelector(".btn-execute")) {
         card.querySelector(".btn-execute").disabled = true;
       }
-      resultEl.textContent = "Executing…";
+      resultEl.textContent = t("pc_executing");
       resultEl.className = "plan-result";
       try {
         const token = this._hass.auth.data.access_token;
@@ -278,7 +291,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
         });
         if (resp.status === 403) {
           const blocked = await resp.json().catch(() => ({}));
-          resultEl.textContent = `🔒 Approval required for ${(blocked.blocked_actions || []).length} action(s). Click Execute to approve.`;
+          resultEl.textContent = t("pc_approval_blocked", { n: (blocked.blocked_actions || []).length });
           resultEl.className = "plan-result";
           if (card.querySelector(".btn-execute")) {
             card.querySelector(".btn-execute").disabled = false;
@@ -295,7 +308,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
         const data = await resp.json();
         const failed = (data.results || []).filter((r) => r.status !== "ok");
         if (failed.length === 0) {
-          resultEl.textContent = `✅ Done — ${executableActions.length} action(s) applied.`;
+          resultEl.textContent = t("pc_done", { n: executableActions.length });
           resultEl.className = "plan-result success";
 
           const ok = (data.results || []).filter((r) => r.status === "ok");
@@ -336,11 +349,11 @@ export const PlanCardsMixin = (Base) => class extends Base {
             const undoCount = historyEntry?.undo_plan?.length || undoActions.length;
             const undoBtn = document.createElement("button");
             undoBtn.className = "btn-undo";
-            undoBtn.textContent = `↩ Undo (${undoCount} action${undoCount > 1 ? "s" : ""})`;
+            undoBtn.textContent = t(undoCount > 1 ? "pc_undo_many" : "pc_undo_one", { n: undoCount });
             resultEl.after(undoBtn);
             undoBtn.addEventListener("click", async () => {
               undoBtn.disabled = true;
-              undoBtn.textContent = "Undoing…";
+              undoBtn.textContent = t("pc_undoing");
               try {
                 const token2 = this._hass.auth.data.access_token;
                 const request = historyEntry
@@ -358,16 +371,16 @@ export const PlanCardsMixin = (Base) => class extends Base {
                 if (!r2.ok || d2.status === "failed") {
                   throw new Error(d2.message || `HTTP ${r2.status}`);
                 }
-                undoBtn.textContent = "↩ Undone ✓";
+                undoBtn.textContent = t("pc_undone");
                 undoBtn.disabled = true;
-                resultEl.textContent = "↩ Changes undone successfully.";
+                resultEl.textContent = t("pc_undone_result");
                 resultEl.className = "plan-result success";
                 this._addChatHistory("assistant", `[CHANGE] Undid: ${plan.summary || "previous changes"}`);
                 if (typeof this._loadActionHistory === "function") {
                   this._loadActionHistory();
                 }
               } catch (e) {
-                undoBtn.textContent = `↩ Undo error: ${e.message}`;
+                undoBtn.textContent = t("pc_undo_error", { msg: e.message });
                 undoBtn.disabled = false;
               }
             });
@@ -381,8 +394,8 @@ export const PlanCardsMixin = (Base) => class extends Base {
             chip.className = "kyber-label-applied-chip";
             chip.innerHTML = `
               <ha-icon icon="${this._escapeHtml(labelInfo.icon)}"></ha-icon>
-              <span>${this._escapeHtml(labelInfo.label_name)} applied to ${this._escapeHtml(labelInfo.entity_name)}</span>
-              <button class="kyber-undo-label-btn">↩ Undo</button>
+              <span>${t("pc_label_applied", { label: this._escapeHtml(labelInfo.label_name), entity: this._escapeHtml(labelInfo.entity_name) })}</span>
+              <button class="kyber-undo-label-btn">${t("ae_undo")}</button>
             `;
             chip.querySelector(".kyber-undo-label-btn").addEventListener("click", async (evt) => {
               evt.stopPropagation();
@@ -396,14 +409,14 @@ export const PlanCardsMixin = (Base) => class extends Base {
                 });
                 chip.remove();
               } catch (e) {
-                btn.textContent = "⚠ Error"; btn.disabled = false;
+                btn.textContent = t("pc_label_undo_error"); btn.disabled = false;
               }
             });
             resultEl.after(chip);
           });
         } else {
           const failedMsgs = failed.map((r) => r.message || "unknown error").join("; ");
-          resultEl.textContent = `⚠ ${failed.length} action(s) failed: ${failedMsgs}`;
+          resultEl.textContent = t("pc_failed", { n: failed.length, msg: failedMsgs });
           resultEl.className = "plan-result error";
 
           // Record failure in chat history so the AI knows what happened
@@ -415,7 +428,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
           // ── Correction micro-agent result ─────────────────────────────────
           if (data.correction && data.correction.corrected_actions && data.correction.corrected_actions.length > 0) {
             const corr = data.correction;
-            resultEl.textContent += `\n🔧 Correction: ${corr.message || "Retrying with corrected plan…"}`;
+            resultEl.textContent += `\n${t("pc_correction", { msg: corr.message || t("pc_correction_retrying") })}`;
 
             // Show toast for learned fact
             if (corr.learned_fact && typeof this._showToast === "function") {
@@ -437,14 +450,14 @@ export const PlanCardsMixin = (Base) => class extends Base {
                 const corrData = await corrResp.json();
                 const corrFailed = (corrData.results || []).filter((r) => r.status !== "ok");
                 if (corrFailed.length === 0) {
-                  resultEl.textContent = `🔧 Corrected & applied — ${corr.corrected_actions.length} action(s)`;
+                  resultEl.textContent = t("pc_corrected_applied", { n: corr.corrected_actions.length });
                   resultEl.className = "plan-result success";
                   this._addChatHistory(
                     "assistant",
                     `[🔧 CORRECTION] Successfully applied corrected plan: ${corr.message || plan.summary || ""}`
                   );
                 } else {
-                  resultEl.textContent = `🔧 Correction also failed: ${corrFailed.map((r) => r.message).join("; ")}`;
+                  resultEl.textContent = t("pc_correction_failed", { msg: corrFailed.map((r) => r.message).join("; ") });
                   resultEl.className = "plan-result error";
                 }
               } catch (corrErr) {
@@ -456,7 +469,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
           if (card.querySelector(".btn-execute")) card.querySelector(".btn-execute").disabled = false;
         }
       } catch (err) {
-        resultEl.textContent = `Error: ${err.message}`;
+        resultEl.textContent = `${t("ae_error")} ${err.message}`;
         resultEl.className = "plan-result error";
         if (card.querySelector(".btn-execute")) card.querySelector(".btn-execute").disabled = false;
       }
@@ -553,30 +566,32 @@ export const PlanCardsMixin = (Base) => class extends Base {
     return [...ids];
   }
 
-  _describeTrigger(t) {
-    const p = t.platform || t.trigger || "";
+  _describeTrigger(trig) {
+    const t = this._t || ((k) => k);
+    const p = trig.platform || trig.trigger || "";
     switch (p) {
-      case "time": return `🕐 At ${t.at || "?"}`;
-      case "time_pattern": return `🕐 Every${t.hours ? ` ${t.hours}h` : ""}${t.minutes ? ` ${t.minutes}m` : ""}${t.seconds ? ` ${t.seconds}s` : ""}`;
+      case "time": return t("pc_trig_at", { at: trig.at || "?" });
+      case "time_pattern": return t("pc_trig_every", { interval: `${trig.hours ? ` ${trig.hours}h` : ""}${trig.minutes ? ` ${trig.minutes}m` : ""}${trig.seconds ? ` ${trig.seconds}s` : ""}` });
       case "state": {
-        const eid = Array.isArray(t.entity_id) ? t.entity_id.join(", ") : (t.entity_id || "?");
-        return `🔄 ${eid}${t.to != null ? ` → ${t.to}` : ""}`;
+        const eid = Array.isArray(trig.entity_id) ? trig.entity_id.join(", ") : (trig.entity_id || "?");
+        return `🔄 ${eid}${trig.to != null ? ` → ${trig.to}` : ""}`;
       }
-      case "sun": return `🌅 Sun ${t.event || "?"}`;
-      case "homeassistant": return `🏠 HA ${t.event || "start"}`;
-      case "template": return `📋 Template trigger`;
+      case "sun": return t("pc_trig_sun", { event: trig.event || "?" });
+      case "homeassistant": return `🏠 HA ${trig.event || "start"}`;
+      case "template": return t("pc_trig_template");
       case "numeric_state": {
-        const eid = Array.isArray(t.entity_id) ? t.entity_id[0] : (t.entity_id || "?");
-        return `🔢 ${eid}${t.above != null ? ` > ${t.above}` : ""}${t.below != null ? ` < ${t.below}` : ""}`;
+        const eid = Array.isArray(trig.entity_id) ? trig.entity_id[0] : (trig.entity_id || "?");
+        return `🔢 ${eid}${trig.above != null ? ` > ${trig.above}` : ""}${trig.below != null ? ` < ${trig.below}` : ""}`;
       }
-      case "zone": return `📍 ${t.entity_id || "?"} ${t.event || "enter/leave"} ${t.zone || ""}`;
-      case "webhook": return `🌐 Webhook: ${t.webhook_id || "?"}`;
-      case "conversation": return `💬 "${Array.isArray(t.command) ? t.command[0] : (t.command || "?")}"`;
-      default: return `⚡ ${p || "trigger"}`;
+      case "zone": return `📍 ${trig.entity_id || "?"} ${trig.event || t("pc_trig_enter_leave")} ${trig.zone || ""}`;
+      case "webhook": return `🌐 Webhook: ${trig.webhook_id || "?"}`;
+      case "conversation": return `💬 "${Array.isArray(trig.command) ? trig.command[0] : (trig.command || "?")}"`;
+      default: return `⚡ ${p || t("pc_trigger_fallback")}`;
     }
   }
 
   _describeCondition(c) {
+    const t = this._t || ((k) => k);
     const type = c.condition || "";
     switch (type) {
       case "state": {
@@ -584,39 +599,40 @@ export const PlanCardsMixin = (Base) => class extends Base {
         const st = Array.isArray(c.state) ? c.state.join("/") : (c.state ?? "?");
         return `✅ ${eid} = ${st}`;
       }
-      case "not": return `🚫 Not (${(c.conditions || []).length} condition${(c.conditions || []).length !== 1 ? "s" : ""})`;
-      case "and": return `🔗 All of ${(c.conditions || []).length} conditions`;
-      case "or": return `⚡ Any of ${(c.conditions || []).length} conditions`;
-      case "template": return `📋 Template condition`;
-      case "time": return `🕐 Time: ${c.after || ""}–${c.before || ""}`;
+      case "not": return t((c.conditions || []).length !== 1 ? "pc_cond_not_many" : "pc_cond_not_one", { n: (c.conditions || []).length });
+      case "and": return t("pc_cond_all", { n: (c.conditions || []).length });
+      case "or": return t("pc_cond_any", { n: (c.conditions || []).length });
+      case "template": return t("pc_cond_template");
+      case "time": return t("pc_cond_time", { after: c.after || "", before: c.before || "" });
       case "numeric_state": {
         const eid = Array.isArray(c.entity_id) ? c.entity_id[0] : (c.entity_id || "?");
         return `🔢 ${eid}${c.above != null ? ` > ${c.above}` : ""}${c.below != null ? ` < ${c.below}` : ""}`;
       }
       case "zone": return `📍 ${c.entity_id || "?"} in ${c.zone || "?"}`;
-      case "trigger": return `🔄 Trigger id: ${c.id || "?"}`;
-      default: return `❓ ${type || "condition"}`;
+      case "trigger": return t("pc_cond_trigger_id", { id: c.id || "?" });
+      default: return `❓ ${type || t("pc_condition_fallback")}`;
     }
   }
 
   _describeAction(a) {
+    const t = this._t || ((k) => k);
     const svc = a.service || a.action || "";
     if (svc) {
       const target = a.target?.entity_id || a.entity_id || "";
-      const t = Array.isArray(target) ? target[0] : target;
-      return `▶ ${svc}${t ? `  [${t}]` : ""}`;
+      const tgt = Array.isArray(target) ? target[0] : target;
+      return `▶ ${svc}${tgt ? `  [${tgt}]` : ""}`;
     }
-    if (a.delay !== undefined) return `⏱ Wait ${typeof a.delay === "object" ? JSON.stringify(a.delay) : a.delay}`;
-    if (a.wait_template !== undefined) return "⏳ Wait for template";
-    if (a.wait_for_trigger !== undefined) return "⏳ Wait for trigger";
-    if (a.condition !== undefined) return "🔀 Stop if condition fails";
-    if (a.choose !== undefined) return `🔀 Choose (${(a.choose || []).length} option${(a.choose || []).length !== 1 ? "s" : ""})`;
-    if (a.if !== undefined) return "❓ If...then...else";
-    if (a.repeat !== undefined) return `🔁 Repeat${a.repeat?.count ? ` ${a.repeat.count}×` : ""}`;
-    if (a.parallel !== undefined) return "⚡ Parallel actions";
-    if (a.variables !== undefined) return "📦 Set variables";
-    if (a.event !== undefined) return `📣 Fire event: ${a.event}`;
-    return "⚡ Action";
+    if (a.delay !== undefined) return t("pc_act_wait", { delay: typeof a.delay === "object" ? JSON.stringify(a.delay) : a.delay });
+    if (a.wait_template !== undefined) return t("pc_act_wait_template");
+    if (a.wait_for_trigger !== undefined) return t("pc_act_wait_trigger");
+    if (a.condition !== undefined) return t("pc_act_stop_if");
+    if (a.choose !== undefined) return t((a.choose || []).length !== 1 ? "pc_act_choose_many" : "pc_act_choose_one", { n: (a.choose || []).length });
+    if (a.if !== undefined) return t("pc_act_if");
+    if (a.repeat !== undefined) return a.repeat?.count ? t("pc_act_repeat_n", { n: a.repeat.count }) : t("pc_act_repeat");
+    if (a.parallel !== undefined) return t("pc_act_parallel");
+    if (a.variables !== undefined) return t("pc_act_set_vars");
+    if (a.event !== undefined) return t("pc_act_fire_event", { event: a.event });
+    return t("pc_act_action");
   }
 
   _evalConditionWithMocks(cond, mocks) {
@@ -754,10 +770,11 @@ export const PlanCardsMixin = (Base) => class extends Base {
       : this._describeAction.bind(this);
     const desc = descFn(item);
     const isChanged = changedSections.has(section);
+    const t = this._t || ((k) => k);
     row.innerHTML = `
-      <span class="ae-drag-handle" title="Sleep om te herschikken">⠿</span>
+      <span class="ae-drag-handle" title="${t("pc_drag_reorder")}">⠿</span>
       <span class="ae-row-desc${isChanged ? " changed" : ""}">${this._escapeHtml(desc)}</span>
-      <button class="ae-row-delete" title="Verwijder">🗑</button>
+      <button class="ae-row-delete" title="${t("pc_delete")}">🗑</button>
     `;
     row.querySelector(".ae-row-delete").addEventListener("click", (e) => {
       e.stopPropagation();
@@ -800,6 +817,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
 
   _buildAutomationTester(config, _automationId, container) {
     const self = this;
+    const t = self._t || ((k) => k);
 
     // ── Detect config type — blueprint wins over sequence ─────────────────
     const isBlueprint = !!(config.blueprint?.input || config.blueprint?.name);
@@ -844,26 +862,26 @@ export const PlanCardsMixin = (Base) => class extends Base {
       ? (config.sequence || [])
       : (config.action   || config.actions || config.sequence || []);
 
-    const titleMap = { script: "🔧 Script Simulator", blueprint: "📐 Blueprint Simulator", automation: "🧪 Automation Simulator" };
+    const titleMap = { script: t("pc_sim_title_script"), blueprint: t("pc_sim_title_blueprint"), automation: t("pc_sim_title_automation") };
 
     container.innerHTML = `
       <div class="sim-toolbar">
         <button class="sim-back-btn" id="sim-back-btn">← YAML</button>
         <div class="sim-toolbar-title">${titleMap[configType]}</div>
-        <button class="sim-run-btn" id="sim-run-btn">▶ Run</button>
+        <button class="sim-run-btn" id="sim-run-btn">${t("pc_sim_run")}</button>
         <div class="sim-result-badge" id="sim-result-badge"></div>
       </div>
       <div class="sim-body">
         <div class="sim-flow" id="sim-flow"></div>
         ${(allEntityIds.length || blueprintInputs.length || scriptFields.length) ? `<div class="sim-mock-panel" id="sim-mock-panel">
-          <div class="sim-mock-header">${isBlueprint ? "Blueprint inputs" : isScript ? "Script fields" : "Override entity values"}</div>
+          <div class="sim-mock-header">${isBlueprint ? t("pc_sim_blueprint_inputs") : isScript ? t("pc_sim_script_fields") : t("pc_sim_override_entities")}</div>
           <div class="sim-mock-rows" id="sim-mock-rows"></div>
         </div>` : ""}
       </div>
       ${allEntityIds.length ? `<div class="sim-overrides-bar" id="sim-overrides-bar" hidden>
-        <span class="sim-overrides-label">Overridden:</span>
+        <span class="sim-overrides-label">${t("pc_sim_overridden")}</span>
         <div class="sim-overrides-chips" id="sim-overrides-chips"></div>
-        <button class="sim-reset-all-btn" id="sim-reset-all-btn">↺ Reset all</button>
+        <button class="sim-reset-all-btn" id="sim-reset-all-btn">${t("pc_sim_reset_all")}</button>
       </div>` : ""}
     `;
 
@@ -872,24 +890,24 @@ export const PlanCardsMixin = (Base) => class extends Base {
     // Build flow sections based on config type
     if (isScript) {
       // Scripts: just a SEQUENCE of actions, no triggers/conditions
-      flowEl.appendChild(buildSection("SEQUENCE", actions, "action"));
+      flowEl.appendChild(buildSection(t("pc_sim_sequence"), actions, "action"));
     } else if (isBlueprint) {
       // Blueprints: trigger → conditions → actions (same as automation)
       if (triggers.length) {
-        flowEl.appendChild(buildSection("TRIGGERS", triggers, "trigger"));
+        flowEl.appendChild(buildSection(t("pc_sim_triggers"), triggers, "trigger"));
         flowEl.appendChild(makeArrow());
       }
       // Always show CONDITIONS section (even if empty) so the flow is clear
-      flowEl.appendChild(buildSection("CONDITIONS", conditions, "condition"));
+      flowEl.appendChild(buildSection(t("pc_sim_conditions"), conditions, "condition"));
       flowEl.appendChild(makeArrow());
-      flowEl.appendChild(buildSection("ACTIONS", actions.length ? actions : [], "action"));
+      flowEl.appendChild(buildSection(t("pc_sim_actions"), actions.length ? actions : [], "action"));
     } else {
       // Standard automation — always show all three sections
-      flowEl.appendChild(buildSection("TRIGGERS", triggers, "trigger"));
+      flowEl.appendChild(buildSection(t("pc_sim_triggers"), triggers, "trigger"));
       flowEl.appendChild(makeArrow());
-      flowEl.appendChild(buildSection("CONDITIONS", conditions, "condition"));
+      flowEl.appendChild(buildSection(t("pc_sim_conditions"), conditions, "condition"));
       flowEl.appendChild(makeArrow());
-      flowEl.appendChild(buildSection("ACTIONS", actions, "action"));
+      flowEl.appendChild(buildSection(t("pc_sim_actions"), actions, "action"));
     }
 
     buildMockRows();
@@ -921,7 +939,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
       if (items.length === 0) {
         const none = document.createElement("div");
         none.className = "sim-node-empty";
-        none.textContent = "none";
+        none.textContent = t("pc_sim_none");
         nodesEl.appendChild(none);
       } else {
         items.forEach((item, idx) => {
@@ -966,7 +984,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
         <div class="adg-icon">${icon}</div>
         <div class="adg-title">${self._escapeHtml(title)}</div>
         ${sub ? `<div class="adg-sub">${self._escapeHtml(sub)}</div>` : ""}
-        ${type === "trigger" ? `<button class="sim-fire-btn" title="Click to manually fire this trigger">⚡ Fire</button>` : ""}
+        ${type === "trigger" ? `<button class="sim-fire-btn" title="${t("pc_sim_fire_title")}">${t("pc_sim_fire")}</button>` : ""}
       `;
       node.appendChild(header);
 
@@ -977,7 +995,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
           const toggle = document.createElement("button");
           toggle.className = "sim-expand-btn";
           toggle.textContent = "▾";
-          toggle.title = "Collapse";
+          toggle.title = t("pc_sim_collapse");
           header.appendChild(toggle);
           node.appendChild(body);
           node.classList.add("sim-node-complex");
@@ -985,7 +1003,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
             e.stopPropagation();
             const collapsed = node.classList.toggle("sim-node-collapsed");
             toggle.textContent = collapsed ? "▸" : "▾";
-            toggle.title = collapsed ? "Expand" : "Collapse";
+            toggle.title = collapsed ? t("pc_sim_expand") : t("pc_sim_collapse");
           });
         }
       }
@@ -1026,10 +1044,10 @@ export const PlanCardsMixin = (Base) => class extends Base {
         optEl.className = "sim-branch";
         optEl.dataset.branchKey = `${pathPrefix}:opt:${oi}`;
         const conds = opt.conditions || opt.condition || [];
-        const condText = conds.length === 0 ? "Always" : conds.map(describeCondShort).join(" & ");
+        const condText = conds.length === 0 ? t("pc_sim_always") : conds.map(describeCondShort).join(" & ");
         const label = document.createElement("div");
         label.className = "sim-branch-label";
-        label.textContent = `Option ${oi + 1}: ${condText}`;
+        label.textContent = t("pc_sim_option", { n: oi + 1, cond: condText });
         label.style.cursor = "pointer";
         label.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -1058,7 +1076,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
         defEl.dataset.branchKey = `${pathPrefix}:default`;
         const label = document.createElement("div");
         label.className = "sim-branch-label sim-branch-default-label";
-        label.textContent = "Default:";
+        label.textContent = t("pc_sim_default");
         defEl.appendChild(label);
         buildSubSequence(defaultSeq, `${pathPrefix}:default`, defEl);
         body.appendChild(defEl);
@@ -1075,7 +1093,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
         el.dataset.branchKey = `${pathPrefix}:then`;
         const lbl = document.createElement("div");
         lbl.className = "sim-branch-label sim-branch-then-label";
-        lbl.textContent = "Then:";
+        lbl.textContent = t("pc_sim_then");
         el.appendChild(lbl);
         buildSubSequence(item.then, `${pathPrefix}:then`, el);
         body.appendChild(el);
@@ -1086,7 +1104,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
         el.dataset.branchKey = `${pathPrefix}:else`;
         const lbl = document.createElement("div");
         lbl.className = "sim-branch-label sim-branch-else-label";
-        lbl.textContent = "Else:";
+        lbl.textContent = t("pc_sim_else");
         el.appendChild(lbl);
         buildSubSequence(item.else, `${pathPrefix}:else`, el);
         body.appendChild(el);
@@ -1102,7 +1120,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
       el.dataset.branchKey = `${pathPrefix}:repeat`;
       const lbl = document.createElement("div");
       lbl.className = "sim-branch-label";
-      lbl.textContent = repeat.count ? `Repeats ${repeat.count}×:` : repeat.while ? "While:" : repeat.for_each ? "For each:" : "Sequence:";
+      lbl.textContent = repeat.count ? t("pc_sim_repeats", { n: repeat.count }) : repeat.while ? t("pc_sim_while") : repeat.for_each ? t("pc_sim_for_each") : t("pc_sim_sequence_label");
       el.appendChild(lbl);
       buildSubSequence(repeat.sequence || [], `${pathPrefix}:repeat`, el);
       body.appendChild(el);
@@ -1118,7 +1136,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
         el.dataset.branchKey = `${pathPrefix}:par:${bi}`;
         const lbl = document.createElement("div");
         lbl.className = "sim-branch-label";
-        lbl.textContent = `Branch ${bi + 1}:`;
+        lbl.textContent = t("pc_sim_branch", { n: bi + 1 });
         el.appendChild(lbl);
         const seq = Array.isArray(branch) ? branch : (branch.sequence || [branch]);
         buildSubSequence(seq, `${pathPrefix}:par:${bi}`, el);
@@ -1202,15 +1220,15 @@ export const PlanCardsMixin = (Base) => class extends Base {
       // Plain string template shorthand
       if (typeof c === "string") {
         const m = c.match(/(?:states|is_state)\(['"]([^'"]+)['"]/);
-        return m ? m[1].split(".").pop() : "template";
+        return m ? m[1].split(".").pop() : t("pc_sim_short_template");
       }
-      const t = c.condition || "";
-      if (t === "state")         return `${String(c.entity_id || "?").split(".").pop()} = ${c.state || "?"}`;
-      if (t === "trigger")       return `trigger: ${Array.isArray(c.id) ? c.id.join("/") : (c.id || "?")}`;
-      if (t === "template")      return "template";
-      if (t === "numeric_state") return `${String(c.entity_id || "?").split(".").pop()} (numeric)`;
-      if (t === "device")        return "device";
-      return t || "condition";
+      const ct = c.condition || "";
+      if (ct === "state")         return `${String(c.entity_id || "?").split(".").pop()} = ${c.state || "?"}`;
+      if (ct === "trigger")       return t("pc_sim_short_trigger", { id: Array.isArray(c.id) ? c.id.join("/") : (c.id || "?") });
+      if (ct === "template")      return t("pc_sim_short_template");
+      if (ct === "numeric_state") return t("pc_sim_short_numeric", { entity: String(c.entity_id || "?").split(".").pop() });
+      if (ct === "device")        return t("pc_sim_short_device");
+      return ct || t("pc_condition_fallback");
     }
 
     // ── Evaluate sub-nodes after a run ───────────────────────────────────────
@@ -1290,43 +1308,43 @@ export const PlanCardsMixin = (Base) => class extends Base {
       if (type === "trigger") {
         const p = item.platform || item.trigger || "";
         switch (p) {
-          case "time": return { icon: "🕐", title: "Time trigger", sub: `At ${item.at || "?"}` };
-          case "time_pattern": return { icon: "🕐", title: "Time pattern", sub: `${item.hours ? `${item.hours}h` : ""}${item.minutes ? ` ${item.minutes}m` : ""}` };
-          case "state": { const e = Array.isArray(item.entity_id) ? item.entity_id[0] : (item.entity_id || "?"); return { icon: "🔄", title: "State change", sub: e + (item.to != null ? ` → ${item.to}` : "") }; }
-          case "sun": return { icon: "🌅", title: "Sun", sub: item.event || "?" };
-          case "homeassistant": return { icon: "🏠", title: "HA startup", sub: item.event || "start" };
-          case "template": return { icon: "📋", title: "Template trigger", sub: "" };
-          case "numeric_state": { const e = Array.isArray(item.entity_id) ? item.entity_id[0] : (item.entity_id || "?"); return { icon: "🔢", title: "Numeric state", sub: e }; }
-          case "zone": return { icon: "📍", title: "Zone", sub: `${item.entity_id || "?"} ${item.event || ""}` };
+          case "time": return { icon: "🕐", title: t("pc_node_time_trigger"), sub: t("pc_node_at", { at: item.at || "?" }) };
+          case "time_pattern": return { icon: "🕐", title: t("pc_node_time_pattern"), sub: `${item.hours ? `${item.hours}h` : ""}${item.minutes ? ` ${item.minutes}m` : ""}` };
+          case "state": { const e = Array.isArray(item.entity_id) ? item.entity_id[0] : (item.entity_id || "?"); return { icon: "🔄", title: t("pc_node_state_change"), sub: e + (item.to != null ? ` → ${item.to}` : "") }; }
+          case "sun": return { icon: "🌅", title: t("pc_node_sun"), sub: item.event || "?" };
+          case "homeassistant": return { icon: "🏠", title: t("pc_node_ha_startup"), sub: item.event || "start" };
+          case "template": return { icon: "📋", title: t("pc_node_template_trigger"), sub: "" };
+          case "numeric_state": { const e = Array.isArray(item.entity_id) ? item.entity_id[0] : (item.entity_id || "?"); return { icon: "🔢", title: t("pc_node_numeric_state"), sub: e }; }
+          case "zone": return { icon: "📍", title: t("pc_node_zone"), sub: `${item.entity_id || "?"} ${item.event || ""}` };
           case "webhook": return { icon: "🌐", title: "Webhook", sub: item.webhook_id || "?" };
-          case "conversation": return { icon: "💬", title: "Voice command", sub: Array.isArray(item.command) ? item.command[0] : (item.command || "?") };
-          default: return { icon: "⚡", title: p || "Trigger", sub: "" };
+          case "conversation": return { icon: "💬", title: t("pc_node_voice_command"), sub: Array.isArray(item.command) ? item.command[0] : (item.command || "?") };
+          default: return { icon: "⚡", title: p || t("pc_node_trigger"), sub: "" };
         }
       } else if (type === "condition") {
-        const t = item.condition || "";
-        switch (t) {
-          case "state": { const e = Array.isArray(item.entity_id) ? item.entity_id[0] : (item.entity_id || "?"); const s = Array.isArray(item.state) ? item.state.join("/") : (item.state ?? "?"); return { icon: "🔀", title: "State", sub: `${e} = ${s}` }; }
-          case "not": return { icon: "🚫", title: "Not", sub: `${(item.conditions || []).length} condition(s)` };
-          case "and": return { icon: "🔗", title: "All of", sub: `${(item.conditions || []).length} conditions` };
-          case "or": return { icon: "⚡", title: "Any of", sub: `${(item.conditions || []).length} conditions` };
-          case "template": return { icon: "📋", title: "Template", sub: "" };
-          case "time": return { icon: "🕐", title: "Time range", sub: `${item.after || ""}–${item.before || ""}` };
-          case "numeric_state": { const e = Array.isArray(item.entity_id) ? item.entity_id[0] : (item.entity_id || "?"); return { icon: "🔢", title: "Numeric state", sub: e }; }
-          case "zone": return { icon: "📍", title: "Zone", sub: `${item.entity_id || "?"} in ${item.zone || "?"}` };
-          default: return { icon: "❓", title: t || "Condition", sub: "" };
+        const ct = item.condition || "";
+        switch (ct) {
+          case "state": { const e = Array.isArray(item.entity_id) ? item.entity_id[0] : (item.entity_id || "?"); const s = Array.isArray(item.state) ? item.state.join("/") : (item.state ?? "?"); return { icon: "🔀", title: t("pc_node_state"), sub: `${e} = ${s}` }; }
+          case "not": return { icon: "🚫", title: t("pc_node_not"), sub: t("pc_node_n_conditions_opt", { n: (item.conditions || []).length }) };
+          case "and": return { icon: "🔗", title: t("pc_node_all_of"), sub: t("pc_node_n_conditions", { n: (item.conditions || []).length }) };
+          case "or": return { icon: "⚡", title: t("pc_node_any_of"), sub: t("pc_node_n_conditions", { n: (item.conditions || []).length }) };
+          case "template": return { icon: "📋", title: t("pc_node_template"), sub: "" };
+          case "time": return { icon: "🕐", title: t("pc_node_time_range"), sub: `${item.after || ""}–${item.before || ""}` };
+          case "numeric_state": { const e = Array.isArray(item.entity_id) ? item.entity_id[0] : (item.entity_id || "?"); return { icon: "🔢", title: t("pc_node_numeric_state"), sub: e }; }
+          case "zone": return { icon: "📍", title: t("pc_node_zone"), sub: `${item.entity_id || "?"} in ${item.zone || "?"}` };
+          default: return { icon: "❓", title: ct || t("pc_node_condition"), sub: "" };
         }
       } else {
         const svc = item.service || item.action || "";
-        if (svc) { const tgt = item.target?.entity_id || item.entity_id || ""; const t = Array.isArray(tgt) ? tgt[0] : tgt; return { icon: "▶", title: svc, sub: t || "" }; }
-        if (item.delay !== undefined) return { icon: "⏱", title: "Delay", sub: typeof item.delay === "object" ? JSON.stringify(item.delay) : String(item.delay) };
-        if (item.wait_template !== undefined) return { icon: "⏳", title: "Wait for template", sub: "" };
-        if (item.choose !== undefined) return { icon: "🔀", title: "Choose", sub: `${(item.choose || []).length} option(s)` };
-        if (item.if !== undefined) return { icon: "❓", title: "If-then-else", sub: "" };
-        if (item.repeat !== undefined) return { icon: "🔁", title: "Repeat", sub: item.repeat?.count ? `${item.repeat.count}×` : "" };
-        if (item.parallel !== undefined) return { icon: "⚡", title: "Parallel", sub: "" };
-        if (item.variables !== undefined) return { icon: "📦", title: "Set variables", sub: "" };
-        if (item.event !== undefined) return { icon: "📣", title: "Fire event", sub: item.event };
-        return { icon: "⚡", title: "Action", sub: "" };
+        if (svc) { const tgt = item.target?.entity_id || item.entity_id || ""; const tid = Array.isArray(tgt) ? tgt[0] : tgt; return { icon: "▶", title: svc, sub: tid || "" }; }
+        if (item.delay !== undefined) return { icon: "⏱", title: t("pc_node_delay"), sub: typeof item.delay === "object" ? JSON.stringify(item.delay) : String(item.delay) };
+        if (item.wait_template !== undefined) return { icon: "⏳", title: t("pc_node_wait_template"), sub: "" };
+        if (item.choose !== undefined) return { icon: "🔀", title: t("pc_node_choose"), sub: t("pc_node_n_options", { n: (item.choose || []).length }) };
+        if (item.if !== undefined) return { icon: "❓", title: t("pc_node_if_then_else"), sub: "" };
+        if (item.repeat !== undefined) return { icon: "🔁", title: t("pc_node_repeat"), sub: item.repeat?.count ? `${item.repeat.count}×` : "" };
+        if (item.parallel !== undefined) return { icon: "⚡", title: t("pc_node_parallel"), sub: "" };
+        if (item.variables !== undefined) return { icon: "📦", title: t("pc_node_set_variables"), sub: "" };
+        if (item.event !== undefined) return { icon: "📣", title: t("pc_node_fire_event"), sub: item.event };
+        return { icon: "⚡", title: t("pc_node_action"), sub: "" };
       }
     }
 
@@ -1397,13 +1415,13 @@ export const PlanCardsMixin = (Base) => class extends Base {
         const liveVal = getLive(eid);
         const overridden = mocks[eid] !== undefined;
         const isUnavailable = liveVal === "unavailable" || liveVal === "unknown" || liveVal === "?";
-        const placeholder = isUnavailable ? "type override…" : liveVal;
+        const placeholder = isUnavailable ? t("pc_sim_type_override") : liveVal;
         const row = document.createElement("div");
         row.className = `sim-mock-row${overridden ? " sim-override" : ""}`;
         row.dataset.eid = eid;
         row.innerHTML = `
           <span class="sim-mock-eid">${self._escapeHtml(eid)}</span>
-          <span class="sim-mock-live${isUnavailable ? " sim-mock-unavailable" : ""}">live: ${self._escapeHtml(liveVal)}</span>
+          <span class="sim-mock-live${isUnavailable ? " sim-mock-unavailable" : ""}">${t("pc_sim_live", { value: self._escapeHtml(liveVal) })}</span>
           <div class="sim-mock-input-row">
             <input class="sim-mock-input" data-eid="${self._escapeHtml(eid)}"
                    placeholder="${self._escapeHtml(placeholder)}"
@@ -1413,7 +1431,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
         if (overridden) {
           const resetBtn = document.createElement("button");
           resetBtn.className = "sim-entity-reset-btn";
-          resetBtn.title = "Reset to live value";
+          resetBtn.title = t("pc_sim_reset_live");
           resetBtn.textContent = "↺";
           resetBtn.addEventListener("click", () => { resetEntity(eid); });
           row.querySelector(".sim-mock-input-row").appendChild(resetBtn);
@@ -1429,7 +1447,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
           if (isOverride && !resetBtn) {
             resetBtn = document.createElement("button");
             resetBtn.className = "sim-entity-reset-btn";
-            resetBtn.title = "Reset to live value";
+            resetBtn.title = t("pc_sim_reset_live");
             resetBtn.textContent = "↺";
             resetBtn.addEventListener("click", () => { resetEntity(eid); });
             row.querySelector(".sim-mock-input-row").appendChild(resetBtn);
@@ -1467,7 +1485,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
       if (keys.length) {
         chips.innerHTML = keys.map((eid) =>
           `<span class="sim-override-chip">${self._escapeHtml(eid.split(".").pop())} = <b>${self._escapeHtml(mocks[eid])}</b>
-            <button class="sim-chip-reset" data-eid="${self._escapeHtml(eid)}" title="Reset">✕</button>
+            <button class="sim-chip-reset" data-eid="${self._escapeHtml(eid)}" title="${t("pc_sim_reset")}">✕</button>
           </span>`
         ).join("");
         chips.querySelectorAll(".sim-chip-reset").forEach((btn) => {
@@ -1491,7 +1509,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
           runSubNodesForAction(action, `action:${idx}`, true);
         });
         const badge = container.querySelector("#sim-result-badge");
-        if (badge) { badge.className = "sim-result-badge pass"; badge.textContent = "✅ Script executed"; }
+        if (badge) { badge.className = "sim-result-badge pass"; badge.textContent = t("pc_sim_script_executed"); }
         return;
       }
 
@@ -1499,10 +1517,10 @@ export const PlanCardsMixin = (Base) => class extends Base {
 
       // Evaluate triggers
       let anyTriggerFires = triggers.length === 0;
-      triggers.forEach((t, idx) => {
+      triggers.forEach((trig, idx) => {
         const node = nodeEls[`trigger:${idx}`];
         const manuallyFired = firedTriggers.has(idx);
-        const result = manuallyFired ? true : self._evalTriggerWithMocks(t, mocks);
+        const result = manuallyFired ? true : self._evalTriggerWithMocks(trig, mocks);
         if (result === true) anyTriggerFires = true;
         if (node) {
           const badge = document.createElement("div");
@@ -1548,26 +1566,27 @@ export const PlanCardsMixin = (Base) => class extends Base {
       if (badge) {
         badge.className = `sim-result-badge ${wouldRun ? "pass" : "fail"}`;
         badge.textContent = wouldRun
-          ? (isBlueprint ? "✅ Would trigger" : "✅ Would run")
-          : `❌ Would NOT run${!anyTriggerFires ? " (no trigger fires)" : !allConditionsPass ? " (condition fails)" : ""}`;
+          ? (isBlueprint ? t("pc_sim_would_trigger") : t("pc_sim_would_run"))
+          : (!anyTriggerFires ? t("pc_sim_would_not_run_no_trigger") : !allConditionsPass ? t("pc_sim_would_not_run_condition") : t("pc_sim_would_not_run"));
       }
     }
   }
 
   _buildAutomationSections(workingConfig, changedSections, sectionsEl, yamlPre) {
     sectionsEl.innerHTML = "";
+    const t = this._t || ((k) => k);
     const updateYaml = () => { if (yamlPre) yamlPre.textContent = this._configToYaml(workingConfig); };
     ["trigger", "condition", "action"].forEach((section) => {
       const items = workingConfig[section] || [];
       if (section === "condition" && items.length === 0) return;
-      const labelMap = { trigger: "TRIGGERS", condition: "CONDITIONS", action: "ACTIONS" };
+      const labelMap = { trigger: t("pc_sim_triggers"), condition: t("pc_sim_conditions"), action: t("pc_sim_actions") };
       const sectionDiv = document.createElement("div");
       sectionDiv.className = "ae-section";
       const changed = changedSections.has(section);
       sectionDiv.innerHTML = `
         <div class="ae-section-header${changed ? " changed" : ""}">
           ${labelMap[section]}
-          ${section === "condition" ? `<button class="ae-btn-test-section">🧪 Test</button>` : ""}
+          ${section === "condition" ? `<button class="ae-btn-test-section">${t("pc_test")}</button>` : ""}
         </div>
         <div class="ae-rows" data-section="${section}"></div>
       `;
@@ -1608,8 +1627,9 @@ export const PlanCardsMixin = (Base) => class extends Base {
     const isScript = (plan.entity_id || "").startsWith("script.");
     const kind = isScript ? "script" : "automation";
     const configId = plan.automation_id || (plan.entity_id || "").replace(/^(automation|script)\./, "");
-    const autoName = workingConfig.alias || plan.entity_id || "Automation";
+    const autoName = workingConfig.alias || plan.entity_id || t("pc_automation_fallback");
     const changedSections = this._getChangedSections(plan.original_config, plan.modified_config);
+    let originalConfig = plan.original_config || null;
 
     const card = document.createElement("div");
     card.className = "automation-edit-card";
@@ -1618,7 +1638,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
       <div class="ae-header">
         <span class="ae-icon">🤖</span>
         <span class="ae-title">${this._escapeHtml(autoName)}</span>
-        <span class="ae-badge">${kind}</span>
+        <span class="ae-badge">${t(kind === "script" ? "pc_kind_script" : "pc_kind_automation")}</span>
       </div>
       <div class="ae-summary">${this._escapeHtml(plan.summary || "")}</div>
       ${(plan.changes || []).length ? `
@@ -1631,7 +1651,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
       </details>
       <div class="ae-actions">
         <button class="ae-btn-expand">${t("ae_view")}</button>
-        <button class="ae-btn-test" style="display:none">🧪 Test</button>
+        <button class="ae-btn-test" style="display:none">${t("pc_test")}</button>
         <button class="ae-btn-apply">${t("ae_apply")}</button>
         <button class="ae-btn-cancel">${t("ae_cancel")}</button>
       </div>
@@ -1673,15 +1693,22 @@ export const PlanCardsMixin = (Base) => class extends Base {
       applyBtn.textContent = t("ae_saving");
       try {
         const apiPath = isScript ? `config/script/config/${configId}` : `config/automation/config/${configId}`;
+        // Undo needs the config as it was before saving. Plans rebuilt from a
+        // malformed model answer may lack it, so read it from HA first.
+        if (!originalConfig) {
+          originalConfig = await this._hass.callApi("GET", apiPath).catch(() => null);
+        }
         await this._hass.callApi("POST", apiPath, { ...workingConfig, id: configId });
         this._setRenderStatus(opts.historyEntry, "plan", "done");
         applyBtn.textContent = t("ae_saved");
         applyBtn.style.background = "var(--success, #4caf50)";
+        // Without the previous config there is nothing to undo to.
+        if (!originalConfig) cancelBtn.style.display = "none";
         cancelBtn.textContent = t("ae_undo");
         cancelBtn.dataset.mode = "undo";
         cancelBtn.onclick = async () => {
           try {
-            await this._hass.callApi("POST", apiPath, { ...(plan.original_config || workingConfig), id: configId });
+            await this._hass.callApi("POST", apiPath, { ...originalConfig, id: configId });
             // Undone: after a reload the card offers Apply again
             this._setRenderStatus(opts.historyEntry, "plan", "undone");
             cancelBtn.textContent = t("ae_restored");
@@ -1729,7 +1756,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
       <div class="ae-header">
         <span class="ae-icon">🤖</span>
         <span class="ae-title">${this._escapeHtml(plan.alias || t("ae_new_automation"))}</span>
-        <span class="ae-badge">automation</span>
+        <span class="ae-badge">${t("pc_kind_automation")}</span>
       </div>
       <div class="ae-summary">${this._escapeHtml(plan.summary || "")}</div>
       <div class="ae-sections" style="display:none"></div>
@@ -1739,7 +1766,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
       </details>
       <div class="ae-actions">
         <button class="ae-btn-expand">${t("ae_view")}</button>
-        <button class="ae-btn-test" style="display:none">🧪 Test</button>
+        <button class="ae-btn-test" style="display:none">${t("pc_test")}</button>
         <button class="ae-btn-apply">${t("ae_create")}</button>
         <button class="ae-btn-cancel">${t("ae_cancel")}</button>
       </div>
@@ -1786,7 +1813,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
         this._setRenderStatus(opts.historyEntry, "plan", "done");
         applyBtn.textContent = t("ae_created");
         applyBtn.style.background = "var(--success, #4caf50)";
-        card.querySelector(".ae-btn-cancel").textContent = "✕ Sluiten";
+        card.querySelector(".ae-btn-cancel").textContent = t("pc_close");
       } catch (err) {
         applyBtn.disabled = false;
         applyBtn.textContent = t("ae_create");

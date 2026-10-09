@@ -5,9 +5,10 @@ export const CHAT_SETTINGS_MAX_AGE_MS = 30_000;
 
 export const AIMixin = (Base) => class extends Base {
   async _downloadDebugBundle(requestId, btn) {
+    const t = this._t || ((k) => k);
     const token = this._hass.auth.data.access_token;
     const orig = btn ? btn.textContent : "";
-    if (btn) { btn.disabled = true; btn.textContent = "⏳ packing…"; }
+    if (btn) { btn.disabled = true; btn.textContent = t("ai_bundle_packing"); }
     try {
       const resp = await fetch(`/api/kyber/debug/bundle?request_id=${encodeURIComponent(requestId)}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -22,7 +23,7 @@ export const AIMixin = (Base) => class extends Base {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      if (btn) btn.textContent = "✓ downloaded";
+      if (btn) btn.textContent = t("ai_bundle_downloaded");
       setTimeout(() => { if (btn) { btn.textContent = orig; btn.disabled = false; } }, 1500);
     } catch (err) {
       if (btn) { btn.textContent = `⚠ ${err.message}`; btn.disabled = false; }
@@ -30,6 +31,7 @@ export const AIMixin = (Base) => class extends Base {
   }
 
         async _openBugReportFlow(requestId, btn) {
+          const t = this._t || ((k) => k);
           const token = this._hass.auth.data.access_token;
           const shadow = this.shadowRoot;
 
@@ -38,24 +40,24 @@ export const AIMixin = (Base) => class extends Base {
           overlay.className = "bug-report-overlay";
           overlay.innerHTML = `
             <div class="bug-report-dialog" id="br-dialog">
-              <h3>🐛 Create Bug Report</h3>
-              <label>What did you ask Kyber?
-                <textarea id="br-asked" rows="2" placeholder="e.g. Turn on the kitchen lights"></textarea>
+              <h3>${t("ai_br_create_title")}</h3>
+              <label>${t("ai_br_asked_label")}
+                <textarea id="br-asked" rows="2" placeholder="${this._escapeAttr(t("ai_br_asked_placeholder"))}"></textarea>
               </label>
-              <label>What did you expect to happen?
-                <textarea id="br-expected" rows="2" placeholder="e.g. Kitchen lights turn on"></textarea>
+              <label>${t("ai_br_expected_label")}
+                <textarea id="br-expected" rows="2" placeholder="${this._escapeAttr(t("ai_br_expected_placeholder"))}"></textarea>
               </label>
-              <label>What actually happened?
-                <textarea id="br-happened" rows="3" placeholder="e.g. Nothing happened / wrong room / error message"></textarea>
+              <label>${t("ai_br_happened_label")}
+                <textarea id="br-happened" rows="3" placeholder="${this._escapeAttr(t("ai_br_happened_placeholder"))}"></textarea>
               </label>
-              <div class="bug-report-bundle-name">Bundle: <code>${this._escapeHtml(`kyber-debug-${requestId}.zip`)}</code></div>
+              <div class="bug-report-bundle-name">${t("ai_br_bundle_label")} <code>${this._escapeHtml(`kyber-debug-${requestId}.zip`)}</code></div>
               <label class="bug-report-checkbox">
                 <input type="checkbox" id="br-include-bundle">
-                Include debug bundle summary (PII will be redacted)
+                ${t("ai_br_include_bundle")}
               </label>
               <div class="bug-report-actions">
-                <button class="bug-report-btn-cancel" id="br-cancel">Cancel</button>
-                <button class="bug-report-btn-submit" id="br-submit">Generate report →</button>
+                <button class="bug-report-btn-cancel" id="br-cancel">${t("cmd_cancel")}</button>
+                <button class="bug-report-btn-submit" id="br-submit">${t("ai_br_generate")}</button>
               </div>
             </div>`;
           shadow.appendChild(overlay);
@@ -77,7 +79,7 @@ export const AIMixin = (Base) => class extends Base {
 
             // Step 2: spinner
             const dlg = overlay.querySelector("#br-dialog");
-            dlg.innerHTML = `<div class="bug-report-spinner">⏳ Generating bug report…</div>`;
+            dlg.innerHTML = `<div class="bug-report-spinner">${t("ai_br_generating")}</div>`;
 
             let data;
             try {
@@ -96,7 +98,7 @@ export const AIMixin = (Base) => class extends Base {
               if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
               data = await resp.json();
             } catch (err) {
-              dlg.innerHTML = `<h3>🐛 Bug Report</h3><p style="color:var(--error-color,#f44)">Failed: ${this._escapeHtml(err.message)}</p><div class="bug-report-actions"><button class="bug-report-btn-cancel" id="br-cancel2">Close</button></div>`;
+              dlg.innerHTML = `<h3>${t("ai_br_title")}</h3><p style="color:var(--error-color,#f44)">${t("ai_br_failed", { msg: this._escapeHtml(err.message) })}</p><div class="bug-report-actions"><button class="bug-report-btn-cancel" id="br-cancel2">${t("ai_close")}</button></div>`;
               dlg.querySelector("#br-cancel2").addEventListener("click", close);
               return;
             }
@@ -104,31 +106,31 @@ export const AIMixin = (Base) => class extends Base {
             // Step 3: review
             const similar = (data.similar_issues || []);
             const similarHtml = similar.length
-              ? `<div class="bug-report-similar"><strong>Similar open issues:</strong><ul style="margin:4px 0 0;padding-left:18px">${similar.map(i => `<li><a href="${this._escapeAttr(i.url)}" target="_blank">#${i.number} ${this._escapeHtml(i.title)}</a> [${i.state}]</li>`).join("")}</ul></div>`
+              ? `<div class="bug-report-similar"><strong>${t("ai_br_similar")}</strong><ul style="margin:4px 0 0;padding-left:18px">${similar.map(i => `<li><a href="${this._escapeAttr(i.url)}" target="_blank">#${i.number} ${this._escapeHtml(i.title)}</a> [${i.state}]</li>`).join("")}</ul></div>`
               : "";
             const noBundleNote = data.bundle_available === false
-              ? `<div class="bug-report-bundle-name" style="color:var(--warning-color,#f90)">⚠ Debug snapshot not available — bundle data was not included. Attach the zip file manually after opening the issue.</div>`
-              : `<div class="bug-report-bundle-name" style="color:var(--success-color,#4caf50)">📎 After opening the issue on GitHub, attach the <code>${this._escapeHtml(`kyber-debug-${requestId}.zip`)}</code> file.</div>`;
+              ? `<div class="bug-report-bundle-name" style="color:var(--warning-color,#f90)">${t("ai_br_no_bundle")}</div>`
+              : `<div class="bug-report-bundle-name" style="color:var(--success-color,#4caf50)">${t("ai_br_attach_bundle", { file: `<code>${this._escapeHtml(`kyber-debug-${requestId}.zip`)}</code>` })}</div>`;
 
             const encodedTitle = encodeURIComponent(data.title || "");
             const encodedBody = encodeURIComponent(data.body || "");
             const ghUrl = `https://github.com/pgroene/kyber/issues/new?title=${encodedTitle}&body=${encodedBody}`;
 
             dlg.innerHTML = `
-              <h3>🐛 Review Bug Report</h3>
+              <h3>${t("ai_br_review_title")}</h3>
               ${noBundleNote}
               ${similarHtml}
-              <label class="bug-report-result-title">Title
+              <label class="bug-report-result-title">${t("ai_br_title_label")}
                 <input type="text" id="br-title" value="${this._escapeAttr(data.title || "")}">
               </label>
-              <label>Body (markdown)
+              <label>${t("ai_br_body_label")}
                 <textarea id="br-body" rows="12">${this._escapeHtml(data.body || "")}</textarea>
               </label>
               <div class="bug-report-actions">
-                <button class="bug-report-btn-cancel" id="br-close">Close</button>
-                <button class="bug-report-btn-submit" id="br-download">⬇ Download bundle</button>
-                <button class="bug-report-btn-submit" id="br-copy">📋 Copy</button>
-                <button class="bug-report-btn-submit" id="br-open-gh">Open on GitHub ↗</button>
+                <button class="bug-report-btn-cancel" id="br-close">${t("ai_close")}</button>
+                <button class="bug-report-btn-submit" id="br-download">${t("ai_br_download_bundle")}</button>
+                <button class="bug-report-btn-submit" id="br-copy">${t("ai_br_copy")}</button>
+                <button class="bug-report-btn-submit" id="br-open-gh">${t("ai_br_open_github")}</button>
               </div>`;
 
             dlg.querySelector("#br-close").addEventListener("click", close);
@@ -155,11 +157,11 @@ export const AIMixin = (Base) => class extends Base {
                     } catch (e) { reject(e); }
                   });
               doCopy3.then(() => {
-                btn2.textContent = "✓ Copied!";
-                setTimeout(() => { btn2.textContent = "📋 Copy"; }, 2000);
+                btn2.textContent = t("ai_br_copied");
+                setTimeout(() => { btn2.textContent = t("ai_br_copy"); }, 2000);
               }).catch(() => {
-                btn2.textContent = "⚠ Copy failed";
-                setTimeout(() => { btn2.textContent = "📋 Copy"; }, 2000);
+                btn2.textContent = t("ai_br_copy_failed");
+                setTimeout(() => { btn2.textContent = t("ai_br_copy"); }, 2000);
               });
             });
             dlg.querySelector("#br-open-gh").addEventListener("click", () => {
@@ -171,6 +173,7 @@ export const AIMixin = (Base) => class extends Base {
         }
 
   async _submitTurnFeedback(rating, knowledgeIds, btnsRoot) {
+    const t = this._t || ((k) => k);
     const status = btnsRoot.querySelector(".tf-status");
     btnsRoot.querySelectorAll(".tf-btn-rate").forEach((b) => (b.disabled = true));
     try {
@@ -183,18 +186,19 @@ export const AIMixin = (Base) => class extends Base {
       const data = await resp.json();
       if (status) {
         status.textContent = rating >= 4
-          ? `✓ thanks — boosted ${data.count || 0} fact(s)`
-          : `📝 flagged ${data.count || 0} fact(s) for review`;
+          ? t("ai_fb_boosted", { n: data.count || 0 })
+          : t("ai_fb_flagged", { n: data.count || 0 });
         status.classList.add(rating >= 4 ? "ok" : "flag");
       }
       // Refresh the picked-knowledge list so stars/needs_review badges update
       setTimeout(() => this._renderDebugTab("last_turn"), 600);
     } catch (err) {
-      if (status) status.textContent = `feedback failed: ${err.message}`;
+      if (status) status.textContent = t("ai_fb_failed", { msg: err.message });
     }
   }
 
   async _askAI() {
+    const t = this._t || ((k) => k);
     const promptInput = this.shadowRoot.getElementById("prompt-input");
     const prompt = promptInput.value.trim();
     if (!prompt) return;
@@ -211,13 +215,13 @@ export const AIMixin = (Base) => class extends Base {
         if (arg === "on") {
           this._autopilot = true;
           this._updateAutopilotBadge();
-          this._appendMessage("⚡ Autopilot is now ON — proposals will execute automatically.", "assistant");
+          this._appendMessage(t("ai_autopilot_on"), "assistant");
         } else if (arg === "off") {
           this._autopilot = false;
           this._updateAutopilotBadge();
-          this._appendMessage("Autopilot is now OFF — you'll review proposals before executing.", "assistant");
+          this._appendMessage(t("ai_autopilot_off"), "assistant");
         } else {
-          this._appendMessage(`Autopilot is currently ${this._autopilot ? "ON ⚡" : "OFF"}. Use /autopilot on or /autopilot off.`, "assistant");
+          this._appendMessage(t("ai_autopilot_status", { state: this._autopilot ? t("ai_autopilot_state_on") : t("ai_autopilot_state_off") }), "assistant");
         }
         return;
       }
@@ -226,8 +230,8 @@ export const AIMixin = (Base) => class extends Base {
         if (argStr.toLowerCase() === "help") { this._showHelp("reset"); return; }
         this._buildCommandCard({
           icon: "🗑",
-          title: "Reset chat",
-          detail: "This will clear all messages and start a fresh conversation.",
+          title: t("ai_reset_title"),
+          detail: t("ai_reset_detail"),
           danger: true,
           onConfirm: async () => {
             await this._clearHistory();
@@ -283,7 +287,7 @@ export const AIMixin = (Base) => class extends Base {
     this._addChatHistory("user", prompt);
 
     this._appendMessage(prompt, "user");
-    this._setStatus("Asking AI…");
+    this._setStatus(t("ai_status_asking"));
     this._showThinking();
     const requestId = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + "-" + Math.random().toString(36).slice(2));
 
@@ -295,7 +299,7 @@ export const AIMixin = (Base) => class extends Base {
     const timeoutSec = this._chatTimeoutSec || DEFAULT_CHAT_TIMEOUT_SEC;
     this._chatAbort = new AbortController();
     const _chatTimeoutId = setTimeout(() => {
-      if (this._chatAbort) this._chatAbort.abort(new Error(`Request timed out (${timeoutSec}s). The AI may be busy or slow — try again, or raise "Chat timeout" in the Kyber integration options.`));
+      if (this._chatAbort) this._chatAbort.abort(new Error(t("ai_request_timeout", { sec: timeoutSec })));
     }, timeoutSec * 1000);
 
     // chatDone is hoisted above try so the finally block can stop the progress poll
@@ -378,8 +382,8 @@ export const AIMixin = (Base) => class extends Base {
           retryAfter = Number(limited?.retry_after || 0);
         } catch (_) { /* keep default */ }
         this._hideThinking();
-        this._appendMessage(`⏳ Too many requests — please wait ${retryAfter || 0}s`, "assistant");
-        this._setStatus("Too many requests", "error");
+        this._appendMessage(t("ai_rate_limited_wait", { sec: retryAfter || 0 }), "assistant");
+        this._setStatus(t("ai_rate_limited"), "error");
         return;
       }
 
@@ -412,7 +416,7 @@ export const AIMixin = (Base) => class extends Base {
         data.aliases_saved.forEach((alias) => {
           const chip = document.createElement("div");
           chip.className = "chat-alias-learned";
-          chip.textContent = `💡 Onthouden: ${alias}`;
+          chip.textContent = t("ai_alias_remembered", { alias });
           historyEl.appendChild(chip);
         });
         historyEl.scrollTop = historyEl.scrollHeight;
@@ -454,7 +458,7 @@ export const AIMixin = (Base) => class extends Base {
         this._showToolLog(data.tool_log);
       }
 
-      this._setStatus("Done");
+      this._setStatus(t("ai_status_done"));
 
       // Update context badge with live entity/automation counts
       if (data.context_stats) {
@@ -467,7 +471,7 @@ export const AIMixin = (Base) => class extends Base {
       this._hideThinking();
       let msg;
       if (err.name === "AbortError") {
-        msg = err.message || "Request cancelled.";
+        msg = err.message || t("ai_request_cancelled");
       } else {
         // err.message is like "503: {"message":"AI provider error: ..."}"
         // Try to extract a clean human-readable message from the JSON body
@@ -483,15 +487,15 @@ export const AIMixin = (Base) => class extends Base {
         }
         // Rate limit: show a friendly waiting message
         if (/429|rate.?limit|too.?many.?request|⏳/i.test(cleanMsg)) {
-          msg = "⏳ Azure rate limit — too many requests. Please wait a moment and try again.";
+          msg = t("ai_azure_rate_limit");
         } else {
-          msg = `Error: ${cleanMsg}`;
+          msg = t("ai_error_msg", { msg: cleanMsg });
         }
       }
       // "AI Task entity not found" → show persistent banner instead of chat bubble
       if (/AI Task entity.*not found/i.test(msg) || (/503/.test(err.message || "") && /ai_task/i.test(err.message || ""))) {
-        const entityId = ((err.message || "").match(/ai_task\.\S+/) || [])[0] || "the configured AI task entity";
-        this._showWarningBanner(`⚠️ AI model unavailable — ${entityId} not found. Check your Ollama / AI Task integration.`);
+        const entityId = ((err.message || "").match(/ai_task\.\S+/) || [])[0] || t("ai_task_entity_fallback");
+        this._showWarningBanner(t("ai_task_unavailable", { entity: entityId }));
       } else {
         this._appendMessage(msg, "error");
       }
@@ -561,6 +565,7 @@ export const AIMixin = (Base) => class extends Base {
   }
 
   _entityChip(entityId) {
+    const t = this._t || ((k) => k);
     const state = this._hass?.states?.[entityId];
     const domain = entityId.split(".")[0];
     const icon = this._domainIcon(domain);
@@ -572,9 +577,9 @@ export const AIMixin = (Base) => class extends Base {
     const span = document.createElement("span");
     span.className = `entity-chip ${stateClass} ${domainClass} ${missingClass}`.trim();
     span.dataset.entityId = entityId;
-    span.title = state ? `${name}\n${entityId}` : `${entityId} (not found in Home Assistant)`;
+    span.title = state ? `${name}\n${entityId}` : t("ai_entity_not_found_in_ha", { entity: entityId });
     span.style.cursor = "pointer";
-    span.innerHTML = `<span class="entity-chip-icon">${icon}</span><span class="entity-chip-name">${this._escapeHTML(name)}</span>${stateVal ? `<span class="entity-chip-state">${this._escapeHTML(stateVal)}</span>` : ""}${!state ? `<span class="entity-chip-warn" title="Entity not found">?</span>` : ""}`;
+    span.innerHTML = `<span class="entity-chip-icon">${icon}</span><span class="entity-chip-name">${this._escapeHTML(name)}</span>${stateVal ? `<span class="entity-chip-state">${this._escapeHTML(stateVal)}</span>` : ""}${!state ? `<span class="entity-chip-warn" title="${this._escapeAttr(t("ai_entity_not_found"))}">?</span>` : ""}`;
     span.addEventListener("click", () => {
       if ((domain === "automation" || domain === "script") && this._openEditor) {
         this._openEditor(entityId);
@@ -967,7 +972,7 @@ export const AIMixin = (Base) => class extends Base {
     if (type === "error" && this._lastPrompt) {
       const retryBtn = document.createElement("button");
       retryBtn.className = "chat-retry-btn";
-      retryBtn.textContent = "↺ Retry";
+      retryBtn.textContent = this._t ? this._t("retry_btn") : "↺ Retry";
       const savedPrompt = this._lastPrompt;
       retryBtn.addEventListener("click", () => {
         wrap.remove();
@@ -994,6 +999,7 @@ export const AIMixin = (Base) => class extends Base {
    */
   async _restoreActionUndoButton(wrap, entryId) {
     if (!this._hass || !entryId) return;
+    const t = this._t || ((k) => k);
     try {
       const token = this._hass.auth.data.access_token;
       const resp = await fetch(`/api/kyber/history/actions/${encodeURIComponent(entryId)}`, {
@@ -1005,7 +1011,7 @@ export const AIMixin = (Base) => class extends Base {
       if (entry.status === "undone") {
         const label = document.createElement("button");
         label.className = "btn-undo";
-        label.textContent = "↩ Undone ✓";
+        label.textContent = t("ai_undone");
         label.disabled = true;
         wrap.appendChild(label);
         return;
@@ -1017,10 +1023,10 @@ export const AIMixin = (Base) => class extends Base {
 
       const undoBtn = document.createElement("button");
       undoBtn.className = "btn-undo";
-      undoBtn.textContent = `↩ Undo (${undoCount} action${undoCount > 1 ? "s" : ""})`;
+      undoBtn.textContent = t(undoCount > 1 ? "ai_undo_actions_other" : "ai_undo_actions_one", { n: undoCount });
       undoBtn.addEventListener("click", async () => {
         undoBtn.disabled = true;
-        undoBtn.textContent = "Undoing…";
+        undoBtn.textContent = t("ai_undoing");
         try {
           const token2 = this._hass.auth.data.access_token;
           const r = await fetch(`/api/kyber/history/actions/${encodeURIComponent(entryId)}/undo`, {
@@ -1029,12 +1035,12 @@ export const AIMixin = (Base) => class extends Base {
           });
           const d = await r.json();
           if (!r.ok || d.status === "failed") throw new Error(d.message || `HTTP ${r.status}`);
-          undoBtn.textContent = "↩ Undone ✓";
+          undoBtn.textContent = t("ai_undone");
           undoBtn.disabled = true;
           this._addChatHistory("assistant", `[CHANGE] Undid action history entry ${entryId}`);
           if (typeof this._loadActionHistory === "function") this._loadActionHistory();
         } catch (e) {
-          undoBtn.textContent = `↩ Undo error: ${e.message}`;
+          undoBtn.textContent = t("ai_undo_error", { msg: e.message });
           undoBtn.disabled = false;
         }
       });
@@ -1072,6 +1078,7 @@ export const AIMixin = (Base) => class extends Base {
    *   state in historyEntry.meta.render.status.
    */
   _appendAIResponse(fullText, yamlBlocks, plan, learnedFact = null, clarify = null, knowledgeIds = [], opts = {}) {
+    const t = this._t || ((k) => k);
     const history = this.shadowRoot.getElementById("chat-history");
     const restored = !!opts.restored;
     const historyEntry = opts.historyEntry || null;
@@ -1165,7 +1172,7 @@ export const AIMixin = (Base) => class extends Base {
       // Copy button
       const aiCopyBtn = document.createElement("button");
       aiCopyBtn.className = "tf-btn-rate chat-copy-btn";
-      aiCopyBtn.title = "Copy";
+      aiCopyBtn.title = t("copy_title");
       aiCopyBtn.textContent = "📋";
       aiCopyBtn.addEventListener("click", () => {
         const t2 = this._t || ((k) => k);
@@ -1199,11 +1206,11 @@ export const AIMixin = (Base) => class extends Base {
       if (knowledgeIds !== undefined && !(restored && !knowledgeIds.length)) {
         const upBtn = document.createElement("button");
         upBtn.className = "tf-btn-rate tf-chat-up";
-        upBtn.title = "Helpful";
+        upBtn.title = t("ai_fb_helpful");
         upBtn.textContent = "👍";
         const downBtn = document.createElement("button");
         downBtn.className = "tf-btn-rate tf-chat-down";
-        downBtn.title = "Not helpful";
+        downBtn.title = t("ai_fb_not_helpful");
         downBtn.textContent = "👎";
         const statusSpan = document.createElement("span");
         statusSpan.className = "tf-status";
@@ -1244,7 +1251,7 @@ export const AIMixin = (Base) => class extends Base {
           if (chips.length > VISIBLE) {
             const moreBtn = document.createElement("button");
             moreBtn.className = "suggestion-chip chip-more";
-            moreBtn.textContent = `+${chips.length - VISIBLE} meer`;
+            moreBtn.textContent = t("ai_chips_more", { n: chips.length - VISIBLE });
             moreBtn.addEventListener("click", () => {
               moreBtn.remove();
               chips.slice(VISIBLE).forEach((label) => chipRow.appendChild(makeChip(label)));
@@ -1280,7 +1287,7 @@ export const AIMixin = (Base) => class extends Base {
           this._openEditor(plan.automation_id);
           const card = document.createElement("div");
           card.className = "open-editor-prompt";
-          card.innerHTML = `<div class="open-editor-summary">📝 ${this._escapeHtml(plan.summary || "Automation editor opened")}</div>`;
+          card.innerHTML = `<div class="open-editor-summary">📝 ${this._escapeHtml(plan.summary || t("ai_automation_editor_opened"))}</div>`;
           history.appendChild(card);
         } else {
           const card = this._buildOpenEditorPrompt(plan);
@@ -1311,7 +1318,7 @@ export const AIMixin = (Base) => class extends Base {
     yamlBlocks.forEach((block) => {
       const container = document.createElement("div");
       container.className = "yaml-suggestion";
-      const label = this._editorMode === "dashboard" ? "⬆ Apply to dashboard" : "⬆ Apply to editor";
+      const label = this._editorMode === "dashboard" ? t("ai_yaml_apply_dashboard") : t("ai_yaml_apply_editor");
       container.innerHTML = `
         <pre>${this._escapeHtml(block)}</pre>
         <button>${label}</button>
@@ -1320,10 +1327,10 @@ export const AIMixin = (Base) => class extends Base {
       applyBtn.addEventListener("click", () => {
         this._setEditorContent(block);
         applyBtn.disabled = true;
-        applyBtn.textContent = "✓ Applied";
+        applyBtn.textContent = t("ai_yaml_applied");
         this._setStatus(this._editorMode === "dashboard"
-          ? "Dashboard YAML applied — review and Save when ready."
-          : "Suggestion applied — review and save when ready.");
+          ? t("ai_yaml_applied_dashboard_status")
+          : t("ai_yaml_applied_editor_status"));
       });
       history.appendChild(container);
       // Autopilot: auto-apply YAML when editor is already open
@@ -1336,36 +1343,38 @@ export const AIMixin = (Base) => class extends Base {
   }
 
   _buildOpenDashboardPrompt(plan) {
+    const t = this._t || ((k) => k);
     const card = document.createElement("div");
     card.className = "open-editor-prompt";
     const targetLabel = plan.url_path ? ` (${plan.url_path})` : "";
     card.innerHTML = `
-      <div class="open-editor-summary">${this._escapeHtml(plan.summary || "Edit dashboard")}</div>
-      <button class="btn-open-editor">📊 Open dashboard editor${this._escapeHtml(targetLabel)}</button>
+      <div class="open-editor-summary">${this._escapeHtml(plan.summary || t("ai_edit_dashboard"))}</div>
+      <button class="btn-open-editor">${t("ai_open_dashboard_editor", { target: this._escapeHtml(targetLabel) })}</button>
     `;
     card.querySelector(".btn-open-editor").addEventListener("click", () => {
       this._openDashboard(plan.url_path || null);
       const btn = card.querySelector(".btn-open-editor");
       btn.disabled = true;
-      btn.textContent = "✓ Dashboard editor opened";
+      btn.textContent = t("ai_dashboard_editor_opened");
     });
     return card;
   }
 
   _buildOpenEditorPrompt(plan) {
+    const t = this._t || ((k) => k);
     const card = document.createElement("div");
     card.className = "open-editor-prompt";
 
     card.innerHTML = `
-      <div class="open-editor-summary">${this._escapeHtml(plan.summary || "Edit automation")}</div>
-      <button class="btn-open-editor">📝 Open YAML editor</button>
+      <div class="open-editor-summary">${this._escapeHtml(plan.summary || t("ai_edit_automation"))}</div>
+      <button class="btn-open-editor">${t("ai_open_yaml_editor")}</button>
     `;
 
     card.querySelector(".btn-open-editor").addEventListener("click", () => {
       this._openEditor(plan.automation_id);
       const btn = card.querySelector(".btn-open-editor");
       btn.disabled = true;
-      btn.textContent = "✓ Editor opened";
+      btn.textContent = t("ai_editor_opened");
     });
 
     return card;
@@ -1411,10 +1420,11 @@ export const AIMixin = (Base) => class extends Base {
   async _autoExecuteToolPlan(plan, _originalPrompt) {
     const history = this.shadowRoot?.getElementById("chat-history");
     if (!history) return;
+    const t = this._t || ((k) => k);
 
     const spinner = document.createElement("div");
     spinner.className = "chat-message assistant";
-    spinner.textContent = `🔍 Fetching data…`;
+    spinner.textContent = t("ai_tool_fetching");
     history.appendChild(spinner);
     history.scrollTop = history.scrollHeight;
 
@@ -1426,6 +1436,17 @@ export const AIMixin = (Base) => class extends Base {
         body: JSON.stringify({ actions: plan.actions }),
       });
       const data = await resp.json();
+      if (!resp.ok) {
+        spinner.remove();
+        const errMsg = data?.error || data?.message || `HTTP ${resp.status}`;
+        const msg = document.createElement("div");
+        msg.className = "chat-message assistant";
+        msg.textContent = t("ai_tool_fetch_failed_msg", { msg: errMsg });
+        history.appendChild(msg);
+        this._setStatus(t("ai_tool_fetch_failed", { msg: errMsg }), "error");
+        history.scrollTop = history.scrollHeight;
+        return;
+      }
       const results = data.results || [];
       spinner.remove();
 
@@ -1457,7 +1478,7 @@ export const AIMixin = (Base) => class extends Base {
       });
       history.scrollTop = history.scrollHeight;
     } catch (err) {
-      spinner.textContent = `⚠ Tool fetch failed: ${err.message}`;
+      spinner.textContent = t("ai_tool_fetch_failed_msg", { msg: err.message });
     }
   }
 
@@ -1465,6 +1486,7 @@ export const AIMixin = (Base) => class extends Base {
     const history = this.shadowRoot?.getElementById("chat-history");
     if (!history) return;
     this._hideThinking(); // ensure no duplicate
+    const t = this._t || ((k) => k);
     const bubble = document.createElement("div");
     bubble.id = "kyber-thinking-bubble";
     bubble.className = "chat-message assistant";
@@ -1475,7 +1497,7 @@ export const AIMixin = (Base) => class extends Base {
             <span></span><span></span><span></span>
           </div>
           <span class="thinking-label">${this._t ? this._t("thinking") : "Thinking…"}</span>
-          <button class="thinking-cancel" id="kyber-thinking-cancel" title="Cancel request">✕ Cancel</button>
+          <button class="thinking-cancel" id="kyber-thinking-cancel" title="${this._escapeAttr(t("ai_cancel_request"))}">${t("ae_cancel")}</button>
         </div>
         <div class="thinking-events" id="kyber-thinking-events"></div>
       </div>
@@ -1536,11 +1558,12 @@ export const AIMixin = (Base) => class extends Base {
 
   _renderProgressEvent(ev) {
     if (!ev || !ev.type) return;
+    const t = this._t || ((k) => k);
     if (ev.type === "info") {
       this._appendThinkingEvent("thinking-info", ev.message || "", "ℹ️");
     } else if (ev.type === "tool_call") {
       const args = ev.args ? Object.entries(ev.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ") : "";
-      this._setThinkingLabel("Calling tool…");
+      this._setThinkingLabel(t("ai_calling_tool"));
       this._appendThinkingEventHTML(
         `<span class="thinking-tool-name">🔧 ${this._escapeHTML(ev.name || "?")}</span>` +
         (args ? `<span class="thinking-tool-args"> (${this._escapeHTML(args)})</span>` : "") +
@@ -1558,12 +1581,12 @@ export const AIMixin = (Base) => class extends Base {
               statusEl.classList.contains("thinking-tool-running")) {
             statusEl.classList.remove("thinking-tool-running");
             statusEl.classList.add("thinking-tool-done");
-            statusEl.textContent = ` → ${ev.summary || "done"}`;
+            statusEl.textContent = ` → ${ev.summary || t("ai_tool_done")}`;
             if (ev.preview) {
               items[i].dataset.preview = ev.preview;
               items[i].dataset.toolName = ev.name || "";
               items[i].style.cursor = "pointer";
-              items[i].title = "Click to view results";
+              items[i].title = t("ai_tool_view_results");
               items[i].addEventListener("click", () => {
                 let existing = items[i].querySelector(".thinking-tool-preview, .entity-result-grid");
                 if (existing) { existing.remove(); return; }
@@ -1585,13 +1608,13 @@ export const AIMixin = (Base) => class extends Base {
           }
         }
       }
-      this._setThinkingLabel("Thinking…");
+      this._setThinkingLabel(t("thinking"));
     } else if (ev.type === "thinking") {
-      this._setThinkingLabel(ev.stage === "follow_up" ? "Reasoning over results…" : "Thinking…");
+      this._setThinkingLabel(ev.stage === "follow_up" ? t("ai_reasoning_results") : t("thinking"));
     } else if (ev.type === "warning") {
       this._appendThinkingEvent("thinking-warning", ev.message || "", "⚠️");
     } else if (ev.type === "error") {
-      this._appendThinkingEvent("thinking-error", ev.message || "error", "⚠️");
+      this._appendThinkingEvent("thinking-error", ev.message || t("ai_error_fallback"), "⚠️");
     }
   }
 
@@ -1682,6 +1705,7 @@ export const AIMixin = (Base) => class extends Base {
       return;
     }
 
+    const t = this._t || ((k) => k);
     const ep = data.explorer_progress || {};
     const epStatus = ep.status || "idle";
     const active = ["starting", "phase1_summaries", "phase2_entities", "narrator"].includes(epStatus);
@@ -1695,10 +1719,10 @@ export const AIMixin = (Base) => class extends Base {
         if (epStatus === "narrator") {
           const done = ep.narrator_done ?? 0, total = ep.narrator_total ?? 0;
           const pct = total > 0 ? Math.round(done * 100 / total) : 0;
-          bannerText = `Narry is exploring your home${total > 0 ? ` ${pct}%` : ""}`;
+          bannerText = total > 0 ? t("ai_narrator_exploring_pct", { pct }) : t("ai_narrator_exploring");
         } else {
           const done = ep.done ?? 0, total = ep.total ?? 0;
-          bannerText = `Exploring your home${total > 0 ? ` (${done} / ${total})` : ""}…`;
+          bannerText = total > 0 ? t("ai_exploring_count", { done, total }) : t("exploring");
         }
         if (textEl) textEl.textContent = bannerText;
         banner.style.display = "";
@@ -1715,12 +1739,12 @@ export const AIMixin = (Base) => class extends Base {
         const pct = total > 0 ? Math.round(done * 100 / total) : 0;
         badge.textContent = `🔍 ${pct}%`;
         badge.hidden = false;
-        badge.title = `Narry is exploring your home: ${done} of ${total} entities (${pct}%)`;
+        badge.title = t("ai_narrator_badge_title", { done, total, pct });
       } else if (active) {
         const done = ep.done ?? 0, total = ep.total ?? 0;
         badge.textContent = `🔍 ${done}/${total}`;
         badge.hidden = false;
-        badge.title = `Entity explorer: indexing ${done} of ${total}`;
+        badge.title = t("ai_explorer_badge_title", { done, total });
       } else {
         badge.hidden = true;
       }
@@ -1756,6 +1780,7 @@ export const AIMixin = (Base) => class extends Base {
   _renderAreaSuggestionChip(suggestion) {
     const bar = this._getOrCreateAreaBar();
     if (!bar) return;
+    const t = this._t || ((k) => k);
 
     const chip = document.createElement("div");
     chip.className = "kyber-area-suggestion-chip";
@@ -1763,6 +1788,8 @@ export const AIMixin = (Base) => class extends Base {
 
     const name = this._escapeHtml(suggestion.friendly_name || suggestion.entity_id);
     const area = this._escapeHtml(suggestion.suggested_area_name);
+    const nameHtml = `<strong>${name}</strong>`;
+    const areaHtml = `<strong>${area}</strong>`;
 
     /** Remove this chip and clean up bar when all chips are done. */
     const _maybeHideBar = () => {
@@ -1776,8 +1803,8 @@ export const AIMixin = (Base) => class extends Base {
     if (suggestion.applied) {
       chip.innerHTML = `
         <span class="area-chip-icon">🏠</span>
-        <span class="area-chip-text">Assigned <strong>${name}</strong> to <strong>${area}</strong></span>
-        <button class="kyber-area-undo-btn">↩ Undo</button>
+        <span class="area-chip-text">${t("ai_area_assigned_to", { name: nameHtml, area: areaHtml })}</span>
+        <button class="kyber-area-undo-btn">${t("ae_undo")}</button>
       `;
       chip.querySelector(".kyber-area-undo-btn").addEventListener("click", async (evt) => {
         evt.stopPropagation();
@@ -1789,18 +1816,18 @@ export const AIMixin = (Base) => class extends Base {
             approved: true,
           });
           await this._hass.callApi("POST", "kyber/area_suggestions/dismiss", { id: suggestion.id });
-          chip.innerHTML = `<span class="area-chip-icon">↩</span><span class="area-chip-text">Moved <strong>${name}</strong> back</span>`;
+          chip.innerHTML = `<span class="area-chip-icon">↩</span><span class="area-chip-text">${t("ai_area_moved_back", { name: nameHtml })}</span>`;
           chip.classList.add("area-chip-done");
           _maybeHideBar();
         } catch (err) {
-          btn.textContent = "⚠ Error"; btn.disabled = false;
+          btn.textContent = t("ai_error_short"); btn.disabled = false;
         }
       });
     } else {
       chip.innerHTML = `
         <span class="area-chip-icon">🏠</span>
-        <span class="area-chip-text"><strong>${name}</strong> → assign to <strong>${area}</strong>?</span>
-        <button class="kyber-area-apply-btn">✓ Assign</button>
+        <span class="area-chip-text">${t("ai_area_assign_question", { name: nameHtml, area: areaHtml })}</span>
+        <button class="kyber-area-apply-btn">${t("ai_area_assign")}</button>
         <button class="kyber-area-dismiss-btn">✕</button>
       `;
       chip.querySelector(".kyber-area-apply-btn").addEventListener("click", async (evt) => {
@@ -1813,11 +1840,11 @@ export const AIMixin = (Base) => class extends Base {
             approved: true,
           });
           await this._hass.callApi("POST", "kyber/area_suggestions/dismiss", { id: suggestion.id });
-          chip.innerHTML = `<span class="area-chip-icon">✓</span><span class="area-chip-text"><strong>${name}</strong> assigned to <strong>${area}</strong></span>`;
+          chip.innerHTML = `<span class="area-chip-icon">✓</span><span class="area-chip-text">${t("ai_area_was_assigned", { name: nameHtml, area: areaHtml })}</span>`;
           chip.classList.add("area-chip-done");
           _maybeHideBar();
         } catch (err) {
-          btn.textContent = "⚠ Error"; btn.disabled = false;
+          btn.textContent = t("ai_error_short"); btn.disabled = false;
         }
       });
       chip.querySelector(".kyber-area-dismiss-btn").addEventListener("click", async (evt) => {

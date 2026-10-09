@@ -56,21 +56,22 @@ export const UtilsMixin = (Base) => class extends Base {
   _updateContextBadge(stats) {
     const badge = this.shadowRoot?.getElementById("context-badge");
     if (!badge) return;
-    const parts = [`${stats.entity_count || 0} entities`];
-    if (stats.automation_count) parts.push(`${stats.automation_count} automations`);
-    if (stats.lights_on) parts.push(`💡 ${stats.lights_on} on`);
+    const t = this._t || ((k) => k);
+    const parts = [t("ut_ctx_entities", { n: stats.entity_count || 0 })];
+    if (stats.automation_count) parts.push(t("ut_ctx_automations", { n: stats.automation_count }));
+    if (stats.lights_on) parts.push(t("ut_ctx_lights_on", { n: stats.lights_on }));
     badge.textContent = parts.join(" · ");
     badge.title = [
-      `Entities: ${stats.entity_count || 0}`,
-      `Automations: ${stats.automation_count || 0}`,
-      `Areas: ${stats.area_count || 0}`,
-      stats.lights_on ? `Lights on: ${stats.lights_on}` : null,
-      stats.unavailable_count ? `⚠️ Unavailable: ${stats.unavailable_count}` : null,
-      stats.low_battery_count ? `🪫 Low battery: ${stats.low_battery_count}` : null,
+      t("ut_ctx_title_entities", { n: stats.entity_count || 0 }),
+      t("ut_ctx_title_automations", { n: stats.automation_count || 0 }),
+      t("ut_ctx_title_areas", { n: stats.area_count || 0 }),
+      stats.lights_on ? t("ut_ctx_title_lights_on", { n: stats.lights_on }) : null,
+      stats.unavailable_count ? t("ut_ctx_title_unavailable", { n: stats.unavailable_count }) : null,
+      stats.low_battery_count ? t("ut_ctx_title_low_battery", { n: stats.low_battery_count }) : null,
     ].filter(Boolean).join("\n");
   }
 
-  _showContextRefreshedMessage(label = "Context refreshed") {
+  _showContextRefreshedMessage(label = (this._t || ((k) => k))("ut_context_refreshed")) {
     const history = this.shadowRoot?.getElementById("chat-history");
     if (!history) return;
     const div = document.createElement("div");
@@ -98,12 +99,13 @@ export const UtilsMixin = (Base) => class extends Base {
     const hasUpdate = updateEntity?.state === "on";
     badge.hidden = !hasUpdate;
     if (hasUpdate && label) {
+      const t = this._t || ((k) => k);
       const installed = (updateEntity.attributes.installed_version || "").replace(/^v/i, "");
       const latest    = (updateEntity.attributes.latest_version    || "").replace(/^v/i, "");
-      label.textContent = latest ? `→ v${latest}` : "Update available";
+      label.textContent = latest ? `→ v${latest}` : t("ut_update_available");
       badge.title = installed && latest
-        ? `Kyber update: v${installed} → v${latest}\nClick to update`
-        : `Kyber update available — click to install`;
+        ? t("ut_update_title_versions", { installed, latest })
+        : t("ut_update_title");
       // Store versions for the popover
       badge.dataset.installed = installed;
       badge.dataset.latest    = latest;
@@ -287,10 +289,11 @@ export const UtilsMixin = (Base) => class extends Base {
 
   async _undoActionHistoryEntry(entryId, btn) {
     if (!entryId || !this._hass) return;
-    const original = btn?.textContent || "↩ Undo";
+    const t = this._t || ((k) => k);
+    const original = btn?.textContent || t("ae_undo");
     if (btn) {
       btn.disabled = true;
-      btn.textContent = "Undoing…";
+      btn.textContent = t("ut_undoing");
     }
     try {
       const token = this._hass.auth.data.access_token;
@@ -303,7 +306,7 @@ export const UtilsMixin = (Base) => class extends Base {
         throw new Error(data.message || `HTTP ${resp.status}`);
       }
       await this._loadActionHistory();
-      this._appendMessage(`↩ Undid: ${data.entry?.summary || "previous action"}`, "assistant");
+      this._appendMessage(t("ut_undid", { summary: data.entry?.summary || t("ut_previous_action") }), "assistant");
     } catch (err) {
       if (btn) {
         btn.disabled = false;
@@ -316,8 +319,9 @@ export const UtilsMixin = (Base) => class extends Base {
     const list = this.shadowRoot?.getElementById("action-history-list");
     if (!list) return;
     const entries = Array.isArray(this._actionHistory) ? this._actionHistory : [];
+    const t = this._t || ((k) => k);
     if (entries.length === 0) {
-      list.innerHTML = '<div class="action-history-empty">No applied actions yet.</div>';
+      list.innerHTML = `<div class="action-history-empty">${t("ut_no_applied_actions")}</div>`;
       return;
     }
     list.innerHTML = "";
@@ -325,23 +329,23 @@ export const UtilsMixin = (Base) => class extends Base {
       const wrap = document.createElement("div");
       wrap.className = "action-history-entry";
       const status = String(entry.status || "applied");
-      const badgeLabel = status === "undone" ? "↩ Undone" : status === "failed" ? "⚠ Failed" : "✅ Applied";
+      const badgeLabel = status === "undone" ? t("ut_status_undone") : status === "failed" ? t("ut_status_failed") : t("ut_status_applied");
       const changes = Array.isArray(entry.entity_changes) ? entry.entity_changes : [];
       const chips = changes.map((change) => `
-        <span class="action-history-chip">${this._escapeHtml(change.entity_id || "entity")} · ${this._escapeHtml(change.from_state ?? "?")} → ${this._escapeHtml(change.to_state ?? "?")}</span>
+        <span class="action-history-chip">${this._escapeHtml(change.entity_id || t("ut_entity_fallback"))} · ${this._escapeHtml(change.from_state ?? "?")} → ${this._escapeHtml(change.to_state ?? "?")}</span>
       `).join("");
       wrap.innerHTML = `
         <div class="action-history-meta">
           <span class="action-history-time">${this._escapeHtml(this._formatRelativeTime(entry.ts))}</span>
           <span class="action-history-status status-${this._escapeHtml(status)}">${badgeLabel}</span>
         </div>
-        <div class="action-history-summary">${this._escapeHtml(entry.summary || "Applied actions")}</div>
-        <div class="action-history-chips">${chips || '<span class="action-history-empty-inline">No entity changes captured.</span>'}</div>
+        <div class="action-history-summary">${this._escapeHtml(entry.summary || t("ut_applied_actions"))}</div>
+        <div class="action-history-chips">${chips || `<span class="action-history-empty-inline">${t("ut_no_entity_changes")}</span>`}</div>
       `;
       if (status === "applied" && Array.isArray(entry.undo_plan) && entry.undo_plan.length > 0) {
         const btn = document.createElement("button");
         btn.className = "action-history-undo";
-        btn.textContent = `↩ Undo (${entry.undo_plan.length})`;
+        btn.textContent = t("ut_undo_count", { n: entry.undo_plan.length });
         btn.addEventListener("click", () => this._undoActionHistoryEntry(entry.id, btn));
         wrap.appendChild(btn);
       }

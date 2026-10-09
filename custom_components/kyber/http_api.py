@@ -3183,9 +3183,9 @@ class KyberProposalApproveView(HomeAssistantView):
         proposal_type: str = entry.get("proposal_type", action_type)
 
         if proposal_type == "area_assignment" and area_name:
-            memory_content = f"De {entity_name} ({entity_id}) staat in de {area_name}."
+            memory_content = f"{entity_name} ({entity_id}) is in the area '{area_name}'."
         elif proposal_type == "label_assignment" and label_name:
-            memory_content = f"De {entity_name} ({entity_id}) is gemarkeerd als {label_name}."
+            memory_content = f"{entity_name} ({entity_id}) has the label '{label_name}'."
         else:
             memory_content = entry.get("content", f"{entity_id}: {action_type} approved")
 

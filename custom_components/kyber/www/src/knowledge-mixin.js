@@ -4,6 +4,7 @@ export const KnowledgeMixin = (Base) => class extends Base {
     const sub = (parts[0] || "").toLowerCase();
     const rest = parts.slice(1).join(" ").trim();
     const token = this._hass.auth.data.access_token;
+    const t = this._t || ((k) => k);
 
     if (sub === "list" || sub === "") {
       const data = await this._fetchKnowledge();
@@ -16,7 +17,7 @@ export const KnowledgeMixin = (Base) => class extends Base {
       return;
     }
     if (sub === "analyze") {
-      this._appendMessage("🔍 Analyzing automations, scenes, and scripts…", "assistant");
+      this._appendMessage(t("kn_analyzing"), "assistant");
       try {
         const resp = await fetch("/api/kyber/knowledge/analyze", {
           headers: { Authorization: `Bearer ${token}` },
@@ -24,7 +25,7 @@ export const KnowledgeMixin = (Base) => class extends Base {
         const data = await resp.json();
         this._renderAnalyzeProposals(data);
       } catch (err) {
-        this._appendMessage(`Analyze failed: ${err.message}`, "assistant");
+        this._appendMessage(t("kn_analyze_failed", { msg: err.message }), "assistant");
       }
       return;
     }
@@ -35,12 +36,12 @@ export const KnowledgeMixin = (Base) => class extends Base {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (resp.ok) {
-          this._appendMessage(`✓ Deleted memory entry \`${rest}\``, "assistant");
+          this._appendMessage(t("kn_deleted", { id: rest }), "assistant");
         } else {
-          this._appendMessage(`Delete failed: ${resp.status}`, "assistant");
+          this._appendMessage(t("kn_delete_failed", { msg: resp.status }), "assistant");
         }
       } catch (err) {
-        this._appendMessage(`Delete failed: ${err.message}`, "assistant");
+        this._appendMessage(t("kn_delete_failed", { msg: err.message }), "assistant");
       }
       return;
     }
@@ -53,12 +54,12 @@ export const KnowledgeMixin = (Base) => class extends Base {
         });
         const d = await resp.json();
         if (resp.ok) {
-          this._appendMessage(`✅ Saved: _${this._escapeHtml(rest)}_ (id: \`${d.entry?.id}\`)`, "assistant");
+          this._appendMessage(t("kn_saved", { text: this._escapeHtml(rest), id: d.entry?.id }), "assistant");
         } else {
-          this._appendMessage(`Failed to save: ${d.message || resp.status}`, "assistant");
+          this._appendMessage(t("kn_save_failed_msg", { msg: d.message || resp.status }), "assistant");
         }
       } catch (err) {
-        this._appendMessage(`Error: ${err.message}`, "assistant");
+        this._appendMessage(t("kn_error", { msg: err.message }), "assistant");
       }
       return;
     }
@@ -74,13 +75,13 @@ export const KnowledgeMixin = (Base) => class extends Base {
       const catRows = Object.entries(by_cat).map(([k, v]) => `| ${k} | ${v} |`).join("\n");
       const srcRows = Object.entries(by_src).map(([k, v]) => `| ${k} | ${v} |`).join("\n");
       this._appendMessage(
-        `**🧠 Memory stats** — ${entries.length} total entries\n\n**By category**\n| Category | Count |\n|---|---|\n${catRows}\n\n**By source**\n| Source | Count |\n|---|---|\n${srcRows}`,
+        `${t("kn_stats_title", { n: entries.length })}\n\n**${t("kn_stats_by_category")}**\n| ${t("kn_stats_col_category")} | ${t("kn_stats_col_count")} |\n|---|---|\n${catRows}\n\n**${t("kn_stats_by_source")}**\n| ${t("kn_stats_col_source")} | ${t("kn_stats_col_count")} |\n|---|---|\n${srcRows}`,
         "assistant",
       );
       return;
     }
     if (sub === "deep") {
-      this._appendMessage("🧬 Starting deep analysis in background…", "assistant");
+      this._appendMessage(t("kn_deep_starting"), "assistant");
       try {
         const resp = await fetch("/api/kyber/knowledge/analyze_deep", {
           method: "POST",
@@ -89,17 +90,17 @@ export const KnowledgeMixin = (Base) => class extends Base {
         });
         const d = await resp.json();
         if (resp.ok) {
-          this._appendMessage(`✅ Deep analysis ${d.status === "already_running" ? "already running" : "started"}. Open the debug panel to track progress.`, "assistant");
+          this._appendMessage(t(d.status === "already_running" ? "kn_deep_already_running" : "kn_deep_started"), "assistant");
         } else {
-          this._appendMessage(`Failed: ${d.message || resp.status}`, "assistant");
+          this._appendMessage(t("kn_failed", { msg: d.message || resp.status }), "assistant");
         }
       } catch (err) {
-        this._appendMessage(`Error: ${err.message}`, "assistant");
+        this._appendMessage(t("kn_error", { msg: err.message }), "assistant");
       }
       return;
     }
     this._appendMessage(
-      "**Memory commands:**\n`/memory` · `/memory list` · `/memory search <query>` · `/memory add <text>` · `/memory delete <id>` · `/memory analyze` · `/memory deep` · `/memory stats`",
+      `**${t("kn_help_header")}**\n` + "`/memory` · `/memory list` · `/memory search <query>` · `/memory add <text>` · `/memory delete <id>` · `/memory analyze` · `/memory deep` · `/memory stats`",
       "assistant",
     );
   }
@@ -119,23 +120,24 @@ export const KnowledgeMixin = (Base) => class extends Base {
     const history = this.shadowRoot.getElementById("chat-history");
     if (!history) return;
 
+    const t = this._t || ((k) => k);
     const card = document.createElement("div");
     card.className = "chat-message assistant kyber-knowledge-panel";
     const reviewCount = data.needs_review_count || 0;
     const header = `
       <div class="kn-header">
-        <strong>🧠 Memory${opts.query ? ` — results for "${this._escapeHtml(opts.query)}"` : ""}</strong>
-        <span class="kn-count">${entries.length} entr${entries.length === 1 ? "y" : "ies"}</span>
-        ${reviewCount > 0 ? `<button class="btn-kn-review-filter" title="Show only entries flagged by feedback">⚠ ${reviewCount} need review</button>` : ""}
+        <strong>${opts.query ? t("kn_title_results", { query: this._escapeHtml(opts.query) }) : t("kn_title")}</strong>
+        <span class="kn-count">${t(entries.length === 1 ? "kn_count_one" : "kn_count_many", { n: entries.length })}</span>
+        ${reviewCount > 0 ? `<button class="btn-kn-review-filter" title="${this._escapeAttr(t("kn_review_filter_title"))}">${t("kn_review_filter", { n: reviewCount })}</button>` : ""}
       </div>
       <div class="kn-actions-bar">
-        <button class="btn-kn-analyze">🔍 Analyze my home</button>
-        <button class="btn-kn-add">➕ Add fact</button>
+        <button class="btn-kn-analyze">${t("kn_btn_analyze")}</button>
+        <button class="btn-kn-add">${t("kn_btn_add_fact")}</button>
       </div>
     `;
     if (entries.length === 0) {
       const emptyMsg = this._t ? this._t("knowledge_empty") : "No saved knowledge yet.";
-      card.innerHTML = header + `<div class="kn-empty">${emptyMsg} Click "Analyze my home" or "Add fact".</div>`;
+      card.innerHTML = header + `<div class="kn-empty">${emptyMsg} ${this._escapeHtml(t("kn_empty_hint"))}</div>`;
     } else {
       const rows = entries.map((e) => this._renderKnowledgeRow(e, categories)).join("");
       card.innerHTML = header + `<div class="kn-list">${rows}</div>`;
@@ -150,7 +152,7 @@ export const KnowledgeMixin = (Base) => class extends Base {
       const resp = await fetch("/api/kyber/knowledge?needs_review=1", { headers: { Authorization: `Bearer ${token}` } });
       const d = await resp.json();
       card.remove();
-      this._renderKnowledgePanel(d, { interactive: true, query: "needs review" });
+      this._renderKnowledgePanel(d, { interactive: true, query: t("kn_query_needs_review") });
     });
     card.querySelectorAll("[data-kn-id]").forEach((row) => {
       const id = row.getAttribute("data-kn-id");
@@ -180,16 +182,17 @@ export const KnowledgeMixin = (Base) => class extends Base {
   }
 
   _renderKnowledgeRow(e, categories) {
-    const tags = (e.tags || []).map((t) => `<span class="kn-tag">${this._escapeHtml(t)}</span>`).join("");
+    const t = this._t || ((k) => k);
+    const tags = (e.tags || []).map((tag) => `<span class="kn-tag">${this._escapeHtml(tag)}</span>`).join("");
     const stars = [1, 2, 3, 4, 5].map((i) =>
-      `<span class="kn-star ${(e.user_rating || 0) >= i ? "filled" : ""}" data-rating="${i}" title="Rate ${i}/5">★</span>`,
+      `<span class="kn-star ${(e.user_rating || 0) >= i ? "filled" : ""}" data-rating="${i}" title="${this._escapeAttr(t("kn_rate_title", { i }))}">★</span>`,
     ).join("");
     const conf = Math.round((e.confidence || 0) * 100);
     const prov = e.provenance ? `<div class="kn-prov">📌 ${this._escapeHtml(e.provenance)}</div>` : "";
-    const reviewBadge = e.needs_review ? `<span class="kn-needs-review" title="Flagged by feedback — please verify">⚠ needs review</span>` : "";
+    const reviewBadge = e.needs_review ? `<span class="kn-needs-review" title="${this._escapeAttr(t("kn_needs_review_title"))}">${t("kn_needs_review")}</span>` : "";
     const fb = (e.feedback || []).slice(-3).reverse();
     const fbBlock = fb.length
-      ? `<details class="kn-fb"><summary>Feedback (${(e.feedback || []).length})</summary>${fb.map((f) => `<div class="kn-fb-item">${f.auto ? "🤖" : "👤"} ${f.rating}/5 ${f.notes ? "— " + this._escapeHtml(f.notes) : ""}</div>`).join("")}</details>`
+      ? `<details class="kn-fb"><summary>${t("kn_feedback", { n: (e.feedback || []).length })}</summary>${fb.map((f) => `<div class="kn-fb-item">${f.auto ? "🤖" : "👤"} ${f.rating}/5 ${f.notes ? "— " + this._escapeHtml(f.notes) : ""}</div>`).join("")}</details>`
       : "";
     return `
       <div class="kn-row ${e.needs_review ? "kn-row-flagged" : ""}" data-kn-id="${e.id}">
@@ -197,53 +200,54 @@ export const KnowledgeMixin = (Base) => class extends Base {
           <span class="kn-cat">${this._escapeHtml(e.category || "general")}</span>
           ${e.subject ? `<span class="kn-subj">${this._escapeHtml(e.subject)}</span>` : ""}
           ${reviewBadge}
-          <span class="kn-conf" title="Confidence">${conf}%</span>
-          <span class="kn-stars" title="Your rating">${stars}</span>
+          <span class="kn-conf" title="${this._escapeAttr(t("kn_confidence"))}">${conf}%</span>
+          <span class="kn-stars" title="${this._escapeAttr(t("kn_your_rating"))}">${stars}</span>
           <span class="kn-row-actions">
-            ${e.needs_review ? `<button class="btn-kn-clear" title="Mark resolved">✓</button>` : ""}
-            <button class="btn-kn-edit" title="Edit / hint">✏️</button>
-            <button class="btn-kn-del" title="Delete">🗑️</button>
+            ${e.needs_review ? `<button class="btn-kn-clear" title="${this._escapeAttr(t("kn_mark_resolved"))}">✓</button>` : ""}
+            <button class="btn-kn-edit" title="${this._escapeAttr(t("kn_edit_hint"))}">✏️</button>
+            <button class="btn-kn-del" title="${this._escapeAttr(t("kn_delete"))}">🗑️</button>
           </span>
         </div>
         <div class="kn-content">${this._escapeHtml(e.content || "")}</div>
         ${tags ? `<div class="kn-tags">${tags}</div>` : ""}
         ${prov}
         ${fbBlock}
-        <div class="kn-meta">id: <code>${e.id}</code> · source: ${this._escapeHtml(e.source || "manual")} · hits: ${e.hits || 0}</div>
+        <div class="kn-meta">id: <code>${e.id}</code> · ${t("kn_meta_source", { source: this._escapeHtml(e.source || "manual") })} · ${t("kn_meta_hits", { n: e.hits || 0 })}</div>
       </div>
     `;
   }
 
   _showKnowledgeEditor(entry, categories, parentCard) {
     const isNew = !entry;
+    const t = this._t || ((k) => k);
     const e = entry || { category: "general", subject: "", content: "", tags: [], confidence: 0.9, provenance: "" };
     const dlg = document.createElement("div");
     dlg.className = "kn-editor";
     dlg.innerHTML = `
       <div class="kn-editor-inner">
-        <h3>${isNew ? "Add memory entry" : "Edit memory entry"}</h3>
-        <label>Category
+        <h3>${t(isNew ? "kn_editor_add_title" : "kn_editor_edit_title")}</h3>
+        <label>${t("kn_f_category")}
           <select class="kn-f-cat">${categories.map((c) => `<option ${c === e.category ? "selected" : ""}>${c}</option>`).join("")}</select>
         </label>
-        <label>Subject (entity_id, area, or term)
-          <input class="kn-f-subj" value="${this._escapeAttr(e.subject || "")}" placeholder="e.g. werkkamer or light.tv">
+        <label>${t("kn_f_subject")}
+          <input class="kn-f-subj" value="${this._escapeAttr(e.subject || "")}" placeholder="${this._escapeAttr(t("kn_f_subject_ph"))}">
         </label>
-        <label>Content / fact
-          <textarea class="kn-f-content" rows="3" placeholder="What should Kyber remember?">${this._escapeHtml(e.content || "")}</textarea>
+        <label>${t("kn_f_content")}
+          <textarea class="kn-f-content" rows="3" placeholder="${this._escapeAttr(t("kn_f_content_ph"))}">${this._escapeHtml(e.content || "")}</textarea>
         </label>
-        <label>Tags (comma-separated)
+        <label>${t("kn_f_tags")}
           <input class="kn-f-tags" value="${this._escapeAttr((e.tags || []).join(", "))}">
         </label>
-        <label>Provenance / hint — where did this come from? how to verify?
-          <input class="kn-f-prov" value="${this._escapeAttr(e.provenance || "")}" placeholder="e.g. User said in chat 2025-05-17">
+        <label>${t("kn_f_provenance")}
+          <input class="kn-f-prov" value="${this._escapeAttr(e.provenance || "")}" placeholder="${this._escapeAttr(t("kn_f_provenance_ph"))}">
         </label>
-        <label>Confidence (0–100%)
+        <label>${t("kn_f_confidence")}
           <input type="range" min="0" max="100" value="${Math.round((e.confidence || 0.9) * 100)}" class="kn-f-conf">
           <output class="kn-f-conf-val">${Math.round((e.confidence || 0.9) * 100)}%</output>
         </label>
         <div class="kn-editor-buttons">
-          <button class="btn-kn-cancel">Cancel</button>
-          <button class="btn-kn-save">${isNew ? "Add" : "Save"}</button>
+          <button class="btn-kn-cancel">${t("cmd_cancel")}</button>
+          <button class="btn-kn-save">${isNew ? t("kn_add") : t("btn_save")}</button>
         </div>
       </div>
     `;
@@ -274,20 +278,21 @@ export const KnowledgeMixin = (Base) => class extends Base {
           body: JSON.stringify(body),
         });
         if (!resp.ok) {
-          alert(`Save failed: ${resp.status}`);
+          alert(t("kn_save_failed", { msg: resp.status }));
           return;
         }
         dlg.remove();
         parentCard?.remove();
         await this._handleKnowledgeCommand("list");
       } catch (err) {
-        alert(`Save failed: ${err.message}`);
+        alert(t("kn_save_failed", { msg: err.message }));
       }
     });
   }
 
   async _deleteKnowledgeEntry(id, rowEl) {
-    if (!confirm("Delete this memory entry?")) return;
+    const t = this._t || ((k) => k);
+    if (!confirm(t("kn_confirm_delete"))) return;
     try {
       const token = this._hass.auth.data.access_token;
       const resp = await fetch(`/api/kyber/knowledge?id=${encodeURIComponent(id)}`, {
@@ -296,7 +301,7 @@ export const KnowledgeMixin = (Base) => class extends Base {
       });
       if (resp.ok) rowEl.remove();
     } catch (err) {
-      alert(`Delete failed: ${err.message}`);
+      alert(t("kn_delete_failed", { msg: err.message }));
     }
   }
 
@@ -324,11 +329,17 @@ export const KnowledgeMixin = (Base) => class extends Base {
     if (!history) return;
     const proposals = data.proposals || [];
     const stats = data.stats || {};
+    const t = this._t || ((k) => k);
+    const scanned = {
+      automations: stats.automations_scanned || 0,
+      scenes: stats.scenes_scanned || 0,
+      scripts: stats.scripts_scanned || 0,
+    };
     const card = document.createElement("div");
     card.className = "chat-message assistant kyber-knowledge-panel";
     if (proposals.length === 0) {
-      card.innerHTML = `<div class="kn-header"><strong>🔍 Analysis complete</strong></div>
-        <div class="kn-empty">No new proposals. Scanned ${stats.automations_scanned || 0} automations, ${stats.scenes_scanned || 0} scenes, ${stats.scripts_scanned || 0} scripts.</div>`;
+      card.innerHTML = `<div class="kn-header"><strong>${t("kn_analysis_complete")}</strong></div>
+        <div class="kn-empty">${t("kn_no_proposals", scanned)}</div>`;
       history.appendChild(card);
       return;
     }
@@ -346,13 +357,13 @@ export const KnowledgeMixin = (Base) => class extends Base {
     `).join("");
     card.innerHTML = `
       <div class="kn-header">
-        <strong>🔍 Analyzed your home — ${proposals.length} proposal${proposals.length === 1 ? "" : "s"}</strong>
+        <strong>${t(proposals.length === 1 ? "kn_analyzed_one" : "kn_analyzed_many", { n: proposals.length })}</strong>
       </div>
-      <div class="kn-empty">Scanned ${stats.automations_scanned || 0} automations, ${stats.scenes_scanned || 0} scenes, ${stats.scripts_scanned || 0} scripts. Untick anything you don't want saved.</div>
+      <div class="kn-empty">${this._escapeHtml(t("kn_scanned_untick", scanned))}</div>
       <div class="kn-list">${rows}</div>
       <div class="kn-editor-buttons">
-        <button class="btn-kn-cancel">Cancel</button>
-        <button class="btn-kn-save-selected">Save selected</button>
+        <button class="btn-kn-cancel">${t("cmd_cancel")}</button>
+        <button class="btn-kn-save-selected">${t("kn_save_selected")}</button>
       </div>
     `;
     history.appendChild(card);
@@ -375,10 +386,10 @@ export const KnowledgeMixin = (Base) => class extends Base {
           body: JSON.stringify({ proposals: selected }),
         });
         const result = await resp.json();
-        card.querySelector(".kn-empty").textContent = `✓ Saved ${result.count || 0} entries to memory.`;
+        card.querySelector(".kn-empty").textContent = t("kn_saved_entries", { n: result.count || 0 });
         card.querySelector(".kn-editor-buttons").remove();
       } catch (err) {
-        alert(`Save failed: ${err.message}`);
+        alert(t("kn_save_failed", { msg: err.message }));
       }
     });
   }
@@ -412,42 +423,44 @@ export const KnowledgeMixin = (Base) => class extends Base {
   _renderKnowledgeRowWithScore(entry, picked) {
     // Same as _renderKnowledgeRow but adds a similarity-score badge and a Refine button
     const base = this._renderKnowledgeRow(entry, []);
+    const t = this._t || ((k) => k);
     const scoreBadge = (picked && typeof picked.score === "number")
-      ? `<span class="kn-score" title="similarity score for last turn">score ${picked.score.toFixed(2)}</span>`
+      ? `<span class="kn-score" title="${this._escapeAttr(t("kn_score_title"))}">${t("kn_score", { score: picked.score.toFixed(2) })}</span>`
       : "";
     // Inject score badge + refine button into the row head
     return base
       .replace(
         '<span class="kn-row-actions">',
-        `${scoreBadge}<button class="btn-kn-refine" title="Refine this fact — tell Kyber how it should be">✎ refine</button><span class="kn-row-actions">`,
+        `${scoreBadge}<button class="btn-kn-refine" title="${this._escapeAttr(t("kn_refine_title"))}">${t("kn_refine")}</button><span class="kn-row-actions">`,
       );
   }
 
   _showRefineDialog(id, entry) {
+    const t = this._t || ((k) => k);
     const dlg = document.createElement("div");
     dlg.className = "kn-editor";
     dlg.innerHTML = `
       <div class="kn-editor-inner">
-        <h3>Refine memory entry</h3>
+        <h3>${t("kn_refine_dialog_title")}</h3>
         <p style="margin:0;color:var(--secondary-text-color);font-size:11px;">
           ${this._escapeHtml(entry.content || "")}
         </p>
-        <label>How should Kyber update this fact?
-          <textarea class="kn-f-refine" rows="4" placeholder="e.g. werkkamer is actually called 'home office' and contains light.desk + light.ceiling_office"></textarea>
+        <label>${t("kn_refine_how")}
+          <textarea class="kn-f-refine" rows="4" placeholder="${this._escapeAttr(t("kn_refine_ph"))}"></textarea>
         </label>
-        <label>Optional new rating
+        <label>${t("kn_refine_rating")}
           <select class="kn-f-rate">
-            <option value="">— keep as is —</option>
-            <option value="5">5 — perfect</option>
-            <option value="4">4 — good</option>
-            <option value="3">3 — okay</option>
-            <option value="2">2 — wrong, please fix</option>
-            <option value="1">1 — useless</option>
+            <option value="">${t("kn_rate_keep")}</option>
+            <option value="5">${t("kn_rate_5")}</option>
+            <option value="4">${t("kn_rate_4")}</option>
+            <option value="3">${t("kn_rate_3")}</option>
+            <option value="2">${t("kn_rate_2")}</option>
+            <option value="1">${t("kn_rate_1")}</option>
           </select>
         </label>
         <div class="kn-editor-buttons">
-          <button class="btn-kn-cancel">Cancel</button>
-          <button class="btn-kn-save">Apply refinement</button>
+          <button class="btn-kn-cancel">${t("cmd_cancel")}</button>
+          <button class="btn-kn-save">${t("kn_refine_apply")}</button>
         </div>
       </div>
     `;
@@ -478,7 +491,7 @@ export const KnowledgeMixin = (Base) => class extends Base {
         dlg.remove();
         this._renderDebugTab("last_turn");
       } catch (err) {
-        alert(`Refine failed: ${err.message}`);
+        alert(t("kn_refine_failed", { msg: err.message }));
       }
     });
   }

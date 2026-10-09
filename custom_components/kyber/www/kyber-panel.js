@@ -33,15 +33,15 @@ import {
 // Styles
 // ---------------------------------------------------------------------------
 import { STYLES } from "./src/styles.js?v=217";
-import { getT } from "./src/i18n.js?v=4";
-import { UtilsMixin } from "./src/utils-mixin.js?v=102";
-import { SessionMixin } from "./src/session-mixin.js?v=89";
-import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=89";
-import { DebugMixin } from "./src/debug-mixin.js?v=112";
-import { SlashMixin } from "./src/slash-commands-mixin.js?v=98";
-import { EditorMixin } from "./src/editor-mixin.js?v=216";
-import { AIMixin } from "./src/ai-mixin.js?v=122";
-import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=119";
+import { getT } from "./src/i18n.js?v=7";
+import { UtilsMixin } from "./src/utils-mixin.js?v=103";
+import { SessionMixin } from "./src/session-mixin.js?v=91";
+import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=90";
+import { DebugMixin } from "./src/debug-mixin.js?v=114";
+import { SlashMixin } from "./src/slash-commands-mixin.js?v=99";
+import { EditorMixin } from "./src/editor-mixin.js?v=217";
+import { AIMixin } from "./src/ai-mixin.js?v=125";
+import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=120";
 
 // ---------------------------------------------------------------------------
 // Custom Element
@@ -163,6 +163,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
   _render() {
     this._rendered = true;
     const shadow = this.shadowRoot;
+    const t = this._t || ((k) => k);
 
     const style = document.createElement("style");
     style.textContent = STYLES;
@@ -172,7 +173,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       <div class="container" id="app-container">
         <div class="toolbar">
           <h2 class="brand-title">
-            <img id="kyber-header-icon" class="brand-icon" src="/local/kyber/icon.png" alt="Kyber icon">
+            <img id="kyber-header-icon" class="brand-icon" src="/local/kyber/icon.png" alt="${t("panel_icon_alt")}">
             <span>Kyber</span>
           </h2>
           <span class="editor-context-label editor-controls" id="editor-context-label"></span>
@@ -180,35 +181,35 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
             <select id="dashboard-select" class="dashboard-select" style="display:none"></select>
           </span>
           <button class="btn-save editor-controls" id="btn-save" disabled>${this._t("btn_save")}</button>
-          <button class="btn-edit-blueprint editor-controls" id="btn-edit-blueprint" style="display:none" title="Open this automation's blueprint for editing">📋 Edit blueprint</button>
-          <button class="editor-tab-btn editor-controls" id="btn-tab-test" title="Toggle simulator">🧪 Test</button>
+          <button class="btn-edit-blueprint editor-controls" id="btn-edit-blueprint" style="display:none" title="${t("panel_edit_blueprint_title")}">${t("panel_edit_blueprint")}</button>
+          <button class="editor-tab-btn editor-controls" id="btn-tab-test" title="${t("panel_test_title")}">${t("panel_test")}</button>
           <button class="btn-close-editor editor-controls" id="btn-close-editor">${this._t("btn_close_editor")}</button>
         </div>
         <div class="chat-pane">
           <div class="sidebar-brand">
-            <img id="kyber-sidebar-icon" class="brand-icon" src="/local/kyber/icon.png" alt="Kyber icon">
+            <img id="kyber-sidebar-icon" class="brand-icon" src="/local/kyber/icon.png" alt="${t("panel_icon_alt")}">
             <span>${this._t("brand")}</span>
             <span class="session-label" id="session-indicator"></span>
-            <span class="context-badge" id="context-badge" title="Entities and automations loaded into AI context"></span>
-            <span class="narrator-progress" id="narrator-progress" hidden title="AI narrator is building entity descriptions in the background"></span>
+            <span class="context-badge" id="context-badge" title="${t("panel_context_badge_title")}"></span>
+            <span class="narrator-progress" id="narrator-progress" hidden title="${t("panel_narrator_title")}"></span>
             <button class="memory-badge" id="memory-badge" title="${this._t("memory_badge_title")}">🧠 <span id="memory-count">…</span></button>
-            <button class="token-badge" id="token-badge" title="Daily token usage">🪙 <span id="token-count">0</span></button>
-            <button class="history-badge" id="btn-history-toggle" title="Show applied action history">🕘 History</button>
-            <button class="update-badge" id="update-badge" hidden title="Update available — click to install">⬆️ <span id="update-badge-label">${this._t("update_badge")}</span></button>
-            <button class="autopilot-badge" id="autopilot-badge" title="Toggle autopilot — auto-executes safe proposals">${this._t("autopilot_badge")}</button>
+            <button class="token-badge" id="token-badge" title="${t("panel_token_badge_title")}">🪙 <span id="token-count">0</span></button>
+            <button class="history-badge" id="btn-history-toggle" title="${t("panel_history_toggle_title")}">${t("panel_history_toggle")}</button>
+            <button class="update-badge" id="update-badge" hidden title="${t("panel_update_badge_title")}">⬆️ <span id="update-badge-label">${this._t("update_badge")}</span></button>
+            <button class="autopilot-badge" id="autopilot-badge" title="${t("panel_autopilot_title")}">${this._t("autopilot_badge")}</button>
             <button class="btn-clear-history" id="btn-clear-history" title="${this._t("btn_clear_history")}">${this._t("btn_clear_history")}</button>
             <button class="btn-debug" id="btn-debug" title="${this._t("btn_debug_title")}">🐞</button>
           </div>
-          <div id="warning-banner" class="warning-banner" style="display:none"><span id="warning-banner-text"></span><button id="warning-banner-close" title="Dismiss">✕</button></div>
+          <div id="warning-banner" class="warning-banner" style="display:none"><span id="warning-banner-text"></span><button id="warning-banner-close" title="${t("panel_dismiss")}">✕</button></div>
           <div id="explorer-banner" class="explorer-banner" style="display:none">🔍 <span id="explorer-banner-text">${this._t("exploring")}</span></div>
           <div id="chat-review-queue" class="chat-review-queue"></div>
           <div class="action-history-panel" id="action-history-panel" hidden>
             <div class="action-history-panel-header">
-              <strong>History</strong>
-              <button class="action-history-refresh" id="btn-history-refresh" title="Refresh history">↻</button>
+              <strong>${t("panel_history_header")}</strong>
+              <button class="action-history-refresh" id="btn-history-refresh" title="${t("panel_history_refresh_title")}">↻</button>
             </div>
             <div class="action-history-list" id="action-history-list">
-              <div class="action-history-empty">No applied actions yet.</div>
+              <div class="action-history-empty">${t("ut_no_applied_actions")}</div>
             </div>
           </div>
           <div class="chat-history" id="chat-history">
@@ -231,8 +232,8 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
               <button class="debug-tab" data-debug-tab="tests">${this._t("debug_tab_tests")}</button>
               <button class="debug-tab" data-debug-tab="mcp">${this._t("debug_tab_mcp")}</button>
             </nav>
-            <button class="btn-debug-refresh" id="btn-debug-refresh" title="Refresh">↻</button>
-            <button class="btn-debug-close" id="btn-debug-close" title="Back to chat">✕</button>
+            <button class="btn-debug-refresh" id="btn-debug-refresh" title="${t("panel_refresh")}">↻</button>
+            <button class="btn-debug-close" id="btn-debug-close" title="${t("panel_back_to_chat")}">✕</button>
           </div>
           <div class="debug-body" id="debug-body"><em>${this._t("debug_loading")}</em></div>
         </div>
@@ -387,12 +388,13 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     shadow.getElementById("btn-history-toggle").addEventListener("click", () => this._toggleActionHistory());
     shadow.getElementById("btn-history-refresh").addEventListener("click", () => this._loadActionHistory());
     shadow.getElementById("autopilot-badge").addEventListener("click", () => {
+      const t = this._t || ((k) => k);
       this._autopilot = !this._autopilot;
       this._updateAutopilotBadge();
       this._appendMessage(
         this._autopilot
-          ? "⚡ Autopilot is now ON — proposals will execute automatically."
-          : "Autopilot is now OFF — you'll review proposals before executing.",
+          ? t("panel_autopilot_on")
+          : t("panel_autopilot_off"),
         "assistant",
       );
     });
@@ -405,13 +407,14 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       const badge = shadow.getElementById("update-badge");
       const installed = badge.dataset.installed || "";
       const latest    = badge.dataset.latest    || "";
+      const t = this._t || ((k) => k);
 
       const pop = document.createElement("div");
       pop.id = "update-badge-popover";
       pop.innerHTML = `
-        <div class="ubp-title">Kyber update${installed && latest ? `: v${installed} → v${latest}` : ""}</div>
-        <button class="ubp-btn" id="ubp-update">⬆️ Update</button>
-        <button class="ubp-btn ubp-restart" id="ubp-update-restart">⬆️ Update &amp; Restart</button>
+        <div class="ubp-title">${installed && latest ? t("panel_update_title_versions", { installed, latest }) : t("panel_update_title")}</div>
+        <button class="ubp-btn" id="ubp-update">${t("panel_update_btn")}</button>
+        <button class="ubp-btn ubp-restart" id="ubp-update-restart">${this._escapeHtml(t("panel_update_restart_btn"))}</button>
       `;
       // Position below the badge
       const rect = badge.getBoundingClientRect();
@@ -583,9 +586,10 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     } else if (budget > 0 && pct >= 80) {
       badge.classList.add("token-badge--warning");
     }
+    const t = this._t || ((k) => k);
     badge.title = budget > 0
-      ? `Daily token usage: ${used.toLocaleString()} / ${budget.toLocaleString()} (${pct}%)`
-      : `Daily token usage: ${used.toLocaleString()} tokens (budget disabled)`;
+      ? t("panel_token_usage_budget", { used: used.toLocaleString(), budget: budget.toLocaleString(), pct })
+      : t("panel_token_usage_nobudget", { used: used.toLocaleString() });
   }
 
   _startStatusPolling() {
@@ -602,6 +606,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
       const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
       if (!resp.ok) return;
       const data = await resp.json();
+      const t = this._t || ((k) => k);
       this._updateTokenBadgeFromUsage(data.token_usage || this._tokenUsage);
       const ep = data.explorer_progress || {};
       const status = ep.status || "idle";
@@ -619,20 +624,21 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
           narratorSpan.removeAttribute("hidden");
         }
         if (banner && bannerText) {
-          bannerText.textContent = `Narry is exploring your home… ${pct}%`;
+          bannerText.textContent = t("panel_banner_narrator", { pct });
           banner.style.display = "";
           if (banner.firstChild) banner.firstChild.textContent = "✍️ ";
         }
       } else if (status === "deep_learning") {
         const done = ep.deep_done ?? 0;
         const total = ep.deep_total ?? 0;
-        const cur = ep.deep_current ? ` — ${ep.deep_current}` : "";
         if (narratorSpan) {
           narratorSpan.textContent = `🧠 ${done}/${total}`;
           narratorSpan.removeAttribute("hidden");
         }
         if (banner && bannerText) {
-          bannerText.textContent = `Analyzing automations… ${done}/${total}${cur}`;
+          bannerText.textContent = ep.deep_current
+            ? t("panel_banner_deep_current", { done, total, current: ep.deep_current })
+            : t("panel_banner_deep", { done, total });
           banner.style.display = "";
           if (banner.firstChild) banner.firstChild.textContent = "🧠 ";
         }
@@ -644,7 +650,7 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
           narratorSpan.removeAttribute("hidden");
         }
         if (banner && bannerText) {
-          bannerText.textContent = `Exploring your home… ${done}/${total}`;
+          bannerText.textContent = t("panel_banner_exploring", { done, total });
           banner.style.display = "";
           if (banner.firstChild) banner.firstChild.textContent = "🔍 ";
         }
