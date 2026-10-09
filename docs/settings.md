@@ -158,6 +158,7 @@ Controls which AI models Kyber uses and how many tokens each is allowed.
 |---|---|---|---|
 | Chat Model | `ai_task_entity_id` | *(first found)* | Any `ai_task.*` entity; see [Choosing a Model](../README.md#choosing-a-model) |
 | Chat Model: Context Window | `max_tokens` | `20000` (auto-detected) | The prompt fills at most 75 % of it; older history is left out first (see [Chat & AI](chat-and-ai.md#fitting-the-prompt-into-the-context-window)). Ignored when a cloud provider handles chat |
+| Max tool rounds per answer | `max_tool_rounds` | `3` | 1–8. How often the chat model may look something up before it has to answer. More rounds help multi-lookup questions but slow answers down, especially on local models. When they run out, one last call without tools answers from what was found |
 | Operations Model | `narrator_ai_task_entity_id` | *(same as chat)* | Optional separate model for narration and batch tasks |
 | Operations Model: Context Window | `narrator_max_tokens` | `4000` | Context limit for the operations model |
 

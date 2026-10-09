@@ -306,7 +306,7 @@ class TestBuildLoopRedirectContent:
             _build_loop_redirect([("sig1", {"name": name, "area": "office", "query": "lamp"})])
             for name in ("list_integrations", "get_area_entities", "search_entities")
         ]
-        notes.append(http_api._SYNTHESIS_INSTRUCTIONS)
+        notes += [http_api._SYNTHESIS_INSTRUCTIONS, http_api._FINAL_ANSWER_INSTRUCTIONS]
         for note in notes:
             text = http_api.ToolRound("[TOOL_CALL: {}]", "\n[TOOL_RESULT: {}]\n[]\n").with_note(note).text
             assert text.endswith("]\nAssistant:")

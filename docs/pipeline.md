@@ -118,8 +118,16 @@ The model can respond with either:
 
 For each tool call we execute the tool synchronously, append a `tool_result`
 block back into the instructions, increment the round counter and re-ask
-the model. This continues until either the model replies in prose or
-`_TOOL_CALL_MAX_ROUNDS` is hit.
+the model. This continues until either the model replies in prose or the
+configured number of rounds (`max_tool_rounds`, default 3) is used up. In
+that case, and when the model only repeats earlier calls, one more call
+without tools asks for the answer from the collected results; for a change
+request it may contain the plan block.
+
+An automation or script the user names by entity_id
+(`automation.luftung_flur`) is loaded before the first round and
+shown in the prompt with its config ID, so an edit request needs no lookup
+round. Not on the MCP path, whose entity filters it would bypass.
 
 Each tool call adds an entry to `tool_log` with `name`, `args`, `status`,
 `ms`, and a small result preview.

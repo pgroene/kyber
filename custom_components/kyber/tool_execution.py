@@ -11,6 +11,7 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
+from homeassistant.util import slugify
 
 from .knowledge import alias_entity_ids, get_store as get_knowledge_store
 from .analyzer import analyze_automations as _analyze_automations
@@ -392,6 +393,46 @@ def _get_run_counts_sync(hass: HomeAssistant, days: int = 30) -> dict[str, int]:
         return counts
     except Exception:  # noqa: BLE001
         return {}
+
+
+def find_config_item(
+    hass: HomeAssistant, domain: str, items: list[dict[str, Any]], wanted: str
+) -> dict[str, Any] | None:
+    """Find an automation or script config by id, alias or entity_id.
+
+    An entity_id is resolved through Home Assistant itself (registry
+    unique_id, then the state's ``id`` attribute), because the entity's
+    object id is a slug of the alias that HA transliterates:
+    "Lüftung Flur" becomes automation.luftung_flur.
+    Rebuilding it from the alias by lowercasing missed every umlaut.
+    """
+    wanted = str(wanted or "").strip()
+    if not wanted:
+        return None
+    by_id = {str(it.get("id", "")): it for it in items}
+    if wanted in by_id:
+        return by_id[wanted]
+    for it in items:
+        if str(it.get("alias", "")).lower() == wanted.lower():
+            return it
+    if not wanted.startswith(f"{domain}."):
+        return None
+    try:
+        reg_entry = er.async_get(hass).async_get(wanted)
+    except Exception:  # noqa: BLE001
+        reg_entry = None
+    if reg_entry is not None and str(reg_entry.unique_id) in by_id:
+        return by_id[str(reg_entry.unique_id)]
+    state = hass.states.get(wanted)
+    state_id = state.attributes.get("id") if state is not None else None
+    if state_id is not None and str(state_id) in by_id:
+        return by_id[str(state_id)]
+    # Not registered (yet): compare HA's own slug of the alias, or a script key
+    slug = wanted.split(".", 1)[1]
+    for it in items:
+        if slugify(str(it.get("alias", ""))) == slug or str(it.get("id", "")).lower() == slug:
+            return it
+    return None
 
 
 def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
@@ -941,25 +982,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         except Exception as err:  # noqa: BLE001
             return json.dumps({"error": f"Read failed: {err}"})
         items = _enrich_with_run_state(items)
-        # Match by id (exact), then alias (case-insensitive), then entity_id suffix
-        match = None
-        for it in items:
-            if str(it.get("id", "")) == wanted:
-                match = it
-                break
-        if not match:
-            for it in items:
-                if str(it.get("alias", "")).lower() == wanted.lower():
-                    match = it
-                    break
-        if not match:
-            # entity_id form: automation.<slug>
-            slug = wanted.split(".", 1)[-1].lower()
-            for it in items:
-                a = str(it.get("alias", "")).lower().replace(" ", "_")
-                if a == slug:
-                    match = it
-                    break
+        match = find_config_item(hass, "automation", items, wanted)
         if not match:
             return json.dumps({"error": f"Automation '{wanted}' not found"})
         return json.dumps(match, default=str)
@@ -1039,22 +1062,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             items = _src_read_scripts(hass)
         except Exception as err:  # noqa: BLE001
             return json.dumps({"error": f"Read failed: {err}"})
-        match = None
-        for it in items:
-            if str(it.get("id", "")) == wanted:
-                match = it
-                break
-        if not match:
-            for it in items:
-                if str(it.get("alias", "")).lower() == wanted.lower():
-                    match = it
-                    break
-        if not match:
-            slug = wanted.split(".", 1)[-1].lower()
-            for it in items:
-                if str(it.get("id", "")).lower() == slug:
-                    match = it
-                    break
+        match = find_config_item(hass, "script", items, wanted)
         if not match:
             return json.dumps({"error": f"Script '{wanted}' not found"})
         return json.dumps(match, default=str)

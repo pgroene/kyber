@@ -14,12 +14,14 @@
               "max_tokens": "Chat Model: Context Window (tokens)",
               "max_daily_tokens": "Daily token budget (0 = unlimited)",
               "chat_timeout": "Chat timeout (seconds)",
+              "max_tool_rounds": "Max tool rounds per answer",
               "narrator_ai_task_entity_id": "Operations Model (optional)",
               "narrator_max_tokens": "Operations Model: Context Window (tokens)"
             },
             "data_description": {
               "max_daily_tokens": "Shared by the chat panel and MCP. Once it is used up, requests are refused until midnight.",
               "chat_timeout": "How long the chat panel waits for an answer before giving up. Raise this for slow local models (e.g. Ollama on modest hardware).",
+              "max_tool_rounds": "How many times the chat model may look something up (entities, automations, history) before it has to answer. More rounds help with questions that need several lookups but make answers slower, especially with local models. When the rounds run out, Kyber still answers from what was found.",
               "narrator_ai_task_entity_id": "Used for batching and small tasks such as entity narration. A smaller, cheaper model works well here. Defaults to the chat model."
             }
           },
@@ -99,12 +101,14 @@
               "max_tokens": "Chat Model: Context Window (tokens)",
               "max_daily_tokens": "Daily token budget (0 = unlimited)",
               "chat_timeout": "Chat timeout (seconds)",
+              "max_tool_rounds": "Max tool rounds per answer",
               "narrator_ai_task_entity_id": "Operations Model (optional)",
               "narrator_max_tokens": "Operations Model: Context Window (tokens)"
             },
             "data_description": {
               "max_daily_tokens": "Shared by the chat panel and MCP. Once it is used up, requests are refused until midnight.",
               "chat_timeout": "How long the chat panel waits for an answer before giving up. Raise this for slow local models (e.g. Ollama on modest hardware).",
+              "max_tool_rounds": "How many times the chat model may look something up (entities, automations, history) before it has to answer. More rounds help with questions that need several lookups but make answers slower, especially with local models. When the rounds run out, Kyber still answers from what was found.",
               "narrator_ai_task_entity_id": "Used for batching and small tasks such as entity narration. A smaller, cheaper model works well here. Defaults to the chat model."
             }
           },
@@ -194,6 +198,7 @@
               "max_tokens": "Chat Model: Context Window (tokens)",
               "max_daily_tokens": "Daily token budget (0 = unlimited)",
               "chat_timeout": "Chat timeout (seconds)",
+              "max_tool_rounds": "Max tool rounds per answer",
               "narrator_ai_task_entity_id": "Operations Model (optional)",
               "narrator_max_tokens": "Operations Model: Context Window (tokens)"
             },
@@ -201,6 +206,7 @@
               "max_tokens": "Calls: {chat_calls} · Avg: {chat_avg}s · Min: {chat_min}s · Max: {chat_max}s · ~{chat_tokens} tokens · Errors: {chat_errors}",
               "max_daily_tokens": "Shared by the chat panel and MCP. Once it is used up, requests are refused until midnight.",
               "chat_timeout": "How long the chat panel waits for an answer before giving up. Raise this for slow local models (e.g. Ollama on modest hardware).",
+              "max_tool_rounds": "How many times the chat model may look something up (entities, automations, history) before it has to answer. More rounds help with questions that need several lookups but make answers slower, especially with local models. When the rounds run out, Kyber still answers from what was found.",
               "narrator_ai_task_entity_id": "Used for batching and small tasks such as entity narration. A smaller, cheaper model works well here. Defaults to the chat model.",
               "narrator_max_tokens": "Calls: {ops_calls} · Avg: {ops_avg}s · Min: {ops_min}s · Max: {ops_max}s · ~{ops_tokens} tokens · Errors: {ops_errors}"
             }

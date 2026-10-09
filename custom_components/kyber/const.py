@@ -72,6 +72,7 @@ CONF_MAX_TOKENS = "max_tokens"
 CONF_MAX_REQUESTS_PER_MINUTE = "max_requests_per_minute"
 CONF_MAX_DAILY_TOKENS = "max_daily_tokens"
 CONF_CHAT_TIMEOUT = "chat_timeout"                 # int seconds — total time the panel waits for a chat reply
+CONF_MAX_TOOL_ROUNDS = "max_tool_rounds"           # int — tool-call rounds per chat turn before a final answer
 CONF_ENABLE_DEBUG_VIEWS = "enable_debug_views"
 CONF_ENABLE_MCP = "enable_mcp"
 CONF_ENABLE_MCP_IN_CHAT = "enable_mcp_in_chat"
@@ -149,6 +150,19 @@ def get_chat_timeout(config: dict | None) -> int:
         value = DEFAULT_CHAT_TIMEOUT
     return max(MIN_CHAT_TIMEOUT, min(MAX_CHAT_TIMEOUT, value))
 
+
+MIN_TOOL_ROUNDS = 1
+MAX_TOOL_ROUNDS = 8
+
+
+def get_max_tool_rounds(config: dict | None) -> int:
+    """Return the configured number of tool-call rounds, clamped to 1..8."""
+    try:
+        value = int((config or {}).get(CONF_MAX_TOOL_ROUNDS, TOOL_CALL_MAX_ROUNDS))
+    except (TypeError, ValueError):
+        value = TOOL_CALL_MAX_ROUNDS
+    return max(MIN_TOOL_ROUNDS, min(MAX_TOOL_ROUNDS, value))
+
 _CREDENTIAL_PATTERNS = [
     r"(?i)bearer\s+\S{4,}",
     r"sk-[a-zA-Z0-9]{6,}",
@@ -207,7 +221,7 @@ PROMPT_CONTEXT_SHARE = 0.75
 KNOWLEDGE_BUDGET_SHARE = 0.10
 KNOWLEDGE_BUDGET_CHARS = 2_000  # floor for the knowledge slice
 MAX_TOOL_RESULT_CHARS = 4_000
-TOOL_CALL_MAX_ROUNDS = 3
+TOOL_CALL_MAX_ROUNDS = 3  # default for CONF_MAX_TOOL_ROUNDS, see get_max_tool_rounds()
 
 # Known model-family → typical max context window (tokens).
 # Used to pre-fill the max_tokens field in the config flow.
