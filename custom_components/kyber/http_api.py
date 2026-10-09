@@ -102,7 +102,7 @@ from .intent_and_context import (
     _classify_intent,
     _build_home_state_by_area, _build_context,
 )
-from .tool_execution import _tool_result_summary, _state_matches, _execute_tool, _async_execute_tool, _ASYNC_TOOLS, TOOL_ALIASES, resolve_tool_call
+from .tool_execution import _tool_result_summary, _tool_result_summary_parts, _state_matches, _execute_tool, _async_execute_tool, _ASYNC_TOOLS, TOOL_ALIASES, resolve_tool_call
 from .mcp_client import MCPClientManager, parse_servers_config, is_mcp_tool
 from .session_and_storage import (
     _CHAT_HISTORY_STORE_VERSION, _CHAT_HISTORY_STORE_KEY,
@@ -884,6 +884,8 @@ async def _inject_knowledge_into_prompt(
         _progress_emit(hass, request_id, {
             "type": "info",
             "message": f"Recalled {len(relevant_knowledge)} memory fact(s): {picked_summary}",
+            "key": "ev_recalled",
+            "params": {"n": len(relevant_knowledge), "facts": picked_summary},
         })
         kn_blocks: list[str] = []
         for entry in relevant_knowledge:
@@ -1252,7 +1254,9 @@ async def _run_ai_loop(
             )
             _progress_emit(hass, request_id, {
                 "type": "warning",
-                "message": f"⚠️ AI entity '{entity_id}' is {_entity_state_str}. Ollama may be offline.",
+                "message": f"AI entity '{entity_id}' is {_entity_state_str}. The AI provider may be offline.",
+                "key": "ev_entity_unavailable",
+                "params": {"entity": entity_id, "state": _entity_state_str},
             })
 
         # Check Ollama health asynchronously (non-blocking — we still proceed)
@@ -1263,7 +1267,9 @@ async def _run_ai_loop(
             _LOGGER.warning("Kyber: Ollama health check: %s", _health["error"])
             _progress_emit(hass, request_id, {
                 "type": "warning",
-                "message": f"⚠️ Ollama: {_health['error']}",
+                "message": f"Ollama: {_health['error']}",
+                "key": "ev_ollama_error",
+                "params": {"error": _health["error"]},
             })
         else:
             _running = _health.get("running_models", [])
@@ -1296,10 +1302,12 @@ async def _run_ai_loop(
                 _progress_emit(hass, request_id, {
                     "type": "warning",
                     "message": (
-                        f"⚠️ Model '{_model_name}' is not pulled. "
+                        f"Model '{_model_name}' is not pulled. "
                         f"Run `ollama pull {_model_base}` on your Ollama host. "
                         f"Pulled models: {', '.join(_available) or 'none'}"
                     ),
+                    "key": "ev_model_not_pulled",
+                    "params": {"model": _model_name, "base": _model_base, "pulled": ", ".join(_available) or "–"},
                 })
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -1408,6 +1416,8 @@ async def _run_ai_loop(
         _progress_emit(hass, request_id, {
             "type": "info",
             "message": f"Quick-intent shortcut: {_quick.get('shortcut')}",
+            "key": "ev_quick_intent",
+            "params": {"shortcut": _quick.get("shortcut")},
         })
         response_text = _quick["response_text"]
         intent = "action"  # quick intents are always actions; prevent informational guard from dropping the plan
@@ -1430,11 +1440,20 @@ async def _run_ai_loop(
                     f"Prompt shortened to fit the context window ({_ctx_window:,} tokens). "
                     f"Left out: {_fit.describe()}."
                 ),
+                "key": "ev_prompt_trimmed",
+                "params": {
+                    "ctx": _ctx_window,
+                    "history": _fit.history_dropped,
+                    "rounds": _fit.tool_rounds_dropped,
+                    "facts": _fit.knowledge_dropped,
+                },
             })
 
         _progress_emit(hass, request_id, {
             "type": "info",
             "message": f"Asking AI (round {_round + 1})\u2026",
+            "key": "ev_asking_ai",
+            "params": {"round": _round + 1},
         })
         _t_start = time.monotonic()
         try:
@@ -1448,7 +1467,9 @@ async def _run_ai_loop(
             )
             _progress_emit(hass, request_id, {
                 "type": "error",
-                "message": f"AI timed out after {_AI_CALL_TIMEOUT}s — Ollama may be overloaded",
+                "message": f"AI timed out after {_AI_CALL_TIMEOUT}s — the AI provider may be overloaded",
+                "key": "ev_ai_timeout",
+                "params": {"secs": _AI_CALL_TIMEOUT},
             })
             _progress_complete(hass, request_id)
             raise HomeAssistantError(
@@ -1471,7 +1492,7 @@ async def _run_ai_loop(
                 "Kyber: AI call FAILED after %dms — entity=%s round=%d prompt_tokens~%d",
                 _elapsed_ms, entity_id, _round + 1, _prompt_tokens_est,
             )
-            _progress_emit(hass, request_id, {"type": "error", "message": "Internal error"})
+            _progress_emit(hass, request_id, {"type": "error", "message": "Internal error", "key": "ev_internal_error"})
             _progress_complete(hass, request_id)
             raise HomeAssistantError("Internal error") from None
 
@@ -1581,6 +1602,8 @@ async def _run_ai_loop(
             _progress_emit(hass, request_id, {
                 "type": "info",
                 "message": f"Redirecting \u2014 {_search_entity_count} search_entities calls detected.",
+                "key": "ev_redirect_search",
+                "params": {"n": _search_entity_count},
             })
             tool_rounds.append(ToolRound(
                 "",
@@ -1758,6 +1781,7 @@ async def _run_ai_loop(
 
             # Build a short human-readable summary for the UI
             summary = _tool_result_summary(call, tool_result_data)
+            summary_key, summary_params = _tool_result_summary_parts(call, tool_result_data)
             args_display = {k: v for k, v in call.items() if k != "name"}
             tool_log.append({
                 "type": "tool_call",
@@ -1774,6 +1798,8 @@ async def _run_ai_loop(
                 "type": "tool_result",
                 "name": call.get("name", ""),
                 "summary": summary,
+                "summary_key": summary_key,
+                "summary_params": summary_params,
                 "preview": preview,
             })
 
@@ -1814,6 +1840,7 @@ async def _run_ai_loop(
                     _progress_emit(hass, request_id, {
                         "type": "info",
                         "message": "Redirecting \u2014 trying alternative search approach.",
+                        "key": "ev_redirect_alt",
                     })
                     continue  # one more AI round with the redirect hint
 
@@ -1821,6 +1848,7 @@ async def _run_ai_loop(
             _progress_emit(hass, request_id, {
                 "type": "info",
                 "message": "Model repeated previous tool calls \u2014 synthesizing answer from results.",
+                "key": "ev_repeated_calls",
             })
             # The model looped instead of answering in prose. Do one final
             # synthesis pass with no tool-calling instructions so it turns
@@ -2395,6 +2423,8 @@ class KyberView(HomeAssistantView):
             _progress_emit(hass, request_id, {
                 "type": "info",
                 "message": f"Entity narrator running ({_nd}/{_nt} entities) — finishing current AI batch before answering…",
+                "key": "ev_narrator_running",
+                "params": {"done": _nd, "total": _nt},
             })
 
         _LOGGER.debug(
@@ -2472,7 +2502,12 @@ class KyberView(HomeAssistantView):
             )
         turn.hold(reservation)
 
-        _progress_emit(hass, request_id, {"type": "info", "message": f"Built context: {context_stats.get('entity_count', 0)} entities, {context_stats.get('area_count', 0)} areas"})
+        _progress_emit(hass, request_id, {
+            "type": "info",
+            "message": f"Built context: {context_stats.get('entity_count', 0)} entities, {context_stats.get('area_count', 0)} areas",
+            "key": "ev_built_context",
+            "params": {"entities": context_stats.get("entity_count", 0), "areas": context_stats.get("area_count", 0)},
+        })
 
         try:
             response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved, call_token_usage = \

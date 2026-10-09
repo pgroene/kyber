@@ -1556,11 +1556,21 @@ export const AIMixin = (Base) => class extends Base {
     if (history) history.scrollTop = history.scrollHeight;
   }
 
+  /** Translated text of a backend progress event; the English text when the key is unknown. */
+  _progressText(key, params, fallback) {
+    const t = this._t || ((k) => k);
+    if (key) {
+      const text = t(key, params || {});
+      if (text !== key) return text;
+    }
+    return fallback || "";
+  }
+
   _renderProgressEvent(ev) {
     if (!ev || !ev.type) return;
     const t = this._t || ((k) => k);
     if (ev.type === "info") {
-      this._appendThinkingEvent("thinking-info", ev.message || "", "ℹ️");
+      this._appendThinkingEvent("thinking-info", this._progressText(ev.key, ev.params, ev.message), "ℹ️");
     } else if (ev.type === "tool_call") {
       const args = ev.args ? Object.entries(ev.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ") : "";
       this._setThinkingLabel(t("ai_calling_tool"));
@@ -1581,7 +1591,7 @@ export const AIMixin = (Base) => class extends Base {
               statusEl.classList.contains("thinking-tool-running")) {
             statusEl.classList.remove("thinking-tool-running");
             statusEl.classList.add("thinking-tool-done");
-            statusEl.textContent = ` → ${ev.summary || t("ai_tool_done")}`;
+            statusEl.textContent = ` → ${this._progressText(ev.summary_key, ev.summary_params, ev.summary) || t("ai_tool_done")}`;
             if (ev.preview) {
               items[i].dataset.preview = ev.preview;
               items[i].dataset.toolName = ev.name || "";
@@ -1612,9 +1622,9 @@ export const AIMixin = (Base) => class extends Base {
     } else if (ev.type === "thinking") {
       this._setThinkingLabel(ev.stage === "follow_up" ? t("ai_reasoning_results") : t("thinking"));
     } else if (ev.type === "warning") {
-      this._appendThinkingEvent("thinking-warning", ev.message || "", "⚠️");
+      this._appendThinkingEvent("thinking-warning", this._progressText(ev.key, ev.params, ev.message), "⚠️");
     } else if (ev.type === "error") {
-      this._appendThinkingEvent("thinking-error", ev.message || t("ai_error_fallback"), "⚠️");
+      this._appendThinkingEvent("thinking-error", this._progressText(ev.key, ev.params, ev.message) || t("ai_error_fallback"), "⚠️");
     }
   }
 

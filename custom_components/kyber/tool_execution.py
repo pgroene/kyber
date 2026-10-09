@@ -217,68 +217,88 @@ def resolve_tool_call(call: dict[str, Any]) -> dict[str, Any]:
 
 
 
-def _tool_result_summary(call: dict[str, Any], result: Any) -> str:
-    """Build a short human-readable summary of a tool call result for the UI."""
+# English summary per key. The panel translates the same key with the same
+# params (ts_* in www/src/i18n.js); this text is the fallback and the log form.
+_TOOL_SUMMARY_EN: dict[str, str] = {
+    "ts_error": "error: {error}",
+    "ts_domain_entities": "{count} {domain} entities",
+    "ts_entity_state": "{entity} = {state}",
+    "ts_area_entities": "{count} entities in {area}",
+    "ts_label_entities": "{count} entities with label '{label}'",
+    "ts_search_matches": "{count} matches for '{query}'",
+    "ts_automation_matches": "{count} automations matching '{query}'",
+    "ts_areas": "{count} areas",
+    "ts_labels": "{count} labels",
+    "ts_zones": "{count} zones",
+    "ts_zone_occupants": "{count} occupant(s) in zone '{zone}'",
+    "ts_explored": "explored '{integration}': {count} entities, {facts} facts stored",
+    "ts_integrations": "{count} integrations",
+    "ts_integration_entities": "{count} entities from '{integration}'",
+    "ts_ai_task": "ai_task response from {entity}{snippet}",
+    "ts_domain_docs": "domain docs for '{domain}'",
+    "ts_done": "done",
+}
+
+
+def _tool_result_summary_parts(call: dict[str, Any], result: Any) -> tuple[str, dict[str, Any]]:
+    """Return (key, params) of the UI summary of a tool call result."""
     name = call.get("name", "")
-    if isinstance(result, dict) and "error" in result:
-        return f"error: {result['error']}"
+    is_dict = isinstance(result, dict)
+    if is_dict and "error" in result:
+        return "ts_error", {"error": result["error"]}
     if name == "list_entities_by_domain":
-        count = len(result) if isinstance(result, dict) and "info" not in result and "error" not in result else 0
-        domain = call.get("domain", "?")
-        return f"{count} {domain} entities"
+        count = len(result) if is_dict and "info" not in result else 0
+        return "ts_domain_entities", {"count": count, "domain": call.get("domain", "?")}
     if name == "get_entity_state":
-        eid = call.get("entity_id", "?")
-        state = result.get("state", "?") if isinstance(result, dict) else "?"
-        return f"{eid} = {state}"
+        state = result.get("state", "?") if is_dict else "?"
+        return "ts_entity_state", {"entity": call.get("entity_id", "?"), "state": state}
     if name == "get_area_entities":
-        area = result.get("area", call.get("area", "?")) if isinstance(result, dict) else "?"
-        count = len(result.get("entities", {})) if isinstance(result, dict) else 0
-        return f"{count} entities in {area}"
+        area = result.get("area", call.get("area", "?")) if is_dict else "?"
+        count = len(result.get("entities", {})) if is_dict else 0
+        return "ts_area_entities", {"count": count, "area": area}
     if name == "list_entities_by_label":
-        label = result.get("label", call.get("label", "?")) if isinstance(result, dict) else "?"
-        count = len(result.get("entities", {})) if isinstance(result, dict) else 0
-        return f"{count} entities with label '{label}'"
+        label = result.get("label", call.get("label", "?")) if is_dict else "?"
+        count = len(result.get("entities", {})) if is_dict else 0
+        return "ts_label_entities", {"count": count, "label": label}
     if name == "search_entities":
-        count = len(result) if isinstance(result, dict) and "info" not in result else 0
-        return f"{count} matches for '{call.get('query', '?')}'"
+        count = len(result) if is_dict and "info" not in result else 0
+        return "ts_search_matches", {"count": count, "query": call.get("query", "?")}
     if name == "search_automations":
-        count = result.get("count", 0) if isinstance(result, dict) else 0
-        return f"{count} automations matching '{call.get('query', '?')}'"
-    if name == "get_areas":
-        count = len(result) if isinstance(result, dict) else 0
-        return f"{count} areas"
-    if name == "get_labels":
-        count = len(result) if isinstance(result, dict) else 0
-        return f"{count} labels"
-    if name == "get_zones":
-        count = len(result) if isinstance(result, dict) else 0
-        return f"{count} zones"
+        count = result.get("count", 0) if is_dict else 0
+        return "ts_automation_matches", {"count": count, "query": call.get("query", "?")}
+    if name in ("get_areas", "get_labels", "get_zones"):
+        count = len(result) if is_dict else 0
+        return {"get_areas": "ts_areas", "get_labels": "ts_labels", "get_zones": "ts_zones"}[name], {"count": count}
     if name == "get_zone_occupants":
-        zone = call.get("zone", "?")
-        count = len(result) if isinstance(result, dict) else 0
-        return f"{count} occupant(s) in zone '{zone}'"
+        count = len(result) if is_dict else 0
+        return "ts_zone_occupants", {"count": count, "zone": call.get("zone", "?")}
     if name == "explore_integration":
-        integration = call.get("integration", "?")
-        count = result.get("entity_count", 0) if isinstance(result, dict) else 0
-        facts = result.get("facts_stored", 0) if isinstance(result, dict) else 0
-        return f"explored '{integration}': {count} entities, {facts} facts stored"
+        return "ts_explored", {
+            "integration": call.get("integration", "?"),
+            "count": result.get("entity_count", 0) if is_dict else 0,
+            "facts": result.get("facts_stored", 0) if is_dict else 0,
+        }
     if name == "list_integrations":
-        count = result.get("count", 0) if isinstance(result, dict) else 0
-        return f"{count} integrations"
+        return "ts_integrations", {"count": result.get("count", 0) if is_dict else 0}
     if name == "get_integration_entities":
-        integration = call.get("integration", "?")
-        count = result.get("count", 0) if isinstance(result, dict) else 0
-        return f"{count} entities from '{integration}'"
+        return "ts_integration_entities", {
+            "count": result.get("count", 0) if is_dict else 0,
+            "integration": call.get("integration", "?"),
+        }
     if name == "run_ai_task":
-        entity_id = call.get("entity_id", "?")
         snippet = ""
-        if isinstance(result, dict) and "response" in result:
+        if is_dict and "response" in result:
             snippet = " — " + str(result["response"])[:80]
-        return f"ai_task response from {entity_id}{snippet}"
+        return "ts_ai_task", {"entity": call.get("entity_id", "?"), "snippet": snippet}
     if name == "get_domain_docs":
-        domain = call.get("domain", "?")
-        return f"domain docs for '{domain}'"
-    return "done"
+        return "ts_domain_docs", {"domain": call.get("domain", "?")}
+    return "ts_done", {}
+
+
+def _tool_result_summary(call: dict[str, Any], result: Any) -> str:
+    """Build a short human-readable (English) summary of a tool call result."""
+    key, params = _tool_result_summary_parts(call, result)
+    return _TOOL_SUMMARY_EN[key].format(**params)
 
 
 def _state_matches(state_obj: Any, state_filter: str | list | None) -> bool:

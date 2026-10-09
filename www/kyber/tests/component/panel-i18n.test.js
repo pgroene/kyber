@@ -183,3 +183,37 @@ describe("automation edit card without original_config", () => {
     expect(card.querySelector(".ae-btn-cancel").style.display).toBe("none");
   });
 });
+
+describe("thinking lines from backend events", () => {
+  const lines = (element) =>
+    [...element.shadowRoot.getElementById("kyber-thinking-events").querySelectorAll(".thinking-event")]
+      .map((el) => el.textContent);
+
+  it("translates info, warning and tool results by key", () => {
+    const { element } = makePanel({ language: "de" });
+    element._showThinking();
+    element._renderProgressEvent({ type: "info", message: "Asking AI (round 2)…", key: "ev_asking_ai", params: { round: 2 } });
+    element._renderProgressEvent({
+      type: "info", message: "Built context: 1200 entities, 18 areas",
+      key: "ev_built_context", params: { entities: 1200, areas: 18 },
+    });
+    element._renderProgressEvent({ type: "tool_call", name: "get_area_entities", args: { area: "schlafzimmer" } });
+    element._renderProgressEvent({
+      type: "tool_result", name: "get_area_entities", summary: "1 entities in Schlafzimmer",
+      summary_key: "ts_area_entities", summary_params: { count: 1, area: "Schlafzimmer" },
+    });
+    expect(lines(element)).toEqual([
+      "ℹ️ KI wird gefragt (Runde 2) …",
+      "ℹ️ Kontext aufgebaut: 1200 Entitäten, 18 Bereiche",
+      '🔧 get_area_entities (area="schlafzimmer") → 1 Entität in Schlafzimmer',
+    ]);
+  });
+
+  it("falls back to the English message for an unknown key or none", () => {
+    const { element } = makePanel({ language: "de" });
+    element._showThinking();
+    element._renderProgressEvent({ type: "warning", message: "Something new", key: "ev_not_there_yet" });
+    element._renderProgressEvent({ type: "info", message: "Old backend text" });
+    expect(lines(element)).toEqual(["⚠️ Something new", "ℹ️ Old backend text"]);
+  });
+});
