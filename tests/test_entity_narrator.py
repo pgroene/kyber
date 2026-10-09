@@ -511,6 +511,8 @@ async def test_batch_accepted():
     assert stats["low_quality"] == 0
     assert stats["errors"] == 0
     assert stats["batches"] == 1
+    assert stats["due"] == 1
+    assert stats["running"] is False
 
 
 @pytest.mark.asyncio
@@ -784,6 +786,11 @@ async def test_already_narrated_entity_skipped():
 
     assert stats["total"] == 0
     mock_ai.assert_not_called()
+    # A finished run with nothing to do, not "never ran" (debug panel)
+    assert stats["due"] == 0
+    assert stats["running"] is False
+    assert stats["finished_at"] >= stats["started_at"]
+    assert hass.data[mod.NARRATOR_STATS_KEY]["running"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -944,11 +951,16 @@ async def test_cancel_propagates_and_stops_ai_call():
             mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
         )
         await asyncio.wait_for(ai_started.wait(), 2)
+        live = hass.data[mod.NARRATOR_STATS_KEY]
+        assert live["running"] is True
+        assert live["due"] == 1
         run.cancel()
         with pytest.raises(asyncio.CancelledError):
             await run
         await asyncio.wait_for(ai_cancelled.wait(), 2)
 
+    # A cancelled run must not stay "running" in the debug panel
+    assert hass.data[mod.NARRATOR_STATS_KEY]["running"] is False
     assert hass.data[mod.NARRATOR_STATS_KEY]["errors"] == 0
     assert hass.data["kyber_narrator_ai_busy"] is False
 

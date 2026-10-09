@@ -794,6 +794,35 @@ export const DebugMixin = (Base) => class extends Base {
     }
   }
 
+  /**
+   * Narrator status for the debug panel: running, nothing to do, or done.
+   * "total" grows per batch during a run, so it cannot tell "no run yet"
+   * from "nothing was due"; "due" and "running" can. Stats from a backend
+   * without those fields fall back to total. Returns { label, lastRun, rows }
+   * with rows as [i18n key, count].
+   */
+  _narratorStatusView(ns) {
+    const t = this._t || ((k) => k);
+    const ranAt = ns.started_at ? new Date(ns.started_at * 1000).toLocaleString() : (ns.last_run || "");
+    if (!ranAt) return { label: t("dbg_not_yet_run"), lastRun: "", rows: [] };
+    const due = ns.due ?? ns.total ?? 0;
+    if (ns.running) {
+      return { label: t("dbg_ns_running", { done: ns.total ?? 0, n: due }), lastRun: ranAt, rows: [] };
+    }
+    if (due === 0) return { label: t("dbg_ns_up_to_date"), lastRun: ranAt, rows: [] };
+    const accepted = ns.accepted ?? 0;
+    return {
+      label: t("dbg_ns_done", { accepted, n: due, pct: Math.round((accepted / due) * 100) }),
+      lastRun: ranAt,
+      rows: [
+        ["dbg_st_ns_accepted", accepted],
+        ["dbg_st_ns_low_quality", ns.low_quality ?? 0],
+        ["dbg_st_ns_parse_failures", ns.parse_failures ?? 0],
+        ["dbg_st_errors", ns.errors ?? 0],
+      ],
+    };
+  }
+
   async _renderDebugStatus(body) {
     const t = this._t || ((k) => k);
     const resp = await this._hass.fetchWithAuth("/api/kyber/debug/status");
@@ -842,13 +871,7 @@ export const DebugMixin = (Base) => class extends Base {
     const deepProgressBar = deepTotal > 0
       ? `<progress value="${deepDone}" max="${deepTotal}" style="width:100%;margin-top:4px"></progress>` : "";
 
-    // Narrator stats summary
-    const nsTotal = ns.total ?? 0;
-    const nsAccepted = (ns.accepted_first ?? 0) + (ns.accepted_retry ?? 0);
-    const nsPct = nsTotal > 0 ? Math.round((nsAccepted / nsTotal) * 100) : 0;
-    const nsLabel = nsTotal > 0
-      ? t("dbg_ns_summary", { accepted: nsAccepted, pct: nsPct, fallback: ns.rejected ?? 0, errors: ns.errors ?? 0 })
-      : t("dbg_not_yet_run");
+    const nsView = this._narratorStatusView(ns);
 
     // Helpers for storage/resource display
     const fmtBytes = (b) => {
@@ -917,14 +940,9 @@ export const DebugMixin = (Base) => class extends Base {
         ${(data.narrator_ai_task_info && data.narrator_ai_task_info.friendly_name && data.narrator_ai_task_info.friendly_name !== data.narrator_ai_task_entity) ? `<tr><th>${t("dbg_st_display_name")}</th><td>${this._escapeHtml(data.narrator_ai_task_info.friendly_name)}</td></tr>` : ""}
         ${data.narrator_ai_task_info && data.narrator_ai_task_info.model ? `<tr><th>${t("dbg_st_model")}</th><td><code>${this._escapeHtml(data.narrator_ai_task_info.model)}</code> <a href="https://github.com/pgroene/kyber/blob/main/docs/narrator-bench-report-2026-05.md" target="_blank" rel="noopener" style="font-size:0.8em;margin-left:6px;opacity:0.7" title="${t("dbg_st_bench_report_title")}">${t("dbg_st_bench_report")}</a></td></tr>` : ""}
         ${data.narrator_ai_task_info && data.narrator_ai_task_info.server ? `<tr><th>${t("dbg_st_server")}</th><td><code>${this._escapeHtml(data.narrator_ai_task_info.server)}</code></td></tr>` : ""}
-        <tr><th>${t("dbg_st_status")}</th><td>${this._escapeHtml(nsLabel)}</td></tr>
-        ${ns.last_run ? `<tr><th>${t("dbg_st_last_run")}</th><td>${this._escapeHtml(ns.last_run)}</td></tr>` : ""}
-        ${nsTotal > 0 ? `
-          <tr><th>${t("dbg_st_accepted_first")}</th><td>${ns.accepted_first ?? 0}</td></tr>
-          <tr><th>${t("dbg_st_accepted_retry")}</th><td>${ns.accepted_retry ?? 0}</td></tr>
-          <tr><th>${t("dbg_st_fallback")}</th><td>${ns.rejected ?? 0}</td></tr>
-          <tr><th>${t("dbg_st_errors")}</th><td>${ns.errors ?? 0}</td></tr>
-        ` : ""}
+        <tr><th>${t("dbg_st_status")}</th><td class="dbg-ns-status">${this._escapeHtml(nsView.label)}</td></tr>
+        ${nsView.lastRun ? `<tr><th>${t("dbg_st_last_run")}</th><td class="dbg-ns-last-run">${this._escapeHtml(nsView.lastRun)}</td></tr>` : ""}
+        ${nsView.rows.map(([key, n]) => `<tr><th>${t(key)}</th><td>${n}</td></tr>`).join("")}
       </table>
       <div style="margin:6px 0 12px">
         <button id="dbg-run-narrator" style="font-size:0.9em;padding:5px 14px" ${epStatus === "narrator" ? "disabled" : ""}>

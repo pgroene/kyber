@@ -441,15 +441,23 @@ async def _run_ai(hass: "HomeAssistant", ai_entity_id: str, prompt: str) -> str:
 
 
 def _init_stats() -> dict[str, Any]:
+    # "due" is how many entities this run has to describe; 0 means everything
+    # was already up to date. "total" counts the ones handed to the model so
+    # far. The debug panel tells "running", "nothing to do" and "done" apart
+    # with running/due; the timestamps are epoch seconds for local display.
     return {
         "total": 0,
+        "due": 0,
         "accepted": 0,
         "low_quality": 0,
         "errors": 0,
         "batches": 0,
         "parse_failures": 0,
         "batch_size_used": 0,
-        "last_run": "",
+        "running": True,
+        "started_at": time.time(),
+        "finished_at": None,
+        "last_run": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
 
 
@@ -536,12 +544,36 @@ async def async_narrate_entities(
 ) -> dict[str, Any]:
     """Phase 3: AI-generated descriptions for interesting entities.
 
-    Returns the stats dict for this run.
+    Returns the stats dict for this run. The stats are marked finished even
+    when the run fails or is cancelled, so the panel never shows a run as
+    still going after it has stopped.
     """
     stats = _init_stats()
-    stats["last_run"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     hass.data[NARRATOR_STATS_KEY] = stats
+    try:
+        return await _narrate_entities(
+            hass, kstore, entity_reg, ai_entity_id, stats,
+            max_batch=max_batch,
+            narrator_max_tokens=narrator_max_tokens,
+            dashboard_names=dashboard_names,
+        )
+    finally:
+        stats["running"] = False
+        stats["finished_at"] = time.time()
+        hass.data[NARRATOR_STATS_KEY] = dict(stats)
 
+
+async def _narrate_entities(
+    hass: "HomeAssistant",
+    kstore: "KnowledgeStore",
+    entity_reg: Any,
+    ai_entity_id: str,
+    stats: dict[str, Any],
+    *,
+    max_batch: int,
+    narrator_max_tokens: int,
+    dashboard_names: dict[str, str] | None,
+) -> dict[str, Any]:
     home_lang, devices_hint = detect_home_language(hass)
     _LOGGER.info("Kyber narrator: detected home language '%s'", home_lang)
 
@@ -659,6 +691,7 @@ async def async_narrate_entities(
     candidates.sort(key=lambda row: (0 if row[0] in _dash_names else 1))
 
     total = len(candidates)
+    stats["due"] = total
     _LOGGER.info("Kyber narrator: %d entities to narrate", total)
 
     def _set_progress(done: int, current_name: str = "") -> None:

@@ -33,11 +33,11 @@ import {
 // Styles
 // ---------------------------------------------------------------------------
 import { STYLES } from "./src/styles.js?v=217";
-import { getT } from "./src/i18n.js?v=6";
+import { getT } from "./src/i18n.js?v=7";
 import { UtilsMixin } from "./src/utils-mixin.js?v=103";
 import { SessionMixin } from "./src/session-mixin.js?v=90";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=90";
-import { DebugMixin } from "./src/debug-mixin.js?v=113";
+import { DebugMixin } from "./src/debug-mixin.js?v=114";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=99";
 import { EditorMixin } from "./src/editor-mixin.js?v=217";
 import { AIMixin } from "./src/ai-mixin.js?v=123";
