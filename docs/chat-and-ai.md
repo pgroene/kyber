@@ -241,6 +241,20 @@ User: <your current message>
 Assistant:
 ```
 
+### Fitting the prompt into the context window
+
+The prompt may fill **75 %** of the chat model's context window (4 characters per token); the rest is left for the answer. The window is the **Chat Model: Context Window** setting, or the provider's window when a cloud provider handles chat. Recalled memory facts always get their own slice (10 % of the limit, at least 2,000 characters), most relevant first.
+
+When the prompt is still too long, Kyber leaves out parts in this order and reports it in the thinking lines:
+
+1. the oldest messages of the conversation history,
+2. the compacted summary,
+3. older tool rounds of the current turn,
+4. recalled memory facts,
+5. as a last resort, the middle of the system context.
+
+Your current message, the `Assistant:` marker and the newest tool results are never cut.
+
 ---
 
 ## [CHANGE] Tagging
@@ -728,6 +742,20 @@ Assistant: Done — bedroom light is now on.
 User: <your current message>
 Assistant:
 ```
+
+### Fitting the prompt into the context window
+
+The prompt may fill **75 %** of the chat model's context window (4 characters per token); the rest is left for the answer. The window is the **Chat Model: Context Window** setting, or the provider's window when a cloud provider handles chat. Recalled memory facts always get their own slice (10 % of the limit, at least 2,000 characters), most relevant first.
+
+When the prompt is still too long, Kyber leaves out parts in this order and reports it in the thinking lines:
+
+1. the oldest messages of the conversation history,
+2. the compacted summary,
+3. older tool rounds of the current turn,
+4. recalled memory facts,
+5. as a last resort, the middle of the system context.
+
+Your current message, the `Assistant:` marker and the newest tool results are never cut.
 
 ---
 

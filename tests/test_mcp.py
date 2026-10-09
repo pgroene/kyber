@@ -1,6 +1,7 @@
 """Tests for the Kyber MCP server endpoint."""
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -21,6 +22,7 @@ from custom_components.kyber.mcp import (
     _ok,
     _err,
 )
+from custom_components.kyber.prompt_budget import ChatPrompt
 
 
 # ---------------------------------------------------------------------------
@@ -448,14 +450,16 @@ async def test_handle_kyber_ask_rate_limit_check_then_record():
     with patch("custom_components.kyber.mcp._rate_limiter", mock_rl), \
          patch("custom_components.kyber.http_api._run_ai_loop", new_callable=AsyncMock) as mock_loop, \
          patch("custom_components.kyber.http_api._build_context", return_value=("ctx", {})), \
-         patch("custom_components.kyber.http_api._build_prompt_sections", return_value={"instructions": "instr", "intent": "turn on"}), \
-         patch("custom_components.kyber.http_api._inject_knowledge_into_instructions", new_callable=AsyncMock, return_value=("instr", {})), \
+         patch("custom_components.kyber.http_api._build_prompt_sections", return_value={
+             "prompt": ChatPrompt(core="instr\n\n", turn="User: hello\nAssistant:"), "intent": "turn on",
+         }), \
+         patch("custom_components.kyber.http_api._inject_knowledge_into_prompt", new_callable=AsyncMock, return_value=[]), \
          patch("custom_components.kyber.knowledge.get_store", return_value=AsyncMock(async_load=AsyncMock())), \
          patch("custom_components.kyber.token_budget.get_budget_provider", return_value="local"), \
          patch("custom_components.kyber.token_budget.get_store") as mock_tbs:
+        reservation = MagicMock(async_settle=AsyncMock())
         budget_store = AsyncMock()
-        budget_store.async_check = AsyncMock(return_value=(True, None))
-        budget_store.async_record = AsyncMock()
+        budget_store.async_reserve = AsyncMock(return_value=(reservation, {}))
         mock_tbs.return_value = budget_store
         mock_loop.return_value = ("response", [], None, None, "intent", "instr", [], {"total_tokens": 50})
 
@@ -465,6 +469,71 @@ async def test_handle_kyber_ask_rate_limit_check_then_record():
 
     mock_rl.check_and_record.assert_called_once()
     assert result["response"] == "response"
+    reservation.async_settle.assert_awaited_once_with(50)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raised", [RuntimeError("boom"), asyncio.CancelledError()])
+async def test_handle_kyber_ask_releases_reservation_on_failure(raised):
+    """An AI error or a cancelled MCP call must not keep its token reservation."""
+    from custom_components.kyber.mcp import _handle_kyber_ask
+
+    hass = _make_hass()
+    hass.data["kyber_config"] = {}
+    mock_rl = MagicMock()
+    mock_rl.check_and_record.return_value = (True, 0)
+
+    with patch("custom_components.kyber.mcp._rate_limiter", mock_rl), \
+         patch("custom_components.kyber.http_api._run_ai_loop", new=AsyncMock(side_effect=raised)), \
+         patch("custom_components.kyber.http_api._build_context", return_value=("ctx", {})), \
+         patch("custom_components.kyber.http_api._build_prompt_sections", return_value={
+             "prompt": ChatPrompt(core="instr\n\n", turn="User: hello\nAssistant:"), "intent": "action",
+         }), \
+         patch("custom_components.kyber.http_api._inject_knowledge_into_prompt", new_callable=AsyncMock, return_value=[]), \
+         patch("custom_components.kyber.knowledge.get_store", return_value=AsyncMock(async_load=AsyncMock())), \
+         patch("custom_components.kyber.token_budget.get_budget_provider", return_value="local"), \
+         patch("custom_components.kyber.token_budget.get_store") as mock_tbs:
+        reservation = MagicMock(async_settle=AsyncMock())
+        mock_tbs.return_value = AsyncMock(async_reserve=AsyncMock(return_value=(reservation, {})))
+
+        if isinstance(raised, asyncio.CancelledError):
+            with pytest.raises(asyncio.CancelledError):
+                await _handle_kyber_ask(hass, {"prompt": "hello"}, {"ai_task_entity_id": "conversation.mock"}, "user-1", True)
+        else:
+            result = await _handle_kyber_ask(hass, {"prompt": "hello"}, {"ai_task_entity_id": "conversation.mock"}, "user-1", True)
+            assert "error" in result
+
+    reservation.release.assert_called_once()
+    reservation.async_settle.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_kyber_ask_quick_mode_sends_the_question():
+    """Quick mode used to send only the system text, never the user's question."""
+    from custom_components.kyber.mcp import _handle_kyber_ask
+
+    hass = _make_hass()
+    hass.data["kyber_config"] = {}
+    mock_rl = MagicMock()
+    mock_rl.check_and_record.return_value = (True, 0)
+
+    with patch("custom_components.kyber.mcp._rate_limiter", mock_rl), \
+         patch("custom_components.kyber.http_api._run_ai_loop", new_callable=AsyncMock) as mock_loop, \
+         patch("custom_components.kyber.http_api._build_context", return_value=("ctx", {})), \
+         patch("custom_components.kyber.knowledge.get_store", return_value=AsyncMock(async_load=AsyncMock())), \
+         patch("custom_components.kyber.token_budget.get_budget_provider", return_value="local"), \
+         patch("custom_components.kyber.token_budget.get_store") as mock_tbs:
+        reservation = MagicMock(async_settle=AsyncMock())
+        mock_tbs.return_value = AsyncMock(async_reserve=AsyncMock(return_value=(reservation, {})))
+        mock_loop.return_value = ("ok", [], None, None, "informational", "instr", [], {"total_tokens": 5})
+
+        await _handle_kyber_ask(
+            hass, {"prompt": "what time is it", "mode": "quick"}, {"ai_task_entity_id": "conversation.mock"}, "user-1", True
+        )
+
+    sent = mock_loop.await_args.args[2]
+    assert sent.render().text.endswith("User: what time is it\nAssistant:")
+    assert mock_loop.await_args.args[7] in ("informational", "action")
 
 
 @pytest.mark.asyncio

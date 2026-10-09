@@ -178,10 +178,18 @@ def _redact_secrets(obj: Any) -> Any:
 
 # ── Tuning constants ──────────────────────────────────────────────────────────
 # Shared limits used across backend modules:
-# - http_api.py: _MAX_INSTRUCTIONS_CHARS, _KNOWLEDGE_BUDGET, _MAX_TOOL_RESULT_CHARS
+# - prompt_budget.py: CHARS_PER_TOKEN, PROMPT_CONTEXT_SHARE, KNOWLEDGE_*
+# - http_api.py: _MAX_TOOL_RESULT_CHARS
 # - response_processing.py: _TOOL_CALL_MAX_ROUNDS
-MAX_INSTRUCTIONS_CHARS = 32_000
-KNOWLEDGE_BUDGET_CHARS = 2_000
+# Rough chars-per-token ratio used to turn a token window into a char budget.
+CHARS_PER_TOKEN = 4
+# Share of the chat model's context window the prompt may fill; the rest is
+# left for the model's answer.
+PROMPT_CONTEXT_SHARE = 0.75
+# Recalled memory facts get their own slice of the prompt budget so they can
+# neither crowd out the conversation nor be cut off by it.
+KNOWLEDGE_BUDGET_SHARE = 0.10
+KNOWLEDGE_BUDGET_CHARS = 2_000  # floor for the knowledge slice
 MAX_TOOL_RESULT_CHARS = 4_000
 TOOL_CALL_MAX_ROUNDS = 3
 

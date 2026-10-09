@@ -541,8 +541,10 @@ async def _handle_kyber_ask(
         _run_ai_loop,
         _build_context,
         _build_prompt_sections,
-        _inject_knowledge_into_instructions,
+        _classify_intent,
+        _inject_knowledge_into_prompt,
     )
+    from .prompt_budget import ChatPrompt
     from .knowledge import get_store as get_knowledge_store
     from .token_budget import get_budget_provider, get_store as get_token_budget_store
     from .const import CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS
@@ -621,25 +623,28 @@ async def _handle_kyber_ask(
         # Minimal instructions — no entity context injection, no knowledge base.
         # Saves ~70 % of tokens for simple factual questions.
         # Still include the tool-call format so the AI can fetch live data correctly.
-        instructions = (
-            "You are a Home Assistant AI assistant (Kyber). "
-            "Answer the user's question concisely and accurately.\n"
-            "NEVER guess time, date, or device states — always use a tool.\n"
-            "To call a tool, output exactly: [TOOL_CALL:{\"name\":\"tool_name\", ...}]\n"
-            "Available tools: get_datetime, get_entity_state, list_entities_by_domain, "
-            "get_area_entities, search_entities, get_areas.\n"
-            "Do not make up device names, entity IDs, states, or the current time."
+        chat_prompt = ChatPrompt(
+            core=(
+                "You are a Home Assistant AI assistant (Kyber). "
+                "Answer the user's question concisely and accurately.\n"
+                "NEVER guess time, date, or device states — always use a tool.\n"
+                "To call a tool, output exactly: [TOOL_CALL:{\"name\":\"tool_name\", ...}]\n"
+                "Available tools: get_datetime, get_entity_state, list_entities_by_domain, "
+                "get_area_entities, search_entities, get_areas.\n"
+                "Do not make up device names, entity IDs, states, or the current time.\n\n"
+            ),
+            turn=f"User: {prompt}\nAssistant:",
         )
-        intent = prompt
+        intent = _classify_intent(prompt)
     else:
         sections = _build_prompt_sections(body_fields, context, mock_request)
-        instructions = sections["instructions"]
+        chat_prompt = sections["prompt"]
         intent = sections["intent"]
-        instructions, _ = await _inject_knowledge_into_instructions(
+        await _inject_knowledge_into_prompt(
             hass,
             kstore,
             prompt,
-            instructions,
+            chat_prompt,
             request_id,
             entity_id=entity_id,
             user_id=user_id or None,
@@ -650,27 +655,25 @@ async def _handle_kyber_ask(
     budget_provider = get_budget_provider(config)
     max_daily_tokens = int(config.get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS) or 0)
     token_budget_store = get_token_budget_store(hass)
-    estimated_tokens = len(instructions) // 4
-    budget_allowed, _ = await token_budget_store.async_check(
-        budget_provider, max_daily_tokens, estimated_tokens=estimated_tokens
+    estimated_tokens = len(chat_prompt.render().text) // 4
+    reservation, _ = await token_budget_store.async_reserve(
+        budget_provider, max_daily_tokens, estimated_tokens
     )
-    if not budget_allowed:
+    if reservation is None:
         return {"error": "Daily token budget exceeded. Resets at midnight."}
 
     try:
-        response_text, tool_log, _exchange, _cache, _intent, _loop_instr, _aliases, token_usage = \
-            await _run_ai_loop(hass, entity_id, instructions, kstore, prompt, request_id, session_history, intent, config=config,
-                               user_id=user_id, is_admin=is_admin)
-    except Exception as err:  # noqa: BLE001
-        _LOGGER.exception("Kyber MCP: AI loop error: %s", err)
-        await token_budget_store.async_record(budget_provider, 0, max_daily_tokens)
-        return {"error": f"AI error: {err}"}
-
-    await token_budget_store.async_record(
-        budget_provider,
-        int(token_usage.get("total_tokens", 0) or 0),
-        max_daily_tokens,
-    )
+        try:
+            response_text, tool_log, _exchange, _cache, _intent, _loop_instr, _aliases, token_usage = \
+                await _run_ai_loop(hass, entity_id, chat_prompt, kstore, prompt, request_id, session_history, intent, config=config,
+                                   user_id=user_id, is_admin=is_admin)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.exception("Kyber MCP: AI loop error: %s", err)
+            return {"error": f"AI error: {err}"}
+        await reservation.async_settle(int(token_usage.get("total_tokens", 0) or 0))
+    finally:
+        # Error or cancelled client: the reservation must not outlive the call.
+        reservation.release()
 
     # Update session with new user/assistant turn
     if timeout_minutes > 0:

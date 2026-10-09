@@ -35,6 +35,43 @@ def get_budget_provider(config: Mapping[str, Any]) -> str:
     return _LOCAL_PROVIDER
 
 
+class TokenReservation:
+    """Tokens reserved by ``TokenBudgetStore.async_reserve``, settled exactly once.
+
+    Either ``async_settle`` books the real usage, or ``release`` drops the
+    reservation (error, abort). Both are no-ops once one of them ran.
+    """
+
+    def __init__(
+        self, store: TokenBudgetStore, provider: str, budget: int, estimated_tokens: int, reserved_on: str | None
+    ) -> None:
+        self._store = store
+        self._provider = provider
+        self._budget = budget
+        self._estimated = estimated_tokens
+        self._reserved_on = reserved_on
+        self._open = True
+
+    async def async_settle(self, tokens: int) -> dict[str, Any] | None:
+        """Record ``tokens`` as used and release the reservation."""
+        if not self._open:
+            return None
+        self._open = False
+        # Shielded: once handed over, the booking finishes even if the caller
+        # is cancelled now, so the reservation is released exactly once.
+        return await asyncio.shield(self._store.async_record(
+            self._provider, tokens, self._budget,
+            estimated_tokens=self._estimated, reserved_on=self._reserved_on,
+        ))
+
+    def release(self) -> None:
+        """Drop the reservation without recording usage (synchronous, safe in ``finally``)."""
+        if not self._open:
+            return
+        self._open = False
+        self._store.release_reservation(self._provider, self._estimated, self._reserved_on)
+
+
 class TokenBudgetStore:
     """Persist daily token usage, reset automatically at local midnight."""
 
@@ -83,7 +120,8 @@ class TokenBudgetStore:
         """
         await self.async_load()
         async with self._lock:
-            changed = self._ensure_current_day()
+            if self._ensure_current_day():
+                await self._store.async_save(self._data)
             usage = self._build_usage(provider, budget)
             est = max(0, int(estimated_tokens or 0))
             pending = self._pending.get(provider, 0)
@@ -93,10 +131,40 @@ class TokenBudgetStore:
             allowed = budget <= 0 or projected_used < budget
             if allowed and est > 0:
                 # Reserve in-memory so concurrent requests see updated projected usage.
+                # No await follows, so a caller that gets ``allowed`` back owns
+                # exactly this reservation and must release it.
                 self._pending[provider] = pending + est
-            if changed:
-                await self._store.async_save(self._data)
             return allowed, usage
+
+    async def async_reserve(
+        self,
+        provider: str,
+        budget: int,
+        estimated_tokens: int,
+    ) -> tuple[TokenReservation | None, dict[str, Any]]:
+        """Check the budget like ``async_check``; return a reservation when allowed.
+
+        The caller must settle or release the reservation on every exit.
+        """
+        allowed, usage = await self.async_check(provider, budget, estimated_tokens)
+        if not allowed:
+            return None, usage
+        return TokenReservation(self, provider, budget, estimated_tokens, usage.get("date")), usage
+
+    def release_reservation(
+        self, provider: str, estimated_tokens: int, reserved_on: str | None = None
+    ) -> None:
+        """Drop a reservation from ``async_check`` without recording usage.
+
+        ``reserved_on`` is the ``date`` of the usage ``async_check`` returned;
+        a reservation from before midnight is already gone with the old day.
+        Synchronous, so it also runs in a ``finally`` of a cancelled request.
+        """
+        if reserved_on is not None and reserved_on != self._data.get("date"):
+            return
+        est = max(0, int(estimated_tokens or 0))
+        if est > 0:
+            self._pending[provider] = max(0, self._pending.get(provider, 0) - est)
 
     async def async_record(
         self,
@@ -104,20 +172,18 @@ class TokenBudgetStore:
         tokens: int,
         budget: int = 0,
         estimated_tokens: int = 0,
+        reserved_on: str | None = None,
     ) -> dict[str, Any]:
         """Record actual token usage and release any in-memory reservation.
 
-        ``estimated_tokens`` should match what was passed to ``async_check``.
-        For failed calls pass ``tokens=0`` to release the reservation without
-        burning budget.
+        ``estimated_tokens`` and ``reserved_on`` describe the reservation from
+        ``async_check`` (see ``release_reservation``). For failed calls use
+        ``release_reservation`` instead of recording zero tokens.
         """
         await self.async_load()
         async with self._lock:
             self._ensure_current_day()
-            # Release the in-memory reservation.
-            est = max(0, int(estimated_tokens or 0))
-            if est > 0:
-                self._pending[provider] = max(0, self._pending.get(provider, 0) - est)
+            self.release_reservation(provider, estimated_tokens, reserved_on)
             # Record actual tokens in persistent storage.
             actual = max(0, int(tokens or 0))
             if actual > 0:
@@ -151,6 +217,9 @@ class TokenBudgetStore:
         if self._data.get("date") == today:
             return False
         self._data = {"date": today, "providers": {}}
+        # Reservations belong to the day that made them; requests spanning
+        # midnight pass ``reserved_on`` so their release skips the new day.
+        self._pending = {}
         return True
 
     def _build_usage(self, provider: str, budget: int) -> dict[str, Any]:
