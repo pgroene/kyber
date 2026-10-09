@@ -316,14 +316,25 @@ async def async_startup_explore_all(
     )
 
     # ── Phase 2: Per-entity facts ──────────────────────────────────────────────
-    # Which entity_ids already have a per-entity fact at the current version?
-    existing_entities: set[str] = {
-        entry.get("subject", "")
-        for entry in kstore._entries.values()
-        if _EXPLORER_VERSION_TAG in (entry.get("tags") or [])
-        and entry.get("source") == "entity_explorer"
-        and entry.get("subject")
-    }
+    # Facts of entities that left the registry (deleted or renamed entity_id)
+    # would otherwise stay forever and point the chat at ids that do not exist.
+    await kstore.async_prune_orphaned_entity_facts(
+        {reg_entry.entity_id for reg_entry in entity_reg.entities.values()}
+    )
+
+    # Current-version explorer entries per entity_id: the fact has the
+    # entity_id as subject, the original-name alias has it as content.
+    existing_by_eid: dict[str, list[dict[str, Any]]] = {}
+    for entry in kstore._entries.values():
+        if (
+            _EXPLORER_VERSION_TAG not in (entry.get("tags") or [])
+            or entry.get("source") != "entity_explorer"
+        ):
+            continue
+        target = entry.get("content") if entry.get("category") == "entity_alias" else entry.get("subject")
+        if target:
+            existing_by_eid.setdefault(target, []).append(entry)
+    stale_ids: list[str] = []
 
     area_reg = ar.async_get(hass)
 
@@ -345,8 +356,6 @@ async def async_startup_explore_all(
             continue
 
         eid = entry.entity_id
-        if eid in existing_entities:
-            continue
         state = hass.states.get(eid)
         attrs = state.attributes if state else {}
         name = attrs.get("friendly_name") or eid
@@ -379,7 +388,26 @@ async def async_startup_explore_all(
         ):
             original_name = original_name_raw.strip()
 
+        # Already indexed: keep it if name, area, unit and device class are
+        # unchanged (all of them are part of the fact text), else rewrite.
+        existing = existing_by_eid.get(eid)
+        if existing and state is None:
+            continue  # no state, no friendly_name: cannot tell whether it changed
+        if existing:
+            content, _tags = _entity_fact(eid, name, plat, domain, device_class or None, unit or None, area_name, state_str)
+            expected = {("general", content, eid)}
+            if original_name:
+                expected.add(("entity_alias", eid, original_name))
+            current = {(e.get("category"), e.get("content"), e.get("subject")) for e in existing}
+            if current == expected:
+                continue
+            stale_ids.extend(e["id"] for e in existing)
+
         all_entities.append((eid, name, plat, domain, device_class or None, unit or None, area_name, state_str, original_name))
+
+    if stale_ids:
+        await kstore.async_delete_entries(stale_ids, _save=False)
+        _LOGGER.info("Kyber explorer phase 2: %d outdated entity entries replaced", len(stale_ids))
 
     total = len(all_entities)
     _set_progress(status="phase2_entities", phase="entities", total=total, done=0, current_platform="")

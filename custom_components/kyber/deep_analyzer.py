@@ -398,6 +398,34 @@ async def _is_duplicate_fact(kstore: Any, content: str) -> bool:
         return False
 
 
+def _sweep_key(kind: str, ident: str) -> str:
+    return f"{kind}:{ident}"
+
+
+def _order_for_sweep(
+    candidates: list[tuple[str, dict[str, Any]]],
+    memo: AnalysisMemo,
+    sweep: set[str] | None,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Order force candidates: not yet in this sweep, least recently analysed first."""
+    keyed = [
+        (kind, item, _identity(kind, item)) for kind, item in candidates
+    ]
+    if sweep is not None:
+        remaining = [c for c in keyed if _sweep_key(c[0], c[2]) not in sweep]
+        if not remaining and keyed:
+            sweep.clear()  # every item had its turn — start the next round
+            remaining = keyed
+        keyed = remaining
+
+    def _last_analyzed(c: tuple[str, dict[str, Any], str]) -> int:
+        rec = memo.get(c[0], c[2]) if c[2] else None
+        return int((rec or {}).get("analyzed_at") or 0)
+
+    # sorted() is stable: items analysed at the same time keep config order.
+    return [(kind, item) for kind, item, _ in sorted(keyed, key=_last_analyzed)]
+
+
 async def analyze_pending(
     hass: HomeAssistant,
     *,
@@ -406,8 +434,18 @@ async def analyze_pending(
     limit: int = 5,
     force: bool = False,
     prompt_variant: int = 0,
+    sweep: set[str] | None = None,
 ) -> dict[str, Any]:
     """Walk all configured items; analyze ones whose hash changed (up to `limit`).
+
+    With ``force`` every item is due regardless of hash and lens. Items are
+    then taken least recently analysed first, so repeated calls work through
+    all of them instead of re-analysing the first ``limit`` every time.
+
+    ``sweep`` lets several calls share one pass over the items: every item a
+    call attempts (successfully or not) is added to it, and later calls skip
+    those. Once every candidate has been attempted the set is cleared and the
+    next round starts over. A failing item therefore cannot block the rest.
 
     Returns:
         {analyzed: [{kind, ident, facts, fact_ids}], skipped: N, errors: [...]}.
@@ -482,6 +520,9 @@ async def analyze_pending(
         state.entity_id for state in hass.states.async_all()
     }
 
+    if force:
+        candidates = _order_for_sweep(candidates, memo, sweep)
+
     analyzed: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     skipped = 0
@@ -525,6 +566,8 @@ async def analyze_pending(
             # Reached this run's budget — leave for next sweep.
             break
         processed += 1
+        if sweep is not None:
+            sweep.add(_sweep_key(kind, ident))
 
         try:
             # Check preemption before each item (catches chat that started between items).
@@ -546,6 +589,8 @@ async def analyze_pending(
             await asyncio.sleep(backoff)
             _set_deep_progress(processed - 1, ident)
             processed -= 1  # re-process this item
+            if sweep is not None:
+                sweep.discard(_sweep_key(kind, ident))
             continue
         except asyncio.TimeoutError:
             _LOGGER.warning(

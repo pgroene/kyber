@@ -1,6 +1,7 @@
 ﻿"""Tests for entity_narrator.py — Phase 3 AI-generated descriptions."""
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import sys
 import types
@@ -444,6 +445,8 @@ def _make_kstore():
     kstore.async_load = AsyncMock()
     kstore.async_add = AsyncMock(return_value={"id": "abc123"})
     kstore.async_delete = AsyncMock()
+    kstore.async_delete_entries = AsyncMock(return_value=0)
+    kstore.async_add_tags = AsyncMock(return_value=0)
     kstore.async_force_save = AsyncMock()
     return kstore
 
@@ -763,6 +766,7 @@ async def test_already_narrated_entity_skipped():
     kstore = _make_kstore()
     kstore._entries = {
         "existing_entry": {
+            "id": "existing_entry",
             "subject": eid,
             "source": "entity_narrator",
             "tags": [mod._NARRATOR_VERSION_TAG],
@@ -900,3 +904,164 @@ async def test_narrator_does_not_block_chat_for_120s():
     elapsed = time.monotonic() - t0
     # Without the fix this would take ~120s; with the fix it finishes within a few seconds
     assert elapsed < 15.0, f"Narrator blocked for {elapsed:.1f}s — chat interruption not working"
+
+
+# ---------------------------------------------------------------------------
+# Cancellation and name/area signature
+# ---------------------------------------------------------------------------
+
+def _narrate_patches(mod, run_ai):
+    return (
+        patch.object(mod, "_run_ai", run_ai),
+        patch.object(sys.modules["homeassistant.helpers.area_registry"], "async_get", return_value=_area_reg_mock()),
+        patch.object(sys.modules["homeassistant.helpers.device_registry"], "async_get", return_value=_device_reg_mock()),
+    )
+
+
+@pytest.mark.asyncio
+async def test_cancel_propagates_and_stops_ai_call():
+    """Cancelling the run (unload) must not be swallowed as a batch error."""
+    mod = _NARRATOR
+    eid = "binary_sensor.0x00124b00_occupancy"
+    hass = _make_hass()
+    hass.states.get = MagicMock(return_value=_make_state(eid))
+    kstore = _make_kstore()
+    entity_reg = _make_entity_reg(eid)
+    ai_started = asyncio.Event()
+    ai_cancelled = asyncio.Event()
+
+    async def _hanging_ai(*_args, **_kwargs):
+        ai_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            ai_cancelled.set()
+            raise
+
+    p1, p2, p3 = _narrate_patches(mod, _hanging_ai)
+    with p1, p2, p3:
+        run = asyncio.ensure_future(
+            mod.async_narrate_entities(hass, kstore, entity_reg, "ai_task.test")
+        )
+        await asyncio.wait_for(ai_started.wait(), 2)
+        run.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run
+        await asyncio.wait_for(ai_cancelled.wait(), 2)
+
+    assert hass.data[mod.NARRATOR_STATS_KEY]["errors"] == 0
+    assert hass.data["kyber_narrator_ai_busy"] is False
+
+
+def _described(mod, eid, *extra_tags):
+    return {
+        "id": "desc1",
+        "category": "general",
+        "subject": eid,
+        "content": f"{eid} is an occupancy sensor",
+        "source": "entity_narrator",
+        "tags": [eid, mod._NARRATOR_VERSION_TAG, *extra_tags],
+    }
+
+
+def _alias(eid):
+    return {
+        "id": "alias1",
+        "category": "entity_alias",
+        "subject": "bedroom motion",
+        "content": eid,
+        "source": "entity_narrator",
+        "tags": [eid, "narrator-v3", "search_alias"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_legacy_description_adopts_signature_without_ai():
+    mod = _NARRATOR
+    eid = "binary_sensor.0x00124b_occupancy"
+    hass = _make_hass()
+    hass.states.get = MagicMock(return_value=_make_state(eid))
+    kstore = _make_kstore()
+    kstore._entries = {"desc1": _described(mod, eid)}
+    run_ai = AsyncMock()
+
+    p1, p2, p3 = _narrate_patches(mod, run_ai)
+    with p1, p2, p3:
+        stats = await mod.async_narrate_entities(hass, kstore, _make_entity_reg(eid), "ai_task.test")
+
+    run_ai.assert_not_called()
+    assert stats["total"] == 0
+    sig = mod._identity_sig(f"Test {eid}", None)
+    kstore.async_add_tags.assert_awaited_once_with({"desc1": [sig]})
+    kstore.async_delete_entries.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unchanged_signature_skips_entity():
+    mod = _NARRATOR
+    eid = "binary_sensor.0x00124b_occupancy"
+    hass = _make_hass()
+    hass.states.get = MagicMock(return_value=_make_state(eid))
+    kstore = _make_kstore()
+    sig = mod._identity_sig(f"Test {eid}", None)
+    kstore._entries = {"desc1": _described(mod, eid, sig)}
+    run_ai = AsyncMock()
+
+    p1, p2, p3 = _narrate_patches(mod, run_ai)
+    with p1, p2, p3:
+        await mod.async_narrate_entities(hass, kstore, _make_entity_reg(eid), "ai_task.test")
+
+    run_ai.assert_not_called()
+    kstore.async_add_tags.assert_not_called()
+    kstore.async_delete_entries.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_renamed_entity_is_described_again():
+    """Old description and its aliases go; the entity is narrated with the new name."""
+    mod = _NARRATOR
+    eid = "binary_sensor.0x00124b_occupancy"
+    hass = _make_hass()
+    hass.states.get = MagicMock(return_value=_make_state(eid))  # friendly_name "Test …"
+    kstore = _make_kstore()
+    old_sig = mod._identity_sig("Old name", None)
+    kstore._entries = {"desc1": _described(mod, eid, old_sig), "alias1": _alias(eid)}
+    run_ai = AsyncMock(return_value=f"1. {eid} is an occupancy sensor in the bedroom.")
+
+    p1, p2, p3 = _narrate_patches(mod, run_ai)
+    with p1, p2, p3, patch("asyncio.sleep", AsyncMock()):
+        stats = await mod.async_narrate_entities(hass, kstore, _make_entity_reg(eid), "ai_task.test")
+
+    kstore.async_delete_entries.assert_awaited_once_with(["desc1", "alias1"])
+    assert stats["accepted"] == 1
+    new_sig = mod._identity_sig(f"Test {eid}", None)
+    stored = [c for c in kstore.async_add.call_args_list if c.kwargs.get("subject") == eid]
+    assert stored and new_sig in stored[0].kwargs["tags"]
+
+
+@pytest.mark.asyncio
+async def test_described_entity_without_state_is_left_alone():
+    """Missing state means no friendly_name; that is not a rename."""
+    mod = _NARRATOR
+    eid = "binary_sensor.0x00124b_occupancy"
+    hass = _make_hass()  # states.get → None
+    kstore = _make_kstore()
+    kstore._entries = {"desc1": _described(mod, eid, mod._identity_sig("Hall", None))}
+    run_ai = AsyncMock()
+
+    p1, p2, p3 = _narrate_patches(mod, run_ai)
+    with p1, p2, p3:
+        await mod.async_narrate_entities(hass, kstore, _make_entity_reg(eid), "ai_task.test")
+
+    run_ai.assert_not_called()
+    kstore.async_delete_entries.assert_not_called()
+    kstore.async_add_tags.assert_not_called()
+
+
+def test_identity_sig_changes_with_name_and_area():
+    mod = _NARRATOR
+    base = mod._identity_sig("Lamp", "Kitchen")
+    assert base.startswith("sig:")
+    assert base == mod._identity_sig("Lamp", "Kitchen")
+    assert base != mod._identity_sig("Lamp", "Office")
+    assert base != mod._identity_sig("Desk lamp", "Kitchen")

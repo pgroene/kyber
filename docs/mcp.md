@@ -28,6 +28,8 @@ When enabled, Kyber registers:
 
 All endpoints require a valid Home Assistant **Bearer token**.
 
+When the server is switched off, these endpoints answer `404`; while the Kyber integration is not loaded (disabled, reloading or removed) they answer `503`. Both take effect immediately, without an HA restart.
+
 ---
 
 ## Connecting from ChatGPT

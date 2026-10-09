@@ -208,10 +208,10 @@ Controls the three background processes that build Kyber's knowledge base.
 | Field | Key | Default | Range | Notes |
 |---|---|---|---|---|
 | Enable entity narrator | `narrator_enabled` | `true` | on/off | Runs after startup and on schedule; see [docs/narrator.md](narrator.md) |
-| Narrator: run every N days | `narrator_interval_days` | `1` | 1–30 | How often the narrator re-processes un-narrated entities |
+| Narrator: run every N days | `narrator_interval_days` | `1` | 1–30 | How often the narrator re-processes un-narrated entities. Checked hourly, so it also runs on a long-running HA without restart |
 | Narrator batch size | `narrator_max_batch` | `20` | 1–50 | Max entities processed per narrator run |
 | Run analyze pass on HA restart | `run_initial_analyze` | `true` | on/off | Re-runs the integration explorer on every HA restart |
-| Deep learning: run every N days | `deep_learning_interval_days` | `7` | 1–90 | Scheduled frequency for the deep analyzer |
+| Deep learning: run every N days | `deep_learning_interval_days` | `7` | 1–90 | Scheduled frequency for the deep analyzer. Checked hourly, like the narrator |
 | Deep learning batch size | `deep_learning_max_batch` | `5` | 1–50 | Max automations/scripts analyzed per deep run |
 
 ---

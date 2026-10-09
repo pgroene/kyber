@@ -138,6 +138,8 @@ def _make_kstore() -> tuple[MagicMock, list[dict]]:
     kstore.async_add = _add
     kstore.async_load = AsyncMock()
     kstore.async_force_save = AsyncMock()
+    kstore.async_prune_orphaned_entity_facts = AsyncMock(return_value=0)
+    kstore.async_delete_entries = AsyncMock(return_value=0)
     return kstore, added
 
 
@@ -324,3 +326,93 @@ class TestExplorerVersion:
 
     def test_explorer_version_tag_matches(self):
         assert _EXPLORER._EXPLORER_VERSION_TAG == f"explorer-v{_EXPLORER._EXPLORER_VERSION}"
+
+
+class TestRegistrySync:
+    """Entity facts follow the registry (removed, renamed, moved)."""
+
+    def _stored_fact(self, eid: str, name: str, area: str | None = None) -> dict:
+        content, tags = _EXPLORER._entity_fact(
+            eid, name, "test_integration", eid.split(".")[0], None, None, area, "on"
+        )
+        return {
+            "id": f"fact-{eid}",
+            "category": "general",
+            "content": content,
+            "subject": eid,
+            "tags": tags + [_EXPLORER._EXPLORER_VERSION_TAG],
+            "source": "entity_explorer",
+        }
+
+    @pytest.mark.asyncio
+    async def test_orphan_prune_gets_current_registry_ids(self):
+        entity_reg = _make_entity_reg([_make_entity_entry("light.kept")])
+        kstore, _added = _make_kstore()
+        _ar_mod.async_get = lambda _h: _make_area_reg()
+        _dr_mod.async_get = lambda _h: MagicMock()
+
+        await _EXPLORER.async_startup_explore_all(_make_hass(), kstore, entity_reg)
+
+        kstore.async_prune_orphaned_entity_facts.assert_awaited_once_with({"light.kept"})
+
+    @pytest.mark.asyncio
+    async def test_unchanged_entity_is_not_rewritten(self):
+        eid = "light.living_room"
+        hass = _make_hass({eid: "on"})  # friendly_name "Living Room"
+        kstore, added = _make_kstore()
+        fact = self._stored_fact(eid, "Living Room")
+        kstore._entries = {fact["id"]: fact}
+        _ar_mod.async_get = lambda _h: _make_area_reg()
+        _dr_mod.async_get = lambda _h: MagicMock()
+
+        await _EXPLORER.async_startup_explore_all(hass, kstore, _make_entity_reg([_make_entity_entry(eid)]))
+
+        assert not [a for a in added if a["subject"] == eid]
+        kstore.async_delete_entries.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_renamed_entity_fact_is_replaced(self):
+        eid = "light.living_room"
+        hass = _make_hass({eid: "on"})  # friendly_name now "Living Room"
+        kstore, added = _make_kstore()
+        fact = self._stored_fact(eid, "Old Lamp Name")
+        kstore._entries = {fact["id"]: fact}
+        _ar_mod.async_get = lambda _h: _make_area_reg()
+        _dr_mod.async_get = lambda _h: MagicMock()
+
+        await _EXPLORER.async_startup_explore_all(hass, kstore, _make_entity_reg([_make_entity_entry(eid)]))
+
+        kstore.async_delete_entries.assert_awaited_once_with([fact["id"]], _save=False)
+        new = [a for a in added if a["subject"] == eid and a["category"] == "general"]
+        assert len(new) == 1 and '"Living Room"' in new[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_entity_without_state_is_not_rewritten(self):
+        eid = "light.living_room"
+        hass = _make_hass()  # no state → name would fall back to the entity_id
+        kstore, added = _make_kstore()
+        fact = self._stored_fact(eid, "Living Room")
+        kstore._entries = {fact["id"]: fact}
+        _ar_mod.async_get = lambda _h: _make_area_reg()
+        _dr_mod.async_get = lambda _h: MagicMock()
+
+        await _EXPLORER.async_startup_explore_all(hass, kstore, _make_entity_reg([_make_entity_entry(eid)]))
+
+        assert not [a for a in added if a["subject"] == eid]
+        kstore.async_delete_entries.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_moved_entity_fact_is_replaced(self):
+        eid = "light.living_room"
+        hass = _make_hass({eid: "on"})
+        kstore, added = _make_kstore()
+        fact = self._stored_fact(eid, "Living Room", area="Kitchen")
+        kstore._entries = {fact["id"]: fact}
+        _ar_mod.async_get = lambda _h: _make_area_reg()  # no area any more
+        _dr_mod.async_get = lambda _h: MagicMock()
+
+        await _EXPLORER.async_startup_explore_all(hass, kstore, _make_entity_reg([_make_entity_entry(eid)]))
+
+        kstore.async_delete_entries.assert_awaited_once_with([fact["id"]], _save=False)
+        new = [a for a in added if a["subject"] == eid and a["category"] == "general"]
+        assert len(new) == 1 and "Kitchen" not in new[0]["content"]

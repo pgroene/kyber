@@ -219,6 +219,26 @@ def alias_entity_ids(content: str) -> list[str]:
     return list(dict.fromkeys(_ENTITY_ID_TOKEN_RE.findall(text)))
 
 
+# Sources that write one fact (plus aliases) per registry entity.
+ENTITY_FACT_SOURCES: frozenset[str] = frozenset({"entity_explorer", "entity_narrator"})
+
+
+def entity_fact_target(entry: dict[str, Any]) -> str | None:
+    """Return the entity_id a per-entity explorer/narrator entry describes.
+
+    Facts carry the entity_id as subject, aliases as content. Returns None for
+    entries from other sources and when the id cannot be determined
+    unambiguously, so such entries are never treated as orphaned.
+    """
+    if entry.get("source") not in ENTITY_FACT_SOURCES:
+        return None
+    if entry.get("category") == "entity_alias":
+        ids = alias_entity_ids(entry.get("content", ""))
+        return ids[0] if len(ids) == 1 else None
+    subject = str(entry.get("subject") or "").strip()
+    return subject if _ENTITY_ID_TOKEN_RE.fullmatch(subject) else None
+
+
 class KnowledgeStore:
     """In-memory cache backed by HA Store for persistence."""
 
@@ -948,6 +968,59 @@ class KnowledgeStore:
                 len(to_delete),
             )
         return len(to_delete)
+
+    async def async_delete_entries(self, entry_ids: list[str], *, _save: bool = True) -> int:
+        """Delete several entries at once (system clean-up, no ownership check)."""
+        await self.async_load()
+        async with self._lock:
+            removed = 0
+            for entry_id in entry_ids:
+                if self._entries.pop(entry_id, None) is not None:
+                    removed += 1
+            if removed:
+                if _save:
+                    await self._persist_unlocked(invalidate_index=True)
+                else:
+                    self._index_dirty = True
+            return removed
+
+    async def async_add_tags(self, tags_by_id: dict[str, list[str]]) -> int:
+        """Append tags to several entries with a single write. Returns entries changed."""
+        await self.async_load()
+        async with self._lock:
+            changed = 0
+            for entry_id, tags in tags_by_id.items():
+                entry = self._entries.get(entry_id)
+                if entry is None:
+                    continue
+                current = list(entry.get("tags") or [])
+                new = [t.strip().lower() for t in tags if t.strip() and t.strip().lower() not in current]
+                if new:
+                    entry["tags"] = current + new
+                    changed += 1
+            if changed:
+                await self._persist_unlocked(invalidate_index=True)
+            return changed
+
+    async def async_prune_orphaned_entity_facts(self, known_entity_ids: set[str]) -> int:
+        """Delete explorer/narrator facts and aliases of entities no longer registered.
+
+        Only entries the explorer or narrator generated per entity are touched;
+        user, deep-analyzer, dashboard and integration-level facts stay.
+        Returns the number of entries removed.
+        """
+        await self.async_load()
+        orphaned = [
+            entry_id for entry_id, entry in self._entries.items()
+            if (eid := entity_fact_target(entry)) and eid not in known_entity_ids
+        ]
+        removed = await self.async_delete_entries(orphaned)
+        if removed:
+            _LOGGER.info(
+                "Kyber knowledge: removed %d facts of entities no longer in the registry",
+                removed,
+            )
+        return removed
 
     _DEDUP_CLEAN_SUBJECT = "_dedup_clean"
 

@@ -6,7 +6,7 @@ Kyber includes an **AI narrator** that automatically generates rich, searchable 
 
 ## How It Works
 
-On startup (after the initial analysis pass), Kyber batches entities and sends them to the AI for narration. For each entity the narrator produces:
+On startup (after the initial analysis pass) and then whenever the narrator interval has passed (checked hourly, no restart needed), Kyber batches entities and sends them to the AI for narration. For each entity the narrator produces:
 
 1. **A description** — a one-sentence human-readable summary of what the entity is and does.
 2. **Search aliases** — 2–5 natural-language terms a user might type to find this entity.
@@ -63,6 +63,12 @@ When `LANG_HINTS_VERSION` is bumped (e.g. after adding new vocabulary), the hint
 `_NARRATOR_VERSION` (currently `6`) is stored in `entity_narrator.py`. Each narrated entity gets tagged with `narrator-v{N}` in the knowledge store.
 
 When you bump `_NARRATOR_VERSION`, all entities are re-narrated on the next startup — the "already narrated" check compares the stored tag against the current version tag. This is the mechanism used to pick up vocabulary improvements or prompt changes.
+
+### Renamed, moved and deleted entities
+
+Each description carries a `sig:` tag derived from the entity's friendly name and area. When either changes, the next narrator run drops the old description and its aliases and narrates the entity again. Descriptions written before the tag existed take the current name and area as their baseline instead of being re-narrated.
+
+Every explore run (startup or the explorer button) removes explorer and narrator facts and aliases whose entity_id is no longer in the entity registry. User, deep-analyzer and integration-level facts are left alone.
 
 ---
 
