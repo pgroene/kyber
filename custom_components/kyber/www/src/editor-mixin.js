@@ -642,26 +642,40 @@ export const EditorMixin = (Base) => class extends Base {
     cutIndex = Math.min(cutIndex, this._chatHistory.length - 1);
     if (cutIndex <= 0) return;
 
-    const toCompact = this._chatHistory.splice(0, cutIndex);
+    // The messages stay in the history until the summary is back, so a request
+    // sent meanwhile still carries them as context.
+    const toCompact = this._chatHistory.slice(0, cutIndex);
+    // [CHANGE] records are kept word for word instead of trusting the summary
+    // to copy them; only the rest of the conversation is summarized.
+    const isChange = (msg) => msg.role === "assistant" && (msg.content || "").startsWith("[CHANGE]");
+    const changes = toCompact.filter(isChange).map((msg) => msg.content);
+    const prose = toCompact.filter((msg) => !isChange(msg))
+      .map(({ role, content }) => ({ role, content }));
 
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/summarize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ previous_summary: this._compactedSummary, messages: toCompact }),
-      });
-      if (resp.ok) {
+      let summary = this._compactedSummary;
+      if (prose.length) {
+        const token = this._hass.auth.data.access_token;
+        const resp = await fetch("/api/kyber/summarize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ previous_summary: this._compactedSummary, messages: prose }),
+        });
+        // A failed summary leaves the history as it is; the next answer retries
+        if (!resp.ok) return;
         const data = await resp.json();
-        this._compactedSummary = data.summary || this._compactedSummary;
-        this._showCompactionBanner();
-        this._persistHistory();
-      } else {
-        this._chatHistory.unshift(...toCompact);
+        summary = data.summary || summary;
       }
+      // A reset, session change or another compaction while summarizing: the
+      // summary belongs to messages that are no longer at the start of the chat.
+      if (!toCompact.every((msg, i) => this._chatHistory[i] === msg)) return;
+      this._chatHistory.splice(0, cutIndex);
+      this._compactedSummary = summary;
+      this._compactedChanges = [...this._compactedChanges, ...changes].slice(-this._COMPACTED_CHANGES_MAX);
+      this._showCompactionBanner();
+      this._persistHistory();
     } catch (_err) {
-      // Compaction failure is non-fatal — restore messages
-      this._chatHistory.unshift(...toCompact);
+      // Compaction failure is non-fatal — the history is still complete
     }
   }
 

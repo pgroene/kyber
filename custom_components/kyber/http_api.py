@@ -105,7 +105,7 @@ from .session_and_storage import (
     _CHAT_HISTORY_MAX_MESSAGES, _CHAT_MESSAGE_MAX_CHARS, _CHAT_SUMMARY_MAX_CHARS,
     _SESSIONS_MAX, _SESSION_NAME_MAX_CHARS,
     _new_session_id, _migrate_user_to_sessions, _get_active_session,
-    _sanitize_history, _sanitize_summary, _async_load_chat_store, _async_save_chat_store,
+    _sanitize_history, _sanitize_summary, _sanitize_changes, _async_load_chat_store, _async_save_chat_store,
     _find_session_by_name,
     KyberHistoryView, KyberSessionsView, KyberSessionNameView,
 )
@@ -138,7 +138,7 @@ from .prompt_regression_api import (
     KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView,
 )
 from .config_flow import _infer_max_tokens
-from .prompt_budget import ChatPrompt, prompt_char_limit
+from .prompt_budget import ChatPrompt, PromptFit, ToolRound, prompt_char_limit
 from .rate_limiter import _rate_limiter
 from .token_budget import TokenReservation, get_budget_provider, get_store as get_token_budget_store
 
@@ -232,8 +232,7 @@ _SYNTHESIS_INSTRUCTIONS = (
     "do NOT invent entity names, states, or make up answers — honestly say you "
     "couldn't find the information and suggest trying a more specific search. "
     "Do NOT output any [TOOL_CALL:] blocks — only a prose answer. "
-    "List EVERY item from the results; do not truncate with '...' or 'and X more'.]\n"
-    "Assistant:"
+    "List EVERY item from the results; do not truncate with '...' or 'and X more'.]"
 )
 
 
@@ -253,8 +252,7 @@ def _build_loop_redirect(tool_calls_filtered: list[tuple[str, dict]]) -> str | N
                 "the one relevant to the user's question. "
                 "Then call get_integration_entities(integration='<exact_platform_name>') to get "
                 "the actual entity IDs and current values. "
-                "If no integration matches, answer from what you already know.]\n"
-                "Assistant:"
+                "If no integration matches, answer from what you already know.]"
             )
         if name == "get_area_entities":
             area = call.get("area", "")
@@ -264,8 +262,7 @@ def _build_loop_redirect(tool_calls_filtered: list[tuple[str, dict]]) -> str | N
                 f"Do NOT call get_area_entities again. "
                 f"Follow the fallback rules: call search_entities(query='{area}') "
                 f"to find entities whose entity_id or friendly name contains this room word. "
-                f"If that also returns nothing, call search_knowledge(query='{area}').]\n"
-                f"Assistant:"
+                f"If that also returns nothing, call search_knowledge(query='{area}').]"
             )
         if name == "search_entities":
             q = call.get("query") or ", ".join(call.get("queries") or [])
@@ -277,8 +274,7 @@ def _build_loop_redirect(tool_calls_filtered: list[tuple[str, dict]]) -> str | N
                 f"the entity may be known by a different name; "
                 f"(2) if still nothing, call list_entities_by_domain with the most likely "
                 f"domain (e.g. domain='switch' for appliances, domain='light' for lights). "
-                f"Do NOT pivot to a different topic or device.]\n"
-                f"Assistant:"
+                f"Do NOT pivot to a different topic or device.]"
             )
     return None
 
@@ -474,6 +470,7 @@ def _parse_request_body(body: dict, request: "web.Request") -> dict:
     user_prompt: str = body.get("prompt", "").strip()
     history: list = body.get("history", [])
     compacted_summary: str = body.get("compacted_summary", "").strip()
+    compacted_changes: list[str] = _sanitize_changes(body.get("compacted_changes", []))
     editor_mode: str = body.get("editor_mode", "automation")
     editor_id: str = str(body.get("editor_id") or "").strip()
     editor_title: str = str(body.get("editor_title") or "").strip()
@@ -494,6 +491,7 @@ def _parse_request_body(body: dict, request: "web.Request") -> dict:
         "user_prompt": user_prompt,
         "history": history,
         "compacted_summary": compacted_summary,
+        "compacted_changes": compacted_changes,
         "editor_mode": editor_mode,
         "editor_id": editor_id,
         "editor_title": editor_title,
@@ -512,15 +510,22 @@ def _escape_fenced_block_content(text: str) -> str:
     return text.replace("```", "``\u200b`")
 
 
-def _build_prompt_sections(body_fields: dict, context: str, request: "web.Request") -> dict:
-    """Build all system-prompt sections and assemble the instruction string.
+def _build_prompt_sections(
+    body_fields: dict, context: str, request: "web.Request", live_state: str = ""
+) -> dict:
+    """Build all prompt sections and assemble the ChatPrompt.
 
-    Returns a dict with keys: instructions, intent, conversation_block.
+    ``context`` is the stable system prompt with the home structure; it opens
+    the prompt together with the user and dashboard sections. ``live_state``
+    and the sections that depend on this request (editor YAML, response mode,
+    guidance) go right before the question.
+    Returns a dict with keys: prompt, instructions, intent, conversation_block.
     """
     user_yaml: str = body_fields["user_yaml"]
     user_prompt: str = body_fields["user_prompt"]
     history: list = body_fields["history"]
     compacted_summary: str = body_fields["compacted_summary"]
+    compacted_changes: list[str] = body_fields.get("compacted_changes") or []
     editor_mode: str = body_fields["editor_mode"]
     editor_id: str = body_fields.get("editor_id") or ""
     editor_title: str = body_fields.get("editor_title") or ""
@@ -607,18 +612,19 @@ def _build_prompt_sections(body_fields: dict, context: str, request: "web.Reques
     safe_compacted_summary = ""
     if compacted_summary:
         safe_compacted_summary, _ = _sanitize_user_input(compacted_summary)
+    # The panel stores these records; they are text from the client like the history.
+    safe_changes = [c for c in (_sanitize_user_input(c)[0] for c in compacted_changes) if c]
 
-    # Conversation history — placed right before the user message so the model
-    # sees it as the most recent context. Kept as separate lines so the prompt
-    # budget can drop the oldest ones first instead of cutting off the question.
-    history_lines: list[str] = []
+    # Conversation history as (role, content) pairs, so the prompt budget can
+    # drop the oldest ones first and cloud providers get them as real roles.
+    history_messages: list[tuple[str, str]] = []
     for msg in history:
-        role = msg.get("role", "user")
+        role = "user" if msg.get("role", "user") == "user" else "assistant"
         content = str(msg.get("content", "")).strip()
         if role == "user":
             content, _ = _sanitize_user_input(content)
         if content:
-            history_lines.append(f"{'User' if role == 'user' else 'Assistant'}: {content}")
+            history_messages.append((role, content))
 
     # Classify intent and inject mandatory response-mode constraint.
     # This prevents small models from generating plan blocks (e.g. open_editor)
@@ -640,17 +646,22 @@ def _build_prompt_sections(body_fields: dict, context: str, request: "web.Reques
     prompt = ChatPrompt(
         core=(
             f"{context}\n\n"
-            f"{automation_guidance}"
-            f"{yaml_section}"
-            f"{lovelace_ref}"
-            f"{response_mode_block}"
             f"{user_section}"
             f"{dashboard_section}"
             f"---\n\n"
         ),
-        turn=f"User: {user_prompt}\nAssistant:",
+        request=(
+            f"{live_state}"
+            f"{automation_guidance}"
+            f"{yaml_section}"
+            f"{lovelace_ref}"
+            f"{response_mode_block}"
+            f"---\n\n"
+        ),
+        question=user_prompt,
         summary=safe_compacted_summary,
-        history=history_lines,
+        changes=safe_changes,
+        history=history_messages,
     )
 
     # The prompt is fitted to the model's context window in _run_ai_loop, where
@@ -1056,7 +1067,10 @@ async def _run_ai_loop(
 
     # Qwen3 thinking mode emits <think>…</think> blocks that break plan/tool parsing.
     if "qwen3" in entity_id.lower():
-        prompt = dataclasses.replace(prompt, core="/no_think\n" + prompt.core)
+        # A soft switch in the user's part, right before the question: at the
+        # very start it would differ from other models' prompts for no gain and
+        # Qwen3 reads it from the user message anyway.
+        prompt = dataclasses.replace(prompt, request=prompt.request + "/no_think\n")
 
     # â”€â”€ Pre-flight: log entity state + check Ollama health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if _use_azure:
@@ -1207,7 +1221,7 @@ async def _run_ai_loop(
 
     # Tool-calling loop — the AI may request live HA data via [TOOL_CALL: {...}]
     # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
-    tool_rounds: list[str] = []  # tool call/result exchanges, one per round, oldest first
+    tool_rounds: list[ToolRound] = []  # tool call/result exchanges, one per round, oldest first
     tool_log: list = []  # summary of tool calls for UI feedback
     _aliases_saved: list[str] = []  # search aliases newly stored this turn
     executed_calls_cache: dict = {}  # signature â†’ result str (dedup across rounds)
@@ -1220,7 +1234,49 @@ async def _run_ai_loop(
         _mcp_block = _mcp_client.build_prompt_block(_mcp_tools)
         if _mcp_block:
             prompt = dataclasses.replace(prompt, core=prompt.core + _mcp_block + "\n\n")
-    loop_instructions = prompt.render(_prompt_limit).text  # default if the loop never runs
+    _use_cloud = _use_azure or _use_openai or _use_anthropic
+    # Cloud providers get real roles (core as system part, history as messages);
+    # the ai_task path gets one text and Home Assistant builds the roles.
+    _render = prompt.render_messages if _use_cloud else prompt.render
+    loop_instructions = _render(_prompt_limit).text  # default if the loop never runs
+
+    async def _call_model(fit: PromptFit) -> Any:
+        """Send one fitted prompt to the chat provider, within the call timeout."""
+        if _use_azure:
+            call = async_azure_ai_call(
+                task_name=f"{DOMAIN}_complete",
+                endpoint=_azure_endpoint,
+                api_key=_azure_api_key,
+                deployment=_azure_deployment,
+                api_version=_azure_api_version,
+                system=fit.system,
+                messages=list(fit.messages),
+            )
+        elif _use_openai:
+            call = async_openai_ai_call(
+                task_name=f"{DOMAIN}_complete",
+                api_key=_openai_api_key,
+                model=_openai_model,
+                base_url=_openai_base_url or None,
+                system=fit.system,
+                messages=list(fit.messages),
+            )
+        elif _use_anthropic:
+            call = async_anthropic_ai_call(
+                task_name=f"{DOMAIN}_complete",
+                api_key=_anthropic_api_key,
+                model=_anthropic_model,
+                system=fit.system,
+                messages=list(fit.messages),
+            )
+        else:
+            call = async_ai_call(
+                hass,
+                task_name=f"{DOMAIN}_complete",
+                entity_id=entity_id,
+                instructions=fit.text,
+            )
+        return await asyncio.wait_for(call, timeout=_AI_CALL_TIMEOUT)
 
     # â”€â”€ Quick-intent shortcut — skip the AI for trivially parseable requests
     # like "create an area outside". Small local models loop on get_areas
@@ -1241,7 +1297,7 @@ async def _run_ai_loop(
     for _round in range(0 if _skip_ai_loop else _TOOL_CALL_MAX_ROUNDS):
         # The prompt never exceeds _prompt_limit, which leaves the rest of the
         # window for the answer; when it had to be shortened, say what went.
-        _fit = prompt.render(_prompt_limit, tool_rounds)
+        _fit = _render(_prompt_limit, tool_rounds)
         loop_instructions = _fit.text
         _prompt_tokens_est = len(loop_instructions) // 4
         if _fit.trimmed:
@@ -1264,52 +1320,7 @@ async def _run_ai_loop(
         _t_start = time.monotonic()
         _AI_CALL_TIMEOUT = 180  # seconds — Ollama can be slow on loaded hardware
         try:
-            if _use_azure:
-                result = await asyncio.wait_for(
-                    async_azure_ai_call(
-                        task_name=f"{DOMAIN}_complete",
-                        endpoint=_azure_endpoint,
-                        api_key=_azure_api_key,
-                        deployment=_azure_deployment,
-                        api_version=_azure_api_version,
-                        instructions=loop_instructions,
-                        history=history,
-                    ),
-                    timeout=_AI_CALL_TIMEOUT,
-                )
-            elif _use_openai:
-                result = await asyncio.wait_for(
-                    async_openai_ai_call(
-                        task_name=f"{DOMAIN}_complete",
-                        api_key=_openai_api_key,
-                        model=_openai_model,
-                        base_url=_openai_base_url or None,
-                        instructions=loop_instructions,
-                        history=history,
-                    ),
-                    timeout=_AI_CALL_TIMEOUT,
-                )
-            elif _use_anthropic:
-                result = await asyncio.wait_for(
-                    async_anthropic_ai_call(
-                        task_name=f"{DOMAIN}_complete",
-                        api_key=_anthropic_api_key,
-                        model=_anthropic_model,
-                        instructions=loop_instructions,
-                        history=history,
-                    ),
-                    timeout=_AI_CALL_TIMEOUT,
-                )
-            else:
-                result = await asyncio.wait_for(
-                    async_ai_call(
-                        hass,
-                        task_name=f"{DOMAIN}_complete",
-                        entity_id=entity_id,
-                        instructions=loop_instructions,
-                    ),
-                    timeout=_AI_CALL_TIMEOUT,
-                )
+            result = await _call_model(_fit)
         except asyncio.TimeoutError:
             _elapsed_ms = int((time.monotonic() - _t_start) * 1000)
             _record_model_call(hass, entity_id, _elapsed_ms, 0, success=False)
@@ -1451,12 +1462,13 @@ async def _run_ai_loop(
                 "type": "info",
                 "message": f"Redirecting \u2014 {_search_entity_count} search_entities calls detected.",
             })
-            tool_rounds.append(
-                f"\n[SYSTEM: You called search_entities {_search_entity_count} times in one round. "
+            tool_rounds.append(ToolRound(
+                "",
+                f"[SYSTEM: You called search_entities {_search_entity_count} times in one round. "
                 "Entity IDs from automation configs (like light.0x...) do NOT need to be resolved — use them as-is. "
                 "To list available automations use list_entities_by_domain(domain='automation'). "
-                "Answer the user now without calling more tools.]\nAssistant:"
-            )
+                "Answer the user now without calling more tools.]",
+            ))
             continue
 
         # Execute tools and build result block
@@ -1664,10 +1676,10 @@ async def _run_ai_loop(
 
             # Truncate the version sent BACK to the model (UI summary above is unaffected).
             # Cap to the headroom the newest round has next to the parts that are
-            # never dropped (core and question); older history and tool rounds
-            # make room for it, the core does not.
-            _headroom_chars = max(800, _prompt_limit - len(prompt.core) - len(prompt.turn)
-                                  - len(clean_response) - len(tool_results_block) - 200)
+            # never dropped (core, request block and question); older history and
+            # tool rounds make room for it, the core does not.
+            _headroom_chars = max(800, _prompt_limit - len(prompt.core) - len(prompt.request)
+                                  - len(prompt.turn) - len(clean_response) - len(tool_results_block) - 200)
             _effective_max = min(_MAX_TOOL_RESULT_CHARS, _headroom_chars)
             feedback_str = _truncate_tool_result(tool_result_data, _effective_max)
             if len(feedback_str) < len(tool_result_str):
@@ -1679,7 +1691,7 @@ async def _run_ai_loop(
             tool_results_block += (
                 f"\n[TOOL_RESULT: {json.dumps(call)}]\n{feedback_str}\n"
             )
-        tool_rounds.append(f"{clean_response}\n{tool_results_block}\nAssistant:")
+        tool_rounds.append(ToolRound(clean_response, tool_results_block))
         _progress_emit(hass, request_id, {"type": "thinking", "stage": "follow_up"})
 
         # Auto-plan rescue already set response_text — exit the round loop.
@@ -1695,7 +1707,7 @@ async def _run_ai_loop(
                 if redirect is not None:
                     _loop_redirect_given = True
                     # Part of the round it reacts to, so both stay together.
-                    tool_rounds[-1] += redirect
+                    tool_rounds[-1] = tool_rounds[-1].with_note(redirect)
                     _progress_emit(hass, request_id, {
                         "type": "info",
                         "message": "Redirecting \u2014 trying alternative search approach.",
@@ -1711,57 +1723,16 @@ async def _run_ai_loop(
             # synthesis pass with no tool-calling instructions so it turns
             # the collected data into a natural-language response.
             if not _strip_tool_calls(response_text).strip() and tool_rounds:
-                synth_prompt = prompt.render(
+                synth_fit = _render(
                     _prompt_limit,
-                    [*tool_rounds[:-1], tool_rounds[-1] + _SYNTHESIS_INSTRUCTIONS],
-                ).text
+                    [*tool_rounds[:-1], tool_rounds[-1].with_note(_SYNTHESIS_INSTRUCTIONS)],
+                )
+                synth_prompt = synth_fit.text
                 try:
                     _progress_emit(hass, request_id, {"type": "thinking", "stage": "synthesize"})
                     _t_synth = time.monotonic()
                     # Route synthesis through the same provider as the main loop
-                    if _use_azure:
-                        synth_result = await asyncio.wait_for(
-                            async_azure_ai_call(
-                                task_name=f"{DOMAIN}_complete",
-                                endpoint=_azure_endpoint,
-                                api_key=_azure_api_key,
-                                deployment=_azure_deployment,
-                                api_version=_azure_api_version,
-                                instructions=synth_prompt,
-                                history=[],
-                            ),
-                            timeout=_AI_CALL_TIMEOUT,
-                        )
-                    elif _use_openai:
-                        synth_result = await asyncio.wait_for(
-                            async_openai_ai_call(
-                                task_name=f"{DOMAIN}_complete",
-                                api_key=_openai_api_key,
-                                model=_openai_model,
-                                base_url=_openai_base_url or None,
-                                instructions=synth_prompt,
-                                history=[],
-                            ),
-                            timeout=_AI_CALL_TIMEOUT,
-                        )
-                    elif _use_anthropic:
-                        synth_result = await asyncio.wait_for(
-                            async_anthropic_ai_call(
-                                task_name=f"{DOMAIN}_complete",
-                                api_key=_anthropic_api_key,
-                                model=_anthropic_model,
-                                instructions=synth_prompt,
-                                history=[],
-                            ),
-                            timeout=_AI_CALL_TIMEOUT,
-                        )
-                    else:
-                        synth_result = await async_ai_call(
-                            hass,
-                            task_name=f"{DOMAIN}_complete",
-                            entity_id=entity_id,
-                            instructions=synth_prompt,
-                        )
+                    synth_result = await _call_model(synth_fit)
                     _synth_ms = int((time.monotonic() - _t_synth) * 1000)
                     synth_text = (
                         synth_result.data
@@ -1804,7 +1775,7 @@ async def _run_ai_loop(
             "kon je het anders formuleren of specifieker zijn?"
         )
 
-    tool_exchange = "".join(tool_rounds)
+    tool_exchange = "".join(r.text for r in tool_rounds)
     return response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved, _token_usage
 
 
@@ -2308,10 +2279,11 @@ class KyberView(HomeAssistantView):
             bool(compacted_summary),
         )
 
-        context, context_stats = _build_context(hass)
+        context, live_state, context_stats = _build_context(hass)
 
         # Check for pending area-assignment proposals and warn the model that
-        # area membership is currently incomplete.
+        # area membership is currently incomplete (changes as the review goes on,
+        # so it belongs to the live part, not the cached system part).
         entity_id: str = _cfg[CONF_AI_TASK_ENTITY_ID]
         kstore = get_knowledge_store(hass)
         await kstore.async_load()
@@ -2328,15 +2300,15 @@ class KyberView(HomeAssistantView):
             _area_summary = ", ".join(
                 f"{_an} ({_cnt})" for _an, _cnt in sorted(_pending_areas_by_area.items())
             )
-            context += (
-                f"\n\n⚠️ **Area assignments in progress** — {len(_pending_area)} entity-to-area "
+            live_state += (
+                f"⚠️ **Area assignments in progress** — {len(_pending_area)} entity-to-area "
                 f"assignment(s) are pending user review ({_area_summary}). "
                 f"The entity lists per area are currently **incomplete**; more entities will be "
                 f"added as the review queue is processed. Do not assume an area's entity list is "
-                f"exhaustive."
+                f"exhaustive.\n\n"
             )
 
-        sections = _build_prompt_sections(body_fields, context, request)
+        sections = _build_prompt_sections(body_fields, context, request, live_state)
         prompt: ChatPrompt = sections["prompt"]
         intent = sections["intent"]
         conversation_block = sections["conversation_block"]
@@ -2357,11 +2329,9 @@ class KyberView(HomeAssistantView):
         budget_provider = get_budget_provider(_cfg)
         max_daily_tokens = int(_cfg.get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS) or 0)
         token_budget_store = get_token_budget_store(hass)
-        # Upper bound: the untrimmed prompt, plus history for cloud providers
-        # that also receive it as separate messages.
-        estimated_prompt_tokens = (len(instructions) // 4) + sum(
-            len(str(entry.get("content", ""))) // 4 for entry in history if entry.get("content")
-        )
+        # Upper bound: the untrimmed prompt. Every path sends the history once,
+        # inside the prompt or as messages.
+        estimated_prompt_tokens = len(instructions) // 4
         reservation, preflight_token_usage = await token_budget_store.async_reserve(
             budget_provider,
             max_daily_tokens,

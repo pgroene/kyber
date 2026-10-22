@@ -391,7 +391,7 @@ For entity IDs (like light.xyz) or current states (on/off/temperature), ALWAYS c
 ## Home Assistant Context
 
 {home_summary}{areas_block}{labels_block}{zones_block}
-{timezone_block}{notable_state_block}
+{timezone_block}
 ---
 
 ## How to respond

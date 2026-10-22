@@ -342,12 +342,13 @@ export const AIMixin = (Base) => class extends Base {
           dashboards: this._dashboardList,
           lovelace_resources: this._lovelaceResources || [],
           request_id: requestId,
-          // Send all prior messages (everything except the just-pushed current user msg),
-          // capped at HISTORY_WINDOW most recent entries.
+          // Every message before this turn (the just-pushed prompt) that is
+          // not compacted yet; the backend fits them into the model's window,
+          // oldest dropped first.
           // Only role/content reach the prompt; meta (cards, undo ids) stays local.
-          history: this._chatHistory.slice(0, -1).slice(-this._HISTORY_WINDOW)
-            .map(({ role, content }) => ({ role, content })),
+          history: this._chatHistory.slice(0, -1).map(({ role, content }) => ({ role, content })),
           compacted_summary: this._compactedSummary,
+          compacted_changes: this._compactedChanges,
         }),
       });
 

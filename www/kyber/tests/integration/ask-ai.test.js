@@ -87,15 +87,25 @@ describe("_askAI — request payload", () => {
     expect(body.compacted_summary).toBe("Prior context summary");
   });
 
-  it("caps history at HISTORY_WINDOW entries", async () => {
+  it("sends every message not compacted yet (#223: no gap before compaction)", async () => {
     const { element } = makePanel();
-    element._chatHistory = Array.from({ length: 8 }, (_, i) => ({
+    element._chatHistory = Array.from({ length: 18 }, (_, i) => ({
       role: i % 2 === 0 ? "user" : "assistant",
       content: `msg ${i}`,
+      meta: { history_entry_id: `h${i}` },
     }));
     await askWithInput(element, "New question");
     const body = JSON.parse(fetch.mock.calls[0][1].body);
-    expect(body.history.length).toBeLessThanOrEqual(element._HISTORY_WINDOW);
+    expect(body.history.map((m) => m.content)).toEqual(Array.from({ length: 18 }, (_, i) => `msg ${i}`));
+    expect(body.history.every((m) => !("meta" in m))).toBe(true);
+  });
+
+  it("sends the compacted change records", async () => {
+    const { element } = makePanel();
+    element._compactedChanges = ["[CHANGE] Turned on light.kitchen"];
+    await askWithInput(element, "Undo that");
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.compacted_changes).toEqual(["[CHANGE] Turned on light.kitchen"]);
   });
 
   it("sends editor_mode in body", async () => {

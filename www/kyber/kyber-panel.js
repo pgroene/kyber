@@ -39,7 +39,7 @@ import { SessionMixin } from "./src/session-mixin.js?v=89";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=89";
 import { DebugMixin } from "./src/debug-mixin.js?v=112";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=98";
-import { EditorMixin } from "./src/editor-mixin.js?v=215";
+import { EditorMixin } from "./src/editor-mixin.js?v=216";
 import { AIMixin } from "./src/ai-mixin.js?v=121";
 import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=117";
 
@@ -54,15 +54,20 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
     this._editor = null;
     this._currentAutomationId = null;
     this._dirty = false;
+    // Messages not yet compacted; all of them go to the AI with each request,
+    // the backend's prompt budget drops the oldest when the window is too small.
     this._chatHistory = [];
     this._compactedSummary = "";
+    // [CHANGE] records that left the history through compaction, word for word
+    this._compactedChanges = [];
     // Compaction: fire when total chars > 12000 OR message count > 20
+    // (keep the count below _CHAT_HISTORY_MAX_MESSAGES in session_and_storage.py).
     // Compact oldest whole-messages covering ~6000 chars (never split a message)
     this._COMPACT_SIZE_TRIGGER = 12000;
     this._COMPACT_COUNT_TRIGGER = 20;
     this._COMPACT_OLDEST_CHARS = 6000;
-    // Cap on history entries sent to the AI per request (most recent N messages)
-    this._HISTORY_WINDOW = 10;
+    // Keep in sync with _COMPACTED_CHANGES_MAX in session_and_storage.py
+    this._COMPACTED_CHANGES_MAX = 20;
     // Autocomplete state
     this._acItems = [];
     this._acIndex = -1;

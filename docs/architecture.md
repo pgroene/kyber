@@ -78,7 +78,7 @@ Renders a structured action card from the JSON plan object. Displays a summary, 
 
 ### History Compaction
 
-`_chatHistory` is bounded by `_COMPACT_TRIGGER` (default: 20 messages). When the limit is exceeded, overflow messages are sent to `/api/kyber/summarize` and replaced with a compact summary string (`compacted_summary`), which is injected as a `[Earlier in this conversation]` block in the next `/complete` request.
+`_chatHistory` holds the messages not compacted yet; all of them go to `/complete`, where the prompt budget drops the oldest if needed. Above 20 messages or 12,000 characters the oldest are sent to `/api/kyber/summarize` and replaced by `compacted_summary` (`[Earlier in this conversation]`); `[CHANGE]` records among them move word for word into `compacted_changes` (`[Changes made earlier in this conversation]`) instead of being summarised.
 
 ---
 
@@ -109,7 +109,7 @@ Contains all API view handlers (see [API Endpoints](#api-endpoints) below). Also
 Defines `DOMAIN`, config key constants, and `SYSTEM_PROMPT_TEMPLATE` — a large f-string that embeds:
 
 - The AI persona, first-tool routing hints, and behavioural rules (language matching, fuzzy entity resolution).
-- A compact home summary plus `{area_list}` and `{notable_state_block}` placeholders filled by `_build_context`.
+- A compact home summary plus area, label, zone and timezone placeholders filled by `_build_context`. Live states (person locations, notable states) are **not** part of it: `_build_context` returns them separately (`HomeContext.live`), and `prompt_budget.ChatPrompt` places them right before the question, so the system prompt stays the same between requests and can be cached.
 - The complete reference of built-in HA Lovelace card types and YAML authoring rules.
 - All plan/action type specifications (see [Plan/Action System](#planaction-system)).
 
@@ -126,8 +126,8 @@ All endpoints require HA authentication (`requires_auth = True`).
 | `/api/kyber/complete` | `POST` | Main AI request/response pipeline (`response`, `yaml_blocks`, `plan`, metadata) |
 | `/api/kyber/execute` | `POST` | Execute plan actions (`call_service`, area/label/entity operations) and produce undo actions |
 | `/api/kyber/parse_yaml` | `POST` | Parse YAML text to JSON mapping before saving automation/script/dashboard configs |
-| `/api/kyber/summarize` | `POST` | Compact overflow chat history into `summary` while preserving change context |
-| `/api/kyber/history` | `GET`, `POST`, `DELETE` | Persist/restore/clear per-user chat history + compacted summary |
+| `/api/kyber/summarize` | `POST` | Compact overflow chat history into `summary` (at most 2,000 chars; 503 when the AI fails, the panel then keeps the messages) |
+| `/api/kyber/history` | `GET`, `POST`, `DELETE` | Persist/restore/clear chat history, compacted summary and compacted changes of a session (`session_id`, default: active) |
 | `/api/kyber/sessions` | `GET`, `POST`, `DELETE` | Session CRUD/switching for multi-session chat history |
 | `/api/kyber/sessions/name` | `POST` | Rename the current active session |
 | `/api/kyber/progress` | `GET` | Poll live turn progress events by `request_id` |

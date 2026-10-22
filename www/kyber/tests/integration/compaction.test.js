@@ -8,7 +8,9 @@
  *   - When count-triggered, compacts oldest half of messages
  *   - Shows a banner in the chat DOM after successful compaction
  *   - Banner is NOT added to _chatHistory (must not pollute AI context)
- *   - Non-fatal: restores messages on network or server failure
+ *   - The messages leave the history only once the summary is back; on network
+ *     or server failure they stay (non-fatal)
+ *   - [CHANGE] records move word for word into _compactedChanges
  *   - Passes previous_summary + compacted messages to /api/kyber/summarize
  *   - Updates _compactedSummary from response
  *   - Calls _persistHistory after successful compaction
@@ -386,5 +388,130 @@ describe("_maybeCompact — edge cases", () => {
     // Calling again: history is now smaller, should not trigger
     await element._maybeCompact();
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+// ── [CHANGE] records (#223) ───────────────────────────────────────────────────
+
+describe("_maybeCompact — change records", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** 22 messages (count trigger); the oldest half holds two [CHANGE] records. */
+  function historyWithChanges() {
+    const msgs = makeMessages(22, 20);
+    msgs[1] = { role: "assistant", content: "[CHANGE] Turned on light.kitchen", meta: { history_entry_id: "h1" } };
+    msgs[5] = { role: "assistant", content: "[CHANGE] Renamed light.hall" };
+    return msgs;
+  }
+
+  it("keeps [CHANGE] records word for word instead of sending them to the summarizer", async () => {
+    vi.stubGlobal("fetch", mockSummarize("S"));
+    const { element } = makePanel();
+    element._chatHistory = historyWithChanges();
+    await element._maybeCompact();
+
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.messages.some((m) => m.content.startsWith("[CHANGE]"))).toBe(false);
+    expect(body.messages.every((m) => !("meta" in m))).toBe(true);
+    expect(element._compactedChanges).toEqual(["[CHANGE] Turned on light.kitchen", "[CHANGE] Renamed light.hall"]);
+    expect(element._compactedSummary).toBe("S");
+  });
+
+  it("keeps only the newest records beyond the cap", async () => {
+    vi.stubGlobal("fetch", mockSummarize("S"));
+    const { element } = makePanel();
+    element._compactedChanges = Array.from({ length: element._COMPACTED_CHANGES_MAX }, (_, i) => `[CHANGE] old ${i}`);
+    element._chatHistory = historyWithChanges();
+    await element._maybeCompact();
+    expect(element._compactedChanges).toHaveLength(element._COMPACTED_CHANGES_MAX);
+    expect(element._compactedChanges.slice(-1)).toEqual(["[CHANGE] Renamed light.hall"]);
+  });
+
+  it("moves only change records without calling the summarizer", async () => {
+    vi.stubGlobal("fetch", mockSummarize("unused"));
+    const { element } = makePanel();
+    element._compactedSummary = "kept";
+    element._chatHistory = Array.from({ length: 22 }, (_, i) => ({ role: "assistant", content: `[CHANGE] c${i}` }));
+    await element._maybeCompact();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(element._compactedSummary).toBe("kept");
+    expect(element._compactedChanges[0]).toBe("[CHANGE] c0");
+  });
+
+  it("keeps history, summary and records unchanged when the summarizer fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({}) }));
+    const { element } = makePanel();
+    element._chatHistory = historyWithChanges();
+    element._compactedSummary = "before";
+    await element._maybeCompact();
+    expect(element._chatHistory).toHaveLength(22);
+    expect(element._compactedSummary).toBe("before");
+    expect(element._compactedChanges).toEqual([]);
+  });
+
+  it("persists the records with the history", async () => {
+    vi.stubGlobal("fetch", mockSummarize("S"));
+    const { element, hass } = makePanel();
+    element._chatHistory = historyWithChanges();
+    await element._maybeCompact();
+    const posts = hass.callApi.mock.calls.filter(([m, p]) => m === "POST" && p === "kyber/history");
+    expect(posts.at(-1)[2].compacted_changes).toEqual(element._compactedChanges);
+  });
+
+  it("restores the records with the session and clears them on reset", async () => {
+    vi.stubGlobal("fetch", mockSummarize());
+    const { element } = makePanel();
+    element._hass.callApi = vi.fn((method, path) => {
+      if (method === "GET" && path === "kyber/history") {
+        return Promise.resolve({ history: [], compacted_summary: "", compacted_changes: ["[CHANGE] x"], session_id: "s1" });
+      }
+      return Promise.resolve({});
+    });
+    await element._restorePersistedHistory();
+    expect(element._compactedChanges).toEqual(["[CHANGE] x"]);
+    await element._clearHistory();
+    expect(element._compactedChanges).toEqual([]);
+  });
+});
+
+// ── while the summary is pending ──────────────────────────────────────────────
+
+describe("_maybeCompact — while summarizing", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** fetch that answers only when `release(summary)` is called. */
+  function deferredSummarize() {
+    let release;
+    const answered = new Promise((resolve) => { release = resolve; });
+    const fn = vi.fn(() => answered.then((summary) => ({ ok: true, json: async () => ({ summary }) })));
+    return { fn, release };
+  }
+
+  it("keeps the messages in the history until the summary is back (#223)", async () => {
+    const { fn, release } = deferredSummarize();
+    vi.stubGlobal("fetch", fn);
+    const { element } = makePanel();
+    element._chatHistory = makeMessages(22, 20);
+    const running = element._maybeCompact();
+    // A request sent now still carries every message as context
+    expect(element._chatHistory).toHaveLength(22);
+    release("S");
+    await running;
+    expect(element._chatHistory).toHaveLength(11);
+    expect(element._compactedSummary).toBe("S");
+  });
+
+  it("drops a summary that arrives after the history was reset", async () => {
+    const { fn, release } = deferredSummarize();
+    vi.stubGlobal("fetch", fn);
+    const { element } = makePanel();
+    element._chatHistory = makeMessages(22, 20);
+    const running = element._maybeCompact();
+    await element._clearHistory();
+    release("belongs to the old chat");
+    await running;
+    expect(element._chatHistory).toEqual([]);
+    expect(element._compactedSummary).toBe("");
+    expect(element._compactedChanges).toEqual([]);
   });
 });

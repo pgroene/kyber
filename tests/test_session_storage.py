@@ -450,3 +450,172 @@ class TestAsyncLoadChatStoreMigration:
             _run(session_and_storage._async_load_chat_store(hass))
 
         assert not save_called, "save should not be called when no migration needed"
+
+
+class TestCompactedChanges:
+    def test_keeps_newest_within_cap(self):
+        many = [f"[CHANGE] {i}" for i in range(session_and_storage._COMPACTED_CHANGES_MAX + 3)]
+        result = session_and_storage._sanitize_changes(many)
+        assert len(result) == session_and_storage._COMPACTED_CHANGES_MAX
+        assert result[-1] == many[-1]
+
+    def test_truncates_and_filters(self):
+        long = "[CHANGE] " + "x" * (session_and_storage._CHANGE_MAX_CHARS + 50)
+        assert session_and_storage._sanitize_changes([long, None, ""]) == [long[: session_and_storage._CHANGE_MAX_CHARS]]
+        assert session_and_storage._sanitize_changes("nope") == []
+
+    def test_history_cap_stays_above_the_panel_compaction_trigger(self):
+        """The panel compacts above 20 messages; the store must not cut before that."""
+        assert session_and_storage._CHAT_HISTORY_MAX_MESSAGES > 20
+        msgs = [{"role": "user", "content": f"m{i}"} for i in range(30)]
+        assert len(session_and_storage._sanitize_history(msgs)) == 30
+
+
+class TestResolveSession:
+    def _user(self):
+        return {"active_session": "s1", "sessions": {"s1": {"name": "A"}, "s2": {"name": "B"}}}
+
+    def test_named_session(self):
+        sid, session = session_and_storage._resolve_session(self._user(), "s2")
+        assert sid == "s2" and session["name"] == "B"
+
+    def test_active_when_none_named(self):
+        sid, _session = session_and_storage._resolve_session(self._user(), None)
+        assert sid == "s1"
+
+    def test_unknown_named_session_is_none_not_active(self):
+        assert session_and_storage._resolve_session(self._user(), "gone") is None
+
+
+class _MemoryStore:
+    """Store double that yields between load and save, like real disk I/O."""
+
+    data: dict = {"users": {}}
+
+    def __init__(self, *a, **k):
+        pass
+
+    async def async_load(self):
+        import copy
+        await asyncio.sleep(0)
+        return copy.deepcopy(_MemoryStore.data)
+
+    async def async_save(self, data):
+        import copy
+        await asyncio.sleep(0)
+        _MemoryStore.data = copy.deepcopy(data)
+
+
+def _store_with_sessions():
+    """Two sessions for user u1, s1 active."""
+    _MemoryStore.data = {"users": {"u1": {
+        "active_session": "s1",
+        "sessions": {
+            "s1": {"name": "A", "history": [], "compacted_summary": ""},
+            "s2": {"name": "B", "history": [], "compacted_summary": ""},
+        },
+    }}}
+    hass = MagicMock()
+    hass.data = {}  # real dict so _get_or_create_store can keep store and lock
+    return hass
+
+
+class TestUpdateUserChat:
+    def test_concurrent_updates_both_survive(self):
+        """Two saves into different sessions arrive together; neither may be lost."""
+        hass = _store_with_sessions()
+
+        def save_s1(user_data):
+            user_data["sessions"]["s1"]["history"] = [{"role": "user", "content": "hi"}]
+
+        def save_s2(user_data):
+            user_data["sessions"]["s2"]["compacted_summary"] = "earlier"
+
+        async def both():
+            await asyncio.gather(
+                session_and_storage._async_update_user_chat(hass, "u1", save_s1),
+                session_and_storage._async_update_user_chat(hass, "u1", save_s2),
+            )
+
+        with patch.object(session_and_storage, "Store", _MemoryStore):
+            _run(both())
+
+        sessions = _MemoryStore.data["users"]["u1"]["sessions"]
+        assert sessions["s1"]["history"] == [{"role": "user", "content": "hi"}]
+        assert sessions["s2"]["compacted_summary"] == "earlier"
+
+    def test_new_user_gets_sessions_format(self):
+        hass = _store_with_sessions()
+        with patch.object(session_and_storage, "Store", _MemoryStore):
+            sid = _run(session_and_storage._async_update_user_chat(
+                hass, "u2", lambda ud: session_and_storage._get_active_session(ud)[0]
+            ))
+        assert sid in _MemoryStore.data["users"]["u2"]["sessions"]
+
+
+class _Request:
+    def __init__(self, hass, body, query=None):
+        self.app = {"hass": hass}
+        self._body = body
+        self.query = query or {}
+        self._user = MagicMock(id="u1")
+
+    def get(self, key, default=None):
+        return self._user if key == "hass_user" else default
+
+    async def json(self):
+        return self._body
+
+
+def _view(cls):
+    """View instance whose json helpers return (status, payload) for asserting."""
+    view = cls()
+    view.json = lambda data, status_code=200: (status_code, data)
+    view.json_message = lambda msg, status_code=200: (status_code, {"message": msg})
+    return view
+
+
+class TestHistoryViewSessions:
+    def test_clear_named_session_only(self):
+        hass = _store_with_sessions()
+        sessions = _MemoryStore.data["users"]["u1"]["sessions"]
+        sessions["s1"]["history"] = [{"role": "user", "content": "keep"}]
+        sessions["s2"]["history"] = [{"role": "user", "content": "q"}]
+        view = _view(session_and_storage.KyberHistoryView)
+        with patch.object(session_and_storage, "Store", _MemoryStore):
+            status, _ = _run(view.delete(_Request(hass, None, {"session_id": "s2"})))
+        sessions = _MemoryStore.data["users"]["u1"]["sessions"]
+        assert status == 200
+        assert sessions["s2"]["history"] == []
+        assert sessions["s1"]["history"] == [{"role": "user", "content": "keep"}]
+
+    def test_save_goes_to_named_session_not_active(self):
+        hass = _store_with_sessions()
+        view = _view(session_and_storage.KyberHistoryView)
+        body = {"history": [{"role": "user", "content": "late"}], "compacted_summary": "", "session_id": "s2"}
+        with patch.object(session_and_storage, "Store", _MemoryStore):
+            _run(view.post(_Request(hass, body)))
+        sessions = _MemoryStore.data["users"]["u1"]["sessions"]
+        assert sessions["s2"]["history"][0]["content"] == "late"
+        assert sessions["s1"]["history"] == []
+
+    def test_compacted_changes_round_trip_and_reset(self):
+        hass = _store_with_sessions()
+        view = _view(session_and_storage.KyberHistoryView)
+        body = {"history": [], "compacted_changes": ["[CHANGE] a", 5, "  ", "[CHANGE] b"]}
+        with patch.object(session_and_storage, "Store", _MemoryStore):
+            _run(view.post(_Request(hass, body)))
+            _status, got = _run(view.get(_Request(hass, None)))
+            assert got["compacted_changes"] == ["[CHANGE] a", "[CHANGE] b"]
+            _run(view.delete(_Request(hass, None)))
+            _status, got = _run(view.get(_Request(hass, None)))
+        assert got["compacted_changes"] == []
+
+    def test_save_for_deleted_session_is_404(self):
+        hass = _store_with_sessions()
+        view = _view(session_and_storage.KyberHistoryView)
+        body = {"history": [{"role": "user", "content": "late"}], "session_id": "gone"}
+        with patch.object(session_and_storage, "Store", _MemoryStore):
+            status, _ = _run(view.post(_Request(hass, body)))
+        assert status == 404
+        assert _MemoryStore.data["users"]["u1"]["sessions"]["s1"]["history"] == []

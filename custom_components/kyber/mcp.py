@@ -571,7 +571,7 @@ async def _handle_kyber_ask(
 
     request_id = str(uuid.uuid4())
 
-    context, context_stats = _build_context(hass)
+    context, live_state, context_stats = _build_context(hass)
 
     kstore = get_knowledge_store(hass)
     await kstore.async_load()
@@ -633,11 +633,11 @@ async def _handle_kyber_ask(
                 "get_area_entities, search_entities, get_areas.\n"
                 "Do not make up device names, entity IDs, states, or the current time.\n\n"
             ),
-            turn=f"User: {prompt}\nAssistant:",
+            question=prompt,
         )
         intent = _classify_intent(prompt)
     else:
-        sections = _build_prompt_sections(body_fields, context, mock_request)
+        sections = _build_prompt_sections(body_fields, context, mock_request, live_state)
         chat_prompt = sections["prompt"]
         intent = sections["intent"]
         await _inject_knowledge_into_prompt(

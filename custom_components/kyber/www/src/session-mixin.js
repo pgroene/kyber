@@ -91,6 +91,7 @@ export const SessionMixin = (Base) => class extends Base {
       await this._hass.callApi("POST", "kyber/history", {
         history: this._sanitizeHistoryForPersistence(this._chatHistory),
         compacted_summary: String(this._compactedSummary || "").trim(),
+        compacted_changes: this._compactedChanges,
       });
     } catch (err) {
       console.warn("[Kyber] _persistHistory error:", err);
@@ -103,6 +104,9 @@ export const SessionMixin = (Base) => class extends Base {
       const data = await this._hass.callApi("GET", "kyber/history");
       const persistedHistory = this._sanitizeHistoryForPersistence(data?.history || []);
       const persistedSummary = String(data?.compacted_summary || "").trim();
+      const persistedChanges = Array.isArray(data?.compacted_changes)
+        ? data.compacted_changes.filter((c) => typeof c === "string" && c.trim())
+        : [];
 
       // Capture session metadata
       this._activeSessionId = data?.session_id || null;
@@ -110,9 +114,10 @@ export const SessionMixin = (Base) => class extends Base {
 
       // Only apply restored data if nothing has been written in-memory yet.
       // This avoids races with tests and with very early user interactions.
-      if (this._chatHistory.length === 0 && !this._compactedSummary) {
+      if (this._chatHistory.length === 0 && !this._compactedSummary && !this._compactedChanges.length) {
         this._chatHistory = persistedHistory;
         this._compactedSummary = persistedSummary;
+        this._compactedChanges = persistedChanges;
         this._resetChatView();
         this._chatHistory.forEach((msg) => this._renderRestoredMessage(msg));
         console.log("[Kyber] restored", persistedHistory.length, "messages from history");
@@ -123,6 +128,7 @@ export const SessionMixin = (Base) => class extends Base {
       // Non-fatal: start with empty in-memory history
       this._chatHistory = [];
       this._compactedSummary = "";
+      this._compactedChanges = [];
       this._resetChatView();
       this._historyRestored = true;
     }
@@ -131,6 +137,7 @@ export const SessionMixin = (Base) => class extends Base {
   async _clearHistory() {
     this._chatHistory = [];
     this._compactedSummary = "";
+    this._compactedChanges = [];
     this._resetChatView();
     try {
       await this._hass.callApi("DELETE", "kyber/history");
@@ -208,6 +215,7 @@ export const SessionMixin = (Base) => class extends Base {
     // Clear in-memory history for the new session
     this._chatHistory = [];
     this._compactedSummary = "";
+    this._compactedChanges = [];
     this._resetChatView();
     this._updateSessionIndicator();
     this._showContextRefreshedMessage("New session started");
@@ -239,6 +247,7 @@ export const SessionMixin = (Base) => class extends Base {
     // Reload history for this session
     this._chatHistory = [];
     this._compactedSummary = "";
+    this._compactedChanges = [];
     await this._restorePersistedHistory();
     this._appendMessage(`Switched to session: **${target.name}**`, "assistant");
     this._showContextRefreshedMessage("Session switched");
@@ -278,6 +287,7 @@ export const SessionMixin = (Base) => class extends Base {
     this._activeSessionId = data.active_session;
     this._chatHistory = [];
     this._compactedSummary = "";
+    this._compactedChanges = [];
     await this._restorePersistedHistory();
     this._appendMessage("Session deleted. Switched to previous session.", "assistant");
   }

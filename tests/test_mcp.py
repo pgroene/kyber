@@ -449,9 +449,9 @@ async def test_handle_kyber_ask_rate_limit_check_then_record():
 
     with patch("custom_components.kyber.mcp._rate_limiter", mock_rl), \
          patch("custom_components.kyber.http_api._run_ai_loop", new_callable=AsyncMock) as mock_loop, \
-         patch("custom_components.kyber.http_api._build_context", return_value=("ctx", {})), \
+         patch("custom_components.kyber.http_api._build_context", return_value=("ctx", "", {})), \
          patch("custom_components.kyber.http_api._build_prompt_sections", return_value={
-             "prompt": ChatPrompt(core="instr\n\n", turn="User: hello\nAssistant:"), "intent": "turn on",
+             "prompt": ChatPrompt(core="instr\n\n", question="hello"), "intent": "turn on",
          }), \
          patch("custom_components.kyber.http_api._inject_knowledge_into_prompt", new_callable=AsyncMock, return_value=[]), \
          patch("custom_components.kyber.knowledge.get_store", return_value=AsyncMock(async_load=AsyncMock())), \
@@ -485,9 +485,9 @@ async def test_handle_kyber_ask_releases_reservation_on_failure(raised):
 
     with patch("custom_components.kyber.mcp._rate_limiter", mock_rl), \
          patch("custom_components.kyber.http_api._run_ai_loop", new=AsyncMock(side_effect=raised)), \
-         patch("custom_components.kyber.http_api._build_context", return_value=("ctx", {})), \
+         patch("custom_components.kyber.http_api._build_context", return_value=("ctx", "", {})), \
          patch("custom_components.kyber.http_api._build_prompt_sections", return_value={
-             "prompt": ChatPrompt(core="instr\n\n", turn="User: hello\nAssistant:"), "intent": "action",
+             "prompt": ChatPrompt(core="instr\n\n", question="hello"), "intent": "action",
          }), \
          patch("custom_components.kyber.http_api._inject_knowledge_into_prompt", new_callable=AsyncMock, return_value=[]), \
          patch("custom_components.kyber.knowledge.get_store", return_value=AsyncMock(async_load=AsyncMock())), \
@@ -519,7 +519,7 @@ async def test_handle_kyber_ask_quick_mode_sends_the_question():
 
     with patch("custom_components.kyber.mcp._rate_limiter", mock_rl), \
          patch("custom_components.kyber.http_api._run_ai_loop", new_callable=AsyncMock) as mock_loop, \
-         patch("custom_components.kyber.http_api._build_context", return_value=("ctx", {})), \
+         patch("custom_components.kyber.http_api._build_context", return_value=("ctx", "", {})), \
          patch("custom_components.kyber.knowledge.get_store", return_value=AsyncMock(async_load=AsyncMock())), \
          patch("custom_components.kyber.token_budget.get_budget_provider", return_value="local"), \
          patch("custom_components.kyber.token_budget.get_store") as mock_tbs:
