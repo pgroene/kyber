@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections import deque
 import dataclasses
 import json
@@ -2583,6 +2584,73 @@ class _ChatTurn:
         self.end_busy()
 
 
+# A reverse proxy in front of HA (nginx: proxy_read_timeout, 60 s by default)
+# gives up on a request that sends nothing for a while and answers 504 itself.
+# A chat turn against a slow model easily takes longer, so a turn that is not
+# done after the grace period gets its 200 at once and a space every interval;
+# the JSON document follows at the end (JSON allows leading whitespace).
+_HEARTBEAT_GRACE_SEC = 10.0
+_HEARTBEAT_INTERVAL_SEC = 15.0
+# Carries the real status of a streamed reply that is not a 200
+STREAMED_STATUS_KEY = "_http_status"
+
+
+async def _respond_with_heartbeat(request: web.Request, work: Any) -> web.StreamResponse:
+    """Await ``work`` (a coroutine returning a response) without going silent.
+
+    A reply ready within the grace period goes out unchanged, status included.
+    Later the status line is already sent, so a reply other than 200 travels
+    in the body: its JSON object plus ``STREAMED_STATUS_KEY``. ``work`` lives
+    exactly as long as the connection: a client that goes away cancels it.
+    """
+    task = asyncio.ensure_future(work)
+    try:
+        done, _ = await asyncio.wait({task}, timeout=_HEARTBEAT_GRACE_SEC)
+        if done:
+            return task.result()
+        stream = web.StreamResponse(
+            status=HTTPStatus.OK,
+            headers={
+                "Content-Type": "application/json",
+                "Cache-Control": "no-cache",
+                # nginx: pass the spaces on instead of collecting them
+                "X-Accel-Buffering": "no",
+            },
+        )
+        await stream.prepare(request)
+        while not done:
+            await stream.write(b" ")
+            done, _ = await asyncio.wait({task}, timeout=_HEARTBEAT_INTERVAL_SEC)
+        await stream.write(_streamed_body(task))
+        await stream.write_eof()
+        return stream
+    finally:
+        if not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+
+def _streamed_body(task: asyncio.Future) -> bytes:
+    """The JSON document that ends a streamed reply."""
+    try:
+        response = task.result()
+    except Exception:  # noqa: BLE001 - the status line is gone, the client still needs an answer
+        _LOGGER.exception("Kyber: chat turn failed after the reply had started")
+        return json.dumps({STREAMED_STATUS_KEY: 500, "message": "Internal error"}).encode()
+    body = response.body if isinstance(response, web.Response) else None
+    raw = body if isinstance(body, bytes) else b""
+    if response.status == HTTPStatus.OK:
+        return raw
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        payload = None
+    if not isinstance(payload, dict):
+        payload = {"message": raw.decode("utf-8", "replace")}
+    return json.dumps({**payload, STREAMED_STATUS_KEY: response.status}).encode()
+
+
 class KyberView(HomeAssistantView):
     """Handle POST /api/kyber/complete."""
 
@@ -2594,18 +2662,22 @@ class KyberView(HomeAssistantView):
         """Store config entry data."""
         self._config = config
 
-    async def post(self, request: web.Request) -> web.Response:
+    async def post(self, request: web.Request) -> web.StreamResponse:
         """Handle an AI completion request from the frontend panel.
 
         HA cancels the handler when the client goes away (Stop button, panel
         timeout), so the turn's shared state is released in ``finally``: a
-        CancelledError passes every ``except Exception``.
+        CancelledError passes every ``except Exception``. A long turn keeps
+        a reverse proxy in front of HA from timing out, see
+        ``_respond_with_heartbeat``.
         """
         hass: HomeAssistant = request.app["hass"]
         turn = _ChatTurn(hass)
         turn.begin()
         try:
-            return await self._async_complete(request, hass, turn)
+            return await _respond_with_heartbeat(
+                request, self._async_complete(request, hass, turn)
+            )
         finally:
             turn.close()
 
