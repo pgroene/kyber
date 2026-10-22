@@ -119,7 +119,7 @@ The model can respond with either:
 For each tool call we execute the tool synchronously, append a `tool_result`
 block back into the instructions, increment the round counter and re-ask
 the model. This continues until either the model replies in prose or the
-configured number of rounds (`max_tool_rounds`, default 3) is used up. In
+configured number of rounds (`max_tool_rounds`, default 6) is used up. In
 that case, and when the model only repeats earlier calls, one more call
 without tools asks for the answer from the collected results; for a change
 request it may contain the plan block.
@@ -127,7 +127,36 @@ request it may contain the plan block.
 An automation or script the user names by entity_id
 (`automation.luftung_flur`) is loaded before the first round and
 shown in the prompt with its config ID, so an edit request needs no lookup
-round. Not on the MCP path, whose entity filters it would bypass.
+round. Not on the MCP path, whose entity filters it would bypass. The
+entities it uses (and those of an open editor's YAML) follow with their live
+state, attributes and valid values: input_select options, climate
+`hvac_modes`, and for a schedule helper every block-data value across all
+blocks, read with `schedule.get_schedule`.
+
+### Checking a proposed automation or script
+
+When an answer ends in an `edit_automation`/`create_automation` plan,
+`automation_check.check_config` checks the proposed configuration before
+the user sees it:
+
+- Home Assistant's own validator (`async_validate_config_item`, the one its
+  config editor runs on save),
+- every entity, attribute, option and attribute value against the real
+  entities,
+- two domain rules: `climate.set_temperature` without `hvac_mode` (unless
+  the thermostat is switched on just before), and schedule triggers that only
+  watch an attribute and so miss the end of a block,
+- outdated syntax (`data_template`, `service:`, singular top-level keys);
+  Home Assistant still accepts it, so it never triggers a correction on its
+  own.
+
+Errors go back to the model as a `[TOOL_RESULT: {"name":
+"check_configuration"}]` round, at most `MAX_CHECK_ROUNDS` (2) times and
+never in the last tool round. Errors still present on the final plan arrive
+as `plan.check_warnings` (`severity`, `key`, `params`, `text`) and are shown
+on the plan card. Measured on the living room heating case against the
+local model: 3/13 behaviour checks without, 10–13/13 with entity data plus
+one correction round.
 
 Each tool call adds an entry to `tool_log` with `name`, `args`, `status`,
 `ms`, and a small result preview.
@@ -202,7 +231,7 @@ Before returning, `_debug_record_turn` builds a snapshot containing:
 
 ```
 request_id, ts, user_prompt,
-expanded_prompt, instructions_used,        # both capped at 32 KB
+expanded_prompt, instructions_used,        # each up to 256 KB; a longer prompt keeps start and end, the middle is cut
 picked_knowledge (with id, score, source, …),
 tool_log, intent, response_text (8 KB cap),
 auto_rating, elapsed_ms, char_count, approx_tokens,

@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
+from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
@@ -67,6 +68,7 @@ from .const import (
     LABEL_ASSIGNMENT_OFF,
     LABEL_ASSIGNMENT_AUTO,
     LOVELACE_CARDS_REFERENCE,
+    MAX_CHECK_ROUNDS,
     MAX_TOOL_RESULT_CHARS,
     SYSTEM_PROMPT_TEMPLATE,
     DEFAULT_LABEL_ASSIGNMENT_MODE,
@@ -144,6 +146,7 @@ from .prompt_regression_api import (
     KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView,
 )
 from .config_flow import _infer_max_tokens
+from . import automation_check
 from .prompt_budget import ChatPrompt, PromptFit, ToolRound, prompt_char_limit
 from .rate_limiter import _rate_limiter
 from .token_budget import TokenReservation, get_budget_provider, get_store as get_token_budget_store
@@ -587,6 +590,9 @@ def _escape_fenced_block_content(text: str) -> str:
     return text.replace("```", "``\u200b`")
 
 
+# Major.minor only: the guidance sits early in the prompt and must not change
+# with every patch release (prompt cache).
+_HA_SHORT_VERSION = f"{MAJOR_VERSION}.{MINOR_VERSION}"
 _CONFIG_REF_RE = re.compile(r"\b(?:automation|script)\.[a-z0-9_]+\b", re.IGNORECASE)
 _MAX_REFERENCED_CONFIGS = 2
 _MAX_REFERENCED_CONFIG_CHARS = 8_000
@@ -639,12 +645,64 @@ def _referenced_configs_section(referenced: list[dict], editor_id: str) -> str:
         parts.append(
             f"## {kind.upper()} NAMED IN THE REQUEST: `{ref['entity_id']}`\n"
             f"Config ID: `{ref['id']}` (use it as `automation_id`).\n"
-            f"Its current configuration is shown below — do NOT call `get_{kind}` or search for it. "
-            f"**If the user asks to change it, emit an `edit_automation` plan block right away, with "
-            f"`original_config` = this configuration and `modified_config` = the changed one.**\n"
+            f"Its current configuration is shown below; do NOT call `get_{kind}` for it. "
+            f"The entities it uses follow with their real states, options and attributes; "
+            f"look up any other entity you need before you change it. "
+            f"**If the user asks to change it, emit an `edit_automation` plan block, with "
+            f"`original_config` = this configuration and `modified_config` = the changed one. "
+            f"It may be broken: rewrite what is wrong instead of keeping it.**\n"
             f"```json\n{_escape_fenced_block_content(ref['config_json'])}\n```\n\n"
         )
     return "".join(parts)
+
+
+async def _config_entity_context(hass: HomeAssistant, body_fields: dict) -> str:
+    """Live data of the entities used by the named configs and the open editor's YAML.
+
+    The model invented options and schedule values and read attributes that do
+    not exist when it saw only the configuration; with the real values
+    next to it, it has no reason to guess.
+    """
+    sources = [ref.get("config_json", "") for ref in body_fields.get("referenced_configs") or []]
+    if body_fields.get("editor_mode") in ("automation", "script"):
+        sources.append(body_fields.get("user_yaml") or "")
+    entity_ids = automation_check.referenced_entity_ids(hass, "\n".join(s for s in sources if s))
+    if not entity_ids:
+        return ""
+    try:
+        schedule_values = await automation_check.collect_schedule_values(hass, entity_ids)
+        return await automation_check.entity_context(hass, entity_ids, schedule_values)
+    except Exception as err:  # noqa: BLE001 – context is a help, never a reason to fail the turn
+        _LOGGER.debug("Kyber: entity context for referenced configs failed: %s", err)
+        return ""
+
+
+async def _check_plan(hass: HomeAssistant, plan: dict | None) -> list:
+    """Findings for the automation/script a plan proposes; [] for other plans or on failure."""
+    config, kind = automation_check.plan_config(plan)
+    if config is None:
+        return []
+    try:
+        return await automation_check.check_config(hass, config, kind)
+    except Exception as err:  # noqa: BLE001 – a failing check must not cost the answer
+        _LOGGER.warning("Kyber: checking the proposed %s failed: %s", kind, err)
+        return []
+
+
+async def _automation_check_feedback(hass: HomeAssistant, response_text: str) -> str:
+    """Correction request for the model when its proposal has errors, else ""."""
+    text = _normalize_json_plan_blocks(_rewrap_bare_action_fences(response_text))
+    findings = await _check_plan(hass, _extract_plan_block(text))
+    return automation_check.feedback_for_model(findings)
+
+
+async def _attach_check_warnings(hass: HomeAssistant, plan: dict | None) -> dict | None:
+    """Put the errors the corrections did not fix on the plan, for the card to show."""
+    findings = await _check_plan(hass, plan)
+    errors = [f.as_dict() for f in findings if f.severity == automation_check.ERROR]
+    if errors and isinstance(plan, dict):
+        plan["check_warnings"] = errors
+    return plan
 
 
 def _build_prompt_sections(
@@ -747,6 +805,7 @@ def _build_prompt_sections(
         )
     referenced = body_fields.get("referenced_configs") or []
     yaml_section += _referenced_configs_section(referenced, editor_id)
+    yaml_section += body_fields.get("entity_context") or ""
 
     safe_compacted_summary = ""
     if compacted_summary:
@@ -776,7 +835,7 @@ def _build_prompt_sections(
 
     # Lazy-load sections: inject only when relevant to save prompt budget.
     automation_guidance = (
-        AUTOMATION_EDITOR_GUIDANCE
+        AUTOMATION_EDITOR_GUIDANCE.replace("__HA_VERSION__", _HA_SHORT_VERSION)
         if user_yaml.strip() or editor_id or referenced or _AUTOMATION_EDIT_RE.search(user_prompt)
         else ""
     )
@@ -1432,6 +1491,7 @@ async def _run_ai_loop(
     response_text = ""
     _loop_redirect_given = False  # allow one redirect hint before falling back to synthesis
     _auto_plan_rescued = False    # set when call_service tool call is auto-converted to plan
+    _check_rounds = 0  # correction rounds spent on a proposal the check rejected
     # Describe external MCP tools in the system part, ahead of the conversation.
     if _mcp_tools and _mcp_client is not None:
         _mcp_block = _mcp_client.build_prompt_block(_mcp_tools)
@@ -1697,6 +1757,25 @@ async def _run_ai_loop(
                     response_text = _PLAN_BLOCK_RE.sub("", response_text).strip()
 
         if not tool_calls:
+            # A proposed automation/script goes back to the model while it has
+            # errors the check can name: at most MAX_CHECK_ROUNDS times, and
+            # never in the last round, which must end in an answer.
+            if _check_rounds < MAX_CHECK_ROUNDS and _round < _max_rounds - 1:
+                _feedback = await _automation_check_feedback(hass, response_text)
+                if _feedback:
+                    _check_rounds += 1
+                    _LOGGER.info("Kyber: proposed config has errors, correction round %d", _check_rounds)
+                    _progress_emit(hass, request_id, {
+                        "type": "info",
+                        "message": f"Checking the proposal found problems; asking for a correction ({_check_rounds})",
+                        "key": "ev_check_retry",
+                        "params": {"n": _check_rounds},
+                    })
+                    tool_rounds.append(ToolRound(
+                        response_text.strip(),
+                        f"\n[TOOL_RESULT: {json.dumps({'name': 'check_configuration'})}]\n{_feedback}\n",
+                    ))
+                    continue
             break  # no tool calls — final answer
 
         # Dedup: within this round and against prior rounds.
@@ -2362,10 +2441,12 @@ def _extract_response_components(
                 "climate", "cover", "media_player", "person",
                 "fan", "lock", "vacuum", "input_boolean",
             }
+            # Service names (climate.set_temperature) have the same shape but no state.
             fake_ids = [
                 eid for eid in dict.fromkeys(candidate_ids)  # deduplicate, preserve order
                 if eid.split(".")[0] in _CHECKABLE_DOMAINS
                 and not hass.states.get(eid)
+                and not hass.services.has_service(*eid.split(".", 1))
             ]
             if fake_ids:
                 _LOGGER.warning(
@@ -2571,6 +2652,7 @@ class KyberView(HomeAssistantView):
             )
 
         body_fields["referenced_configs"] = await _load_referenced_configs(hass, user_prompt)
+        body_fields["entity_context"] = await _config_entity_context(hass, body_fields)
         sections = _build_prompt_sections(body_fields, context, request, live_state)
         prompt: ChatPrompt = sections["prompt"]
         intent = sections["intent"]
@@ -2647,6 +2729,7 @@ class KyberView(HomeAssistantView):
 
         _progress_complete(hass, request_id)
         plan_block = _annotate_plan_approval(plan_block)
+        plan_block = await _attach_check_warnings(hass, plan_block)
 
         # Post-turn fact extraction: if the user made a correction (e.g. "it's
         # called keuken") and the AI didn't already propose an add_knowledge

@@ -26,6 +26,7 @@ from .const import (
     CONF_DEEP_LEARNING_INTERVAL_DAYS,
     CONF_DEEP_LEARNING_LAST_RUN_TS,
     CONF_DEEP_LEARNING_MAX_BATCH,
+    CONF_MAX_TOOL_ROUNDS,
     CONF_RUN_INITIAL_ANALYZE,
     CURRENT_INITIAL_LEARNING_VERSION,
     DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
@@ -38,6 +39,8 @@ from .const import (
     DEFAULT_RUN_INITIAL_ANALYZE,
     DOMAIN,
     KNOWLEDGE_SCHEMA_VERSION,
+    LEGACY_DEFAULT_TOOL_ROUNDS,
+    TOOL_CALL_MAX_ROUNDS,
 )
 from .analyzer import analyze_automations as _analyze_automations
 from . import deep_analyzer as _deep
@@ -56,6 +59,34 @@ type KyberConfigEntry = ConfigEntry[None]
 _WWW_DIR = Path(__file__).parent / "www"
 
 _DEBUG_MODE_KEY = "kyber_debug_mode"
+
+
+def _raise_legacy_tool_rounds(values: Mapping[str, Any]) -> dict[str, Any]:
+    """Copy of ``values`` with the old default tool-round count replaced by the new one."""
+    out = dict(values)
+    if out.get(CONF_MAX_TOOL_ROUNDS) == LEGACY_DEFAULT_TOOL_ROUNDS:
+        out[CONF_MAX_TOOL_ROUNDS] = TOOL_CALL_MAX_ROUNDS
+    return out
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate an older config entry.
+
+    1.1 → 1.2: the config flow always stored max_tool_rounds, so entries that
+    kept the old default of 3 would never see the new default. A stored 3 was
+    the default, not a choice, and becomes 6; any other value stays.
+    """
+    if entry.version > 1:
+        return False  # a downgrade; this version cannot read it
+    if entry.minor_version < 2:
+        hass.config_entries.async_update_entry(
+            entry,
+            data=_raise_legacy_tool_rounds(entry.data),
+            options=_raise_legacy_tool_rounds(entry.options),
+            minor_version=2,
+        )
+        _LOGGER.info("Kyber: migrated config entry to 1.2 (max_tool_rounds default 3 → %d)", TOOL_CALL_MAX_ROUNDS)
+    return True
 
 
 async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -> None:

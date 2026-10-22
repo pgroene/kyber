@@ -517,9 +517,14 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             return row
         out: dict = {}
         missing_attr_fields: list[str] = []
+        _DROP_HINT = {"friendly_name", "icon", "entity_picture", "attribution"}
         for f in fields_set:
             if f in ("entity_id", "id"):
                 out["entity_id"] = eid
+            elif f == "attributes":
+                # All attributes at once; the model asks for them this way
+                # and used to get only "_missing_fields" back.
+                out["attributes"] = {k: v for k, v in attrs.items() if k not in _DROP_HINT}
             elif f == "name":
                 out["name"] = _humanize_name(attrs.get("friendly_name", eid))
             elif f == "state":
@@ -550,7 +555,6 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         # Always include available attribute keys when fields were specified,
         # so the AI knows what else it can request — even if no field was missing.
         # Only suppress this hint for entities with no useful extra attributes.
-        _DROP_HINT = {"friendly_name", "icon", "entity_picture", "attribution"}
         available = [k for k in attrs if k not in _DROP_HINT]
         if missing_attr_fields:
             out["_missing_fields"] = missing_attr_fields

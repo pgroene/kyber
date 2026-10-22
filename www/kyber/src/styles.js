@@ -1661,6 +1661,12 @@ export const STYLES = `
     padding: 2px 6px;
   }
   .ae-summary { color: var(--secondary-text-color, #aaa); margin-bottom: 6px; line-height: 1.4; }
+  .ae-check-warnings {
+    margin: 6px 0; padding: 6px 10px; border-radius: 6px; font-size: 12px; line-height: 1.4;
+    border: 1px solid var(--warning-color, #f9a825); background: rgba(249, 168, 37, 0.08);
+  }
+  .ae-check-title { font-weight: 600; margin-bottom: 2px; }
+  .ae-check-warnings ul { margin: 0; padding-left: 18px; }
   .ae-changes {
     margin: 0 0 8px 0;
     padding-left: 18px;

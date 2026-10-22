@@ -140,6 +140,23 @@ def _debug_detach_log_capture(handler: _KyberTurnLogHandler | None) -> None:
         _LOGGER.debug("Kyber: failed to detach per-turn log capture: %s", err)
 
 
+# Prompts kept per snapshot. The end carries the question and the tool rounds,
+# so a long prompt loses its middle, never its end (a 32 KB head cut hid both).
+_SNAPSHOT_PROMPT_CHARS = 256_000
+
+
+def _keep_ends(text: str, limit: int) -> str:
+    """``text`` within ``limit`` chars: start and end kept, the middle replaced by a marker."""
+    text = text or ""
+    if len(text) <= limit:
+        return text
+    cut = len(text) - limit
+    marker = f"\n\n[… {cut} chars cut from the middle …]\n\n"
+    head = (limit - len(marker)) // 2
+    tail = limit - len(marker) - head
+    return text[:head] + marker + text[-tail:]
+
+
 def _debug_record_turn(
     hass: HomeAssistant,
     *,
@@ -164,8 +181,8 @@ def _debug_record_turn(
         "request_id": request_id,
         "ts": int(time.time()),
         "user_prompt": user_prompt,
-        "expanded_prompt": expanded_prompt[:32000],
-        "instructions_used": instructions_used[:32000],
+        "expanded_prompt": _keep_ends(expanded_prompt, _SNAPSHOT_PROMPT_CHARS),
+        "instructions_used": _keep_ends(instructions_used, _SNAPSHOT_PROMPT_CHARS),
         "picked_knowledge": picked_knowledge,
         "tool_log": tool_log,
         "intent": intent,

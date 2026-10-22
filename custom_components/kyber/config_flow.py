@@ -421,6 +421,8 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Kyber."""
 
     VERSION = 1
+    # 2: max_tool_rounds default 3 → 6; see async_migrate_entry.
+    MINOR_VERSION = 2
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None

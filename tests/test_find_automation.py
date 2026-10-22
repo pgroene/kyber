@@ -131,7 +131,7 @@ def test_edit_plan_survives_an_informational_intent(kyber):
 
 # ── 2. rounds option ─────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize(("value", "expected"), [(None, 3), (5, 5), (0, 1), (99, 8), ("x", 3)])
+@pytest.mark.parametrize(("value", "expected"), [(None, 6), (5, 5), (0, 1), (99, 15), ("x", 6)])
 def test_max_tool_rounds_is_clamped(kyber, value, expected):
     cfg = {} if value is None else {kyber.const.CONF_MAX_TOOL_ROUNDS: value}
     assert kyber.const.get_max_tool_rounds(cfg) == expected
@@ -171,9 +171,16 @@ async def test_named_automation_is_preloaded_and_edit_plan_arrives(
 ) -> None:
     _write_automation(hass)
     seen: list[str] = []
+    # A complete, valid configuration: the check sends anything Home Assistant
+    # would reject back to the model, which would cost a second round here.
     plan = {
         "edit_automation": True, "entity_id": ENTITY, "automation_id": AUTO_ID, "summary": "Zeitplan",
-        "original_config": {"alias": ALIAS}, "modified_config": {"alias": ALIAS, "mode": "restart"},
+        "original_config": {"alias": ALIAS},
+        "modified_config": {
+            "alias": ALIAS, "mode": "restart",
+            "triggers": [{"trigger": "homeassistant", "event": "start"}],
+            "actions": [{"delay": "00:00:01"}],
+        },
     }
 
     async def fake_ai(*_args, instructions="", **_kwargs):
