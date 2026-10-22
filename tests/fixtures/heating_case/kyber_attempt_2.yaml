@@ -1,0 +1,118 @@
+# Kyber's second attempt (before the automation check): saw the real options in a tool
+# result but kept Night/Day/Lower, guessed the schedule values, sets no hvac_mode.
+alias: Kyber living room heating
+description: Controls the living room thermostat by schedule and manual mode.
+mode: single
+trigger:
+- entity_id:
+  - input_select.livingroom_heating_mode
+  to:
+  - 'Off'
+  - Night
+  - Day
+  - Auto
+  - Lower
+  trigger: state
+- entity_id: schedule.livingroom_heating_schedule
+  attribute: mode
+  to:
+  - 'Off'
+  - Night
+  - Day
+  - Auto
+  trigger: state
+condition: []
+action:
+- alias: Set the thermostat by mode
+  choose:
+  - conditions:
+    - condition: state
+      entity_id: input_select.livingroom_heating_mode
+      state: 'Off'
+    sequence:
+    - target:
+        entity_id: climate.livingroom_thermostat
+      action: climate.set_hvac_mode
+      data:
+        hvac_mode: 'off'
+  - conditions:
+    - condition: state
+      entity_id: input_select.livingroom_heating_mode
+      state: Lower
+    sequence:
+    - target:
+        entity_id: climate.livingroom_thermostat
+      data_template:
+        temperature: '{{ states(''input_number.livingroom_setback_temperature'') | float }}'
+      action: climate.set_temperature
+  - conditions:
+    - condition: state
+      entity_id: input_select.livingroom_heating_mode
+      state: Night
+    sequence:
+    - target:
+        entity_id: climate.livingroom_thermostat
+      data_template:
+        temperature: '{{ states(''input_number.livingroom_setback_temperature'') | float }}'
+      action: climate.set_temperature
+  - conditions:
+    - condition: state
+      entity_id: input_select.livingroom_heating_mode
+      state: Day
+    sequence:
+    - target:
+        entity_id: climate.livingroom_thermostat
+      data_template:
+        temperature: '{{ states(''input_number.livingroom_comfort_temperature'') | float }}'
+      action: climate.set_temperature
+  - conditions:
+    - condition: state
+      entity_id: input_select.livingroom_heating_mode
+      state: Auto
+    sequence:
+    - alias: 'Auto: read the mode from the schedule and act on it'
+      choose:
+      - conditions:
+        - condition: state
+          entity_id: schedule.livingroom_heating_schedule
+          attribute: mode
+          state: Day
+        sequence:
+        - target:
+            entity_id: climate.livingroom_thermostat
+          data_template:
+            temperature: '{{ states(''input_number.livingroom_comfort_temperature'') | float }}'
+          action: climate.set_temperature
+      - conditions:
+        - condition: state
+          entity_id: schedule.livingroom_heating_schedule
+          attribute: mode
+          state: Night
+        sequence:
+        - target:
+            entity_id: climate.livingroom_thermostat
+          data_template:
+            temperature: '{{ states(''input_number.livingroom_setback_temperature'') | float }}'
+          action: climate.set_temperature
+      - conditions:
+        - condition: state
+          entity_id: schedule.livingroom_heating_schedule
+          attribute: mode
+          state: Lower
+        sequence:
+        - target:
+            entity_id: climate.livingroom_thermostat
+          data_template:
+            temperature: '{{ states(''input_number.livingroom_setback_temperature'') | float }}'
+          action: climate.set_temperature
+      - conditions:
+        - condition: state
+          entity_id: schedule.livingroom_heating_schedule
+          attribute: mode
+          state: 'Off'
+        sequence:
+        - target:
+            entity_id: climate.livingroom_thermostat
+          action: climate.set_hvac_mode
+          data:
+            hvac_mode: 'off'

@@ -1,0 +1,108 @@
+# Kyber's live answer with the automation check (2026-10-22): the first proposal had 15
+# findings, this is the corrected one after a single correction round.
+alias: Kyber living room heating
+description: Controls the living room thermostat by schedule and manual mode.
+mode: single
+triggers:
+- trigger: state
+  entity_id: input_select.livingroom_heating_mode
+  to:
+  - Heat
+  - Auto
+  - Setback
+  - 'Off'
+- trigger: state
+  entity_id: schedule.livingroom_heating_schedule
+  to:
+  - 'on'
+  - 'off'
+- trigger: state
+  entity_id: schedule.livingroom_heating_schedule
+  attribute: mode
+  to:
+  - Auto
+  - Setback
+conditions: []
+actions:
+- alias: Set the thermostat by mode
+  choose:
+  - conditions:
+    - condition: state
+      entity_id: input_select.livingroom_heating_mode
+      state: 'Off'
+    sequence:
+    - target:
+        entity_id: climate.livingroom_thermostat
+      action: climate.set_hvac_mode
+      data:
+        hvac_mode: 'off'
+  - conditions:
+    - condition: state
+      entity_id: input_select.livingroom_heating_mode
+      state: Setback
+    sequence:
+    - target:
+        entity_id: climate.livingroom_thermostat
+      action: climate.set_temperature
+      data:
+        temperature: '{{ states(''input_number.livingroom_setback_temperature'') | float }}'
+        hvac_mode: heat
+  - conditions:
+    - condition: state
+      entity_id: input_select.livingroom_heating_mode
+      state: Heat
+    sequence:
+    - target:
+        entity_id: climate.livingroom_thermostat
+      action: climate.set_temperature
+      data:
+        temperature: '{{ states(''input_number.livingroom_comfort_temperature'') | float }}'
+        hvac_mode: heat
+  - conditions:
+    - condition: state
+      entity_id: input_select.livingroom_heating_mode
+      state: Auto
+    sequence:
+    - alias: 'Auto: read the mode from the schedule and act on it'
+      choose:
+      - conditions:
+        - condition: state
+          entity_id: schedule.livingroom_heating_schedule
+          state: 'on'
+        - condition: state
+          entity_id: schedule.livingroom_heating_schedule
+          attribute: mode
+          state: Auto
+        sequence:
+        - target:
+            entity_id: climate.livingroom_thermostat
+          action: climate.set_temperature
+          data:
+            temperature: '{{ states(''input_number.livingroom_comfort_temperature'') | float }}'
+            hvac_mode: heat
+      - conditions:
+        - condition: state
+          entity_id: schedule.livingroom_heating_schedule
+          state: 'on'
+        - condition: state
+          entity_id: schedule.livingroom_heating_schedule
+          attribute: mode
+          state: Setback
+        sequence:
+        - target:
+            entity_id: climate.livingroom_thermostat
+          action: climate.set_temperature
+          data:
+            temperature: '{{ states(''input_number.livingroom_setback_temperature'') | float }}'
+            hvac_mode: heat
+      - conditions:
+        - condition: state
+          entity_id: schedule.livingroom_heating_schedule
+          state: 'off'
+        sequence:
+        - target:
+            entity_id: climate.livingroom_thermostat
+          action: climate.set_temperature
+          data:
+            temperature: '{{ states(''input_number.livingroom_setback_temperature'') | float }}'
+            hvac_mode: heat

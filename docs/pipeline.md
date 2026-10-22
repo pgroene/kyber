@@ -156,7 +156,14 @@ never in the last tool round. Errors still present on the final plan arrive
 as `plan.check_warnings` (`severity`, `key`, `params`, `text`) and are shown
 on the plan card. Measured on the living room heating case against the
 local model: 3/13 behaviour checks without, 10–13/13 with entity data plus
-one correction round.
+one correction round; the live run after the change passed 13/13.
+
+`tests/test_heating_case.py` keeps the case as a behaviour test (generic
+names, data in `tests/heating_case.py` and `tests/fixtures/heating_case/`):
+it sets up each automation with Home Assistant's automation integration,
+switches the heating mode or the schedule and checks the climate calls that
+result. The reference solution and Kyber's checked fix must pass, the two
+broken attempts must leave the thermostat off and draw check errors.
 
 Each tool call adds an entry to `tool_log` with `name`, `args`, `status`,
 `ms`, and a small result preview.

@@ -1,0 +1,79 @@
+alias: Living room heating
+description: >-
+  Drives the living room thermostat by the heating mode. Off: heating off.
+  Setback: setback temperature. Heat: comfort temperature. Auto: by the
+  schedule; a block with mode "Auto" heats to the comfort temperature on
+  workdays and to the setback temperature otherwise, a block with mode
+  "Setback" sets back, outside the blocks the heating is off. A global away
+  switch overrides this: off or at most the setback temperature, a room that
+  is off stays off. Runs again on every input change and after a restart.
+triggers:
+  # Without to/from the trigger also fires on attribute changes, so also when
+  # the block data "mode" changes between two adjacent blocks.
+  - trigger: state
+    entity_id: schedule.livingroom_heating_schedule
+  - trigger: state
+    entity_id:
+      - input_select.livingroom_heating_mode
+      - input_number.livingroom_comfort_temperature
+      - input_number.livingroom_setback_temperature
+      - binary_sensor.workday
+      - input_boolean.heating_away
+      - input_select.heating_away_mode
+    to: null
+  - trigger: state
+    entity_id: climate.livingroom_thermostat
+    from: unavailable
+  - trigger: homeassistant
+    event: start
+conditions:
+  # Do nothing while the inputs are not loaded yet.
+  - condition: template
+    value_template: >-
+      {% set m = states('input_select.livingroom_heating_mode') %}
+      {{ m in ['Off', 'Auto', 'Setback', 'Heat']
+         and (m != 'Auto'
+              or states('schedule.livingroom_heating_schedule') in ['on', 'off']) }}
+actions:
+  - variables:
+      heating_mode: "{{ states('input_select.livingroom_heating_mode') }}"
+      block_active: "{{ is_state('schedule.livingroom_heating_schedule', 'on') }}"
+      block_mode: "{{ state_attr('schedule.livingroom_heating_schedule', 'mode') }}"
+      workday: "{{ is_state('binary_sensor.workday', 'on') }}"
+      comfort: "{{ states('input_number.livingroom_comfort_temperature') | float(20.5) }}"
+      setback: "{{ states('input_number.livingroom_setback_temperature') | float(17) }}"
+      away: "{{ is_state('input_boolean.heating_away', 'on') }}"
+      away_mode: "{{ states('input_select.heating_away_mode') }}"
+      # What the room wants without the away switch.
+      room_target: >-
+        {%- if heating_mode == 'Heat' -%}{{ comfort }}
+        {%- elif heating_mode == 'Setback' -%}{{ setback }}
+        {%- elif heating_mode == 'Auto' and block_active and block_mode == 'Auto' -%}
+          {{ comfort if workday else setback }}
+        {%- elif heating_mode == 'Auto' and block_active and block_mode == 'Setback' -%}{{ setback }}
+        {%- else -%}off
+        {%- endif -%}
+      # The away switch can only lower the target, never raise it.
+      target: >-
+        {%- if room_target == 'off' -%}off
+        {%- elif away and away_mode == 'Off' -%}off
+        {%- elif away -%}{{ [room_target | float, setback] | min }}
+        {%- else -%}{{ room_target }}
+        {%- endif -%}
+  - if:
+      - condition: template
+        value_template: "{{ target == 'off' }}"
+    then:
+      - action: climate.set_hvac_mode
+        target:
+          entity_id: climate.livingroom_thermostat
+        data:
+          hvac_mode: "off"
+    else:
+      - action: climate.set_temperature
+        target:
+          entity_id: climate.livingroom_thermostat
+        data:
+          hvac_mode: heat
+          temperature: "{{ target }}"
+mode: restart

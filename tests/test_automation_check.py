@@ -1,11 +1,11 @@
 """Proposed automations are checked before the user sees them.
 
-The case behind it: asked to fix the living room heating automation, Kyber kept
-input_select options and schedule values that do not exist, read a schedule
-attribute ``temperature`` that is not there and never set ``hvac_mode``, so the
-thermostat stayed off. In tests against the same local model, the real entity
-data plus one correction round with named findings lifted the result from
-3/13 to 10-13/13 on the living room test cases.
+The case behind it (see tests/heating_case.py): asked to fix a living room heating
+automation, Kyber kept selector options and schedule values that do not exist,
+read a schedule attribute ``temperature`` that is not there and never set
+``hvac_mode``, so the thermostat stayed off. In tests against the same local
+model, the real entity data plus one correction round with named findings
+lifted the result from 3/13 to 10-13/13 behaviour checks.
 """
 from __future__ import annotations
 
@@ -14,44 +14,49 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from homeassistant.core import HomeAssistant, SupportsResponse
+from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-AUTO_ID = "1700000000002"
-ENTITY = "automation.heating_livingroom"
-SEL = "input_select.heating_mode"
-PLAN = "schedule.heating_plan"
-CLIMATE = "climate.livingroom"
-HEIZ = "input_number.target_temperature"
-ABS = "input_number.setback_temperature"
+from tests.heating_case import (
+    COMFORT,
+    MODE,
+    MODE_OPTIONS,
+    SCHEDULE,
+    SETBACK,
+    THERMOSTAT,
+    set_up_home,
+)
 
-# Shortened from Kyber's second attempt (2026-10-22): invented options and
+AUTO_ID = "1700000000042"
+ENTITY = "automation.kyber_livingroom_heating"
+
+# Shortened from Kyber's attempts before the check: invented options and
 # schedule values, data_template, no hvac_mode, singular keys.
 BROKEN = {
-    "alias": "Heating living room",
+    "alias": "Kyber living room heating",
     "mode": "single",
     "trigger": [
-        {"trigger": "state", "entity_id": [SEL], "to": ["Off", "Night", "Auto", "Lower"]},
-        {"trigger": "state", "entity_id": PLAN, "attribute": "mode", "to": ["Off", "Day", "Auto"]},
+        {"trigger": "state", "entity_id": [MODE], "to": ["Off", "Night", "Auto", "Lower"]},
+        {"trigger": "state", "entity_id": SCHEDULE, "attribute": "mode", "to": ["Off", "Day", "Auto"]},
     ],
     "condition": [],
     "action": [{
         "choose": [
             {
-                "conditions": [{"condition": "state", "entity_id": SEL, "state": "Lower"}],
+                "conditions": [{"condition": "state", "entity_id": MODE, "state": "Lower"}],
                 "sequence": [{
-                    "action": "climate.set_temperature", "target": {"entity_id": CLIMATE},
-                    "data_template": {"temperature": f"{{{{ states('{ABS}') | float }}}}"},
+                    "action": "climate.set_temperature", "target": {"entity_id": THERMOSTAT},
+                    "data_template": {"temperature": f"{{{{ states('{SETBACK}') | float }}}}"},
                 }],
             },
             {
                 "conditions": [
-                    {"condition": "state", "entity_id": SEL, "state": "Auto"},
-                    {"condition": "state", "entity_id": PLAN, "attribute": "mode", "state": "Day"},
+                    {"condition": "state", "entity_id": MODE, "state": "Auto"},
+                    {"condition": "state", "entity_id": SCHEDULE, "attribute": "mode", "state": "Day"},
                 ],
                 "sequence": [{
-                    "action": "climate.set_temperature", "target": {"entity_id": CLIMATE},
-                    "data": {"temperature": f"{{{{ state_attr('{PLAN}', 'temperature') }}}}"},
+                    "action": "climate.set_temperature", "target": {"entity_id": THERMOSTAT},
+                    "data": {"temperature": f"{{{{ state_attr('{SCHEDULE}', 'temperature') }}}}"},
                 }],
             },
         ],
@@ -59,43 +64,35 @@ BROKEN = {
 }
 
 FIXED = {
-    "alias": "Heating living room",
+    "alias": "Kyber living room heating",
     "mode": "restart",
     "triggers": [
-        {"trigger": "state", "entity_id": [SEL], "to": ["Off", "Auto", "Setback", "Heat"]},
-        {"trigger": "state", "entity_id": PLAN},
+        {"trigger": "state", "entity_id": [MODE], "to": ["Off", "Auto", "Setback", "Heat"]},
+        {"trigger": "state", "entity_id": SCHEDULE},
     ],
     "conditions": [],
     "actions": [{
         "choose": [
             {
-                "conditions": [{"condition": "state", "entity_id": SEL, "state": "Off"}],
-                "sequence": [{"action": "climate.set_hvac_mode", "target": {"entity_id": CLIMATE},
+                "conditions": [{"condition": "state", "entity_id": MODE, "state": "Off"}],
+                "sequence": [{"action": "climate.set_hvac_mode", "target": {"entity_id": THERMOSTAT},
                               "data": {"hvac_mode": "off"}}],
             },
             {
                 "conditions": [
-                    {"condition": "state", "entity_id": SEL, "state": "Auto"},
-                    {"condition": "state", "entity_id": PLAN, "attribute": "mode", "state": "Auto"},
+                    {"condition": "state", "entity_id": MODE, "state": "Auto"},
+                    {"condition": "state", "entity_id": SCHEDULE, "attribute": "mode", "state": "Auto"},
                 ],
-                "sequence": [{"action": "climate.set_temperature", "target": {"entity_id": CLIMATE},
-                              "data": {"hvac_mode": "heat", "temperature": f"{{{{ states('{HEIZ}') | float }}}}"}}],
+                "sequence": [{"action": "climate.set_temperature", "target": {"entity_id": THERMOSTAT},
+                              "data": {"hvac_mode": "heat", "temperature": f"{{{{ states('{COMFORT}') | float }}}}"}}],
             },
             {
-                "conditions": [{"condition": "state", "entity_id": SEL, "state": "Setback"}],
-                "sequence": [{"action": "climate.set_temperature", "target": {"entity_id": CLIMATE},
-                              "data": {"hvac_mode": "heat", "temperature": f"{{{{ states('{ABS}') | float }}}}"}}],
+                "conditions": [{"condition": "state", "entity_id": MODE, "state": "Setback"}],
+                "sequence": [{"action": "climate.set_temperature", "target": {"entity_id": THERMOSTAT},
+                              "data": {"hvac_mode": "heat", "temperature": f"{{{{ states('{SETBACK}') | float }}}}"}}],
             },
         ],
     }],
-}
-
-SCHEDULE = {
-    "monday": [
-        {"from": "05:30:00", "to": "07:30:00", "data": {"mode": "Auto"}},
-        {"from": "21:30:00", "to": "23:59:59", "data": {"mode": "Setback"}},
-    ],
-    "tuesday": [{"from": "05:30:00", "to": "07:30:00", "data": {"mode": "Auto"}}],
 }
 
 
@@ -119,17 +116,8 @@ def kyber():
 
 @pytest.fixture
 def home(hass: HomeAssistant):
-    """The living room heating entities as the user's Home Assistant has them."""
-    hass.states.async_set(SEL, "Auto", {"options": ["Heat", "Auto", "Setback", "Off"]})
-    hass.states.async_set(PLAN, "on", {"mode": "Auto", "next_event": "2026-10-22T07:30:00", "editable": True})
-    hass.states.async_set(CLIMATE, "off", {"hvac_modes": ["off", "heat"], "temperature": 20.5, "current_temperature": 18.1})
-    hass.states.async_set(HEIZ, "20.5", {"min": 5, "max": 30})
-    hass.states.async_set(ABS, "17.0", {"min": 5, "max": 30})
-
-    async def get_schedule(call):
-        return {PLAN: SCHEDULE}
-
-    hass.services.async_register("schedule", "get_schedule", get_schedule, supports_response=SupportsResponse.ONLY)
+    """The heating entities of the case, thermostat off."""
+    set_up_home(hass)
     return hass
 
 
@@ -143,10 +131,10 @@ async def test_kybers_broken_fix_gets_named_findings(kyber, home):
     findings = await kyber.check.check_config(home, BROKEN)
     errors = [f.text for f in findings if f.severity == kyber.check.ERROR]
 
-    assert any("'Lower' is not a valid state of " + SEL in e for e in errors)
-    assert any("'Night' is not a valid state of " + SEL in e for e in errors)
-    assert any("'Day' is not a valid attribute 'mode' of " + PLAN in e for e in errors)
-    assert any(f"{PLAN} has no attribute 'temperature'" in e for e in errors)
+    assert any("'Lower' is not a valid state of " + MODE in e for e in errors)
+    assert any("'Night' is not a valid state of " + MODE in e for e in errors)
+    assert any("'Day' is not a valid attribute 'mode' of " + SCHEDULE in e for e in errors)
+    assert any(f"{SCHEDULE} has no attribute 'temperature'" in e for e in errors)
     assert {"rule_hvac_mode", "rule_schedule_end", "style_data_template", "style_plural"} <= set(_keys(findings))
     assert "schema" not in _keys(findings), "Home Assistant still accepts the old syntax"
 
@@ -158,23 +146,23 @@ async def test_the_fixed_config_has_no_errors(kyber, home):
 
 async def test_valid_values_come_from_all_schedule_blocks(kyber, home):
     """mode "Setback" is not active now, but a block uses it."""
-    config = {**FIXED, "triggers": [{"trigger": "state", "entity_id": PLAN, "attribute": "mode", "to": "Setback"},
-                                    {"trigger": "state", "entity_id": PLAN}]}
+    config = {**FIXED, "triggers": [{"trigger": "state", "entity_id": SCHEDULE, "attribute": "mode", "to": "Setback"},
+                                    {"trigger": "state", "entity_id": SCHEDULE}]}
     findings = await kyber.check.check_config(home, config)
     assert "bad_value" not in _keys(findings)
 
 
 async def test_switching_on_first_satisfies_the_hvac_rule(kyber, home):
     config = {**FIXED, "actions": [
-        {"action": "climate.set_hvac_mode", "target": {"entity_id": CLIMATE}, "data": {"hvac_mode": "heat"}},
-        {"action": "climate.set_temperature", "target": {"entity_id": CLIMATE}, "data": {"temperature": 21}},
+        {"action": "climate.set_hvac_mode", "target": {"entity_id": THERMOSTAT}, "data": {"hvac_mode": "heat"}},
+        {"action": "climate.set_temperature", "target": {"entity_id": THERMOSTAT}, "data": {"temperature": 21}},
     ]}
     findings = await kyber.check.check_config(home, config)
     assert "rule_hvac_mode" not in _keys(findings)
 
 
 async def test_home_assistant_schema_errors_are_findings(kyber, home):
-    """The 2/13 run: HA disabled the automation for a choose with ``default: true``."""
+    """A measured run: HA disabled the automation for a choose with ``default: true``."""
     config = {**FIXED, "actions": [{"choose": [], "default": True}]}
     findings = await kyber.check.check_config(home, config)
     schema = [f for f in findings if f.key == "schema"]
@@ -183,13 +171,13 @@ async def test_home_assistant_schema_errors_are_findings(kyber, home):
 
 
 async def test_unknown_entities_are_findings(kyber, home):
-    config = {**FIXED, "actions": [{"action": "light.turn_on", "target": {"entity_id": "light.gibt_es_nicht"}}]}
+    config = {**FIXED, "actions": [{"action": "light.turn_on", "target": {"entity_id": "light.does_not_exist"}}]}
     findings = await kyber.check.check_config(home, config)
-    assert any(f.key == "no_entity" and f.params["entity_id"] == "light.gibt_es_nicht" for f in findings)
+    assert any(f.key == "no_entity" and f.params["entity_id"] == "light.does_not_exist" for f in findings)
 
 
 async def test_style_alone_triggers_no_correction(kyber, home):
-    config = {**FIXED, "actions": [{"service": "climate.set_hvac_mode", "target": {"entity_id": CLIMATE},
+    config = {**FIXED, "actions": [{"service": "climate.set_hvac_mode", "target": {"entity_id": THERMOSTAT},
                                     "data": {"hvac_mode": "off"}}]}
     findings = await kyber.check.check_config(home, config)
     assert "style_service" in _keys(findings)
@@ -216,16 +204,16 @@ def test_plan_config_finds_the_proposed_config(kyber):
 
 async def test_entity_context_shows_options_attributes_and_block_values(kyber, home):
     ids = kyber.check.referenced_entity_ids(home, BROKEN)
-    assert ids == [SEL, PLAN, CLIMATE, ABS], "services such as climate.set_temperature drop out"
+    assert ids == [MODE, SCHEDULE, THERMOSTAT, SETBACK], "services such as climate.set_temperature drop out"
     text = await kyber.check.entity_context(home, ids, await kyber.check.collect_schedule_values(home, ids))
-    assert '["Heat", "Auto", "Setback", "Off"]' in text
+    assert json.dumps(MODE_OPTIONS) in text
     assert 'mode ∈ ["Auto", "Setback"]' in text
     assert 'hvac_modes=["off", "heat"]' in text
 
 
 async def test_a_missing_schedule_service_leaves_no_block_values(kyber, hass):
-    hass.states.async_set(PLAN, "off", {})
-    assert await kyber.check.schedule_data_values(hass, PLAN) == {}
+    hass.states.async_set(SCHEDULE, "off", {})
+    assert await kyber.check.schedule_data_values(hass, SCHEDULE) == {}
 
 
 # ── tools and response handling ──────────────────────────────────────────────
@@ -233,7 +221,7 @@ async def test_a_missing_schedule_service_leaves_no_block_values(kyber, hass):
 async def test_get_entity_state_returns_all_attributes_on_request(kyber, home):
     """The model asked with fields ["state", "attributes"] and got only "_missing_fields"."""
     result = json.loads(kyber.tools._execute_tool(home, {
-        "name": "get_entity_state", "entity_id": PLAN, "fields": ["state", "attributes"],
+        "name": "get_entity_state", "entity_id": SCHEDULE, "fields": ["state", "attributes"],
     }))
     assert result["state"] == "on"
     assert result["attributes"]["mode"] == "Auto"
@@ -245,20 +233,20 @@ async def test_service_names_are_not_reported_as_unknown_entities(kyber, home):
         return None
 
     home.services.async_register("climate", "set_temperature", _noop)
-    text = "Ich setze `climate.set_temperature` auf `climate.gibt_es_nicht`."
+    text = "I call `climate.set_temperature` on `climate.does_not_exist`."
     out = kyber.http_api._extract_response_components(text, "action", "x", home, [])
     assert "climate.set_temperature`" not in out["response_text"].split("Note:")[-1]
-    assert "climate.gibt_es_nicht" in out["response_text"].split("Note:")[-1]
+    assert "climate.does_not_exist" in out["response_text"].split("Note:")[-1]
 
 
 def test_debug_snapshot_keeps_start_and_end(kyber):
-    text = "A" * 300_000 + "User: frage\nAssistant:"
+    text = "A" * 300_000 + "User: question\nAssistant:"
     kept = kyber.debug._keep_ends(text, kyber.debug._SNAPSHOT_PROMPT_CHARS)
     assert len(kept) == kyber.debug._SNAPSHOT_PROMPT_CHARS
     assert kept.startswith("AAAA")
-    assert kept.endswith("User: frage\nAssistant:")
+    assert kept.endswith("User: question\nAssistant:")
     assert "chars cut from the middle" in kept
-    assert kyber.debug._keep_ends("kurz", 100) == "kurz"
+    assert kyber.debug._keep_ends("short", 100) == "short"
 
 
 # ── migration of the old round default ───────────────────────────────────────
@@ -311,7 +299,7 @@ def _plan(config: dict) -> str:
         "edit_automation": True, "entity_id": ENTITY, "automation_id": AUTO_ID, "summary": "Heating",
         "original_config": BROKEN, "modified_config": config,
     }
-    return f"Vorschlag:\n\n```plan\n{json.dumps(plan, ensure_ascii=False)}\n```"
+    return f"Proposal:\n\n```plan\n{json.dumps(plan, ensure_ascii=False)}\n```"
 
 
 def _write_automation(hass: HomeAssistant) -> None:
@@ -346,7 +334,7 @@ async def test_a_rejected_proposal_gets_one_correction_round(home, setup_integra
 
     assert len(seen) == 2, "first proposal, then one correction"
     assert "### Entities this configuration uses" in seen[0]
-    assert '"Heat", "Auto", "Setback", "Off"' in seen[0]
+    assert json.dumps(MODE_OPTIONS)[1:-1] in seen[0]
     from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
 
     assert f"#### Home Assistant {MAJOR_VERSION}.{MINOR_VERSION}: write configurations" in seen[0]
