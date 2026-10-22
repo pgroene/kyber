@@ -6,7 +6,7 @@
  *   - 2 cols: chat | editor
  *   - 3 cols: chat | editor | simulator
  *
- * Debug pane must render inside the chat column (below the chat input).
+ * Debug pane spans all columns below chat and editor, with or without editor.
  */
 import { test, expect } from "@playwright/test";
 import { gotoHarness } from "./helpers.js";
@@ -138,21 +138,81 @@ test.describe("Layout — debug pane placement", () => {
     await expect(page.locator("#debug-pane")).toBeVisible();
   }
 
-  test("debug pane is inside the chat column", async ({ page }) => {
+  async function boxes(page) {
+    return page.evaluate(() => {
+      const root = window.__panel.shadowRoot;
+      const box = (sel) => {
+        const r = root.querySelector(sel).getBoundingClientRect();
+        return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width };
+      };
+      return {
+        container: box("#app-container"),
+        chat: box(".chat-pane"),
+        editor: box("#editor-container"),
+        debug: box("#debug-pane"),
+      };
+    });
+  }
+
+  test("debug pane spans the full width without editor", async ({ page }) => {
     await gotoHarness(page);
     await showDebugPane(page);
 
-    const chatBox  = await page.locator(".chat-pane").boundingBox();
-    const debugBox = await page.locator("#debug-pane").boundingBox();
-
-    expect(chatBox).toBeTruthy();
-    expect(debugBox).toBeTruthy();
-
-    // Debug pane left-edge must be >= chat left-edge
-    expect(debugBox.x).toBeGreaterThanOrEqual(chatBox.x - 2);
-    // Debug pane right-edge must be <= chat right-edge
-    expect(debugBox.x + debugBox.width).toBeLessThanOrEqual(chatBox.x + chatBox.width + 2);
+    const b = await boxes(page);
+    expect(b.debug.x).toBeLessThanOrEqual(b.container.x + 2);
+    expect(b.debug.right).toBeGreaterThanOrEqual(b.container.right - 2);
+    expect(b.debug.y).toBeGreaterThanOrEqual(b.chat.bottom - 2);
     await page.screenshot({ path: "screenshots/layout-debug-under-chat.png" });
+  });
+
+  test("debug pane keeps the full width when the editor opens", async ({ page }) => {
+    await gotoHarness(page);
+    await showDebugPane(page);
+    const before = await boxes(page);
+    await openEditor(page);
+
+    const b = await boxes(page);
+    // Same horizontal extent as before: it does not move into the chat column.
+    expect(Math.abs(b.debug.x - before.debug.x)).toBeLessThanOrEqual(2);
+    expect(Math.abs(b.debug.width - before.debug.width)).toBeLessThanOrEqual(2);
+    // Below both chat and editor; the editor ends where the debug pane starts,
+    // so no empty cell is left under the editor.
+    expect(b.debug.y).toBeGreaterThanOrEqual(b.chat.bottom - 2);
+    expect(b.debug.y).toBeGreaterThanOrEqual(b.editor.bottom - 2);
+    expect(Math.abs(b.editor.bottom - b.chat.bottom)).toBeLessThanOrEqual(2);
+    await page.screenshot({ path: "screenshots/layout-debug-full-width-editor.png" });
+  });
+
+  test("debug pane spans all three columns with the simulator open", async ({ page }) => {
+    await gotoHarness(page);
+    await showDebugPane(page);
+    await openEditor(page);
+    await openSimulator(page);
+
+    const b = await boxes(page);
+    const sim = await page.locator("#sim-pane").boundingBox();
+    expect(b.debug.x).toBeLessThanOrEqual(b.container.x + 2);
+    expect(b.debug.right).toBeGreaterThanOrEqual(sim.x + sim.width - 2);
+    expect(b.debug.y).toBeGreaterThanOrEqual(sim.y + sim.height - 2);
+  });
+
+  test("standalone debug panel still fills the area below the toolbar", async ({ page }) => {
+    // The Kyber Debug sidebar panel sets .debug-mode; its more specific rule
+    // must win over the row-3 placement of the regular panel.
+    await gotoHarness(page);
+    await page.evaluate(() => {
+      window.__panel.shadowRoot.getElementById("app-container").classList.add("debug-mode");
+    });
+    await showDebugPane(page);
+
+    const b = await boxes(page);
+    const toolbarBottom = await page.evaluate(
+      () => window.__panel.shadowRoot.querySelector(".toolbar").getBoundingClientRect().bottom,
+    );
+    expect(b.debug.x).toBeLessThanOrEqual(b.container.x + 2);
+    expect(b.debug.right).toBeGreaterThanOrEqual(b.container.right - 2);
+    expect(Math.abs(b.debug.y - toolbarBottom)).toBeLessThanOrEqual(2);
+    expect(b.debug.bottom).toBeGreaterThanOrEqual(b.container.bottom - 2);
   });
 
   test("debug pane is below the chat input area", async ({ page }) => {

@@ -1071,6 +1071,10 @@ export const STYLES = `
   }
   .btn-debug:hover { color: var(--primary-color); border-color: var(--primary-color); }
   .debug-pane {
+    /* Full width below chat and editor. Auto-placed, it would land in column 1
+       only once the editor opens, leaving an empty cell under the editor. */
+    grid-column: 1 / -1;
+    grid-row: 3;
     flex: 0 0 auto;
     display: flex;
     flex-direction: column;
