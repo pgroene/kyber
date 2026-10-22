@@ -209,6 +209,10 @@ def resolve_tool_call(call: dict[str, Any]) -> dict[str, Any]:
             if alt in call:
                 call = {**call, "area": call[alt]}
                 break
+    if name == "get_area_entities" and isinstance(call.get("area"), str):
+        # "Zitkamer", "zitkamer" and " zitkamer " name the same area; one form
+        # gives them one dedup signature, so a repeat is caught as a repeat.
+        call = {**call, "area": " ".join(call["area"].split()).casefold()}
     return call
 
 
@@ -548,20 +552,25 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         }, default=str)
 
     if name == "get_area_entities":
-        area_query = (call.get("area") or "").strip().lower()
+        area_query = " ".join(str(call.get("area") or "").split()).casefold()
         if not area_query:
             return json.dumps({"error": "Missing 'area' argument"})
-        areas = area_reg.async_list_areas()
-        area_obj = next(
-            (a for a in areas if a.id == area_query or a.name.lower() == area_query),
-            None,
-        )
-        if not area_obj:
+        # Match like HA does (case and spaces ignored, as in HA's normalize_name).
+        # HA refuses to create a second area with such a name, but older stored
+        # registries can hold one; then all matches count, so no area's
+        # entities go missing.
+        query_key = area_query.replace(" ", "")
+        matched = [
+            a for a in area_reg.async_list_areas()
+            if a.id == area_query or a.normalized_name == query_key
+        ]
+        if not matched:
             return json.dumps({"error": f"Area '{area_query}' not found"})
+        matched_ids = {a.id for a in matched}
         domain_filter = (call.get("domain") or "").strip().lower()
         results = {}
         for entry in entity_reg.entities.values():
-            if _effective_area_id(entry) != area_obj.id:
+            if _effective_area_id(entry) not in matched_ids:
                 continue
             if domain_filter and entry.entity_id.split(".")[0] != domain_filter:
                 continue
@@ -573,7 +582,10 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             if fields_set is None:
                 projection["domain"] = entry.entity_id.split(".")[0]
             results[entry.entity_id] = projection
-        return json.dumps({"area": area_obj.name, "entities": results})
+        out: dict[str, Any] = {"area": matched[0].name, "entities": results}
+        if len(matched) > 1:
+            out["area_ids"] = sorted(matched_ids)
+        return json.dumps(out)
 
     if name == "list_entities_by_label":
         label_query = (call.get("label") or "").strip().lower()

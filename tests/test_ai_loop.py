@@ -119,7 +119,8 @@ class TestResolveToolCall:
     def test_area_arg_alias_area_name(self):
         call = {"name": "get_area_entities", "area_name": "Living Room"}
         result = resolve_tool_call(call)
-        assert result.get("area") == "Living Room"
+        # One form per area, so another spelling is caught as a repeat.
+        assert result.get("area") == "living room"
 
     def test_area_not_overwritten_when_present(self):
         call = {"name": "get_area_entities", "area": "kitchen", "area_id": "living_room"}

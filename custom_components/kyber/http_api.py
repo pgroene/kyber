@@ -1557,7 +1557,9 @@ async def _run_ai_loop(
         seen_signatures: set = set()
         unique_calls = []
         for call in tool_calls:
-            # Canonical signature: tool name + sorted args
+            # Canonical signature: resolved tool name + sorted args, so an alias
+            # or another spelling of the same area counts as a repeat.
+            call = resolve_tool_call(call)
             sig_dict = {k: v for k, v in call.items() if k != "name"}
             sig = json.dumps({"name": call.get("name", ""), "args": sig_dict}, sort_keys=True)
             if sig in seen_signatures:
