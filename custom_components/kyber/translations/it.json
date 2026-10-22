@@ -64,9 +64,7 @@
               "narrator_max_tokens": "Modello operativo: finestra di contesto (token)"
             },
             "data_description": {
-              "max_tokens": "{chat_stats}",
-              "narrator_ai_task_entity_id": "Utilizzato per l?elaborazione in batch e per piccoli compiti come la narrazione delle entit?. Un modello pi? piccolo ed economico funziona bene qui. Per impostazione predefinita, il modello chat.",
-              "narrator_max_tokens": "{ops_stats}"
+              "narrator_ai_task_entity_id": "Utilizzato per l?elaborazione in batch e per piccoli compiti come la narrazione delle entit?. Un modello pi? piccolo ed economico funziona bene qui. Per impostazione predefinita, il modello chat."
             }
           },
           "agents": {
@@ -80,8 +78,6 @@
               "deep_learning_max_batch": "Dimensione batch del deep learning"
             },
             "data_description": {
-              "narrator_interval_days": "{narrator_run_stats}",
-              "deep_learning_interval_days": "{deep_learning_run_stats}"
             }
           },
           "area_assignment": {

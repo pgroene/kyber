@@ -64,9 +64,7 @@
               "narrator_max_tokens": "M?veleti modell: kontextusablak (token)"
             },
             "data_description": {
-              "max_tokens": "{chat_stats}",
-              "narrator_ai_task_entity_id": "K?tegelt feldolgoz?shoz ?s kisebb feladatokhoz, p?ld?ul entit?snarr?ci?hoz haszn?latos. Itt egy kisebb, olcs?bb modell is j?l m?k?dik. Alap?rtelmez?s szerint a cseveg?si modell.",
-              "narrator_max_tokens": "{ops_stats}"
+              "narrator_ai_task_entity_id": "K?tegelt feldolgoz?shoz ?s kisebb feladatokhoz, p?ld?ul entit?snarr?ci?hoz haszn?latos. Itt egy kisebb, olcs?bb modell is j?l m?k?dik. Alap?rtelmez?s szerint a cseveg?si modell."
             }
           },
           "agents": {
@@ -80,8 +78,6 @@
               "deep_learning_max_batch": "Deep learning k?tegm?ret"
             },
             "data_description": {
-              "narrator_interval_days": "{narrator_run_stats}",
-              "deep_learning_interval_days": "{deep_learning_run_stats}"
             }
           },
           "area_assignment": {

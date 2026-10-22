@@ -64,9 +64,7 @@
               "narrator_max_tokens": "Modelo de operaciones: ventana de contexto (tokens)"
             },
             "data_description": {
-              "max_tokens": "{chat_stats}",
-              "narrator_ai_task_entity_id": "Se utiliza para procesamiento por lotes y tareas peque?as como la narraci?n de entidades. Un modelo m?s peque?o y econ?mico funciona bien aqu?. Por defecto, el modelo de chat.",
-              "narrator_max_tokens": "{ops_stats}"
+              "narrator_ai_task_entity_id": "Se utiliza para procesamiento por lotes y tareas peque?as como la narraci?n de entidades. Un modelo m?s peque?o y econ?mico funciona bien aqu?. Por defecto, el modelo de chat."
             }
           },
           "agents": {
@@ -80,8 +78,6 @@
               "deep_learning_max_batch": "Tama?o de lote de aprendizaje profundo"
             },
             "data_description": {
-              "narrator_interval_days": "{narrator_run_stats}",
-              "deep_learning_interval_days": "{deep_learning_run_stats}"
             }
           },
           "area_assignment": {

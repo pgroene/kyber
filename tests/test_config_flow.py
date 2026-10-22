@@ -323,8 +323,7 @@ async def test_options_flow_shows_stats_placeholders(hass: HomeAssistant) -> Non
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "init"
     placeholders = result.get("description_placeholders", {})
-    assert "chat_stats" in placeholders
-    assert "ops_stats" in placeholders
+    assert {"chat_calls", "ops_calls", "narrator_last", "deep_learning_total"} <= set(placeholders)
 
 
 async def test_options_flow_saves_narrator_max_tokens(hass: HomeAssistant) -> None:

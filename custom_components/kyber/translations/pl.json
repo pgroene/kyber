@@ -64,9 +64,7 @@
               "narrator_max_tokens": "Model operacyjny: okno kontekstu (tokeny)"
             },
             "data_description": {
-              "max_tokens": "{chat_stats}",
-              "narrator_ai_task_entity_id": "U?ywane do przetwarzania wsadowego i ma?ych zada?, takich jak opisy encji. Mniejszy i ta?szy model sprawdza si? tu dobrze. Domy?lnie u?ywany jest model czatu.",
-              "narrator_max_tokens": "{ops_stats}"
+              "narrator_ai_task_entity_id": "U?ywane do przetwarzania wsadowego i ma?ych zada?, takich jak opisy encji. Mniejszy i ta?szy model sprawdza si? tu dobrze. Domy?lnie u?ywany jest model czatu."
             }
           },
           "agents": {
@@ -80,8 +78,6 @@
               "deep_learning_max_batch": "Rozmiar partii g??bokiego uczenia"
             },
             "data_description": {
-              "narrator_interval_days": "{narrator_run_stats}",
-              "deep_learning_interval_days": "{deep_learning_run_stats}"
             }
           },
           "area_assignment": {

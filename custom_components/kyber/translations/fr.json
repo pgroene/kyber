@@ -64,9 +64,7 @@
               "narrator_max_tokens": "Mod?le d?op?rations : fen?tre de contexte (jetons)"
             },
             "data_description": {
-              "max_tokens": "{chat_stats}",
-              "narrator_ai_task_entity_id": "Utilis? pour le traitement par lots et les petites t?ches comme la narration d?entit?s. Un mod?le plus petit et moins co?teux fonctionne bien ici. Par d?faut, le mod?le de chat.",
-              "narrator_max_tokens": "{ops_stats}"
+              "narrator_ai_task_entity_id": "Utilis? pour le traitement par lots et les petites t?ches comme la narration d?entit?s. Un mod?le plus petit et moins co?teux fonctionne bien ici. Par d?faut, le mod?le de chat."
             }
           },
           "agents": {
@@ -80,8 +78,6 @@
               "deep_learning_max_batch": "Taille de lot de l?apprentissage profond"
             },
             "data_description": {
-              "narrator_interval_days": "{narrator_run_stats}",
-              "deep_learning_interval_days": "{deep_learning_run_stats}"
             }
           },
           "area_assignment": {

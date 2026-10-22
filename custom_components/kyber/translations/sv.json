@@ -64,9 +64,7 @@
               "narrator_max_tokens": "Operationsmodell: kontextf?nster (token)"
             },
             "data_description": {
-              "max_tokens": "{chat_stats}",
-              "narrator_ai_task_entity_id": "Anv?nds f?r batchning och sm? uppgifter s?som entitetsbeskrivningar. En mindre, billigare modell fungerar bra h?r. Standard ?r chattmodellen.",
-              "narrator_max_tokens": "{ops_stats}"
+              "narrator_ai_task_entity_id": "Anv?nds f?r batchning och sm? uppgifter s?som entitetsbeskrivningar. En mindre, billigare modell fungerar bra h?r. Standard ?r chattmodellen."
             }
           },
           "agents": {
@@ -80,8 +78,6 @@
               "deep_learning_max_batch": "Batchstorlek f?r deep learning"
             },
             "data_description": {
-              "narrator_interval_days": "{narrator_run_stats}",
-              "deep_learning_interval_days": "{deep_learning_run_stats}"
             }
           },
           "area_assignment": {
