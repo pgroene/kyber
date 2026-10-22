@@ -178,6 +178,43 @@ async def collect_schedule_values(hass: HomeAssistant, entity_ids: list[str]) ->
 
 # ── The check ───────────────────────────────────────────────────────────────
 
+# Target keys a service call may carry in data (the old form of target:).
+_TARGET_KEYS = frozenset({"entity_id", "device_id", "area_id", "floor_id", "label_id"})
+
+
+def _field_names(description: dict) -> set[str]:
+    """Field names of a service description; sections (e.g. temperature_range) are opened up."""
+    names: set[str] = set()
+    for key, value in (description.get("fields") or {}).items():
+        if isinstance(value, dict) and isinstance(value.get("fields"), dict):
+            names |= set(value["fields"])
+        else:
+            names.add(key)
+    return names
+
+
+async def service_fields(hass: HomeAssistant) -> dict[str, set[str]]:
+    """``domain.service`` -> its field names, for every described service that has fields.
+
+    Services without a description or without fields are left out, so a
+    custom integration that documents nothing never produces a finding.
+    """
+    from homeassistant.helpers.service import async_get_all_descriptions
+
+    try:
+        descriptions = await async_get_all_descriptions(hass)
+    except Exception as err:  # noqa: BLE001 – the check must never break a turn
+        _LOGGER.debug("Kyber: service descriptions unavailable: %s", err)
+        return {}
+    out: dict[str, set[str]] = {}
+    for domain, services in (descriptions or {}).items():
+        for service, description in (services or {}).items():
+            names = _field_names(description or {})
+            if names:
+                out[f"{domain}.{service}"] = names
+    return out
+
+
 def _as_list(value: Any) -> list:
     if value is None:
         return []
@@ -244,10 +281,33 @@ def _schema_message(config: dict, err: Exception) -> str:
 class _Walker:
     """Collects entity, attribute and value findings over a configuration."""
 
-    def __init__(self, hass: HomeAssistant, schedule_values: dict[str, dict]) -> None:
+    def __init__(
+        self, hass: HomeAssistant, schedule_values: dict[str, dict], service_fields: dict[str, set[str]] | None = None,
+    ) -> None:
         self.hass = hass
         self.schedule_values = schedule_values
+        self.service_fields = service_fields or {}
         self.findings: list[Finding] = []
+
+    def check_service_data(self, node: dict, path: str) -> None:
+        """Every data key must be a field of the service (Home Assistant's own service descriptions).
+
+        Measured: a model wrote ``target_temp`` for climate.set_temperature;
+        HA accepts the automation and rejects every call at run time.
+        """
+        service = node.get("action") or node.get("service")
+        fields = self.service_fields.get(service) if isinstance(service, str) else None
+        data = node.get("data") if isinstance(node.get("data"), dict) else node.get("data_template")
+        if not fields or not isinstance(data, dict):
+            return
+        for key in data:
+            if key not in fields and key not in _TARGET_KEYS:
+                valid = sorted(fields)
+                self._add(
+                    ERROR, "unknown_field",
+                    f"action {path}: {service} has no field '{key}'. Fields: {valid}.",
+                    service=service, field=key, valid=valid,
+                )
 
     def _add(self, severity: str, key: str, text: str, **params: Any) -> None:
         self.findings.append(Finding(severity, key, text, params))
@@ -314,6 +374,7 @@ class _Walker:
             self.state_check(node, _as_list(node.get("to")) + _as_list(node.get("from")), f"trigger {path}")
         if node.get("condition") == "state":
             self.state_check(node, _as_list(node.get("state")), f"condition {path}")
+        self.check_service_data(node, path)
         if "data_template" in node:
             self._add(STYLE, "style_data_template", f"{path}: data_template is deprecated; put templates directly into data.")
         if "service" in node and "action" not in node:
@@ -386,7 +447,7 @@ async def check_config(
         return [Finding(ERROR, "schema", "The configuration is not a mapping.", {"message": "not a mapping"})]
     if schedule_values is None:
         schedule_values = await collect_schedule_values(hass, referenced_entity_ids(hass, config))
-    walker = _Walker(hass, schedule_values)
+    walker = _Walker(hass, schedule_values, await service_fields(hass))
     findings = await _schema_findings(hass, config, kind)
     body = {k: v for k, v in config.items() if k not in ("id", "alias", "description")}
     walker.walk(body, "")

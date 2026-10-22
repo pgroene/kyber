@@ -104,7 +104,9 @@ The AI can also propose a plan directly in the chat flow:
 
 A proposed automation or script is checked before its card appears: Home
 Assistant's own validator, the real entities (options, attributes, attribute
-values, including every value a schedule helper's blocks use) and two rules
+values, including every value a schedule helper's blocks use), the fields of
+every service call (an unknown field such as `target_temp` for
+`climate.set_temperature` is reported with the valid ones) and two rules
 (`climate.set_temperature` needs `hvac_mode` to switch a thermostat on; a
 schedule trigger on an attribute misses the end of a block). The AI gets up
 to two rounds to fix what the check finds. Whatever is still wrong appears

@@ -51,6 +51,18 @@ describe("automation cards: remaining check findings", () => {
     expect(items(card)).toEqual(["climate.set_temperature without hvac_mode does not switch on a thermostat that is off."]);
   });
 
+  it("an unknown service field names the valid ones", () => {
+    const { element } = makePanel({ language: "de" });
+    const card = element._buildEditAutomationCard({
+      ...editPlan,
+      check_warnings: [{
+        severity: "error", key: "unknown_field", text: "…",
+        params: { service: "climate.set_temperature", field: "target_temp", valid: ["hvac_mode", "temperature"] },
+      }],
+    });
+    expect(items(card)).toEqual(["climate.set_temperature kennt kein Feld „target_temp“. Felder: hvac_mode, temperature."]);
+  });
+
   it("a plan without findings has no warning block", () => {
     const { element } = makePanel({ language: "de" });
     const card = element._buildEditAutomationCard({ ...editPlan, check_warnings: undefined });

@@ -143,6 +143,10 @@ the user sees it:
   config editor runs on save),
 - every entity, attribute, option and attribute value against the real
   entities,
+- every data key of a service call against the fields Home Assistant
+  describes for that service (its services.yaml; sections such as
+  `temperature_range` included, target keys allowed). Services without a
+  description are not checked,
 - two domain rules: `climate.set_temperature` without `hvac_mode` (unless
   the thermostat is switched on just before), and schedule triggers that only
   watch an attribute and so miss the end of a block,

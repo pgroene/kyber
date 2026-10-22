@@ -26,6 +26,7 @@ from tests.heating_case import (
     THERMOSTAT,
     set_up_home,
 )
+from tests.service_descriptions import described
 
 AUTO_ID = "1700000000042"
 ENTITY = "automation.kyber_livingroom_heating"
@@ -178,6 +179,44 @@ async def test_a_rejected_trigger_is_located_and_fully_explained(kyber, home):
     assert "not a valid option at 'event_type' (in triggers[2])" in schema.text
     assert "required key not provided at 'event'" in schema.text
     assert "never delete it" in kyber.check.feedback_for_model(findings)
+
+
+def _set_temperature(data: dict) -> dict:
+    return {**FIXED, "actions": [{"action": "climate.set_temperature", "target": {"entity_id": THERMOSTAT},
+                                  "data": data}]}
+
+
+async def test_unknown_service_fields_are_findings(kyber, home):
+    """Measured: "target_temp" instead of "temperature"; HA accepts the automation, rejects every call."""
+    with described(["climate"]):
+        findings = await kyber.check.check_config(home, _set_temperature({"hvac_mode": "heat", "target_temp": 21}))
+    finding = next(f for f in findings if f.key == "unknown_field")
+    assert finding.severity == kyber.check.ERROR
+    assert finding.params["field"] == "target_temp"
+    assert {"temperature", "hvac_mode", "target_temp_low", "target_temp_high"} <= set(finding.params["valid"])
+
+
+async def test_known_service_fields_and_target_keys_pass(kyber, home):
+    data = {"hvac_mode": "heat", "temperature": 21, "entity_id": THERMOSTAT}
+    with described(["climate"]):
+        findings = await kyber.check.check_config(home, _set_temperature(data))
+    assert "unknown_field" not in _keys(findings)
+
+
+async def test_the_example_fixes_use_only_known_fields(kyber, home):
+    from tests.heating_case import load
+
+    with described(["climate", "input_number", "input_select"]):
+        for name in ("reference", "kyber_checked_fix"):
+            findings = await kyber.check.check_config(home, load(name))
+            assert "unknown_field" not in _keys(findings), name
+
+
+async def test_undescribed_services_are_not_checked(kyber, home):
+    """Without a description nothing is known about a service, so nothing is claimed."""
+    with described([]):
+        findings = await kyber.check.check_config(home, _set_temperature({"hvac_mode": "heat", "target_temp": 21}))
+    assert "unknown_field" not in _keys(findings)
 
 
 async def test_unknown_entities_are_findings(kyber, home):
