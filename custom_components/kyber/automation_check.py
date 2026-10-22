@@ -200,9 +200,45 @@ async def _schema_findings(hass: HomeAssistant, config: dict, kind: str) -> list
 
             await async_validate_config_item(hass, "kyber_check", copy.deepcopy(config))
     except Exception as err:  # noqa: BLE001 – any rejection is a finding
-        message = str(err) or type(err).__name__
+        message = _schema_message(config, err)
         return [Finding(ERROR, "schema", f"Home Assistant rejects this configuration: {message}", {"message": message})]
     return []
+
+
+def _key_locations(node: Any, key: str, path: str = "") -> list[str]:
+    """Paths of the mappings in ``node`` that contain ``key``."""
+    found: list[str] = []
+    if isinstance(node, dict):
+        if key in node:
+            found.append(path or "top level")
+        for k, v in node.items():
+            found += _key_locations(v, key, f"{path}.{k}" if path else k)
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            found += _key_locations(v, key, f"{path}[{i}]")
+    return found
+
+
+def _schema_message(config: dict, err: Exception) -> str:
+    """Every sub-error of a rejection, each with where it is when that can be found.
+
+    Home Assistant validates each trigger on its own, so its path names only
+    the key ("event_type"), not the trigger, and str() shows only the first
+    sub-error. Told just "not a valid option at 'event_type'", the model
+    deleted the trigger instead of writing "event: start".
+    """
+    parts: list[str] = []
+    for sub in getattr(err, "errors", None) or [err]:
+        text = str(sub) or type(sub).__name__
+        path = getattr(sub, "path", None) or []
+        key = path[-1] if path and isinstance(path[-1], str) else None
+        if key and ("not a valid option" in text or "extra keys not allowed" in text):
+            where = _key_locations(config, key)
+            if where:
+                text += f" (in {', '.join(where[:3])})"
+        if text not in parts:
+            parts.append(text)
+    return "; ".join(parts)
 
 
 class _Walker:
@@ -379,9 +415,11 @@ def feedback_for_model(findings: list[Finding]) -> str:
     """The tool result a correction round sends; empty when no error needs fixing."""
     if not any(f.severity == ERROR for f in findings):
         return ""
+    # Live run: told a trigger was invalid, the model dropped the trigger.
     lines = [(
         "The proposed configuration was checked against Home Assistant and the real entities. "
-        "Fix every finding and emit the complete corrected plan block again:"
+        "Fix every finding in place and emit the complete corrected plan block again. Repair a "
+        "rejected trigger, condition or action in valid syntax; never delete it to make a finding go away:"
     )]
     lines += [f"- {f.text}" for f in findings if f.severity == ERROR]
     style = [f"- {f.text}" for f in findings if f.severity == STYLE]

@@ -170,6 +170,16 @@ async def test_home_assistant_schema_errors_are_findings(kyber, home):
     assert "default" in schema[0].text
 
 
+async def test_a_rejected_trigger_is_located_and_fully_explained(kyber, home):
+    """Live run: told only "not a valid option at 'event_type'", the model deleted the restart trigger."""
+    config = {**FIXED, "triggers": [*FIXED["triggers"], {"platform": "homeassistant", "event_type": "start"}]}
+    findings = await kyber.check.check_config(home, config)
+    schema = next(f for f in findings if f.key == "schema")
+    assert "not a valid option at 'event_type' (in triggers[2])" in schema.text
+    assert "required key not provided at 'event'" in schema.text
+    assert "never delete it" in kyber.check.feedback_for_model(findings)
+
+
 async def test_unknown_entities_are_findings(kyber, home):
     config = {**FIXED, "actions": [{"action": "light.turn_on", "target": {"entity_id": "light.does_not_exist"}}]}
     findings = await kyber.check.check_config(home, config)
