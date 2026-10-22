@@ -168,7 +168,6 @@ async def _make_ai_call(
                 deployment=provider_cfg["azure_deployment"],
                 api_version=provider_cfg["azure_api_version"],
                 instructions=instructions,
-                history=[],
             ),
             timeout=_CORRECTION_TIMEOUT,
         )
@@ -181,7 +180,6 @@ async def _make_ai_call(
                 model=provider_cfg["openai_model"],
                 base_url=provider_cfg["openai_base_url"] or None,
                 instructions=instructions,
-                history=[],
             ),
             timeout=_CORRECTION_TIMEOUT,
         )
@@ -193,7 +191,6 @@ async def _make_ai_call(
                 api_key=provider_cfg["anthropic_key"],
                 model=provider_cfg["anthropic_model"],
                 instructions=instructions,
-                history=[],
             ),
             timeout=_CORRECTION_TIMEOUT,
         )

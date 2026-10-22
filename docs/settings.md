@@ -157,7 +157,7 @@ Controls which AI models Kyber uses and how many tokens each is allowed.
 | Field | Key | Default | Notes |
 |---|---|---|---|
 | Chat Model | `ai_task_entity_id` | *(first found)* | Any `ai_task.*` entity; see [Choosing a Model](../README.md#choosing-a-model) |
-| Chat Model: Context Window | `max_tokens` | `20000` (auto-detected) | Kyber truncates its prompt to stay within this limit |
+| Chat Model: Context Window | `max_tokens` | `20000` (auto-detected) | The prompt fills at most 75 % of it; older history is left out first (see [Chat & AI](chat-and-ai.md#fitting-the-prompt-into-the-context-window)). Ignored when a cloud provider handles chat |
 | Operations Model | `narrator_ai_task_entity_id` | *(same as chat)* | Optional separate model for narration and batch tasks |
 | Operations Model: Context Window | `narrator_max_tokens` | `4000` | Context limit for the operations model |
 

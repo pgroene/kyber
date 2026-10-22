@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from http import HTTPStatus
 from typing import Any
 
@@ -22,6 +23,7 @@ from .const import CONF_AI_TASK_ENTITY_ID, CONF_AZURE_ENDPOINT, CONF_AZURE_API_K
 from .session_and_storage import (
     _async_load_chat_store, _async_save_chat_store,
     _migrate_user_to_sessions, _get_active_session, _sanitize_history,
+    _CHAT_SUMMARY_MAX_CHARS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -136,6 +138,21 @@ class _AzureAIResult:
         self.usage = usage or {}
 
 
+def _chat_messages(instructions: str, system: str, messages: list[dict] | None) -> list[dict]:
+    """OpenAI-style message list: ``system`` first, then ``messages`` or one user message.
+
+    ``messages`` is a complete conversation from ChatPrompt.render_messages
+    (history, question, tool rounds); without it ``instructions`` is the only
+    user message.
+    """
+    out: list[dict] = [{"role": "system", "content": system}] if system else []
+    if messages:
+        out.extend({"role": m["role"], "content": m["content"]} for m in messages)
+    else:
+        out.append({"role": "user", "content": instructions})
+    return out
+
+
 async def async_azure_ai_call(
     *,
     task_name: str,
@@ -143,11 +160,14 @@ async def async_azure_ai_call(
     api_key: str,
     deployment: str,
     api_version: str,
-    instructions: str,
-    history: list | None = None,
+    instructions: str = "",
+    system: str = "",
+    messages: list[dict] | None = None,
 ) -> _AzureAIResult:
     """Call Azure AI Foundry (Azure OpenAI) chat completions directly via aiohttp.
 
+    Sends ``system`` as the system message and either ``messages`` (a full
+    conversation) or ``instructions`` as the single user message.
     Returns an _AzureAIResult with .data = response text string.
     Raises HomeAssistantError on HTTP / connection errors.
     Retries up to 3 times on HTTP 429 (rate limit), honouring the Retry-After header.
@@ -169,16 +189,8 @@ async def async_azure_ai_call(
         f"{_origin}/openai/deployments/{deployment}"
         f"/chat/completions?api-version={api_version}"
     )
-    messages: list[dict] = []
-    if history:
-        for entry in history:
-            role = entry.get("role", "user")
-            content = entry.get("content", "")
-            if role in ("user", "assistant", "system") and content:
-                messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": instructions})
-
-    payload = {"messages": messages}
+    chat = _chat_messages(instructions, system, messages)
+    payload = {"messages": chat}
     headers = {
         "api-key": api_key,
         "Content-Type": "application/json",
@@ -186,7 +198,7 @@ async def async_azure_ai_call(
 
     _AI_LOG.debug(
         "[Azure→] task=%s deployment=%s url=%s messages=%d prompt_chars=%d",
-        task_name, deployment, url, len(messages), len(instructions),
+        task_name, deployment, url, len(chat), sum(len(m["content"]) for m in chat),
     )
 
     _MAX_RETRIES = 3
@@ -247,12 +259,16 @@ async def async_openai_ai_call(
     task_name: str,
     api_key: str,
     model: str,
-    instructions: str,
-    history: list | None = None,
+    instructions: str = "",
+    system: str = "",
+    messages: list[dict] | None = None,
     base_url: str | None = None,
 ) -> _AzureAIResult:
     """Call OpenAI chat completions directly via aiohttp.
 
+    Sends ``system`` as the system message and either ``messages`` (a full
+    conversation) or ``instructions`` as the single user message. OpenAI
+    caches a repeated prompt start automatically.
     Returns an _AzureAIResult with .data = response text string.
     Raises HomeAssistantError on HTTP / connection errors.
     Retries up to 3 times on HTTP 429 (rate limit), honouring the Retry-After header.
@@ -264,16 +280,8 @@ async def async_openai_ai_call(
     _base = (base_url or "https://api.openai.com").rstrip("/")
     url = f"{_base}/v1/chat/completions"
 
-    messages: list[dict] = []
-    if history:
-        for entry in history:
-            role = entry.get("role", "user")
-            content = entry.get("content", "")
-            if role in ("user", "assistant", "system") and content:
-                messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": instructions})
-
-    payload = {"model": model, "messages": messages}
+    chat = _chat_messages(instructions, system, messages)
+    payload = {"model": model, "messages": chat}
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -281,7 +289,7 @@ async def async_openai_ai_call(
 
     _AI_LOG.debug(
         "[OpenAI→] task=%s model=%s url=%s messages=%d prompt_chars=%d",
-        task_name, model, url, len(messages), len(instructions),
+        task_name, model, url, len(chat), sum(len(m["content"]) for m in chat),
     )
 
     _MAX_RETRIES = 3
@@ -342,11 +350,16 @@ async def async_anthropic_ai_call(
     task_name: str,
     api_key: str,
     model: str,
-    instructions: str,
-    history: list | None = None,
+    instructions: str = "",
+    system: str = "",
+    messages: list[dict] | None = None,
 ) -> _AzureAIResult:
     """Call Anthropic Claude via the Messages API.
 
+    ``system`` goes into the top-level system field, marked for prompt caching;
+    ``messages`` (a full conversation from ChatPrompt.render_messages, strictly
+    alternating and starting with a user message) or ``instructions`` as the
+    single user message follow.
     Returns an _AzureAIResult with .data = response text string.
     Raises HomeAssistantError on HTTP / connection errors.
     Retries up to 3 times on HTTP 429, honouring the Retry-After header.
@@ -356,37 +369,16 @@ async def async_anthropic_ai_call(
 
     url = "https://api.anthropic.com/v1/messages"
 
-    # Build messages list — Anthropic requires strict user/assistant alternation.
-    # System messages from history are prepended as a system prompt.
-    system_parts: list[str] = []
-    messages: list[dict] = []
-    if history:
-        for entry in history:
-            role = entry.get("role", "user")
-            content = entry.get("content", "")
-            if not content:
-                continue
-            if role == "system":
-                system_parts.append(content)
-            elif role in ("user", "assistant"):
-                # Ensure alternation — merge consecutive same-role entries
-                if messages and messages[-1]["role"] == role:
-                    messages[-1]["content"] += "\n" + content
-                else:
-                    messages.append({"role": role, "content": content})
-    # Current turn
-    if messages and messages[-1]["role"] == "user":
-        messages[-1]["content"] += "\n" + instructions
-    else:
-        messages.append({"role": "user", "content": instructions})
-
+    chat = _chat_messages(instructions, "", messages)
     payload: dict = {
         "model": model,
         "max_tokens": 8096,
-        "messages": messages,
+        "messages": chat,
     }
-    if system_parts:
-        payload["system"] = "\n\n".join(system_parts)
+    if system:
+        # The system part is the stable start of every chat request; caching
+        # it saves its input tokens on the next request.
+        payload["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
 
     headers = {
         "x-api-key": api_key,
@@ -396,7 +388,7 @@ async def async_anthropic_ai_call(
 
     _AI_LOG.debug(
         "[Anthropic→] task=%s model=%s messages=%d prompt_chars=%d",
-        task_name, model, len(messages), len(instructions),
+        task_name, model, len(chat), len(system) + sum(len(m["content"]) for m in chat),
     )
 
     _MAX_RETRIES = 3
@@ -550,11 +542,12 @@ Your job is to maintain a running summary of a conversation between a user and a
 
 Rules:
 - Merge the previous summary with the new messages into one updated, concise summary.
-- Always copy lines that start with [CHANGE] into the new summary exactly as written. These record actual changes made to the Home Assistant setup and must never be dropped.
 - Keep the summary short and factual — focus on what was asked, what was decided, and what was changed.
+- Changes made to the Home Assistant setup are recorded separately, word for word; you do not need to repeat them in full.
+- The summary must not exceed __MAX_CHARS__ characters. When it would, shorten the oldest points first.
 - Do not include pleasantries or meta-commentary. Output only the summary text.
 - Write the summary in the same language as the conversation.\
-"""
+""".replace("__MAX_CHARS__", str(_CHAT_SUMMARY_MAX_CHARS))
 
 
 class KyberSummarizeView(HomeAssistantView):
@@ -607,12 +600,23 @@ class KyberSummarizeView(HomeAssistantView):
                 entity_id=entity_id,
                 instructions=instructions,
             )
-        except Exception as err:  # noqa: BLE001 — summarize must never fail
+        except Exception as err:  # noqa: BLE001 — the panel keeps the messages and retries later
             _LOGGER.error("Summarize AI task failed: %s", err)
-            # Fall back: append messages as plain text rather than failing
-            fallback_lines = [f"[{m.get('role','user').upper()}] {m.get('content','')}" for m in messages]
-            fallback = (previous_summary + "\n" + "\n".join(fallback_lines)).strip()
-            return self.json({"summary": fallback})
+            # No text fallback: appending the raw messages grew the summary
+            # without bound and then lost its newest part to the storage cap.
+            return self.json_message(f"Summarize failed: {err}", HTTPStatus.SERVICE_UNAVAILABLE)
 
         summary_text: str = result.data if isinstance(result.data, str) else str(result.data)
-        return self.json({"summary": summary_text.strip()})
+        return self.json({"summary": _fit_summary(summary_text)})
+
+
+def _fit_summary(text: str) -> str:
+    """Bound a summary to the stored limit, cutting its oldest (first) part if needed.
+
+    The summarizer is told the limit; this only catches an overlong answer, so
+    panel and storage always hold the same text.
+    """
+    text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL).strip()
+    if len(text) <= _CHAT_SUMMARY_MAX_CHARS:
+        return text
+    return "…" + text[-(_CHAT_SUMMARY_MAX_CHARS - 1):]

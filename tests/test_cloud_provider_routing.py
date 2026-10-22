@@ -195,6 +195,60 @@ async def test_azure_provider_routes_to_azure_call(
     assert kwargs.get("api_version") == DEFAULT_AZURE_API_VERSION
 
 
+_PROVIDERS = {
+    "openai": (_PATCH_OPENAI, {
+        CONF_CLOUD_PROVIDER: CLOUD_PROVIDER_OPENAI, CONF_CLOUD_USE_FOR_CHAT: True,
+        CONF_OPENAI_API_KEY: "sk-test-openai", CONF_OPENAI_MODEL: "gpt-4o",
+    }),
+    "anthropic": (_PATCH_ANTHROPIC, {
+        CONF_CLOUD_PROVIDER: CLOUD_PROVIDER_ANTHROPIC, CONF_CLOUD_USE_FOR_CHAT: True,
+        CONF_ANTHROPIC_API_KEY: "sk-ant-test", CONF_ANTHROPIC_MODEL: DEFAULT_ANTHROPIC_MODEL,
+    }),
+    "azure": (_PATCH_AZURE, {
+        CONF_CLOUD_PROVIDER: CLOUD_PROVIDER_AZURE, CONF_CLOUD_USE_FOR_CHAT: True,
+        CONF_AZURE_ENDPOINT: "https://my-resource.openai.azure.com",
+        CONF_AZURE_API_KEY: "azure-key", CONF_AZURE_DEPLOYMENT: "gpt-4o-deployment",
+    }),
+}
+
+
+@pytest.mark.parametrize("provider", sorted(_PROVIDERS))
+async def test_cloud_chat_sends_each_history_message_once(
+    hass: HomeAssistant, hass_client, provider: str,
+) -> None:
+    """The history reaches the provider once, as role messages behind the system part."""
+    patch_target, options = _PROVIDERS[provider]
+    await _setup_with_cloud(hass, options)
+    hass.states.async_set("person.peter", "home", {"friendly_name": "Peter"})
+
+    client = await hass_client()
+    body = {
+        "prompt": "And the hallway?",
+        "history": [
+            {"role": "user", "content": "Is the kitchen light on?"},
+            {"role": "assistant", "content": "UNIQUE-ANSWER-4711"},
+        ],
+        "compacted_changes": ["[CHANGE] Turned on light.kitchen"],
+    }
+    with patch(patch_target, new_callable=AsyncMock, return_value=_make_ai_result("ok")) as mock_call:
+        resp = await client.post("/api/kyber/complete", json=body)
+
+    assert resp.status == 200
+    kwargs = mock_call.call_args.kwargs
+    assert "history" not in kwargs
+    system, messages = kwargs["system"], kwargs["messages"]
+    everything = system + "".join(m["content"] for m in messages)
+    assert everything.count("UNIQUE-ANSWER-4711") == 1
+    assert everything.count("[CHANGE] Turned on light.kitchen") == 1
+    assert {"role": "assistant", "content": "UNIQUE-ANSWER-4711"} in messages
+    # Live states change per request: never in the cached system part
+    assert "Person Locations" not in system
+    assert "Person Locations" in messages[-1]["content"]
+    assert messages[-1]["role"] == "user" and messages[-1]["content"].endswith("And the hallway?")
+    roles = [m["role"] for m in messages]
+    assert roles[0] == "user" and all(a != b for a, b in zip(roles, roles[1:]))
+
+
 async def test_none_provider_falls_back_to_ha_ai_task(
     hass: HomeAssistant, hass_client,
 ) -> None:

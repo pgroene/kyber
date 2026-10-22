@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from http import HTTPStatus
 from typing import Any
 
@@ -19,9 +20,24 @@ _LOGGER = logging.getLogger(__name__)
 
 _CHAT_HISTORY_STORE_VERSION = 1
 _CHAT_HISTORY_STORE_KEY = f"{DOMAIN}_chat_history"
-_CHAT_HISTORY_MAX_MESSAGES = 20
+# The panel compacts the history once it holds more than 20 messages (see
+# _COMPACT_COUNT_TRIGGER in kyber-panel.js), so this cap only bites when
+# compaction keeps failing; it must stay above that trigger.
+_CHAT_HISTORY_MAX_MESSAGES = 50
 _CHAT_MESSAGE_MAX_CHARS = 2000
+# The summarizer is told this limit and /api/kyber/summarize enforces it
+# (api_utilities._fit_summary), so the panel never holds a longer summary than
+# the store keeps.
 _CHAT_SUMMARY_MAX_CHARS = 2000
+# [CHANGE] records that left the history through compaction: kept word for
+# word instead of in the summary, newest last.
+_COMPACTED_CHANGES_MAX = 20
+_CHANGE_MAX_CHARS = 1000
+# Card payload (meta.render) of one AI reply; 20 messages × 20k stays well
+# below a few hundred kB per session.
+_CHAT_RENDER_MAX_CHARS = 20000
+_RENDER_STATUS_CARDS = frozenset({"plan", "clarify", "learned_fact"})
+_RENDER_STATUS_VALUES = frozenset({"done", "dismissed", "undone"})
 _SESSIONS_MAX = 20
 _SESSION_NAME_MAX_CHARS = 80
 
@@ -89,17 +105,88 @@ def _sanitize_history(messages: Any) -> list[dict]:
         if not content:
             continue
         entry: dict = {"role": role, "content": content[:_CHAT_MESSAGE_MAX_CHARS]}
-        # Preserve meta.history_entry_id for Undo button restoration — whitelist only
+        # Whitelisted meta: history_entry_id restores the Undo button, render
+        # rebuilds the cards of an AI reply after a page reload.
         raw_meta = msg.get("meta")
-        if isinstance(raw_meta, dict) and isinstance(raw_meta.get("history_entry_id"), str):
-            entry["meta"] = {"history_entry_id": raw_meta["history_entry_id"]}
+        if isinstance(raw_meta, dict):
+            meta: dict = {}
+            if isinstance(raw_meta.get("history_entry_id"), str):
+                meta["history_entry_id"] = raw_meta["history_entry_id"]
+            render = _sanitize_render(raw_meta.get("render"))
+            if render:
+                meta["render"] = render
+            if meta:
+                entry["meta"] = meta
         normalized.append(entry)
     return normalized[-_CHAT_HISTORY_MAX_MESSAGES:]
+
+
+def _sanitize_render(render: Any) -> dict | None:
+    """Keep the known card fields of an AI reply, typed and size-bounded.
+
+    The panel rebuilds plan/YAML/clarify/memory cards from this after a page
+    reload; the builders escape every value they render. A payload above
+    _CHAT_RENDER_MAX_CHARS is dropped as a whole, the reply then stays text.
+    """
+    if not isinstance(render, dict):
+        return None
+    out: dict = {}
+    for key in ("plan", "clarify", "learned_fact"):
+        if isinstance(render.get(key), dict):
+            out[key] = render[key]
+    yaml_blocks = render.get("yaml_blocks")
+    if isinstance(yaml_blocks, list):
+        blocks = [b for b in yaml_blocks if isinstance(b, str)]
+        if blocks:
+            out["yaml_blocks"] = blocks
+    knowledge_used = render.get("knowledge_used")
+    if isinstance(knowledge_used, list):
+        ids = [k for k in knowledge_used if isinstance(k, (str, int)) and not isinstance(k, bool)]
+        if ids:
+            out["knowledge_used"] = ids
+    status = render.get("status")
+    if isinstance(status, dict):
+        kept = {
+            card: state for card, state in status.items()
+            if card in _RENDER_STATUS_CARDS and state in _RENDER_STATUS_VALUES
+        }
+        if kept:
+            out["status"] = kept
+    if not out or set(out) == {"status"}:
+        return None
+    try:
+        size = len(json.dumps(out, ensure_ascii=False))
+    except (TypeError, ValueError):
+        return None
+    if size > _CHAT_RENDER_MAX_CHARS:
+        _LOGGER.debug("Chat history: dropping %d-char card payload (limit %d)", size, _CHAT_RENDER_MAX_CHARS)
+        return None
+    return out
 
 
 def _sanitize_summary(summary: Any) -> str:
     """Normalize compacted summary to a bounded string."""
     return str(summary or "").strip()[:_CHAT_SUMMARY_MAX_CHARS]
+
+
+def _sanitize_changes(changes: Any) -> list[str]:
+    """Normalize the compacted [CHANGE] records: strings only, bounded, newest last."""
+    if not isinstance(changes, list):
+        return []
+    out = [c.strip()[:_CHANGE_MAX_CHARS] for c in changes if isinstance(c, str) and c.strip()]
+    return out[-_COMPACTED_CHANGES_MAX:]
+
+
+def _resolve_session(user_data: dict[str, Any], session_id: Any) -> tuple[str, dict[str, Any]] | None:
+    """Session the request names, or the active one when it names none.
+
+    A named session that no longer exists yields None: writing into whatever
+    session is active instead would put a late request into the wrong chat.
+    """
+    if session_id:
+        session = user_data.get("sessions", {}).get(str(session_id))
+        return (str(session_id), session) if isinstance(session, dict) else None
+    return _get_active_session(user_data)
 
 
 def _get_or_create_store(hass: HomeAssistant) -> tuple[Store, asyncio.Lock]:
@@ -115,34 +202,61 @@ async def _async_load_chat_store(hass: HomeAssistant) -> dict[str, Any]:
     """Load persisted chat history store, migrating old single-session format if needed."""
     store, lock = _get_or_create_store(hass)
     async with lock:
-        data = await store.async_load()
-        if not isinstance(data, dict):
-            return {"users": {}}
-        users = data.get("users")
-        if not isinstance(users, dict):
-            data["users"] = {}
-            return data
-        # Migrate users from old {history, compacted_summary} format to sessions format
-        migrated = False
-        pre_migration_users: dict[str, Any] = {}
-        for uid, udata in list(users.items()):
-            if isinstance(udata, dict) and "sessions" not in udata and "history" in udata:
-                pre_migration_users[uid] = udata  # snapshot for rollback
-                users[uid] = _migrate_user_to_sessions(udata)
-                migrated = True
-        if migrated:
-            try:
-                await store.async_save(data)
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning(
-                    "Kyber: chat history migration succeeded in memory but failed to persist "
-                    "(%s). History will be re-migrated on next restart — no data is lost.",
-                    err,
-                )
-                # Roll back in-memory changes so callers see the original format
-                for uid, original in pre_migration_users.items():
-                    users[uid] = original
+        return await _async_load_chat_store_locked(store)
+
+
+async def _async_load_chat_store_locked(store: Store) -> dict[str, Any]:
+    """Body of _async_load_chat_store; the caller holds the store lock."""
+    data = await store.async_load()
+    if not isinstance(data, dict):
+        return {"users": {}}
+    users = data.get("users")
+    if not isinstance(users, dict):
+        data["users"] = {}
         return data
+    # Migrate users from old {history, compacted_summary} format to sessions format
+    migrated = False
+    pre_migration_users: dict[str, Any] = {}
+    for uid, udata in list(users.items()):
+        if isinstance(udata, dict) and "sessions" not in udata and "history" in udata:
+            pre_migration_users[uid] = udata  # snapshot for rollback
+            users[uid] = _migrate_user_to_sessions(udata)
+            migrated = True
+    if migrated:
+        try:
+            await store.async_save(data)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning(
+                "Kyber: chat history migration succeeded in memory but failed to persist "
+                "(%s). History will be re-migrated on next restart — no data is lost.",
+                err,
+            )
+            # Roll back in-memory changes so callers see the original format
+            for uid, original in pre_migration_users.items():
+                users[uid] = original
+    return data
+
+
+async def _async_update_user_chat(
+    hass: HomeAssistant, user_id: str, mutate: Callable[[dict[str, Any]], Any]
+) -> Any:
+    """Load, change and save one user's chat data while holding the store lock.
+
+    A separate load and save let two requests interleave, and the later save
+    would drop the earlier change. ``mutate`` gets the user's data (sessions
+    format) and returns the result passed back to the caller.
+    """
+    store, lock = _get_or_create_store(hass)
+    async with lock:
+        data = await _async_load_chat_store_locked(store)
+        users = data.setdefault("users", {})
+        user_data = users.get(user_id, {})
+        if "sessions" not in user_data:
+            user_data = _migrate_user_to_sessions(user_data)
+        result = mutate(user_data)
+        users[user_id] = user_data
+        await store.async_save(data)
+    return result
 
 
 async def _async_save_chat_store(hass: HomeAssistant, data: dict[str, Any]) -> None:
@@ -187,13 +301,14 @@ class KyberHistoryView(HomeAssistantView):
             {
                 "history": _sanitize_history(session.get("history", [])),
                 "compacted_summary": _sanitize_summary(session.get("compacted_summary", "")),
+                "compacted_changes": _sanitize_changes(session.get("compacted_changes", [])),
                 "session_id": sid,
                 "session_name": session.get("name", "Session 1"),
             }
         )
 
     async def post(self, request: web.Request) -> web.Response:
-        """Save persisted chat history for the active session."""
+        """Save persisted chat history for the named (default: active) session."""
         hass: HomeAssistant = request.app["hass"]
         user_id = self._user_id_from_request(request)
         if not user_id:
@@ -204,34 +319,41 @@ class KyberHistoryView(HomeAssistantView):
         except (json.JSONDecodeError, ValueError):
             return self.json_message("Invalid JSON body", HTTPStatus.BAD_REQUEST)
 
-        data = await _async_load_chat_store(hass)
-        users = data.setdefault("users", {})
-        user_data = users.get(user_id, {})
-        user_data = _migrate_user_to_sessions(user_data) if "sessions" not in user_data else user_data
-        sid, session = _get_active_session(user_data)
-        session["history"] = _sanitize_history(body.get("history", []))
-        session["compacted_summary"] = _sanitize_summary(body.get("compacted_summary", ""))
-        users[user_id] = user_data
-        await _async_save_chat_store(hass, data)
+        def _save(user_data: dict[str, Any]) -> bool:
+            resolved = _resolve_session(user_data, body.get("session_id"))
+            if resolved is None:
+                return False
+            _sid, session = resolved
+            session["history"] = _sanitize_history(body.get("history", []))
+            session["compacted_summary"] = _sanitize_summary(body.get("compacted_summary", ""))
+            session["compacted_changes"] = _sanitize_changes(body.get("compacted_changes", []))
+            return True
+
+        if not await _async_update_user_chat(hass, user_id, _save):
+            return self.json_message("Session not found", HTTPStatus.NOT_FOUND)
         return self.json({"status": "ok"})
 
     async def delete(self, request: web.Request) -> web.Response:
-        """Clear persisted chat history for the active session only."""
+        """Clear the chat history of the named (default: active) session."""
         hass: HomeAssistant = request.app["hass"]
         user_id = self._user_id_from_request(request)
         if not user_id:
             return self.json_message("Unable to resolve authenticated user", HTTPStatus.UNAUTHORIZED)
 
-        data = await _async_load_chat_store(hass)
-        users = data.get("users", {})
-        user_data = users.get(user_id)
-        if user_data:
-            user_data = _migrate_user_to_sessions(user_data) if "sessions" not in user_data else user_data
-            sid, session = _get_active_session(user_data)
+        session_id = request.query.get("session_id")
+
+        def _clear(user_data: dict[str, Any]) -> bool:
+            resolved = _resolve_session(user_data, session_id)
+            if resolved is None:
+                return False
+            _sid, session = resolved
             session["history"] = []
             session["compacted_summary"] = ""
-            users[user_id] = user_data
-            await _async_save_chat_store(hass, data)
+            session["compacted_changes"] = []
+            return True
+
+        if not await _async_update_user_chat(hass, user_id, _clear):
+            return self.json_message("Session not found", HTTPStatus.NOT_FOUND)
         return self.json({"status": "ok"})
 
 

@@ -476,6 +476,39 @@ async def test_history_and_summary_included_in_context(
     assert "Done." in instr
 
 
+async def test_long_history_keeps_the_question(
+    hass: HomeAssistant, setup_integration, hass_client
+) -> None:
+    """Ten messages of 1 100 chars (below the panel's compaction threshold)
+    overflow an 8K window; the oldest messages go, the question stays."""
+    captured = {}
+
+    async def fake(hass, *, task_name, entity_id, instructions, **kw):
+        captured["v"] = instructions
+        return _make_ai_result("ok")
+
+    hass.data["kyber_config"] = {**(hass.data.get("kyber_config") or {}), "max_tokens": 8192}
+    history = [
+        {"role": "user" if i % 2 == 0 else "assistant", "content": f"msg{i:02d} " + "x" * 1_100}
+        for i in range(10)
+    ]
+    client = await hass_client()
+    with patch(_PATCH_GENERATE, side_effect=fake):
+        resp = await client.post(
+            "/api/kyber/complete",
+            json={"prompt": "which lights are still on?", "history": history},
+        )
+
+    assert resp.status == 200
+    instr = captured["v"]
+    assert len(instr) <= 8192 * 4 * 0.75
+    assert instr.endswith("User: which lights are still on?\nAssistant:")
+    assert "msg09" in instr  # newest message kept
+    assert "msg00" not in instr  # oldest dropped first
+    assert "[Older messages omitted to fit the context window]" in instr
+    assert "You are an expert Home Assistant assistant" in instr  # system core intact
+
+
 async def test_dashboard_editor_mode_injects_yaml_section(
     hass: HomeAssistant, setup_integration, hass_client
 ) -> None:
@@ -609,7 +642,7 @@ async def test_ai_error_clears_busy_flag(
     assert resp.status == 503
 
     # Busy flag must be cleared — next request must not get a 503 "busy" response
-    assert hass.data.get(_CHAT_BUSY_KEY) is False
+    assert hass.data.get(_CHAT_BUSY_KEY) == 0
 
     # Send a second request; it must succeed (not be blocked by leftover busy flag)
     with patch(_PATCH_GENERATE, side_effect=lambda *a, **kw: _make_ai_result("ok")):
@@ -632,7 +665,7 @@ async def test_unexpected_error_clears_busy_flag(
     # RuntimeError gets wrapped → 503 or 500, both are error responses
     assert resp.status in (500, 503)
 
-    assert hass.data.get(_CHAT_BUSY_KEY) is False
+    assert hass.data.get(_CHAT_BUSY_KEY) == 0
 
     # Next request must succeed (not blocked by leftover busy flag)
     with patch(_PATCH_GENERATE, side_effect=lambda *a, **kw: _make_ai_result("ok")):

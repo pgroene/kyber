@@ -2,8 +2,9 @@
 
 Documented in docs/chat-and-ai.md — the frontend calls this when the chat
 history exceeds ~20 messages, to compact older turns into a running summary.
-The endpoint must never fail; if the AI is unavailable it falls back to plain
-text concatenation.
+The summary is bounded to the stored limit. If the AI is unavailable the
+endpoint answers 503 and the panel keeps the messages (#223); it no longer
+appends them as raw text, which grew the summary without bound.
 """
 import pytest
 
@@ -107,10 +108,10 @@ async def test_summarize_no_messages_key_returns_previous_summary(
     assert data["summary"] == "Some prior context."
 
 
-async def test_summarize_ai_failure_falls_back_to_concatenation(
+async def test_summarize_ai_failure_answers_503(
     hass: HomeAssistant, setup_integration, hass_client
 ) -> None:
-    """When the AI raises an error, fall back to plain text concatenation (no 500)."""
+    """When the AI fails, answer 503 so the panel keeps the messages and retries later."""
     async def failing(*a, **kw):
         raise HomeAssistantError("AI unavailable")
 
@@ -127,36 +128,33 @@ async def test_summarize_ai_failure_falls_back_to_concatenation(
             },
         )
 
-    assert resp.status == 200
-    data = await resp.json()
-    assert "summary" in data
-    # Fallback must include the message content somewhere
-    assert "temperature" in data["summary"].lower() or "22" in data["summary"]
+    assert resp.status == 503
 
 
-async def test_summarize_change_lines_preserved(
+async def test_summarize_is_bounded_and_told_its_limit(
     hass: HomeAssistant, setup_integration, hass_client
 ) -> None:
-    """[CHANGE] lines in previous_summary must survive through AI summarisation."""
-    change_line = "[CHANGE] Renamed light.desk to Desk Light"
+    """The summarizer gets the limit; an overlong answer loses its oldest part, not its newest."""
+    from custom_components.kyber.session_and_storage import _CHAT_SUMMARY_MAX_CHARS
+
+    captured = {}
 
     async def fake(hass, *, task_name, entity_id, instructions, **kw):
-        # Simulate AI that preserves CHANGE lines (as instructed by the system prompt)
-        return _make_ai_result(f"User renamed entities.\n{change_line}")
+        captured["instructions"] = instructions
+        return _make_ai_result("OLD " + "x" * (_CHAT_SUMMARY_MAX_CHARS + 500) + " NEWEST")
 
     client = await hass_client()
     with patch(_PATCH_GENERATE, side_effect=fake):
         resp = await client.post(
             "/api/kyber/summarize",
-            json={
-                "previous_summary": f"Some prior context.\n{change_line}",
-                "messages": [{"role": "user", "content": "Continue"}],
-            },
+            json={"messages": [{"role": "user", "content": "Continue"}]},
         )
 
     assert resp.status == 200
-    data = await resp.json()
-    assert change_line in data["summary"]
+    summary = (await resp.json())["summary"]
+    assert len(summary) == _CHAT_SUMMARY_MAX_CHARS
+    assert summary.endswith("NEWEST") and not summary.startswith("OLD")
+    assert f"must not exceed {_CHAT_SUMMARY_MAX_CHARS} characters" in captured["instructions"]
 
 
 async def test_summarize_unauthenticated_returns_401(

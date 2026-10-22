@@ -211,7 +211,9 @@ if _HA_AVAILABLE:
             domain=DOMAIN,
             data={
                 "ai_task_entity_id": "ai_task.ollama_ai_task",
-                "max_tokens": 2048,
+                # Chat context window: the prompt is fitted into 75 % of it, so
+                # keep it large enough for the full test prompt.
+                "max_tokens": 32768,
             },
             title="Kyber",
         )

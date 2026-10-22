@@ -140,40 +140,54 @@ async def test_openai_custom_base_url_used() -> None:
     assert captured_url[0] == "https://api.groq.com/openai/v1/chat/completions"
 
 
-@pytest.mark.asyncio
-async def test_openai_history_included_in_messages() -> None:
-    """History messages should be included before the current turn."""
-    captured_payload: list[dict] = []
-
+def _capture_payloads(response_json: dict):
+    """Patch ClientSession so every POSTed JSON payload lands in the returned list."""
     import aiohttp as _aiohttp_stub
-
-    resp = _mock_response(200, {"choices": [{"message": {"content": "ok"}}]})
+    captured: list[dict] = []
+    resp = _mock_response(200, response_json)
     session_mock = AsyncMock()
-
-    def _post(url, json=None, **kw):
-        captured_payload.append(json)
-        return resp
-
-    session_mock.post = MagicMock(side_effect=_post)
+    session_mock.post = MagicMock(side_effect=lambda url, json=None, **kw: (captured.append(json), resp)[-1])
     session_mock.__aenter__ = AsyncMock(return_value=session_mock)
     session_mock.__aexit__ = AsyncMock(return_value=None)
+    return captured, patch.object(_aiohttp_stub, "ClientSession", return_value=session_mock)
 
-    with patch.object(_aiohttp_stub, "ClientSession", return_value=session_mock):
+
+_CONVERSATION = [
+    {"role": "user", "content": "First question"},
+    {"role": "assistant", "content": "First answer"},
+    {"role": "user", "content": "Follow up"},
+]
+
+
+@pytest.mark.asyncio
+async def test_openai_sends_system_then_the_conversation_once() -> None:
+    """The core goes as system message, the history only as messages."""
+    captured, patched = _capture_payloads({"choices": [{"message": {"content": "ok"}}]})
+    with patched:
         await async_openai_ai_call(
-            task_name="test",
-            api_key="sk-test",
-            model="gpt-4o",
-            instructions="Follow up",
-            history=[
-                {"role": "user", "content": "First question"},
-                {"role": "assistant", "content": "First answer"},
-            ],
+            task_name="test", api_key="sk-test", model="gpt-4o",
+            system="CORE RULES", messages=_CONVERSATION,
         )
+    assert captured[0]["messages"] == [{"role": "system", "content": "CORE RULES"}, *_CONVERSATION]
 
-    messages = captured_payload[0]["messages"]
-    assert messages[0] == {"role": "user", "content": "First question"}
-    assert messages[1] == {"role": "assistant", "content": "First answer"}
-    assert messages[2] == {"role": "user", "content": "Follow up"}
+
+@pytest.mark.asyncio
+async def test_openai_without_messages_sends_instructions_as_the_user_message() -> None:
+    captured, patched = _capture_payloads({"choices": [{"message": {"content": "ok"}}]})
+    with patched:
+        await async_openai_ai_call(task_name="test", api_key="sk-test", model="gpt-4o", instructions="Hi")
+    assert captured[0]["messages"] == [{"role": "user", "content": "Hi"}]
+
+
+@pytest.mark.asyncio
+async def test_azure_sends_system_then_the_conversation_once() -> None:
+    captured, patched = _capture_payloads({"choices": [{"message": {"content": "ok"}}]})
+    with patched:
+        await async_azure_ai_call(
+            task_name="test", endpoint="https://x.openai.azure.com", api_key="k",
+            deployment="d", api_version="v", system="CORE RULES", messages=_CONVERSATION,
+        )
+    assert captured[0]["messages"] == [{"role": "system", "content": "CORE RULES"}, *_CONVERSATION]
 
 
 @pytest.mark.asyncio
@@ -268,102 +282,26 @@ async def test_anthropic_happy_path_returns_text() -> None:
 
 
 @pytest.mark.asyncio
-async def test_anthropic_system_messages_extracted() -> None:
-    """System messages in history should be extracted to the top-level system field."""
-    captured: list[dict] = []
-
-    import aiohttp as _aiohttp_stub
-    resp = _mock_response(200, {"content": [{"type": "text", "text": "ok"}]})
-    session_mock = AsyncMock()
-
-    def _post(url, json=None, **kw):
-        captured.append(json)
-        return resp
-
-    session_mock.post = MagicMock(side_effect=_post)
-    session_mock.__aenter__ = AsyncMock(return_value=session_mock)
-    session_mock.__aexit__ = AsyncMock(return_value=None)
-
-    with patch.object(_aiohttp_stub, "ClientSession", return_value=session_mock):
+async def test_anthropic_caches_the_system_part_and_sends_the_conversation() -> None:
+    """The core is the cached system part; messages arrive as rendered."""
+    captured, patched = _capture_payloads({"content": [{"type": "text", "text": "ok"}]})
+    with patched:
         await async_anthropic_ai_call(
-            task_name="test",
-            api_key="sk-ant-test",
-            model="claude-sonnet-4-5",
-            instructions="What's the weather?",
-            history=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "Hi"},
-                {"role": "assistant", "content": "Hello!"},
-            ],
+            task_name="test", api_key="sk-ant-test", model="claude-sonnet-4-5",
+            system="CORE RULES", messages=_CONVERSATION,
         )
-
     payload = captured[0]
-    assert payload["system"] == "You are a helpful assistant."
-    # System message should not appear in messages list
-    roles = [m["role"] for m in payload["messages"]]
-    assert "system" not in roles
+    assert payload["system"] == [{"type": "text", "text": "CORE RULES", "cache_control": {"type": "ephemeral"}}]
+    assert payload["messages"] == _CONVERSATION
 
 
 @pytest.mark.asyncio
-async def test_anthropic_consecutive_user_messages_merged() -> None:
-    """Consecutive user messages must be merged to satisfy Anthropic's alternation rule."""
-    captured: list[dict] = []
-
-    import aiohttp as _aiohttp_stub
-    resp = _mock_response(200, {"content": [{"type": "text", "text": "ok"}]})
-    session_mock = AsyncMock()
-    session_mock.post = MagicMock(side_effect=lambda url, json=None, **kw: (captured.append(json), resp)[-1])
-    session_mock.__aenter__ = AsyncMock(return_value=session_mock)
-    session_mock.__aexit__ = AsyncMock(return_value=None)
-
-    with patch.object(_aiohttp_stub, "ClientSession", return_value=session_mock):
-        await async_anthropic_ai_call(
-            task_name="test",
-            api_key="sk-ant-test",
-            model="claude-sonnet-4-5",
-            instructions="Question 3",
-            history=[
-                {"role": "user", "content": "Question 1"},
-                {"role": "user", "content": "Question 2"},  # consecutive — should merge
-            ],
-        )
-
-    messages = captured[0]["messages"]
-    # Questions 1, 2, and 3 should all be in a single user message
-    assert len(messages) == 1
-    assert messages[0]["role"] == "user"
-    assert "Question 1" in messages[0]["content"]
-    assert "Question 2" in messages[0]["content"]
-    assert "Question 3" in messages[0]["content"]
-
-
-@pytest.mark.asyncio
-async def test_anthropic_current_turn_appended_to_last_user_message() -> None:
-    """If the last history message is from the user, the instruction appends to it."""
-    captured: list[dict] = []
-
-    import aiohttp as _aiohttp_stub
-    resp = _mock_response(200, {"content": [{"type": "text", "text": "ok"}]})
-    session_mock = AsyncMock()
-    session_mock.post = MagicMock(side_effect=lambda url, json=None, **kw: (captured.append(json), resp)[-1])
-    session_mock.__aenter__ = AsyncMock(return_value=session_mock)
-    session_mock.__aexit__ = AsyncMock(return_value=None)
-
-    with patch.object(_aiohttp_stub, "ClientSession", return_value=session_mock):
-        await async_anthropic_ai_call(
-            task_name="test",
-            api_key="sk-ant-test",
-            model="claude-sonnet-4-5",
-            instructions="New question",
-            history=[
-                {"role": "user", "content": "Existing question"},
-            ],
-        )
-
-    messages = captured[0]["messages"]
-    assert len(messages) == 1
-    assert "Existing question" in messages[0]["content"]
-    assert "New question" in messages[0]["content"]
+async def test_anthropic_without_system_has_no_system_field() -> None:
+    captured, patched = _capture_payloads({"content": [{"type": "text", "text": "ok"}]})
+    with patched:
+        await async_anthropic_ai_call(task_name="test", api_key="k", model="m", instructions="Hi")
+    assert "system" not in captured[0]
+    assert captured[0]["messages"] == [{"role": "user", "content": "Hi"}]
 
 
 @pytest.mark.asyncio
