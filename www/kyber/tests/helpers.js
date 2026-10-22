@@ -6,6 +6,19 @@
  */
 
 /**
+ * Stand-in for HA's hass.fetchWithAuth: adds the bearer header the way HA does
+ * (lowercase key) and calls global.fetch, which the tests mock. global.fetch is
+ * looked up per call, so tests may swap it after makePanel().
+ */
+export function fetchWithAuthFor(hass) {
+  return (path, init = {}) =>
+    global.fetch(path, {
+      ...init,
+      headers: { ...(init.headers || {}), authorization: `Bearer ${hass.auth?.data?.access_token}` },
+    });
+}
+
+/**
  * Create a KyberPanel element, append to DOM, and set a mock hass object.
  * Setting hass triggers _render() which builds the full Shadow DOM.
  *
@@ -23,6 +36,7 @@ export function makePanel(hassOverrides = {}) {
     callApi: vi.fn().mockResolvedValue({}),
     ...hassOverrides,
   };
+  hass.fetchWithAuth ??= fetchWithAuthFor(hass);
 
   // Set a default fetch mock BEFORE assigning hass.
   // Setting hass triggers _render() → _startStatusPolling() → _checkKyberStatus()
@@ -51,6 +65,7 @@ export function makeUnrenderedPanel(hassOverrides = {}) {
     callApi: vi.fn().mockResolvedValue({}),
     ...hassOverrides,
   };
+  element._hass.fetchWithAuth ??= fetchWithAuthFor(element._hass);
   return element;
 }
 

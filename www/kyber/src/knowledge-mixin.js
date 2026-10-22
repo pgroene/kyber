@@ -3,7 +3,6 @@ export const KnowledgeMixin = (Base) => class extends Base {
     const parts = argStr.split(/\s+/);
     const sub = (parts[0] || "").toLowerCase();
     const rest = parts.slice(1).join(" ").trim();
-    const token = this._hass.auth.data.access_token;
     const t = this._t || ((k) => k);
 
     if (sub === "list" || sub === "") {
@@ -19,9 +18,7 @@ export const KnowledgeMixin = (Base) => class extends Base {
     if (sub === "analyze") {
       this._appendMessage(t("kn_analyzing"), "assistant");
       try {
-        const resp = await fetch("/api/kyber/knowledge/analyze", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const resp = await this._hass.fetchWithAuth("/api/kyber/knowledge/analyze");
         const data = await resp.json();
         this._renderAnalyzeProposals(data);
       } catch (err) {
@@ -31,9 +28,8 @@ export const KnowledgeMixin = (Base) => class extends Base {
     }
     if (sub === "delete" && rest) {
       try {
-        const resp = await fetch(`/api/kyber/knowledge?id=${encodeURIComponent(rest)}`, {
+        const resp = await this._hass.fetchWithAuth(`/api/kyber/knowledge?id=${encodeURIComponent(rest)}`, {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
         });
         if (resp.ok) {
           this._appendMessage(t("kn_deleted", { id: rest }), "assistant");
@@ -47,9 +43,9 @@ export const KnowledgeMixin = (Base) => class extends Base {
     }
     if (sub === "add" && rest) {
       try {
-        const resp = await fetch("/api/kyber/knowledge", {
+        const resp = await this._hass.fetchWithAuth("/api/kyber/knowledge", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ category: "general", content: rest, source: "user", provenance: "Added via /memory add" }),
         });
         const d = await resp.json();
@@ -83,9 +79,9 @@ export const KnowledgeMixin = (Base) => class extends Base {
     if (sub === "deep") {
       this._appendMessage(t("kn_deep_starting"), "assistant");
       try {
-        const resp = await fetch("/api/kyber/knowledge/analyze_deep", {
+        const resp = await this._hass.fetchWithAuth("/api/kyber/knowledge/analyze_deep", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ background: true, runs: 6, limit: 5, force: false }),
         });
         const d = await resp.json();
@@ -106,11 +102,10 @@ export const KnowledgeMixin = (Base) => class extends Base {
   }
 
   async _fetchKnowledge(query = "") {
-    const token = this._hass.auth.data.access_token;
     const url = query
       ? `/api/kyber/knowledge?q=${encodeURIComponent(query)}`
       : "/api/kyber/knowledge";
-    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const resp = await this._hass.fetchWithAuth(url);
     return resp.json();
   }
 
@@ -148,8 +143,7 @@ export const KnowledgeMixin = (Base) => class extends Base {
     card.querySelector(".btn-kn-analyze")?.addEventListener("click", () => this._handleKnowledgeCommand("analyze"));
     card.querySelector(".btn-kn-add")?.addEventListener("click", () => this._showKnowledgeEditor(null, categories, card));
     card.querySelector(".btn-kn-review-filter")?.addEventListener("click", async () => {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/knowledge?needs_review=1", { headers: { Authorization: `Bearer ${token}` } });
+      const resp = await this._hass.fetchWithAuth("/api/kyber/knowledge?needs_review=1");
       const d = await resp.json();
       card.remove();
       this._renderKnowledgePanel(d, { interactive: true, query: t("kn_query_needs_review") });
@@ -162,10 +156,9 @@ export const KnowledgeMixin = (Base) => class extends Base {
       });
       row.querySelector(".btn-kn-del")?.addEventListener("click", () => this._deleteKnowledgeEntry(id, row));
       row.querySelector(".btn-kn-clear")?.addEventListener("click", async () => {
-        const token = this._hass.auth.data.access_token;
-        await fetch("/api/kyber/knowledge", {
+        await this._hass.fetchWithAuth("/api/kyber/knowledge", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id, needs_review: false }),
         });
         row.classList.remove("kn-row-flagged");
@@ -271,10 +264,9 @@ export const KnowledgeMixin = (Base) => class extends Base {
         return;
       }
       try {
-        const token = this._hass.auth.data.access_token;
-        const resp = await fetch("/api/kyber/knowledge", {
+        const resp = await this._hass.fetchWithAuth("/api/kyber/knowledge", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
         if (!resp.ok) {
@@ -294,10 +286,8 @@ export const KnowledgeMixin = (Base) => class extends Base {
     const t = this._t || ((k) => k);
     if (!confirm(t("kn_confirm_delete"))) return;
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch(`/api/kyber/knowledge?id=${encodeURIComponent(id)}`, {
+      const resp = await this._hass.fetchWithAuth(`/api/kyber/knowledge?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (resp.ok) rowEl.remove();
     } catch (err) {
@@ -307,10 +297,9 @@ export const KnowledgeMixin = (Base) => class extends Base {
 
   async _rateKnowledgeEntry(id, rating, rowEl) {
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/knowledge", {
+      const resp = await this._hass.fetchWithAuth("/api/kyber/knowledge", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, user_rating: rating }),
       });
       if (resp.ok) {
@@ -379,10 +368,9 @@ export const KnowledgeMixin = (Base) => class extends Base {
         return;
       }
       try {
-        const token = this._hass.auth.data.access_token;
-        const resp = await fetch("/api/kyber/knowledge/analyze", {
+        const resp = await this._hass.fetchWithAuth("/api/kyber/knowledge/analyze", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ proposals: selected }),
         });
         const result = await resp.json();
@@ -403,10 +391,9 @@ export const KnowledgeMixin = (Base) => class extends Base {
       });
       row.querySelector(".btn-kn-del")?.addEventListener("click", () => this._deleteKnowledgeEntry(id, row));
       row.querySelector(".btn-kn-clear")?.addEventListener("click", async () => {
-        const token = this._hass.auth.data.access_token;
-        await fetch("/api/kyber/knowledge", {
+        await this._hass.fetchWithAuth("/api/kyber/knowledge", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id, needs_review: false }),
         });
         this._renderDebugTab(this._debugTab);
@@ -470,21 +457,20 @@ export const KnowledgeMixin = (Base) => class extends Base {
       const hint = dlg.querySelector(".kn-f-refine").value.trim();
       const ratingStr = dlg.querySelector(".kn-f-rate").value;
       if (!hint && !ratingStr) { dlg.remove(); return; }
-      const token = this._hass.auth.data.access_token;
       try {
         if (hint) {
           const newContent = (entry.content || "") + "\n\nRefinement: " + hint;
           const newProv = (entry.provenance ? entry.provenance + "; " : "") + `User refined ${new Date().toISOString().slice(0, 10)}`;
-          await fetch("/api/kyber/knowledge", {
+          await this._hass.fetchWithAuth("/api/kyber/knowledge", {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id, content: newContent, provenance: newProv, needs_review: false }),
           });
         }
         if (ratingStr) {
-          await fetch("/api/kyber/knowledge/feedback", {
+          await this._hass.fetchWithAuth("/api/kyber/knowledge/feedback", {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ rating: parseInt(ratingStr, 10), knowledge_ids: [id], auto: false }),
           });
         }

@@ -55,8 +55,7 @@ export const DebugMixin = (Base) => class extends Base {
 
   async _renderDebugMemory(body) {
     const t = this._t || ((k) => k);
-    const token = this._hass.auth.data.access_token;
-    const resp = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+    const resp = await this._hass.fetchWithAuth("/api/kyber/knowledge");
     if (!resp.ok) throw new Error(t("dbg_err_fetch_knowledge", { status: resp.status }));
     const data = await resp.json();
     const entries = data.entries || [];
@@ -140,11 +139,10 @@ export const DebugMixin = (Base) => class extends Base {
 
     // Deep analysis — start background job and poll for progress
     body.querySelector("#dbg-mem-deep-analyze").addEventListener("click", async () => {
-      const token = this._hass.auth.data.access_token;
       const force = body.querySelector("#dbg-deep-force")?.checked ?? false;
-      const r = await fetch("/api/kyber/knowledge/analyze_deep", {
+      const r = await this._hass.fetchWithAuth("/api/kyber/knowledge/analyze_deep", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ background: true, runs: 10, limit: 5, force }),
       });
       const j = await r.json();
@@ -352,26 +350,24 @@ export const DebugMixin = (Base) => class extends Base {
   }
 
   async _applyBulkRule(type, mode, queue, allEntries, container, onDone) {
-    const token = this._hass.auth.data.access_token;
     const targets = queue.filter((e) => this._reviewTypeForEntry(e) === type);
     await Promise.all(targets.map((e) => {
       if (mode === "auto") {
         if (e.category === "proposal") {
-          return fetch("/api/kyber/proposals/approve", {
+          return this._hass.fetchWithAuth("/api/kyber/proposals/approve", {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ entry_id: e.id }),
           });
         }
-        return fetch("/api/kyber/knowledge/feedback", {
+        return this._hass.fetchWithAuth("/api/kyber/knowledge/feedback", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ rating: 5, knowledge_ids: [e.id], auto: true }),
         });
       }
-      return fetch(`/api/kyber/knowledge?id=${encodeURIComponent(e.id)}`, {
+      return this._hass.fetchWithAuth(`/api/kyber/knowledge?id=${encodeURIComponent(e.id)}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
     }));
     // Remove processed entries from queue in-place
@@ -397,11 +393,10 @@ export const DebugMixin = (Base) => class extends Base {
     flow.querySelector("#review-approve").addEventListener("click", async () => {
       const idx = Math.min(this._reviewIdx || 0, queue.length - 1);
       const entry = queue[idx];
-      const token = this._hass.auth.data.access_token;
       if (entry.category === "proposal") {
-        const resp = await fetch("/api/kyber/proposals/approve", {
+        const resp = await this._hass.fetchWithAuth("/api/kyber/proposals/approve", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ entry_id: entry.id }),
         });
         if (!resp.ok) {
@@ -412,9 +407,9 @@ export const DebugMixin = (Base) => class extends Base {
         const result = await resp.json();
         this._setStatus(`✓ ${result.memory || t("dbg_rv_approved")}`, "ok");
       } else {
-        const resp = await fetch("/api/kyber/knowledge/feedback", {
+        const resp = await this._hass.fetchWithAuth("/api/kyber/knowledge/feedback", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ rating: 5, knowledge_ids: [entry.id], auto: true }),
         });
         if (!resp.ok) {
@@ -432,10 +427,8 @@ export const DebugMixin = (Base) => class extends Base {
       const idx = Math.min(this._reviewIdx || 0, queue.length - 1);
       const entry = queue[idx];
       if (!confirm(t("dbg_rv_delete_confirm", { content: entry.content }))) return;
-      const token = this._hass.auth.data.access_token;
-      await fetch(`/api/kyber/knowledge?id=${encodeURIComponent(entry.id)}`, {
+      await this._hass.fetchWithAuth(`/api/kyber/knowledge?id=${encodeURIComponent(entry.id)}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
       queue.splice(idx, 1);
       this._reviewIdx = Math.min(idx, queue.length - 1);
@@ -502,8 +495,7 @@ export const DebugMixin = (Base) => class extends Base {
     const container = this.shadowRoot && this.shadowRoot.getElementById("chat-review-queue");
     if (!container) return;
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+      const resp = await this._hass.fetchWithAuth("/api/kyber/knowledge");
       if (!resp.ok) return;
       const data = await resp.json();
       const entries = data.entries || [];
@@ -526,8 +518,7 @@ export const DebugMixin = (Base) => class extends Base {
   async _renderPurgeFacts(body) {
     const t = this._t || ((k) => k);
     body.innerHTML = `<em>${t("dbg_purge_loading")}</em>`;
-    const token = this._hass.auth.data.access_token;
-    const resp = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+    const resp = await this._hass.fetchWithAuth("/api/kyber/knowledge");
     const data = await resp.json();
     this._purgeAllEntries = data.entries || [];
     this._purgeSelected = new Set();
@@ -690,17 +681,16 @@ export const DebugMixin = (Base) => class extends Base {
     if (btn) btn.disabled = true;
     if (msg) msg.textContent = t("dbg_purge_deleting");
     try {
-      const token = this._hass.auth.data.access_token;
-      const r = await fetch("/api/kyber/knowledge/purge", {
+      const r = await this._hass.fetchWithAuth("/api/kyber/knowledge/purge", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.message || r.statusText);
       sel.clear();
       // Reload full list
-      const resp2 = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+      const resp2 = await this._hass.fetchWithAuth("/api/kyber/knowledge");
       const data2 = await resp2.json();
       this._purgeAllEntries = data2.entries || [];
       if (msg) msg.textContent = t("dbg_purge_deleted", { n: j.deleted });
@@ -713,8 +703,7 @@ export const DebugMixin = (Base) => class extends Base {
 
   async _renderDebugLastTurn(body) {
     const t = this._t || ((k) => k);
-    const token = this._hass.auth.data.access_token;
-    const resp = await fetch("/api/kyber/debug/last_turn", { headers: { Authorization: `Bearer ${token}` } });
+    const resp = await this._hass.fetchWithAuth("/api/kyber/debug/last_turn");
     if (!resp.ok) throw new Error(t("dbg_err_fetch_last_turn", { status: resp.status }));
     const data = await resp.json();
     const snap = data.snapshot;
@@ -791,7 +780,7 @@ export const DebugMixin = (Base) => class extends Base {
     if (picked.length > 0) {
       const list = body.querySelector("#dbg-picked-list");
       // Fetch full entries so we get tags + feedback log for rendering
-      const fullResp = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+      const fullResp = await this._hass.fetchWithAuth("/api/kyber/knowledge");
       const fullData = await fullResp.json();
       const byId = new Map((fullData.entries || []).map((e) => [e.id, e]));
       const fullPicked = picked.map((p) => byId.get(p.id) || p);
@@ -807,8 +796,8 @@ export const DebugMixin = (Base) => class extends Base {
 
   async _renderDebugStatus(body) {
     const t = this._t || ((k) => k);
-    const token = this._hass.auth.data.access_token;
-    const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
+    const resp = await this._hass.fetchWithAuth("/api/kyber/debug/status");
+    this._noteAuthRejected(resp);
     if (!resp.ok) throw new Error(t("dbg_err_fetch_status", { status: resp.status }));
     const data = await resp.json();
     const k = data.knowledge || {};
@@ -1030,10 +1019,9 @@ export const DebugMixin = (Base) => class extends Base {
       btn.disabled = true;
       btn.textContent = t("dbg_run_starting");
       try {
-        const token = this._hass.auth.data.access_token;
-        const resp = await fetch(url, {
+        const resp = await this._hass.fetchWithAuth(url, {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body_payload || {}),
         });
         const result = await resp.json();
@@ -1071,6 +1059,7 @@ export const DebugMixin = (Base) => class extends Base {
     if (epRunning || epPaused) {
       if (!this._explorerStatusTimer) {
         this._explorerStatusTimer = setInterval(() => {
+          if (!this._pollAllowed()) return;
           const liveBody = this.shadowRoot?.getElementById("debug-body");
           if (liveBody) this._renderDebugStatus(liveBody);
         }, 3000);
@@ -1083,10 +1072,9 @@ export const DebugMixin = (Base) => class extends Base {
 
   async _renderDebugLogs(body) {
     const t = this._t || ((k) => k);
-    const token = this._hass.auth.data.access_token;
     const level = body.querySelector("#dbg-log-level")?.value || "";
     const url = `/api/kyber/debug/logs${level ? `?level=${level}` : ""}`;
-    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const resp = await this._hass.fetchWithAuth(url);
     if (!resp.ok) {
       body.innerHTML = `<em style="color:var(--error-color)">${t("dbg_logs_unavailable", { status: resp.status })}</em>`;
       return;
@@ -1144,15 +1132,13 @@ export const DebugMixin = (Base) => class extends Base {
 
     body.querySelector("#dbg-log-refresh")?.addEventListener("click", () => this._renderDebugLogs(body));
     body.querySelector("#dbg-log-clear")?.addEventListener("click", async () => {
-      const t = this._hass.auth.data.access_token;
-      await fetch("/api/kyber/debug/logs", { method: "DELETE", headers: { Authorization: `Bearer ${t}` } });
+      await this._hass.fetchWithAuth("/api/kyber/debug/logs", { method: "DELETE" });
       this._renderDebugLogs(body);
     });
     body.querySelector("#dbg-log-download")?.addEventListener("click", async () => {
-      const t = this._hass.auth.data.access_token;
       const lv = body.querySelector("#dbg-log-level")?.value || "";
       const dlUrl = `/api/kyber/debug/logs?format=txt${lv ? `&level=${lv}` : ""}`;
-      const r = await fetch(dlUrl, { headers: { Authorization: `Bearer ${t}` } });
+      const r = await this._hass.fetchWithAuth(dlUrl);
       const blob = await r.blob();
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
@@ -1166,16 +1152,13 @@ export const DebugMixin = (Base) => class extends Base {
 
   async _downloadHomeState(btn) {
     const t = this._t || ((k) => k);
-    const token = this._hass.auth.data.access_token;
     const statusEl = btn.parentElement.querySelector("#dbg-export-status");
     const orig = btn.textContent;
     btn.disabled = true;
     btn.textContent = t("dbg_exporting");
     if (statusEl) statusEl.textContent = "";
     try {
-      const resp = await fetch("/api/kyber/export/home-state", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const resp = await this._hass.fetchWithAuth("/api/kyber/export/home-state");
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
@@ -1199,16 +1182,13 @@ export const DebugMixin = (Base) => class extends Base {
 
   async _downloadMemoryExport(btn) {
     const t = this._t || ((k) => k);
-    const token = this._hass.auth.data.access_token;
     const statusEl = btn.parentElement.querySelector("#dbg-export-status");
     const orig = btn.textContent;
     btn.disabled = true;
     btn.textContent = t("dbg_exporting");
     if (statusEl) statusEl.textContent = "";
     try {
-      const resp = await fetch("/api/kyber/export/memory", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const resp = await this._hass.fetchWithAuth("/api/kyber/export/memory");
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -1254,13 +1234,10 @@ export const DebugMixin = (Base) => class extends Base {
     const t = this._t || ((k) => k);
     const statusDiv = body?.querySelector?.("#dbg-deep-status");
     const btn = body?.querySelector?.("#dbg-mem-deep-analyze");
-    if (!statusDiv) return false;
+    if (!statusDiv || !this._pollAllowed()) return false;
     try {
-      const token = this._hass.auth.data.access_token;
-      const r = await fetch("/api/kyber/knowledge/analyze_deep", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!r.ok) return false;
+      const r = await this._hass.fetchWithAuth("/api/kyber/knowledge/analyze_deep");
+      if (this._noteAuthRejected(r) || !r.ok) return false;
       const data = await r.json();
       const job = data.job || {};
       const running = job.running === true;
@@ -1320,11 +1297,10 @@ export const DebugMixin = (Base) => class extends Base {
 
   async _renderDebugTests(body) {
     const t = this._t || ((k) => k);
-    const token = this._hass.auth.data.access_token;
     body.innerHTML = `<em>${t("dbg_tests_loading")}</em>`;
     let data;
     try {
-      const resp = await fetch("/api/kyber/prompt_tests", { headers: { Authorization: `Bearer ${token}` } });
+      const resp = await this._hass.fetchWithAuth("/api/kyber/prompt_tests");
       data = await resp.json();
     } catch (e) {
       body.innerHTML = `<div class="debug-error">${t("dbg_tests_load_failed", { msg: this._escapeHtml(e.message) })}</div>`;
@@ -1373,8 +1349,8 @@ export const DebugMixin = (Base) => class extends Base {
       const statusEl = body.querySelector("#dbg-tests-status");
       if (statusEl) statusEl.textContent = t("dbg_tests_running");
       try {
-        const r = await fetch("/api/kyber/prompt_tests/run", {
-          method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        const r = await this._hass.fetchWithAuth("/api/kyber/prompt_tests/run", {
+          method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({}),
         });
         const result = await r.json();
@@ -1396,8 +1372,8 @@ export const DebugMixin = (Base) => class extends Base {
       e.target.disabled = true;
       e.target.textContent = t("dbg_tests_regenerating");
       try {
-        await fetch("/api/kyber/prompt_tests/regenerate", {
-          method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        await this._hass.fetchWithAuth("/api/kyber/prompt_tests/regenerate", {
+          method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({}),
         });
         e.target.textContent = t("dbg_tests_done");
@@ -1506,11 +1482,10 @@ export const DebugMixin = (Base) => class extends Base {
       saveBtn.disabled = true;
       saveBtn.textContent = t("dbg_ct_saving");
 
-      const token = this._hass.auth.data.access_token;
       try {
-        const resp = await fetch("/api/kyber/prompt_tests/capture", {
+        const resp = await this._hass.fetchWithAuth("/api/kyber/prompt_tests/capture", {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             request_id: snap.request_id || "",
             snap: snap,
@@ -1554,14 +1529,13 @@ export const DebugMixin = (Base) => class extends Base {
 
   async _renderDebugMcp(body) {
     const t = this._t || ((k) => k);
-    const token = this._hass.auth.data.access_token;
 
     // Load both call logs in parallel
     let mcpCalls = [], classicCalls = [];
     try {
       const [mcpResp, classicResp] = await Promise.all([
-        fetch("/api/kyber/mcp/log", { headers: { Authorization: `Bearer ${token}` } }),
-        fetch("/api/kyber/classic/log", { headers: { Authorization: `Bearer ${token}` } }),
+        this._hass.fetchWithAuth("/api/kyber/mcp/log"),
+        this._hass.fetchWithAuth("/api/kyber/classic/log"),
       ]);
       if (mcpResp.ok) mcpCalls = (await mcpResp.json()).calls || [];
       if (classicResp.ok) classicCalls = (await classicResp.json()).calls || [];
@@ -1633,23 +1607,23 @@ export const DebugMixin = (Base) => class extends Base {
     this._renderMcpLogTable(body, allCalls, "all");
 
     // Filter dropdown
-    body.querySelector("#mcp-log-filter").addEventListener("change", () => this._refreshMcpLogTable(body, token));
+    body.querySelector("#mcp-log-filter").addEventListener("change", () => this._refreshMcpLogTable(body));
 
     // Compare button
-    body.querySelector("#mcp-cmp-btn").addEventListener("click", () => this._runMcpCompare(body, token));
+    body.querySelector("#mcp-cmp-btn").addEventListener("click", () => this._runMcpCompare(body));
     body.querySelector("#mcp-cmp-input").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") this._runMcpCompare(body, token);
+      if (e.key === "Enter") this._runMcpCompare(body);
     });
 
     // Log controls
-    body.querySelector("#mcp-log-refresh").addEventListener("click", () => this._refreshMcpLogTable(body, token));
+    body.querySelector("#mcp-log-refresh").addEventListener("click", () => this._refreshMcpLogTable(body));
     body.querySelector("#mcp-log-clear-mcp").addEventListener("click", async () => {
-      await fetch("/api/kyber/mcp/log", { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
-      this._refreshMcpLogTable(body, token);
+      await this._hass.fetchWithAuth("/api/kyber/mcp/log", { method: "DELETE" });
+      this._refreshMcpLogTable(body);
     });
     body.querySelector("#mcp-log-clear-classic").addEventListener("click", async () => {
-      await fetch("/api/kyber/classic/log", { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
-      this._refreshMcpLogTable(body, token);
+      await this._hass.fetchWithAuth("/api/kyber/classic/log", { method: "DELETE" });
+      this._refreshMcpLogTable(body);
     });
   }
 
@@ -1784,7 +1758,7 @@ export const DebugMixin = (Base) => class extends Base {
     });
   }
 
-  async _runMcpCompare(body, token) {
+  async _runMcpCompare(body) {
     const t = this._t || ((k) => k);
     const input = body.querySelector("#mcp-cmp-input");
     const prompt = (input?.value || "").trim();
@@ -1806,9 +1780,9 @@ export const DebugMixin = (Base) => class extends Base {
     {
       const t0 = performance.now();
       try {
-        const r = await fetch("/api/kyber/complete", {
+        const r = await this._hass.fetchWithAuth("/api/kyber/complete", {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ prompt, yaml: "", history: [], request_id: requestId }),
         });
         const ms = Math.round(performance.now() - t0);
@@ -1830,9 +1804,9 @@ export const DebugMixin = (Base) => class extends Base {
     {
       const t0 = performance.now();
       try {
-        const r = await fetch("/api/kyber/mcp", {
+        const r = await this._hass.fetchWithAuth("/api/kyber/mcp", {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             jsonrpc: "2.0", id: 1, method: "tools/call",
             params: { name: "kyber_ask", arguments: { prompt } },
@@ -1868,17 +1842,17 @@ export const DebugMixin = (Base) => class extends Base {
 
     // Refresh the log table after compare
     try {
-      await this._refreshMcpLogTable(body, token);
+      await this._refreshMcpLogTable(body);
     } catch (_) { /* ignore */ }
   }
 
-  async _refreshMcpLogTable(body, token) {
+  async _refreshMcpLogTable(body) {
     const t = this._t || ((k) => k);
     let mcpCalls = [], classicCalls = [];
     try {
       const [r1, r2] = await Promise.all([
-        fetch("/api/kyber/mcp/log", { headers: { Authorization: `Bearer ${token}` } }),
-        fetch("/api/kyber/classic/log", { headers: { Authorization: `Bearer ${token}` } }),
+        this._hass.fetchWithAuth("/api/kyber/mcp/log"),
+        this._hass.fetchWithAuth("/api/kyber/classic/log"),
       ]);
       if (r1.ok) mcpCalls = (await r1.json()).calls || [];
       if (r2.ok) classicCalls = (await r2.json()).calls || [];

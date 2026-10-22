@@ -35,6 +35,8 @@
         if (!resp.ok) throw new Error(`callApi ${path} -> ${resp.status}`);
         return resp.json();
       },
+      fetchWithAuth: (path, init = {}) =>
+        fetch(path, { ...init, headers: { ...(init.headers || {}), authorization: "Bearer test-token" } }),
       callWS: async (msg) => {
         if (msg.type === "lovelace/dashboards") return [];
         if (msg.type === "lovelace/config") return { views: [] };

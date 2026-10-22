@@ -55,10 +55,9 @@ export const PlanCardsMixin = (Base) => class extends Base {
       btn.disabled = true;
       btn.textContent = t("ae_saving");
       try {
-        const token = this._hass?.auth?.data?.access_token;
-        const resp = await fetch("/api/kyber/plan/execute", {
+        const resp = await this._hass.fetchWithAuth("/api/kyber/plan/execute", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ plan: learnedFact }),
         });
         if (resp.ok) {
@@ -280,13 +279,9 @@ export const PlanCardsMixin = (Base) => class extends Base {
       resultEl.textContent = t("pc_executing");
       resultEl.className = "plan-result";
       try {
-        const token = this._hass.auth.data.access_token;
-        const resp = await fetch("/api/kyber/execute", {
+        const resp = await this._hass.fetchWithAuth("/api/kyber/execute", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ actions: actionsToRun, approved, summary: plan.summary || "" }),
         });
         if (resp.status === 403) {
@@ -355,15 +350,13 @@ export const PlanCardsMixin = (Base) => class extends Base {
               undoBtn.disabled = true;
               undoBtn.textContent = t("pc_undoing");
               try {
-                const token2 = this._hass.auth.data.access_token;
                 const request = historyEntry
-                  ? fetch(`/api/kyber/history/actions/${encodeURIComponent(historyEntry.id)}/undo`, {
+                  ? this._hass.fetchWithAuth(`/api/kyber/history/actions/${encodeURIComponent(historyEntry.id)}/undo`, {
                       method: "POST",
-                      headers: { Authorization: `Bearer ${token2}` },
                     })
-                  : fetch("/api/kyber/execute", {
+                  : this._hass.fetchWithAuth("/api/kyber/execute", {
                       method: "POST",
-                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token2}` },
+                      headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ actions: undoActions, approved: true }),
                     });
                 const r2 = await request;
@@ -438,13 +431,9 @@ export const PlanCardsMixin = (Base) => class extends Base {
             // Execute corrected actions automatically
             setTimeout(async () => {
               try {
-                const token = this._hass.auth.data.access_token;
-                const corrResp = await fetch("/api/kyber/execute", {
+                const corrResp = await this._hass.fetchWithAuth("/api/kyber/execute", {
                   method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
-                  },
+                  headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ actions: corr.corrected_actions, approved: opts.approved !== false }),
                 });
                 const corrData = await corrResp.json();

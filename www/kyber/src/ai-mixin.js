@@ -6,13 +6,10 @@ export const CHAT_SETTINGS_MAX_AGE_MS = 30_000;
 export const AIMixin = (Base) => class extends Base {
   async _downloadDebugBundle(requestId, btn) {
     const t = this._t || ((k) => k);
-    const token = this._hass.auth.data.access_token;
     const orig = btn ? btn.textContent : "";
     if (btn) { btn.disabled = true; btn.textContent = t("ai_bundle_packing"); }
     try {
-      const resp = await fetch(`/api/kyber/debug/bundle?request_id=${encodeURIComponent(requestId)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const resp = await this._hass.fetchWithAuth(`/api/kyber/debug/bundle?request_id=${encodeURIComponent(requestId)}`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
@@ -32,7 +29,6 @@ export const AIMixin = (Base) => class extends Base {
 
         async _openBugReportFlow(requestId, btn) {
           const t = this._t || ((k) => k);
-          const token = this._hass.auth.data.access_token;
           const shadow = this.shadowRoot;
 
           // Build and mount the overlay
@@ -83,9 +79,9 @@ export const AIMixin = (Base) => class extends Base {
 
             let data;
             try {
-              const resp = await fetch("/api/kyber/debug/bug-report", {
+              const resp = await this._hass.fetchWithAuth("/api/kyber/debug/bug-report", {
                 method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   request_id: requestId,
                   what_asked: asked,
@@ -177,10 +173,9 @@ export const AIMixin = (Base) => class extends Base {
     const status = btnsRoot.querySelector(".tf-status");
     btnsRoot.querySelectorAll(".tf-btn-rate").forEach((b) => (b.disabled = true));
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/knowledge/feedback", {
+      const resp = await this._hass.fetchWithAuth("/api/kyber/knowledge/feedback", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rating, knowledge_ids: knowledgeIds || [], auto: false }),
       });
       const data = await resp.json();
@@ -306,8 +301,6 @@ export const AIMixin = (Base) => class extends Base {
     let chatDone = false;
 
     try {
-      const token = this._hass.auth.data.access_token;
-
       // Build dashboard list from hass.panels (always available, no API call needed)
       if (this._dashboardList === null) {
         const panels = this._hass.panels || {};
@@ -325,9 +318,7 @@ export const AIMixin = (Base) => class extends Base {
       if (this._lovelaceResources === undefined) {
         this._lovelaceResources = [];
         try {
-          const resResp = await fetch("/api/lovelace/resources", {
-            headers: { Authorization: `Bearer ${token}` },
-          });
+          const resResp = await this._hass.fetchWithAuth("/api/lovelace/resources");
           if (resResp.ok) {
             const resources = await resResp.json();
             // Extract custom card names from JS resource URLs
@@ -339,13 +330,10 @@ export const AIMixin = (Base) => class extends Base {
         } catch (_) { /* non-fatal */ }
       }
 
-      const resp_promise = fetch("/api/kyber/complete", {
+      const resp_promise = this._hass.fetchWithAuth("/api/kyber/complete", {
         method: "POST",
         signal: this._chatAbort.signal,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           yaml: yamlText,
           prompt,
@@ -516,8 +504,7 @@ export const AIMixin = (Base) => class extends Base {
       const token = this._hass?.auth?.data?.access_token;
       if (!token) return;
       this._chatSettingsTriedAt = Date.now();
-      const resp = await fetch("/api/kyber/chat_settings", {
-        headers: { Authorization: `Bearer ${token}` },
+      const resp = await this._hass.fetchWithAuth("/api/kyber/chat_settings", {
         // never hold up a chat request for long because of this lookup
         signal: typeof AbortSignal?.timeout === "function" ? AbortSignal.timeout(3000) : undefined,
       });
@@ -1001,10 +988,7 @@ export const AIMixin = (Base) => class extends Base {
     if (!this._hass || !entryId) return;
     const t = this._t || ((k) => k);
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch(`/api/kyber/history/actions/${encodeURIComponent(entryId)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const resp = await this._hass.fetchWithAuth(`/api/kyber/history/actions/${encodeURIComponent(entryId)}`);
       if (!resp.ok) return; // entry not found or error — skip silently
       const entry = await resp.json();
 
@@ -1028,10 +1012,8 @@ export const AIMixin = (Base) => class extends Base {
         undoBtn.disabled = true;
         undoBtn.textContent = t("ai_undoing");
         try {
-          const token2 = this._hass.auth.data.access_token;
-          const r = await fetch(`/api/kyber/history/actions/${encodeURIComponent(entryId)}/undo`, {
+          const r = await this._hass.fetchWithAuth(`/api/kyber/history/actions/${encodeURIComponent(entryId)}/undo`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${token2}` },
           });
           const d = await r.json();
           if (!r.ok || d.status === "failed") throw new Error(d.message || `HTTP ${r.status}`);
@@ -1429,10 +1411,9 @@ export const AIMixin = (Base) => class extends Base {
     history.scrollTop = history.scrollHeight;
 
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/execute", {
+      const resp = await this._hass.fetchWithAuth("/api/kyber/execute", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ actions: plan.actions }),
       });
       const data = await resp.json();
@@ -1632,12 +1613,13 @@ export const AIMixin = (Base) => class extends Base {
     let cursor = 0;
     let polls = 0;
     let consecutiveFails = 0;
-    while (!isDone()) {
+    while (!isDone() && this._pollAllowed()) {
       try {
-        const token = this._hass.auth.data.access_token;
-        const r = await fetch(`/api/kyber/progress?id=${encodeURIComponent(requestId)}&since=${cursor}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const r = await this._hass.fetchWithAuth(`/api/kyber/progress?id=${encodeURIComponent(requestId)}&since=${cursor}`);
+        if (this._noteAuthRejected(r)) {
+          console.warn("[kyber] progress poll stopped: 401 unauthorized");
+          return;
+        }
         if (r.ok) {
           consecutiveFails = 0;
           const data = await r.json();
@@ -1651,10 +1633,6 @@ export const AIMixin = (Base) => class extends Base {
           }
           cursor = data.next || cursor;
           if (data.status === "done") return;
-        } else if (r.status === 401) {
-          // Token expired or request was cleaned up — stop polling, main fetch handles auth
-          console.warn("[kyber] progress poll stopped: 401 unauthorized");
-          return;
         } else {
           consecutiveFails += 1;
           console.warn("[kyber] progress fetch HTTP", r.status);
@@ -1671,97 +1649,6 @@ export const AIMixin = (Base) => class extends Base {
       await new Promise((res) => setTimeout(res, 200));
     }
     console.debug("[kyber] progress polling stopped after", polls, "polls");
-  }
-
-  /** Start a single polling loop for all Kyber status UI (explorer banner + narrator badge). */
-  _startStatusPolling() {
-    if (this._statusPollInterval) return;
-    this._clearStatusPoll();
-    this._statusPollFailures = 0;
-    this._checkKyberStatus();
-    this._statusPollInterval = setInterval(() => this._checkKyberStatus(), 5000);
-  }
-
-  _clearStatusPoll() {
-    if (this._statusPollInterval) { clearInterval(this._statusPollInterval); this._statusPollInterval = null; }
-    if (this._statusPollTimeout) { clearTimeout(this._statusPollTimeout); this._statusPollTimeout = null; }
-  }
-
-  _statusBackoff(ms) {
-    this._clearStatusPoll();
-    this._statusPollTimeout = setTimeout(() => {
-      this._statusPollTimeout = null;
-      this._statusPollFailures = 0;
-      this._startStatusPolling();
-    }, ms);
-  }
-
-  async _checkKyberStatus() {
-    const token = this._hass?.auth?.data?.access_token;
-    if (!token) return;
-    let data;
-    try {
-      const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
-      if (!resp.ok) {
-        if (resp.status === 404) this._statusBackoff(30_000); // Kyber not loaded yet
-        return;
-      }
-      this._statusPollFailures = 0;
-      data = await resp.json();
-    } catch (_) {
-      // ERR_CONNECTION_REFUSED → HA offline; back off after 3 failures
-      this._statusPollFailures = (this._statusPollFailures || 0) + 1;
-      if (this._statusPollFailures >= 3) this._statusBackoff(30_000);
-      return;
-    }
-
-    const t = this._t || ((k) => k);
-    const ep = data.explorer_progress || {};
-    const epStatus = ep.status || "idle";
-    const active = ["starting", "phase1_summaries", "phase2_entities", "narrator"].includes(epStatus);
-
-    // Update explorer banner in chat area
-    const banner = this.shadowRoot?.getElementById("explorer-banner");
-    const textEl = this.shadowRoot?.getElementById("explorer-banner-text");
-    if (banner) {
-      if (active) {
-        let bannerText;
-        if (epStatus === "narrator") {
-          const done = ep.narrator_done ?? 0, total = ep.narrator_total ?? 0;
-          const pct = total > 0 ? Math.round(done * 100 / total) : 0;
-          bannerText = total > 0 ? t("ai_narrator_exploring_pct", { pct }) : t("ai_narrator_exploring");
-        } else {
-          const done = ep.done ?? 0, total = ep.total ?? 0;
-          bannerText = total > 0 ? t("ai_exploring_count", { done, total }) : t("exploring");
-        }
-        if (textEl) textEl.textContent = bannerText;
-        banner.style.display = "";
-      } else {
-        banner.style.display = "none";
-      }
-    }
-
-    // Update narrator progress badge in header
-    const badge = this.shadowRoot?.getElementById("narrator-progress");
-    if (badge) {
-      if (epStatus === "narrator") {
-        const done = ep.narrator_done ?? 0, total = ep.narrator_total ?? 0;
-        const pct = total > 0 ? Math.round(done * 100 / total) : 0;
-        badge.textContent = `🔍 ${pct}%`;
-        badge.hidden = false;
-        badge.title = t("ai_narrator_badge_title", { done, total, pct });
-      } else if (active) {
-        const done = ep.done ?? 0, total = ep.total ?? 0;
-        badge.textContent = `🔍 ${done}/${total}`;
-        badge.hidden = false;
-        badge.title = t("ai_explorer_badge_title", { done, total });
-      } else {
-        badge.hidden = true;
-      }
-    }
-
-    // Self-stop when nothing is running
-    if (!active) this._clearStatusPoll();
   }
 
   _hideThinking() {
