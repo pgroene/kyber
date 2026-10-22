@@ -55,8 +55,10 @@ from .const import (
     DEFAULT_CHAT_TIMEOUT,
     MIN_CHAT_TIMEOUT,
     MAX_CHAT_TIMEOUT,
+    CONF_ALLOW_THINKING,
     CONF_MAX_TOOL_ROUNDS,
     MIN_TOOL_ROUNDS,
+    DEFAULT_ALLOW_THINKING,
     MAX_TOOL_ROUNDS,
     TOOL_CALL_MAX_ROUNDS,
     CONF_MAX_DAILY_TOKENS,
@@ -210,6 +212,7 @@ def _build_options_schema(
     max_daily_tokens: int = DEFAULT_MAX_DAILY_TOKENS,
     chat_timeout: int = DEFAULT_CHAT_TIMEOUT,
     max_tool_rounds: int = TOOL_CALL_MAX_ROUNDS,
+    allow_thinking: bool = DEFAULT_ALLOW_THINKING,
     chat_max_limit: int = 2_000_000,
     enable_debug: bool = DEFAULT_ENABLE_DEBUG_VIEWS,
     enable_mcp: bool = DEFAULT_ENABLE_MCP,
@@ -266,6 +269,7 @@ def _build_options_schema(
             min=MIN_TOOL_ROUNDS, max=MAX_TOOL_ROUNDS, step=1, mode=selector.NumberSelectorMode.BOX,
         )
     )
+    model_fields[vol.Optional(CONF_ALLOW_THINKING, default=allow_thinking)] = selector.BooleanSelector()
     narrator_key = (
         vol.Optional(CONF_NARRATOR_AI_TASK_ENTITY_ID, default=narrator_ai_entity)
         if narrator_ai_entity
@@ -450,6 +454,7 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_MAX_DAILY_TOKENS: int(model.get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS)),
                         CONF_CHAT_TIMEOUT: int(model.get(CONF_CHAT_TIMEOUT, DEFAULT_CHAT_TIMEOUT)),
                         CONF_MAX_TOOL_ROUNDS: int(model.get(CONF_MAX_TOOL_ROUNDS, TOOL_CALL_MAX_ROUNDS)),
+                        CONF_ALLOW_THINKING: bool(model.get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING)),
                         CONF_NARRATOR_AI_TASK_ENTITY_ID: str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip(),
                         CONF_NARRATOR_MAX_TOKENS: int(model.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS)),
                         CONF_RUN_INITIAL_ANALYZE: bool(agents.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),
@@ -551,6 +556,7 @@ class KyberOptionsFlow(OptionsFlow):
                         max_daily_tokens=int(model.get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS)),
                         chat_timeout=int(model.get(CONF_CHAT_TIMEOUT, DEFAULT_CHAT_TIMEOUT)),
                         max_tool_rounds=int(model.get(CONF_MAX_TOOL_ROUNDS, TOOL_CALL_MAX_ROUNDS)),
+                        allow_thinking=bool(model.get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING)),
                         narrator_ai_entity=str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")),
                         narrator_max_tokens=int(model.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS)),
                     ),
@@ -583,6 +589,7 @@ class KyberOptionsFlow(OptionsFlow):
                         max_daily_tokens=int(model.get(CONF_MAX_DAILY_TOKENS, _get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS))),
                         chat_timeout=int(model.get(CONF_CHAT_TIMEOUT, _get(CONF_CHAT_TIMEOUT, DEFAULT_CHAT_TIMEOUT))),
                         max_tool_rounds=int(model.get(CONF_MAX_TOOL_ROUNDS, _get(CONF_MAX_TOOL_ROUNDS, TOOL_CALL_MAX_ROUNDS))),
+                        allow_thinking=bool(model.get(CONF_ALLOW_THINKING, _get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING))),
                         narrator_ai_entity=str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, _get(CONF_NARRATOR_AI_TASK_ENTITY_ID, ""))),
                         narrator_max_tokens=int(model.get(CONF_NARRATOR_MAX_TOKENS, _get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS))),
                         cloud_provider=selected_provider,
@@ -597,6 +604,7 @@ class KyberOptionsFlow(OptionsFlow):
                 CONF_MAX_DAILY_TOKENS: int(model.get(CONF_MAX_DAILY_TOKENS, _get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS))),
                 CONF_CHAT_TIMEOUT: int(model.get(CONF_CHAT_TIMEOUT, _get(CONF_CHAT_TIMEOUT, DEFAULT_CHAT_TIMEOUT))),
                 CONF_MAX_TOOL_ROUNDS: int(model.get(CONF_MAX_TOOL_ROUNDS, _get(CONF_MAX_TOOL_ROUNDS, TOOL_CALL_MAX_ROUNDS))),
+                CONF_ALLOW_THINKING: bool(model.get(CONF_ALLOW_THINKING, _get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING))),
                 CONF_NARRATOR_AI_TASK_ENTITY_ID: str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, _get(CONF_NARRATOR_AI_TASK_ENTITY_ID, ""))).strip(),
                 CONF_NARRATOR_MAX_TOKENS: int(model.get(CONF_NARRATOR_MAX_TOKENS, _get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS))),
                 CONF_RUN_INITIAL_ANALYZE: bool(agents.get(CONF_RUN_INITIAL_ANALYZE, _get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE))),
@@ -652,6 +660,7 @@ class KyberOptionsFlow(OptionsFlow):
             max_daily_tokens=int(current_daily_tokens),
             chat_timeout=int(_get(CONF_CHAT_TIMEOUT, DEFAULT_CHAT_TIMEOUT)),
             max_tool_rounds=int(_get(CONF_MAX_TOOL_ROUNDS, TOOL_CALL_MAX_ROUNDS)),
+            allow_thinking=bool(_get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING)),
             chat_max_limit=chat_max_limit,
             enable_debug=bool(_get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)),
             enable_mcp=bool(_get(CONF_ENABLE_MCP, DEFAULT_ENABLE_MCP)),

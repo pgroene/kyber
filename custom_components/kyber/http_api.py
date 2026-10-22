@@ -68,6 +68,8 @@ from .const import (
     LABEL_ASSIGNMENT_OFF,
     LABEL_ASSIGNMENT_AUTO,
     LOVELACE_CARDS_REFERENCE,
+    CONF_ALLOW_THINKING,
+    DEFAULT_ALLOW_THINKING,
     MAX_CHECK_ROUNDS,
     MAX_TOOL_RESULT_CHARS,
     SYSTEM_PROMPT_TEMPLATE,
@@ -689,11 +691,59 @@ async def _check_plan(hass: HomeAssistant, plan: dict | None) -> list:
         return []
 
 
-async def _automation_check_feedback(hass: HomeAssistant, response_text: str) -> str:
-    """Correction request for the model when its proposal has errors, else ""."""
+def _complete_automation_plan(plan: dict | None, referenced: list[dict] | None) -> dict | None:
+    """Mark a plan with original/modified config as an edit and fill in which config it edits.
+
+    Measured 2026-10-22: a thinking model answered with summary, changes,
+    original_config and modified_config but no "edit_automation" and no ids.
+    Kyber then neither showed an apply card nor checked the config. The config
+    edited is the one named in the request: matched by id, or the only one.
+    """
+    if not isinstance(plan, dict) or plan.get("create_automation"):
+        return plan
+    modified = plan.get("modified_config")
+    if not plan.get("edit_automation") and not plan.get("edit_script") and not isinstance(modified, dict):
+        return plan
+    refs = referenced or []
+    config_id = str((modified or {}).get("id") or plan.get("automation_id") or "")
+    ref = next((r for r in refs if config_id and r.get("id") == config_id), None)
+    if ref is None and len(refs) == 1:
+        ref = refs[0]
+    if not plan.get("edit_automation") and not plan.get("edit_script"):
+        if ref is None:
+            return plan  # cannot tell which automation it means
+        plan = {**plan, "edit_script" if ref.get("kind") == "script" else "edit_automation": True}
+    if ref is not None:
+        plan = {**plan}
+        plan.setdefault("entity_id", ref["entity_id"])
+        plan.setdefault("automation_id", ref["id"])
+    return plan
+
+
+def _missing_plan_request(referenced: list[dict]) -> str:
+    names = ", ".join(f"`{r['entity_id']}` (Config ID `{r['id']}`)" for r in referenced)
+    return (
+        f"No plan block found. The user asked to change {names}. Emit the complete edit_automation "
+        "plan block now, with original_config and modified_config; an analysis alone does not change anything."
+    )
+
+
+async def _correction_request(
+    hass: HomeAssistant, response_text: str, referenced: list[dict] | None, intent: str,
+) -> str:
+    """What the model must fix in its answer before the user sees it; "" when nothing.
+
+    - a proposed automation/script with errors the check names,
+    - no plan at all although the user asked to change a named automation
+      (measured: the model sometimes ended on an analysis without a plan).
+    """
     text = _normalize_json_plan_blocks(_rewrap_bare_action_fences(response_text))
-    findings = await _check_plan(hass, _extract_plan_block(text))
-    return automation_check.feedback_for_model(findings)
+    plan = _complete_automation_plan(_extract_plan_block(text), referenced)
+    if plan is None:
+        if referenced and intent == "action" and not _extract_clarify_block(text):
+            return _missing_plan_request(referenced)
+        return ""
+    return automation_check.feedback_for_model(await _check_plan(hass, plan))
 
 
 async def _attach_check_warnings(hass: HomeAssistant, plan: dict | None) -> dict | None:
@@ -1259,8 +1309,12 @@ async def _run_ai_loop(
     user_id: str | None = None,
     is_admin: bool = False,
     model_override: str | None = None,
+    referenced: list[dict] | None = None,
 ) -> tuple:
     """Run the AI tool-calling loop; return (response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, aliases_saved, token_usage).
+
+    ``referenced`` are the automations/scripts named in the request
+    (_load_referenced_configs); an edit request about them must end in a plan.
 
     Every round renders ``prompt`` plus the tool rounds so far into the chat
     model's context window (see prompt_budget). May raise HomeAssistantError
@@ -1320,7 +1374,10 @@ async def _run_ai_loop(
     }
 
     # Qwen3 thinking mode emits <think>…</think> blocks that break plan/tool parsing.
-    if "qwen3" in entity_id.lower():
+    # With allow_thinking the user switched thinking on in the integration on
+    # purpose (it makes automations far more often right); the soft switch
+    # would turn it off again on hybrid Qwen3 models. Newer Qwen models ignore it.
+    if "qwen3" in entity_id.lower() and not _cfg.get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING):
         # A soft switch in the user's part, right before the question: at the
         # very start it would differ from other models' prompts for no gain and
         # Qwen3 reads it from the user message anyway.
@@ -1761,7 +1818,7 @@ async def _run_ai_loop(
             # errors the check can name: at most MAX_CHECK_ROUNDS times, and
             # never in the last round, which must end in an answer.
             if _check_rounds < MAX_CHECK_ROUNDS and _round < _max_rounds - 1:
-                _feedback = await _automation_check_feedback(hass, response_text)
+                _feedback = await _correction_request(hass, response_text, referenced, intent)
                 if _feedback:
                     _check_rounds += 1
                     _LOGGER.info("Kyber: proposed config has errors, correction round %d", _check_rounds)
@@ -2705,7 +2762,8 @@ class KyberView(HomeAssistantView):
                 await _run_ai_loop(hass, entity_id, prompt, kstore, user_prompt, request_id, history, intent, config=_cfg,
                                    user_id=str(getattr(request.get("hass_user"), "id", "") or "") or None,
                                    is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)),
-                                   model_override=model_override)
+                                   model_override=model_override,
+                                   referenced=body_fields.get("referenced_configs") or [])
         except HomeAssistantError as err:
             _LOGGER.warning("Kyber: AI provider error: %s", err)
             return self.json_message(
@@ -2728,6 +2786,7 @@ class KyberView(HomeAssistantView):
             return self.json_message("Internal error", HTTPStatus.INTERNAL_SERVER_ERROR)
 
         _progress_complete(hass, request_id)
+        plan_block = _complete_automation_plan(plan_block, body_fields.get("referenced_configs"))
         plan_block = _annotate_plan_approval(plan_block)
         plan_block = await _attach_check_warnings(hass, plan_block)
 

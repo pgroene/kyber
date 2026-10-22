@@ -167,6 +167,13 @@ on the plan card. Measured on the living room heating case against the
 local model: 3/13 behaviour checks without, 10–13/13 with entity data plus
 one correction round; the live run after the change passed 13/13.
 
+Two more answers count as needing a correction when the request names an
+automation or script (`referenced`): a plan that carries `original_config`
+and `modified_config` but no `edit_automation` flag is completed (flag, entity
+and config id from the named automation) and checked like any edit, and an
+action request that ends without any plan and without a clarify block gets
+one round asking for the plan block. Both share the `MAX_CHECK_ROUNDS` limit.
+
 `tests/test_heating_case.py` keeps the case as a behaviour test (generic
 names, data in `tests/heating_case.py` and `tests/fixtures/heating_case/`):
 it sets up each automation with Home Assistant's automation integration,
