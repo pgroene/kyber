@@ -121,7 +121,7 @@ from .session_and_storage import (
 )
 from .debug_and_diagnostics import (
     _KyberTurnLogHandler, _debug_attach_log_capture, _debug_detach_log_capture,
-    _debug_record_turn,
+    _debug_record_turn, _debug_record_aborted_turn,
     KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView,
     KyberDebugBundleView, KyberBugReportView, KyberDebugModeView,
     _build_redaction_map, _restore_kyber_version_in_bug_report, _build_redacted_bundle_summary,
@@ -2577,7 +2577,12 @@ class _ChatTurn:
         self._busy = False
         self._request_id = ""
         self._log_handler: Any = None
+        self._log_sink: list[dict] | None = None
         self._reservation: TokenReservation | None = None
+        self._started_at = time.time()
+        # What the Debug tab gets if the turn ends before its answer
+        self.user_prompt = ""
+        self.instructions = ""
 
     def begin(self) -> None:
         """Mark the chat busy and ask background AI work to yield."""
@@ -2593,7 +2598,28 @@ class _ChatTurn:
         """Start log capture and progress reporting for ``request_id``; return the log sink."""
         self._request_id = request_id
         sink, self._log_handler = _debug_attach_log_capture(request_id)
+        self._log_sink = sink
         return sink
+
+    def record_abort(self, reason: str) -> None:
+        """Keep a Debug snapshot of a turn that ends before its answer (call before ``close``)."""
+        if not self._request_id:
+            return
+        progress = (self._hass.data.get(_PROGRESS_KEY) or {}).get(self._request_id) or {}
+        try:
+            _debug_record_aborted_turn(
+                self._hass,
+                request_id=self._request_id,
+                user_prompt=self.user_prompt,
+                expanded_prompt=self.instructions,
+                elapsed_ms=int((time.time() - self._started_at) * 1000),
+                reason=reason,
+                logs=list(self._log_sink or []),
+                progress_events=list(progress.get("events") or []),
+            )
+        except Exception:
+            # The turn is being torn down; a lost snapshot must not mask that.
+            _LOGGER.exception("Kyber: could not record the aborted turn")
 
     def hold(self, reservation: TokenReservation) -> None:
         """Release ``reservation`` on close unless it was settled before."""
@@ -2715,6 +2741,10 @@ class KyberView(HomeAssistantView):
             return await _respond_with_heartbeat(
                 request, self._async_complete(request, hass, turn)
             )
+        except (asyncio.CancelledError, ConnectionError):
+            # The client went away (panel timeout, Stop, closed tab): keep what the turn had.
+            turn.record_abort("client_gone")
+            raise
         finally:
             turn.close()
 
@@ -2750,6 +2780,7 @@ class KyberView(HomeAssistantView):
         model_override = body_fields.get("model_override") or None
         # Per-turn log capture for the Debug bundle download.
         _debug_log_sink = turn.track(request_id)
+        turn.user_prompt = user_prompt
 
         if not user_prompt:
             return self.json_message("Missing 'prompt' field", HTTPStatus.BAD_REQUEST)
@@ -2836,6 +2867,7 @@ class KyberView(HomeAssistantView):
             is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)),
         )
         instructions = prompt.render().text
+        turn.instructions = instructions
 
         budget_provider = get_budget_provider(_cfg)
         max_daily_tokens = int(_cfg.get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS) or 0)

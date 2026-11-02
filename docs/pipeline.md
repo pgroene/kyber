@@ -264,8 +264,16 @@ expanded_prompt, instructions_used,        # each up to 256 KB; a longer prompt 
 picked_knowledge (with id, score, source, …),
 tool_log, intent, response_text (8 KB cap),
 auto_rating, elapsed_ms, char_count, approx_tokens,
-logs, progress_events, session_meta
+logs, progress_events, session_meta,
+aborted                                    # only for a turn the client gave up on: {after_ms, reason}
 ```
+
+When the client goes away before the answer (panel chat timeout, Stop), HA
+cancels the handler and the turn never reaches the end. `KyberView.post` then
+records what the turn had (`_debug_record_aborted_turn`): the prompt built
+before the first model call, tool calls taken from the progress events, the
+progress events and the captured log lines. A turn already recorded under its
+`request_id` is not overwritten.
 
 The snapshot is stored:
 

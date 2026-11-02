@@ -174,6 +174,7 @@ def _debug_record_turn(
     logs: list[dict] | None = None,
     progress_events: list[dict] | None = None,
     session_meta: dict | None = None,
+    aborted: dict | None = None,
 ) -> None:
     """Capture a per-turn debug snapshot. Single slot + ring buffer + per-request_id map."""
     import time
@@ -196,6 +197,8 @@ def _debug_record_turn(
         "progress_events": progress_events or [],
         "session_meta": session_meta or {},
     }
+    if aborted:
+        snapshot["aborted"] = aborted
     hass.data[_DEBUG_LAST_TURN_KEY] = snapshot
     # Per-request_id map (newest wins, evict oldest beyond max).
     from collections import OrderedDict, deque
@@ -218,6 +221,49 @@ def _debug_record_turn(
             "request_id": request_id,
             **entry,
         })
+
+
+def _debug_record_aborted_turn(
+    hass: HomeAssistant,
+    *,
+    request_id: str,
+    user_prompt: str,
+    expanded_prompt: str,
+    elapsed_ms: int,
+    reason: str,
+    logs: list[dict] | None = None,
+    progress_events: list[dict] | None = None,
+) -> None:
+    """Record a turn that ended before its answer, with what it had so far.
+
+    A turn the client gave up on (panel timeout, Stop) is cancelled before it
+    reaches ``_debug_record_turn``; without this, the Debug tab keeps showing
+    an older turn or nothing. A turn already recorded under ``request_id``
+    (it finished while the reply was on its way) is left alone.
+    """
+    snaps = hass.data.get(_DEBUG_SNAPSHOTS_KEY)
+    if request_id and isinstance(snaps, dict) and request_id in snaps:
+        return
+    events = list(progress_events or [])
+    tool_log = [
+        {"type": "tool_call", "name": e.get("name"), "args": e.get("args") or {}}
+        for e in events if e.get("type") == "tool_call"
+    ]
+    _debug_record_turn(
+        hass,
+        request_id=request_id,
+        user_prompt=user_prompt,
+        expanded_prompt=expanded_prompt,
+        instructions_used=expanded_prompt,
+        picked_knowledge=[],
+        tool_log=tool_log,
+        intent=None,
+        response_text="",
+        elapsed_ms=elapsed_ms,
+        logs=logs,
+        progress_events=events,
+        aborted={"after_ms": elapsed_ms, "reason": reason},
+    )
 
 
 class KyberDebugLastTurnView(HomeAssistantView):

@@ -353,7 +353,9 @@ export const AIMixin = (Base) => class extends Base {
       await this._loadChatSettings();
     }
     const timeoutSec = this._chatTimeoutSec || DEFAULT_CHAT_TIMEOUT_SEC;
-    this._chatAbort = new AbortController();
+    // Kept locally: Stop clears this._chatAbort before the catch below reads the reason
+    const chatAbort = new AbortController();
+    this._chatAbort = chatAbort;
     const _chatTimeoutId = setTimeout(() => {
       if (this._chatAbort) this._chatAbort.abort(new Error(t("ai_request_timeout", { sec: timeoutSec })));
     }, timeoutSec * 1000);
@@ -521,7 +523,11 @@ export const AIMixin = (Base) => class extends Base {
     } catch (err) {
       this._hideThinking();
       let msg;
-      if (err.name === "AbortError") {
+      if (chatAbort.signal.aborted) {
+        // A long turn streams: an abort while its body is read surfaces as the browser's
+        // generic "The operation was aborted.", so the reason comes from the signal.
+        msg = chatAbort.signal.reason?.message || t("ai_request_cancelled");
+      } else if (err.name === "AbortError") {
         msg = err.message || t("ai_request_cancelled");
       } else {
         msg = chatErrorMessage(err, t);
@@ -1549,7 +1555,7 @@ export const AIMixin = (Base) => class extends Base {
     if (cancelBtn) {
       cancelBtn.addEventListener("click", () => {
         if (this._chatAbort) {
-          this._chatAbort.abort();
+          this._chatAbort.abort(new DOMException(t("ai_request_cancelled"), "AbortError"));
           this._chatAbort = null;
         }
       });

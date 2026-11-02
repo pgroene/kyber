@@ -36,6 +36,10 @@ A detailed breakdown of the most recent AI turn.
 - **Tokens** — estimated input/output token counts if available
 - **Debug bundle** — download a ZIP containing the full turn snapshot for bug reports
 
+A turn the browser gave up on (chat timeout, Stop, closed tab) is shown too,
+with a notice how long it ran. It holds what the turn had by then: the prompt,
+the tool calls, progress and log lines, but no response.
+
 ---
 
 ### Status

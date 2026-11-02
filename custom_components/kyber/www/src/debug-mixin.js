@@ -751,6 +751,7 @@ export const DebugMixin = (Base) => class extends Base {
         · ${t("dbg_lt_prompt")} ${t("dbg_chars_tokens", { chars: snap.char_count?.toLocaleString() ?? "?", tokens: snap.approx_tokens?.toLocaleString() ?? "?" })}
         · auto_rating: ${snap.auto_rating ? `⚠ ${snap.auto_rating}/5` : "—"}
       </div>
+      ${snap.aborted ? `<div class="debug-error dbg-aborted">${t("dbg_lt_aborted", { sec: Math.round((snap.aborted.after_ms || 0) / 1000) })}</div>` : ""}
       <details class="debug-section" data-sid="user-prompt" open>
         <summary><strong>${t("dbg_lt_user_prompt")}</strong></summary>
         <pre class="dbg-pre">${this._escapeHtml(snap.user_prompt || "")}</pre>
