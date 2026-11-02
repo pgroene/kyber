@@ -153,6 +153,7 @@ from . import automation_check
 from .prompt_budget import ChatPrompt, PromptFit, ToolRound, prompt_char_limit
 from .rate_limiter import _rate_limiter
 from .token_budget import TokenReservation, get_budget_provider, get_store as get_token_budget_store
+from . import thinking_check
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1390,7 +1391,8 @@ async def _run_ai_loop(
     # With allow_thinking the user switched thinking on in the integration on
     # purpose (it makes automations far more often right); the soft switch
     # would turn it off again on hybrid Qwen3 models. Newer Qwen models ignore it.
-    if "qwen3" in entity_id.lower() and not _cfg.get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING):
+    _allow_thinking = bool(_cfg.get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING))
+    if "qwen3" in entity_id.lower() and not _allow_thinking:
         # A soft switch in the user's part, right before the question: at the
         # very start it would differ from other models' prompts for no gain and
         # Qwen3 reads it from the user message anyway.
@@ -1569,6 +1571,13 @@ async def _run_ai_loop(
         if _mcp_block:
             prompt = dataclasses.replace(prompt, core=prompt.core + _mcp_block + "\n\n")
     _use_cloud = _use_azure or _use_openai or _use_anthropic
+    # Every chat call is checked for traces of thinking (thinking_check), per
+    # AI task entity or cloud model.
+    _thinking_path = (
+        thinking_check.CLOUD_PATHS[_cloud_provider] if _use_cloud
+        else thinking_check.provider_domain(hass, entity_id)
+    )
+    _thinking_key = _model_name if _use_cloud else entity_id
     # Cloud providers get real roles (core as system part, history as messages);
     # the ai_task path gets one text and Home Assistant builds the roles.
     _render = prompt.render_messages if _use_cloud else prompt.render
@@ -1767,6 +1776,27 @@ async def _run_ai_loop(
         _token_usage["response_tokens"] += _call_usage["response_tokens"]
         _token_usage["total_tokens"] += _call_usage["total_tokens"]
         _record_model_call(hass, entity_id, _elapsed_ms, _call_usage["total_tokens"], success=True)
+        # Before the <think> blocks are stripped below: they are one of the traces.
+        _thinking = getattr(result, "thinking", None)
+        if not isinstance(_thinking, thinking_check.Observation):
+            _thinking = thinking_check.observe_ai_task(hass, result, _thinking_path)
+        _thinking_hint = thinking_check.record_observation(
+            hass,
+            key=_thinking_key,
+            model=_model_name,
+            path=_thinking_path,
+            observation=_thinking,
+            allow_thinking=_allow_thinking,
+        )
+        if _thinking_hint:
+            _thinking_msg = thinking_check.HINTS_EN[_thinking_hint].format(model=_model_name)
+            _LOGGER.warning("Kyber: thinking check: %s", _thinking_msg)
+            _progress_emit(hass, request_id, {
+                "type": "warning",
+                "message": _thinking_msg,
+                "key": _thinking_hint,
+                "params": {"model": _model_name},
+            })
         _LOGGER.info(
             "Kyber: AI call OK — entity=%s model=%s round=%d elapsed=%dms "
             "prompt_tokens~%d resp_tokens~%d total_tokens~%d",

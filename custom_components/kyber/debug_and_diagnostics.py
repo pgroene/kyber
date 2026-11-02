@@ -11,8 +11,12 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_AI_TASK_ENTITY_ID, CONF_MAX_DAILY_TOKENS, DOMAIN, _redact_secrets
+from .const import (
+    CONF_AI_TASK_ENTITY_ID, CONF_ALLOW_THINKING, CONF_MAX_DAILY_TOKENS, DEFAULT_ALLOW_THINKING,
+    DOMAIN, _redact_secrets,
+)
 from .knowledge import get_store as get_knowledge_store
+from .thinking_check import thinking_status
 from .token_budget import get_budget_provider, get_store as get_token_budget_store
 from .entity_narrator import NARRATOR_STATS_KEY
 from .knowledge_integration import get_deep_job_status as _get_deep_job_status
@@ -413,6 +417,9 @@ class KyberDebugStatusView(HomeAssistantView):
             "ai_task_info": _entity_info(ai_task_entity),
             "narrator_ai_task_entity": narrator_ai_task_entity,
             "narrator_ai_task_info": _entity_info(narrator_ai_task_entity),
+            "thinking": thinking_status(
+                hass, bool(config.get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING))
+            ),
             "token_usage": token_usage,
             "knowledge": {
                 "total": len(all_entries),
