@@ -239,6 +239,7 @@ _TOOL_SUMMARY_EN: dict[str, str] = {
     "ts_integration_entities": "{count} entities from '{integration}'",
     "ts_ai_task": "ai_task response from {entity}{snippet}",
     "ts_domain_docs": "domain docs for '{domain}'",
+    "ts_calc": "= {result}",
     "ts_done": "done",
 }
 
@@ -295,6 +296,11 @@ def _tool_result_summary_parts(call: dict[str, Any], result: Any) -> tuple[str, 
         return "ts_ai_task", {"entity": call.get("entity_id", "?"), "snippet": snippet}
     if name == "get_domain_docs":
         return "ts_domain_docs", {"domain": call.get("domain", "?")}
+    if name == "calc":
+        result_repr = "?"
+        if is_dict and "result" in result:
+            result_repr = str(result["result"])[:60]
+        return "ts_calc", {"result": result_repr}
     return "ts_done", {}
 
 
@@ -1162,6 +1168,11 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             ),
         })
 
+    # ── Calculator tool ──────────────────────────────────────────────────────
+    if name == "calc":
+        from .calc_tool import execute_calc  # noqa: PLC0415
+        return execute_calc(call)
+
     # ── DateTime tool ────────────────────────────────────────────────────────
     if name == "get_datetime":
         from datetime import datetime, timezone  # noqa: PLC0415
@@ -1235,6 +1246,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "run_ai_task",
         "get_domain_docs",
         "get_datetime",
+        "calc",
         "get_todo_items",
     ]
     # If the bogus "tool" name looks like a word from a user request (e.g.
