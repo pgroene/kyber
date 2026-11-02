@@ -248,6 +248,10 @@ MODEL_CONTEXT_SIZES: dict[str, int] = {
     "phi": 4096,
     "qwen2.5": 131072,
     "qwen2": 131072,
+    # Longest pattern wins (config_flow._infer_max_tokens), so these beat "qwen"
+    "qwen3-coder": 262144,
+    "qwen3.5": 262144,
+    "qwen3": 131072,
     "qwen": 32768,
     "deepseek-r1": 131072,
     "deepseek": 65536,
