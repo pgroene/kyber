@@ -174,6 +174,12 @@ and config id from the named automation) and checked like any edit, and an
 action request that ends without any plan and without a clarify block gets
 one round asking for the plan block. Both share the `MAX_CHECK_ROUNDS` limit.
 
+A plan block that is not JSON, even after forgiving raw line breaks and
+trailing commas, goes back too, with or without a named automation: the
+round names the parser's message and the line it stopped at (measured: a
+YAML block scalar `>-` for a Jinja template inside the JSON). Without it the
+user would get the reply text but no plan card.
+
 `tests/test_heating_case.py` keeps the case as a behaviour test (generic
 names, data in `tests/heating_case.py` and `tests/fixtures/heating_case/`):
 it sets up each automation with Home Assistant's automation integration,

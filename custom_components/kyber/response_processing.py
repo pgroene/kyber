@@ -287,19 +287,38 @@ def _loads_lenient(raw: str) -> Any:
         return None
 
 
+def _plan_block_match(text: str) -> re.Match | None:
+    """The first plan block in any of the formats models use, or None."""
+    for pattern in (_PLAN_BLOCK_RE, _BARE_PLAN_RE, _BRACKET_PLAN_RE, _TAG_PLAN_RE):
+        match = pattern.search(text)
+        if match:
+            return match
+    return None
+
+
+def _plan_block_json_error(text: str) -> str | None:
+    """Why the plan block in ``text`` is not JSON, with the spot; None if it parses or there is none."""
+    match = _plan_block_match(text)
+    if not match or _loads_lenient(match.group(1)) is not None:
+        return None
+    raw = _TRAILING_COMMA_RE.sub(r"\1", match.group(1))
+    try:
+        json.loads(raw, strict=False)
+    except json.JSONDecodeError as err:
+        line = raw.splitlines()[err.lineno - 1].strip() if raw.splitlines() else ""
+        return f"{err.msg} at line {err.lineno}: {line[:120]}"
+    except ValueError as err:
+        return str(err)
+    return None
+
+
 def _extract_plan_block(text: str) -> dict | None:
     """Extract the first ```plan``` JSON block from a response string.
 
     Also handles bare ``## Plan\\n{...}`` blocks, ``[PLAN_BLOCK: {...}]``
     and ``[PLAN]\\n{...}`` formats that some models emit without backtick fences.
     """
-    match = _PLAN_BLOCK_RE.search(text)
-    if not match:
-        match = _BARE_PLAN_RE.search(text)
-    if not match:
-        match = _BRACKET_PLAN_RE.search(text)
-    if not match:
-        match = _TAG_PLAN_RE.search(text)
+    match = _plan_block_match(text)
     if not match:
         return None
     parsed = _loads_lenient(match.group(1))

@@ -77,6 +77,46 @@ async def test_an_analysis_without_plan_is_sent_back(hass, http_api):
     assert ENTITY in feedback
 
 
+# A Jinja template written as a YAML block scalar inside the JSON plan. Kyber
+# used to drop such a plan, and the user got no card.
+UNREADABLE = """Here is the automation.
+
+```plan
+{
+  "create_automation": true,
+  "config": {
+    "alias": "Evening porch light",
+    "triggers": [{"trigger": "time", "at": "19:00:00"}],
+    "actions": [{"action": "light.turn_on", "target": {"entity_id": "light.porch"},
+      "data": {
+        "brightness_pct": >-
+          {% if now().month in [6, 7, 8] %}40{% else %}80{% endif %}
+      }}]
+  }
+}
+```"""
+
+
+async def test_an_unreadable_plan_is_sent_back_with_the_spot(hass, http_api):
+    feedback = await http_api._correction_request(hass, UNREADABLE, [], "action")
+    assert feedback.startswith("Your plan block is not valid JSON")
+    assert '"brightness_pct": >-' in feedback, "names the line the parser stopped at"
+    assert "strict JSON" in feedback
+
+
+async def test_an_unreadable_plan_is_sent_back_for_a_named_automation_too(hass, http_api):
+    feedback = await http_api._correction_request(hass, UNREADABLE, REF, "action")
+    assert feedback.startswith("Your plan block is not valid JSON"), "not 'No plan block found'"
+
+
+def test_lenient_json_is_not_reported():
+    from custom_components.kyber.response_processing import _plan_block_json_error
+
+    raw_newline = '```plan\n{"create_automation": true, "config": {"alias": "a\nb", "actions": [],}}\n```'
+    assert _plan_block_json_error(raw_newline) is None, "raw line break and trailing comma are forgiven"
+    assert _plan_block_json_error("No plan here.") is None
+
+
 async def test_no_request_for_questions_or_clarifications(hass, http_api):
     assert await http_api._correction_request(hass, "It heats by the schedule.", REF, "informational") == ""
     clarify = 'Which mode?\n\n```clarify\n{"question": "Which?", "options": ["A", "B"]}\n```'
@@ -144,6 +184,26 @@ async def test_a_missing_plan_gets_one_more_round(home, setup_integration, hass_
     assert (data["plan"]["entity_id"], data["plan"]["automation_id"]) == (ENTITY, AUTO_ID)
     assert data["plan"]["modified_config"] == FIXED
     assert "check_warnings" not in data["plan"]
+
+
+async def test_an_unreadable_plan_gets_one_more_round(home, setup_integration, hass_client) -> None:
+    seen: list[str] = []
+    broken = _plan(original_config=BROKEN, modified_config=FIXED).replace(
+        '"alias": "', '"alias": >-\n  "', 1)  # a YAML block scalar inside the JSON
+
+    async def fake_ai(*_args, instructions="", **_kwargs):
+        if "User: /automation." not in instructions:
+            return SimpleNamespace(data="[]")
+        seen.append(instructions)
+        if "Your plan block is not valid JSON" in instructions:
+            return SimpleNamespace(data=_plan(original_config=BROKEN, modified_config=FIXED))
+        return SimpleNamespace(data=broken)
+
+    data = await _complete(hass_client, fake_ai)
+
+    assert len(seen) == 2, "the unreadable plan, then a valid one"
+    assert data["plan"]["edit_automation"] is True
+    assert data["plan"]["modified_config"] == FIXED
 
 
 async def test_a_plan_without_flag_is_checked_and_corrected(home, setup_integration, hass_client) -> None:

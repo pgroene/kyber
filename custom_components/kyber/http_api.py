@@ -96,7 +96,7 @@ from .response_processing import (
     _YAML_BLOCK_RE, _PLAN_BLOCK_RE, _CLARIFY_BLOCK_RE,
     _TOOL_RESULT_STRIP_RE, _TOOL_RESULT_ECHO_RE, _TOOL_CALL_MAX_ROUNDS,
     _BARE_FENCE_RE, _ACTION_TYPE_RE, _AUTOMATION_EDIT_RE,
-    _parse_tool_calls, _strip_tool_calls, _extract_yaml_blocks, _extract_plan_block,
+    _parse_tool_calls, _strip_tool_calls, _extract_yaml_blocks, _extract_plan_block, _plan_block_json_error,
     _rewrap_bare_action_fences, _normalize_json_plan_blocks, _NARRATION_PATTERNS, _BARE_JSON_TOOL_RESULT_RE,
     _strip_role_echo_prefix, _BRIGHTNESS_INTENT_RE, _DIM_INTENT_RE,
     _augment_brightness_intent, _extract_clarify_block, _strip_plan_block,
@@ -729,17 +729,29 @@ def _missing_plan_request(referenced: list[dict]) -> str:
     )
 
 
+def _unreadable_plan_request(error: str) -> str:
+    return (
+        f"Your plan block is not valid JSON ({error}), so the user gets no plan card. Emit the complete "
+        "plan block again as strict JSON. A Jinja template goes into one JSON string, line breaks as \\n "
+        "and quotes escaped; YAML block scalars (>-, |), comments and unquoted values are not JSON."
+    )
+
+
 async def _correction_request(
     hass: HomeAssistant, response_text: str, referenced: list[dict] | None, intent: str,
 ) -> str:
     """What the model must fix in its answer before the user sees it; "" when nothing.
 
     - a proposed automation/script with errors the check names,
+    - a plan block that is not JSON (measured: a YAML block scalar inside the
+      JSON); the user would get no card,
     - no plan at all although the user asked to change a named automation
       (measured: the model sometimes ended on an analysis without a plan).
     """
     text = _normalize_json_plan_blocks(_rewrap_bare_action_fences(response_text))
     plan = _complete_automation_plan(_extract_plan_block(text), referenced)
+    if plan is None and (error := _plan_block_json_error(text)):
+        return _unreadable_plan_request(error)
     if plan is None:
         if referenced and intent == "action" and not _extract_clarify_block(text):
             return _missing_plan_request(referenced)
