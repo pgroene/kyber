@@ -458,6 +458,11 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
                 out["state"] = st.state if st else "unknown"
             elif f == "domain":
                 out["domain"] = domain
+            elif f in ("last_updated", "last_changed"):
+                # Timestamps live on the state object, not in attributes —
+                # without this they always landed in _missing_fields.
+                ts = getattr(st, f, None) if st else None
+                out[f] = ts.isoformat() if ts is not None else None
             elif f in ("area", "area_name", "area_id"):
                 resolved_entry = entry if entry is not None else entity_reg.async_get(eid)
                 aid = _effective_area_id(resolved_entry)

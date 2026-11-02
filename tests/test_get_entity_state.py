@@ -225,3 +225,23 @@ class TestGetEntityStateDatetimeSerialization:
         })
         data = json.loads(result)
         assert "error" in data
+
+    def test_last_updated_and_last_changed_via_fields(self):
+        """last_updated/last_changed live on the state object, not attributes;
+        requesting them via fields must return ISO timestamps, not _missing_fields."""
+        lu = datetime(2026, 11, 2, 11, 55, 30, tzinfo=timezone.utc)
+        lc = datetime(2026, 11, 2, 11, 55, 0, tzinfo=timezone.utc)
+        hass = _make_hass("sensor.energy_meter", "12000.0", {"unit_of_measurement": "kWh"})
+        state = hass.states.get("sensor.energy_meter")
+        state.last_updated = lu
+        state.last_changed = lc
+        result = _execute_tool(hass, {
+            "name": "get_entity_state",
+            "entity_id": "sensor.energy_meter",
+            "fields": ["state", "last_updated", "last_changed"],
+        })
+        data = json.loads(result)
+        assert "_missing_fields" not in data
+        assert data["last_updated"].startswith("2026-11-02T11:55:30")
+        assert data["last_changed"].startswith("2026-11-02T11:55:00")
+
