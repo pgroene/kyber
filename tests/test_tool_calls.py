@@ -156,6 +156,73 @@ class TestParseToolCalls:
         calls = _parse_tool_calls(text)
         assert len(calls) == 1
 
+    # ── REGRESSION: truncated tool call ──────────────────────────────────────
+    # The model looped on search_entities, emitted ~3.5K chars of repeated
+    # queries and hit max_tokens mid-array. _find_json_end found no closing
+    # brace, the call was silently dropped, stripped prose left nothing →
+    # "no answer" fallback.
+
+    def test_truncated_array_repaired(self):
+        text = (
+            'Let me search:\n\n'
+            '[TOOL_CALL: {"name": "search_entities", "queries": ["light", "lamp", '
+            '"bulb", "ceiling light", "led str'
+        )
+        calls = _parse_tool_calls(text)
+        assert len(calls) == 1, "Truncated tool call should be repaired and parsed"
+        assert calls[0]["name"] == "search_entities"
+        assert calls[0]["queries"] == ["light", "lamp", "bulb", "ceiling light"]
+
+    def test_truncated_object_repaired(self):
+        text = '[TOOL_CALL: {"name": "call_service", "domain": "light", "service_data": {"brightness"'
+        calls = _parse_tool_calls(text)
+        assert len(calls) == 1
+        assert calls[0]["name"] == "call_service"
+        assert calls[0]["domain"] == "light"
+
+    def test_truncated_call_does_not_swallow_earlier_complete_call(self):
+        """A complete call before a truncated tail must not absorb the tail's text."""
+        text = (
+            '[TOOL_CALL: {"name": "get_areas"}]\n'
+            'and then:\n[TOOL_CALL: {"name": "search_entities", "queries": ["a", "b", "c"'
+        )
+        calls = _parse_tool_calls(text)
+        assert len(calls) == 2
+        assert calls[0]["name"] == "get_areas"
+        assert calls[1]["name"] == "search_entities"
+
+    def test_truncated_tail_after_complete_call_not_repaired_into_it(self):
+        """Repair only applies to the tail after the LAST prefix match."""
+        text = '[TOOL_CALL: {"name": "get_areas"}]{"name": "x"'
+        calls = _parse_tool_calls(text)
+        assert len(calls) == 1
+        assert calls[0]["name"] == "get_areas"
+
+    def test_truncated_prose_not_repaired(self):
+        """No TOOL_CALL prefix → no repair, no crash."""
+        text = 'I already see many entities. Let me find the rest: {"light'
+        calls = _parse_tool_calls(text)
+        assert calls == []
+
+
+# ── _detect_truncated_tool_call ───────────────────────────────────────────────
+
+class TestDetectTruncatedToolCall:
+    def test_detects_truncated_tail(self):
+        text = 'Prose.\n[TOOL_CALL: {"name": "search_entities", "queries": ["a", "b"'
+        assert http_api._detect_truncated_tool_call(text) is True
+
+    def test_complete_call_not_truncated(self):
+        text = '[TOOL_CALL: {"name": "get_areas"}]'
+        assert http_api._detect_truncated_tool_call(text) is False
+
+    def test_no_call_not_truncated(self):
+        assert http_api._detect_truncated_tool_call("Prose only.") is False
+
+    def test_complete_call_followed_by_truncated_tail(self):
+        text = '[TOOL_CALL: {"name": "get_areas"}]\n[TOOL_CALL: {"name": "search_entities", "q": "x'
+        assert http_api._detect_truncated_tool_call(text) is True
+
 
 # ── _strip_tool_calls ─────────────────────────────────────────────────────────
 

@@ -100,7 +100,7 @@ from .response_processing import (
     _rewrap_bare_action_fences, _normalize_json_plan_blocks, _NARRATION_PATTERNS, _BARE_JSON_TOOL_RESULT_RE,
     _strip_role_echo_prefix, _BRIGHTNESS_INTENT_RE, _DIM_INTENT_RE,
     _augment_brightness_intent, _extract_clarify_block, _strip_plan_block,
-    _lift_config_edit_plan,
+    _lift_config_edit_plan, _detect_truncated_tool_call,
 )
 from .intent_and_context import (
     _QUICK_CREATE_AREA_RE, _try_quick_intent,
@@ -1548,6 +1548,7 @@ async def _run_ai_loop(
     _seen_entity_scores: dict[str, float] = {}  # entity_id → best score shown so far
     response_text = ""
     _loop_redirect_given = False  # allow one redirect hint before falling back to synthesis
+    _truncation_resume_given = False  # allow one resume ask when a tool call was cut off by max_tokens
     _auto_plan_rescued = False    # set when call_service tool call is auto-converted to plan
     _check_rounds = 0  # correction rounds spent on a proposal the check rejected
     # Describe external MCP tools in the system part, ahead of the conversation.
@@ -1795,6 +1796,30 @@ async def _run_ai_loop(
             import re as _re
             response_text = _re.sub(r"<think>.*?</think>", "", response_text, flags=_re.DOTALL).strip()
         tool_calls = _parse_tool_calls(response_text)
+
+        # The model hit max_tokens inside a tool call: the block is incomplete.
+        # Ask once for a short, deduplicated retry before executing anything —
+        # small models loop on giant query lists until the generation cuts off.
+        if tool_calls and _detect_truncated_tool_call(response_text) and not _truncation_resume_given:
+            _truncation_resume_given = True
+            _LOGGER.warning(
+                "Kyber: tool call was cut off by max_tokens (response ends mid-JSON, %d chars) — asking for a short retry",
+                len(response_text),
+            )
+            _progress_emit(hass, request_id, {
+                "type": "info",
+                "message": "Tool call was cut off mid-generation — asking the model for a shorter one.",
+                "key": "ev_truncated_tool_call",
+            })
+            tool_rounds.append(ToolRound(
+                response_text.strip(),
+                "\n[SYSTEM: Your previous tool call was cut off before it ended (max_tokens reached). "
+                "The list of queries was far too long and repeated itself. Do NOT execute that call. "
+                "Output ONE short [TOOL_CALL: ...] with at most 8 DISTINCT queries, each appearing once, "
+                "or answer from the tool results you already have.]",
+            ))
+            _progress_emit(hass, request_id, {"type": "thinking", "stage": "follow_up"})
+            continue
 
         # Also handle plan blocks where the AI put tool calls inside actions
         if not tool_calls:

@@ -84,6 +84,85 @@ def _find_json_end(text: str, start: int) -> int:
     return start  # unmatched brace
 
 
+def _repair_truncated_json(body: str) -> str | None:
+    """Close a JSON object that was cut off mid-generation (e.g. the model hit
+    its max_tokens limit). Returns the repaired JSON, or None when nothing
+    sensible can be salvaged.
+
+    Strategy: walk the body tracking string/escape state and a stack of open
+    containers. At the end, if we are inside an unterminated string, drop that
+    partial value (and the key that introduced it, if any); then close every
+    open container with the matching bracket. Trailing commas before a closing
+    bracket are removed.
+    """
+    stack: list[str] = []
+    in_str = False
+    escaped = False
+    cut = len(body)
+    i = 0
+    while i < len(body):
+        ch = body[i]
+        if escaped:
+            escaped = False
+        elif ch == "\\" and in_str:
+            escaped = True
+        elif ch == '"':
+            in_str = not in_str
+        elif not in_str:
+            if ch in "{[":
+                stack.append(ch)
+            elif ch in "}]":
+                if not stack:
+                    return None
+                open_ch = stack.pop()
+                if (open_ch, ch) not in (("{", "}"), ("[", "]")):
+                    return None
+        i += 1
+
+    if not stack:
+        # Brackets balanced — the body is complete JSON; caller parses it directly.
+        return body.strip()
+
+    trimmed = body.rstrip()
+    if in_str:
+        # The cut happened inside a string literal: drop the partial value.
+        # rfind only sees the last segment after the opening quote of that
+        # string, so rescan from the start for the structural token before it.
+        seg_start = 0
+        depth = 0
+        s_in = False
+        s_esc = False
+        j = 0
+        while j < len(trimmed):
+            ch = trimmed[j]
+            if s_esc:
+                s_esc = False
+            elif ch == "\\" and s_in:
+                s_esc = True
+            elif ch == '"':
+                if not s_in:
+                    seg_start = j
+                s_in = not s_in
+            elif not s_in:
+                if ch in "{[":
+                    depth += 1
+                elif ch in "}]":
+                    depth -= 1
+                elif ch in ":," and depth == 0:
+                    seg_start = j
+            j += 1
+        trimmed = trimmed[:seg_start]
+    # Drop a dangling key (e.g. "brightness" with no colon) left by the cut.
+    m = re.search(r'"[^"]*"\s*$', trimmed)
+    if m:
+        trimmed = trimmed[:m.start()]
+    trimmed = trimmed.rstrip().rstrip(",").rstrip(":")
+    # If the last open container is an array and we just emptied it, that's fine.
+    for opener in reversed(stack):
+        trimmed += "}" if opener == "{" else "]"
+    return trimmed.strip()
+
+
 def _parse_tool_calls(text: str) -> list[dict[str, Any]]:
     """Extract all tool-call JSON blocks from a response.
 
@@ -97,17 +176,42 @@ def _parse_tool_calls(text: str) -> list[dict[str, Any]]:
       tool_call: {...}           lowercase
       <tool_call>...</tool_call> XML
     Uses bracket-depth counting so nested JSON (e.g. service_data) is parsed correctly.
+    Truncated blocks (model hit max_tokens) are repaired by closing open containers.
     """
     calls = []
     for m in _TOOL_CALL_PREFIX_RE.finditer(text):
         end = _find_json_end(text, m.end())
-        if end == m.end():
+        if end != m.end():
+            try:
+                calls.append(json.loads(text[m.end():end]))
+                continue
+            except (json.JSONDecodeError, ValueError):
+                pass
+        # Unmatched brace — the block was cut off mid-generation; repair it.
+        # Only the tail after the LAST prefix match can be truncated: a block
+        # in the middle of the text is closed by the next block, not by the end.
+        if _TOOL_CALL_PREFIX_RE.search(text, m.end()) is not None:
+            continue
+        repaired = _repair_truncated_json(text[m.end():])
+        if repaired is None:
             continue
         try:
-            calls.append(json.loads(text[m.end():end]))
+            calls.append(json.loads(repaired))
         except (json.JSONDecodeError, ValueError):
             pass
     return calls
+
+
+def _detect_truncated_tool_call(text: str) -> bool:
+    """True when the response ends inside an unclosed tool-call JSON block,
+    i.e. the model hit its max_tokens limit mid-tool-call. A block closed by
+    a following prefix match does not count; only the tail can be truncated."""
+    last = None
+    for m in _TOOL_CALL_PREFIX_RE.finditer(text):
+        last = m
+    if last is None:
+        return False
+    return _find_json_end(text, last.end()) == last.end()
 
 
 def _strip_tool_calls(text: str) -> str:
