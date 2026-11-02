@@ -613,6 +613,16 @@ async def test_infer_max_tokens_prefers_longest_pattern(hass: HomeAssistant) -> 
     )
     assert _infer_max_tokens(hass, "ai_task.local_qwen") == 262_144
 
+    hass.states.async_set(
+        "ai_task.local_qwen", "unknown", {"model_name": "qwen38-flash-next"}
+    )
+    assert _infer_max_tokens(hass, "ai_task.local_qwen") == 262_144
+
+    hass.states.async_set(
+        "ai_task.local_qwen", "unknown", {"model_name": "qwen3.8-flash-next"}
+    )
+    assert _infer_max_tokens(hass, "ai_task.local_qwen") == 262_144
+
     hass.states.async_set("ai_task.m_qwen3", "unknown", {"model_name": "qwen3:32b"})
     assert _infer_max_tokens(hass, "ai_task.m_qwen3") == 131_072
 
