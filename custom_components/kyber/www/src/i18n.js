@@ -1034,6 +1034,8 @@ export const EN = {
   ts_ai_task: "ai_task response from {entity}{snippet}",
   ts_domain_docs: "domain docs for '{domain}'",
   ts_calc: "= {result}",
+  ts_statistics: "statistics for {entities}",
+  ts_history: "history of {entities}",
   ts_done: "done",
 };
 
@@ -2059,6 +2061,8 @@ export const NL = {
   ts_ai_task: "ai_task-antwoord van {entity}{snippet}",
   ts_domain_docs: "domeindocumentatie voor '{domain}'",
   ts_calc: "= {result}",
+  ts_statistics: "statistieken voor {entities}",
+  ts_history: "geschiedenis van {entities}",
   ts_done: "klaar",
 };
 
@@ -3084,6 +3088,8 @@ export const DE = {
   ts_ai_task: "ai_task-Antwort von {entity}{snippet}",
   ts_domain_docs: "Domänendokumentation für „{domain}“",
   ts_calc: "= {result}",
+  ts_statistics: "Statistik für {entities}",
+  ts_history: "Verlauf von {entities}",
   ts_done: "fertig",
 };
 

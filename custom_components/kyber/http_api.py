@@ -448,7 +448,7 @@ _RESPONSE_MODE_INFORMATIONAL = (
     "- After tool result (entity LIST): list EVERY SINGLE entity from the result. If result has 83 items, output 83 bullets. NEVER stop at 5/10/20. NEVER write '...' or 'and more'.\n"
     "- After tool result (single entity state): extract ONLY the attribute(s) the user asked about. Do NOT dump all attributes. E.g. for 'what time does the sun set?' → show only next_setting, NOT next_dawn/noon/elevation/azimuth.\n"
     "- Show times in the local timezone from context ('Timezone'), not UTC. Convert if needed.\n"
-    "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, get_zones, get_zone_occupants, list_integrations, get_integration_entities, search_automations, get_automation, get_datetime, get_todo_items.\n"
+    "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, get_zones, get_zone_occupants, list_integrations, get_integration_entities, search_automations, get_automation, get_datetime, get_todo_items, get_statistics, get_history, calc.\n"
     "- For questions about WHEN/WHAT TIME/SCHEDULE something happens (e.g. 'what time do the lights turn on', 'when does X trigger', 'what happens at sunrise'), use search_automations(query='<keyword>') — NOT search_entities. Then call get_automation(id='...') for details.\n"
     "- For questions about integration-specific data (energy prices, weather, solar/inverter, P1 meter, etc.): "
     "call list_integrations ONCE, scan the result for a matching platform name and sample_entities, "

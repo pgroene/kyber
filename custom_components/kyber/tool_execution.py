@@ -240,8 +240,19 @@ _TOOL_SUMMARY_EN: dict[str, str] = {
     "ts_ai_task": "ai_task response from {entity}{snippet}",
     "ts_domain_docs": "domain docs for '{domain}'",
     "ts_calc": "= {result}",
+    "ts_statistics": "statistics for {entities}",
+    "ts_history": "history of {entities}",
     "ts_done": "done",
 }
+
+
+def _entities_label(call: dict[str, Any]) -> str:
+    """First entity id of a recorder tool call, plus how many more."""
+    raw = call.get("entity_ids") or call.get("entity_id") or call.get("entities") or []
+    ids = [raw] if isinstance(raw, str) else [str(e) for e in raw] if isinstance(raw, list) else []
+    if not ids:
+        return "?"
+    return ids[0] + (f" +{len(ids) - 1}" if len(ids) > 1 else "")
 
 
 def _tool_result_summary_parts(call: dict[str, Any], result: Any) -> tuple[str, dict[str, Any]]:
@@ -301,6 +312,10 @@ def _tool_result_summary_parts(call: dict[str, Any], result: Any) -> tuple[str, 
         if is_dict and "result" in result:
             result_repr = str(result["result"])[:60]
         return "ts_calc", {"result": result_repr}
+    if name == "get_statistics":
+        return "ts_statistics", {"entities": _entities_label(call)}
+    if name == "get_history":
+        return "ts_history", {"entities": _entities_label(call)}
     return "ts_done", {}
 
 
@@ -438,7 +453,10 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
 
         device_class is always included when present so the AI can distinguish
         between entity sub-types (e.g. binary_sensor with device_class=occupancy
-        vs device_class=door).  It is omitted when absent to keep responses lean.
+        vs device_class=door).  state_class likewise, so a kWh meter
+        (total_increasing: differences count) is not taken for a momentary
+        value (measurement: averages count).  Both are omitted when absent to
+        keep responses lean.
         """
         attrs = st.attributes if st else {}
         domain = eid.split(".")[0]
@@ -452,6 +470,9 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             dc = attrs.get("device_class")
             if dc:
                 row["device_class"] = dc
+            sc = attrs.get("state_class")
+            if sc:
+                row["state_class"] = sc
             return row
         out: dict = {}
         missing_attr_fields: list[str] = []
@@ -568,7 +589,7 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
             "supported_features", "supported_color_modes", "effect_list",
             "min_mireds", "max_mireds", "min_color_temp_kelvin", "max_color_temp_kelvin",
             "hs_color", "xy_color",
-            "icon", "entity_picture", "device_class", "state_class",
+            "icon", "entity_picture", "device_class",
             "attribution", "assumed_state", "editable",
             "fan_modes", "swing_modes", "preset_modes", "hvac_modes",
             "source_list", "sound_mode_list",
@@ -1247,6 +1268,8 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
         "get_domain_docs",
         "get_datetime",
         "calc",
+        "get_history",
+        "get_statistics",
         "get_todo_items",
     ]
     # If the bogus "tool" name looks like a word from a user request (e.g.
@@ -1270,12 +1293,22 @@ def _execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
 
 # Async tools — tools that require awaiting (e.g. ai_task calls).
 # Called directly from _run_one_tool in http_api.py without going through executor.
-_ASYNC_TOOLS = {"run_ai_task", "explore_integration"}
+# The recorder tools await the recorder's own executor: database access from
+# the generic executor makes Home Assistant report the integration.
+_ASYNC_TOOLS = {"run_ai_task", "explore_integration", "get_history", "get_statistics"}
 
 
 async def _async_execute_tool(hass: HomeAssistant, call: dict[str, Any]) -> str:
     """Execute an async tool call and return the result as a JSON string."""
     name = call.get("name", "")
+
+    if name == "get_statistics":
+        from .statistics_tool import async_execute_statistics  # noqa: PLC0415
+        return await async_execute_statistics(hass, call)
+
+    if name == "get_history":
+        from .statistics_tool import async_execute_history  # noqa: PLC0415
+        return await async_execute_history(hass, call)
 
     if name == "run_ai_task":
         try:
