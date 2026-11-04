@@ -90,3 +90,41 @@ async def test_select_history_hours_and_changes(recorder_mock: Recorder, hass: H
     series = stats["series"][0]
     assert (series["kind"], series["source"]) == ("states", "history")
     assert series["totals_h"]["comfort"] == pytest.approx(2.0, abs=0.02)
+
+
+async def test_history_returns_newest_changes_of_a_busy_meter(
+    recorder_mock: Recorder, hass: HomeAssistant
+) -> None:
+    # A meter reporting every 10 s for 8 hours, then an attribute-only update.
+    count = 8 * 360
+    now = dt_util.utcnow().timestamp()
+    first = now - count * 10
+    for i in range(count):
+        hass.states.async_set("sensor.energy_import", f"{1000 + i * 0.001:.3f}",
+                              {"unit_of_measurement": "kWh"}, timestamp=first + i * 10)
+    last = f"{1000 + (count - 1) * 0.001:.3f}"
+    hass.states.async_set("sensor.energy_import", last,
+                          {"unit_of_measurement": "kWh", "extra": 1}, timestamp=now - 1)
+    await async_wait_recording_done(hass)
+
+    out = json.loads(await async_execute_history(hass, {
+        "entity_ids": ["sensor.energy_import"], "start": "1d", "max_points": 20,
+    }))
+    series = out["series"][0]
+    assert len(series["rows"]) == 20
+    assert series["more_before"] is True
+    assert series["rows"][-1][1] == last
+    newest = [float(r[1]) for r in series["rows"]]
+    assert newest == sorted(newest)
+
+
+async def test_history_before_purge_horizon_is_explained(
+    recorder_mock: Recorder, hass: HomeAssistant
+) -> None:
+    hass.states.async_set("sensor.energy_import", "1000", {"state_class": "total_increasing"})
+    await async_wait_recording_done(hass)
+    keep_days = recorder_mock.keep_days
+    out = json.loads(await async_execute_history(hass, {
+        "entity_ids": ["sensor.energy_import"], "start": f"{keep_days + 5}d",
+    }))
+    assert "no outage" in out["note"]

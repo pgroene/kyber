@@ -584,6 +584,24 @@ class EntityInfo:
     stats_has_sum: bool | None = None
     stats_circular: bool = False
     history: list[tuple[float, str]] | None = None
+    # get_history loads only the newest changes; True when older ones exist.
+    more_before: bool = False
+
+
+def history_note(start: datetime, history_since: datetime | None, tz: tzinfo) -> str | None:
+    """Explain why the state history is empty or short before the purge horizon.
+
+    The recorder keeps state changes only `keep_days` long, hourly statistics
+    indefinitely; without this note an empty history reads like an outage.
+    """
+    if history_since is None or start >= history_since:
+        return None
+    since = history_since.astimezone(tz).isoformat(timespec="minutes")
+    return (
+        f"State history is only kept since {since}; earlier changes are purged, "
+        "an empty or short result there is no outage. Use get_statistics "
+        "(hourly, kept long-term) for older periods."
+    )
 
 
 def kind_of(info: EntityInfo) -> str:
@@ -649,7 +667,8 @@ def parse_statistics_call(call: dict[str, Any], now: datetime, tz: tzinfo) -> St
 
 
 def build_statistics(
-    request: StatisticsRequest, infos: list[EntityInfo], tz: tzinfo
+    request: StatisticsRequest, infos: list[EntityInfo], tz: tzinfo,
+    history_since: datetime | None = None,
 ) -> str:
     """Aggregate loaded data into the tool answer (JSON string)."""
     buckets = plan_buckets(request.start, request.end, tz, request.interval, request.window)
@@ -684,10 +703,14 @@ def build_statistics(
         item.update({"kind": kind, "source": source})
         if info.state_class:
             item["state_class"] = info.state_class
+        note = history_note(request.start, history_since, tz) if source == "history" else None
+        if note:
+            item["note"] = note
         if source == "statistics":
             points = _stats_points(info.stats or [], kind)
         elif not info.history:
-            item["error"] = "nothing recorded in this period (entity excluded from the recorder?)"
+            if not note:
+                item["error"] = "nothing recorded in this period (entity excluded from the recorder?)"
             series.append(item)
             continue
         elif kind == "counter":
@@ -736,6 +759,7 @@ def parse_history_call(
 def build_history(
     ids: list[str], start: datetime, end: datetime, max_points: int,
     infos: list[EntityInfo], tz: tzinfo,
+    history_since: datetime | None = None,
 ) -> str:
     """Recorded state changes per entity (consecutive repeats merged), newest kept."""
     series: list[dict[str, Any]] = []
@@ -759,21 +783,27 @@ def build_history(
             last_state = state
             stamp = datetime.fromtimestamp(max(ts, start.timestamp()), timezone.utc)
             rows.append([stamp.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S"), state])
-        item["changes"] = len(rows)
         item["columns"] = ["time", "state"]
         if len(rows) > max_points:
-            item["rows_omitted"] = len(rows) - max_points
             rows = rows[-max_points:]
+            info.more_before = True
+        if info.more_before:
+            item["more_before"] = True
         item["rows"] = rows
         series.append(item)
-    payload = {
+    payload: dict[str, Any] = {
         "period": {
             "start": start.astimezone(tz).isoformat(timespec="minutes"),
             "end": end.astimezone(tz).isoformat(timespec="minutes"),
         },
         "series": series,
-        "hint": "for sums, averages or per-day values use get_statistics",
+        "hint": "for sums, averages or per-hour/day values use get_statistics",
     }
+    note = history_note(start, history_since, tz)
+    if note:
+        payload["note"] = note
+    if any(s.get("more_before") for s in series):
+        payload["more_before"] = "only the newest changes are listed; narrow the period for older ones"
     return fit_to_limit(payload)
 
 
@@ -840,24 +870,83 @@ def _fetch_statistics(
     return {sid: [dict(r) for r in rs] for sid, rs in rows.items()}, meta
 
 
+def _change_of(row: Any) -> tuple[float, str] | None:
+    """(last_changed timestamp, state) from a State or a compressed history row."""
+    if isinstance(row, dict):
+        ts = row.get("lc", row.get("lu"))
+        if ts is None or "s" not in row:
+            return None
+        return float(ts), str(row["s"])
+    changed = getattr(row, "last_changed", None)
+    if changed is None:
+        return None
+    return changed.timestamp(), str(row.state)
+
+
 def _fetch_history(
     hass: Any, start: datetime, end: datetime, ids: list[str]
 ) -> dict[str, list[tuple[float, str]]]:
-    """State changes incl. the state at `start` (recorder executor)."""
+    """State changes incl. the state at `start` (recorder executor).
+
+    Only real state changes (attribute-only updates are skipped) in HA's
+    compressed row format: a meter reporting every few seconds has hundreds
+    of thousands of rows a month, and building State objects for them took
+    over a minute.
+    """
     from homeassistant.components.recorder.history import (  # noqa: PLC0415
         get_significant_states,
     )
     states = get_significant_states(
         hass, start, end, ids,
         include_start_time_state=True,
-        significant_changes_only=False,
-        minimal_response=False,
+        significant_changes_only=True,
+        minimal_response=True,
         no_attributes=True,
+        compressed_state_format=True,
     )
-    return {
-        eid: [(s.last_changed.timestamp(), str(s.state)) for s in rows if hasattr(s, "last_changed")]
-        for eid, rows in states.items()
-    }
+    result: dict[str, list[tuple[float, str]]] = {}
+    for eid, rows in states.items():
+        result[eid] = [c for c in (_change_of(r) for r in rows) if c is not None]
+    return result
+
+
+def _fetch_recent_changes(
+    hass: Any, start: datetime, end: datetime, ids: list[str], max_points: int
+) -> dict[str, tuple[list[tuple[float, str]], bool]]:
+    """Newest state changes per entity, without reading the whole period.
+
+    The recorder's `limit` keeps the oldest rows, so the window grows back
+    from `end` (15 min, x4) until it holds more than `max_points` changes or
+    reaches `start`.  Returns {entity_id: (changes, older_changes_exist)}.
+    """
+    from homeassistant.components.recorder.history import (  # noqa: PLC0415
+        state_changes_during_period,
+    )
+    result: dict[str, tuple[list[tuple[float, str]], bool]] = {}
+    for eid in ids:
+        span = timedelta(minutes=15)
+        while True:
+            win_start = max(start, end - span)
+            at_start = win_start == start
+            rows = state_changes_during_period(
+                hass, win_start, end, eid,
+                no_attributes=True,
+                include_start_time_state=at_start,
+            ).get(eid, [])
+            if len(rows) > max_points or at_start:
+                break
+            span *= 4
+        changes = [c for c in (_change_of(r) for r in rows) if c is not None]
+        result[eid] = (changes, not at_start or len(changes) > max_points)
+    return result
+
+
+def _history_since(instance: Any, now: datetime) -> datetime | None:
+    """Oldest moment the recorder still keeps state history for."""
+    keep_days = getattr(instance, "keep_days", None)
+    if not isinstance(keep_days, (int, float)) or isinstance(keep_days, bool):
+        return None
+    return now - timedelta(days=keep_days)
 
 
 def _load_statistics(
@@ -898,7 +987,7 @@ async def async_execute_statistics(hass: Any, call: dict[str, Any]) -> str:
         await instance.async_add_executor_job(_load_statistics, hass, request, infos)
     except Exception as err:  # noqa: BLE001
         return _dump({"error": f"reading the recorder failed: {err}"})
-    return build_statistics(request, infos, tz)
+    return build_statistics(request, infos, tz, _history_since(instance, now))
 
 
 async def async_execute_history(hass: Any, call: dict[str, Any]) -> str:
@@ -913,9 +1002,11 @@ async def async_execute_history(hass: Any, call: dict[str, Any]) -> str:
         return _dump({"error": _NO_RECORDER})
     infos = _entity_infos(hass, ids)
     try:
-        history = await instance.async_add_executor_job(_fetch_history, hass, start, end, ids)
+        recent = await instance.async_add_executor_job(
+            _fetch_recent_changes, hass, start, end, ids, max_points
+        )
     except Exception as err:  # noqa: BLE001
         return _dump({"error": f"reading the recorder failed: {err}"})
     for info in infos:
-        info.history = history.get(info.entity_id) or []
-    return build_history(ids, start, end, max_points, infos, tz)
+        info.history, info.more_before = recent.get(info.entity_id, ([], False))
+    return build_history(ids, start, end, max_points, infos, tz, _history_since(instance, now))

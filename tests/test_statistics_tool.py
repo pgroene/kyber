@@ -73,6 +73,7 @@ def _night_energy_rows(start: datetime, end: datetime, outside: float = 5.0) -> 
 class _FakeInstance:
     def __init__(self):
         self.jobs = 0
+        self.keep_days = 10
 
     async def async_add_executor_job(self, fn, *args):
         self.jobs += 1
@@ -106,8 +107,13 @@ def recorder(monkeypatch):
         data.calls.append(("history", list(ids)))
         return {k: v for k, v in data.history.items() if k in ids}
 
+    def fetch_recent_changes(_hass, start, end, ids, max_points):
+        data.calls.append(("recent", list(ids), max_points))
+        return {k: (v, False) for k, v in data.history.items() if k in ids}
+
     monkeypatch.setattr(st, "_fetch_statistics", fetch_statistics)
     monkeypatch.setattr(st, "_fetch_history", fetch_history)
+    monkeypatch.setattr(st, "_fetch_recent_changes", fetch_recent_changes)
     monkeypatch.setattr(st, "_recorder_instance", lambda _hass: data.instance)
     monkeypatch.setattr(st, "_local_now", lambda: (NOW, TZ))
     return data
@@ -381,21 +387,74 @@ class TestHistoryTool:
             (base + i * 600.0, "on" if i % 2 else "off") for i in range(30)
         ] + [(base + 30 * 600.0, "on")]
         hass = _hass({"switch.pump": ("on", {"friendly_name": "Pump"})})
-        series = _series(await st.async_execute_history(hass, {
+        out = json.loads(await st.async_execute_history(hass, {
             "entity_ids": "switch.pump", "max_points": 5,
         }))
+        series = out["series"][0]
         assert series["name"] == "Pump"
-        assert series["changes"] == 30  # the trailing repeat of "on" is merged
-        assert series["rows_omitted"] == 25
         assert len(series["rows"]) == 5
-        assert series["rows"][-1][1] == "on"
+        assert series["rows"][-1] == ["2026-10-10 06:50:00", "on"]  # trailing repeat merged
+        assert series["more_before"] is True
+        assert "newest changes" in out["more_before"]
+        assert recorder.calls == [("recent", ["switch.pump"], 5)]
+
+    async def test_period_before_purge_horizon_is_explained(self, recorder):
+        hass = _hass({"sensor.energy_import": ("1", {"state_class": "total_increasing"})})
+        out = json.loads(await st.async_execute_history(hass, {
+            "entity_ids": ["sensor.energy_import"],
+            "start": "2026-09-18T18:00", "end": "2026-09-19T08:00",
+        }))
+        assert out["series"][0]["rows"] == []
+        assert "only kept since 2026-09-30T12:00" in out["note"]
+        assert "no outage" in out["note"]
+
+    async def test_recent_period_has_no_purge_note(self, recorder):
+        recorder.history["switch.pump"] = [(NOW.timestamp() - HOUR, "on")]
+        out = json.loads(await st.async_execute_history(_hass({"switch.pump": ("on", {})}), {
+            "entity_ids": ["switch.pump"], "start": "6h",
+        }))
+        assert "note" not in out
+        assert "more_before" not in out["series"][0]
+
+
+class TestStatisticsPurgeHorizon:
+    async def test_history_fallback_before_horizon_is_a_note_not_an_error(self, recorder):
+        hass = _hass({"input_select.heating_mode": ("eco", {})})
+        series = _series(await st.async_execute_statistics(hass, {
+            "entity_ids": ["input_select.heating_mode"], "start": "30d",
+        }))
+        assert series["source"] == "history"
+        assert "error" not in series
+        assert "get_statistics" in series["note"]
+
+    async def test_statistics_source_needs_no_note(self, recorder):
+        recorder.stats["sensor.energy_import"] = _night_energy_rows(NOW - timedelta(days=31), NOW)
+        recorder.meta["sensor.energy_import"] = {"has_sum": True}
+        hass = _hass({"sensor.energy_import": ("1", {"state_class": "total_increasing"})})
+        series = _series(await st.async_execute_statistics(hass, {
+            "entity_ids": ["sensor.energy_import"], "start": "30d",
+        }))
+        assert "note" not in series
+
+
+class TestRecorderRowFormats:
+    def test_compressed_and_state_rows(self):
+        state = SimpleNamespace(state="on", last_changed=datetime(2026, 10, 1, tzinfo=timezone.utc))
+        assert st._change_of({"s": "21.5", "lu": 100.0}) == (100.0, "21.5")
+        assert st._change_of({"s": "on", "lu": 200.0, "lc": 150.0}) == (150.0, "on")
+        assert st._change_of(state) == (state.last_changed.timestamp(), "on")
+        assert st._change_of({"lu": 1.0}) is None
+
+    def test_history_since_from_keep_days(self):
+        assert st._history_since(SimpleNamespace(keep_days=10), NOW) == NOW - timedelta(days=10)
+        assert st._history_since(SimpleNamespace(), NOW) is None
 
 
 # ── Contract with Home Assistant's recorder API ──────────────────────────────
 
 
 def test_recorder_calls_match_home_assistant_signatures():
-    """The calls in _fetch_statistics/_fetch_history bind to HA's functions."""
+    """The calls in the _fetch_* seams bind to HA's functions."""
     stats = pytest.importorskip("homeassistant.components.recorder.statistics")
     history = pytest.importorskip("homeassistant.components.recorder.history")
     now = datetime.now(timezone.utc)
@@ -405,6 +464,9 @@ def test_recorder_calls_match_home_assistant_signatures():
     inspect.signature(stats.get_metadata).bind(None, statistic_ids={"sensor.a"})
     inspect.signature(history.get_significant_states).bind(
         None, now, now, ["sensor.a"],
-        include_start_time_state=True, significant_changes_only=False,
-        minimal_response=False, no_attributes=True,
+        include_start_time_state=True, significant_changes_only=True,
+        minimal_response=True, no_attributes=True, compressed_state_format=True,
+    )
+    inspect.signature(history.state_changes_during_period).bind(
+        None, now, now, "sensor.a", no_attributes=True, include_start_time_state=False,
     )

@@ -264,7 +264,9 @@ The system prompt also contains a short "query type → first tool" router, so c
 Two tools read Home Assistant's recorder, so questions like "what was the average indoor temperature last month, and how cold was the coldest day?" are answered from recorded data instead of estimated:
 
 - **`get_statistics`** aggregates one or more entities over a period (`start` like `30d` or an ISO date) per hour, day or week. An optional time-of-day `window` such as `18:00-08:00` may cross midnight; it is counted for the day it starts. With `distribution: true` the answer adds mean, median, P10, P90, min and max over the buckets. Meters (`state_class` `total`/`total_increasing`) are summed as the change per bucket, other numbers give mean/min/max, and entities with text states (on/off, an input_select) give the hours spent in each state. Long-term statistics are used when they exist, otherwise the state history.
-- **`get_history`** returns the recorded state changes themselves, newest kept, for questions like "when did the door last open".
+- **`get_history`** returns the recorded state changes themselves, newest kept, for questions like "when did the door last open". It reads only the newest changes from the database, so a meter reporting every few seconds stays fast.
+
+The recorder keeps state changes only for its `purge_keep_days` (10 by default), but hourly statistics indefinitely. When a period starts before that horizon, both tools say so, so that an empty history is not taken for an outage; older periods are answered with `get_statistics`.
 
 Windows are counted in whole hours because long-term statistics are hourly; `18:30-07:45` becomes `19:00-07:00`, and the answer says so. Buckets that are cut off by the period (the night still running) or lack data are marked and left out of the distribution. Both answers are capped below the tool-result limit: older rows are dropped first, summaries stay. Without the recorder integration both tools return a clear error.
 
