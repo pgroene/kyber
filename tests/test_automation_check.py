@@ -162,6 +162,59 @@ async def test_switching_on_first_satisfies_the_hvac_rule(kyber, home):
     assert "rule_hvac_mode" not in _keys(findings)
 
 
+LAST_TARGET = "input_text.livingroom_last_target"
+
+
+def _remembering(condition: str, variables: dict | None = None) -> dict:
+    """FIXED, writing only when the target differs from the one remembered in an input_text."""
+    return {**FIXED, "actions": [
+        {"variables": variables if variables is not None else {"target": "{{ states('" + COMFORT + "') | float }}"}},
+        {"condition": "template", "value_template": condition},
+        {"action": "climate.set_temperature", "target": {"entity_id": THERMOSTAT},
+         "data": {"hvac_mode": "heat", "temperature": "{{ target }}"}},
+        {"action": "input_text.set_value", "target": {"entity_id": LAST_TARGET}, "data": {"value": "{{ target }}"}},
+    ]}
+
+
+@pytest.mark.parametrize("condition", [
+    "{{ target != states('" + LAST_TARGET + "') }}",
+    "{{ states('" + LAST_TARGET + "') != target }}",
+    "{% if target == states('" + LAST_TARGET + "') %}false{% else %}true{% endif %}",
+    "{{ target != state_attr('" + THERMOSTAT + "', 'temperature') }}",
+])
+async def test_a_variable_compared_with_raw_state_text_is_an_error(kyber, home, condition):
+    """Measured: the variable renders to the number 21.0, states() to the text '21.0'; never equal."""
+    home.states.async_set(LAST_TARGET, "21.0")
+    findings = await kyber.check.check_config(home, _remembering(condition))
+    finding = next(f for f in findings if f.key == "rule_variable_compare")
+    assert finding.severity == kyber.check.ERROR
+    assert finding.params["variable"] == "target"
+    assert "target | string" in finding.text
+
+
+@pytest.mark.parametrize("condition", [
+    "{{ target | string != states('" + LAST_TARGET + "') }}",
+    "{{ target != states('" + LAST_TARGET + "') | float(0) }}",
+    "{{ states('" + LAST_TARGET + "') | float(0) != target }}",
+    "{{ states('" + LAST_TARGET + "') != target | string }}",
+    "{{ target_text != states('" + LAST_TARGET + "') }}",  # not a variable of this configuration
+    "{{ trigger.to_state.state != states('" + LAST_TARGET + "') }}",
+])
+async def test_converted_or_foreign_comparisons_pass(kyber, home, condition):
+    home.states.async_set(LAST_TARGET, "21.0")
+    findings = await kyber.check.check_config(home, _remembering(condition))
+    assert "rule_variable_compare" not in _keys(findings)
+
+
+async def test_variables_of_any_block_count(kyber, home):
+    """A top-level variables: block names the variable too."""
+    home.states.async_set(LAST_TARGET, "21.0")
+    config = {**_remembering("{{ target != states('" + LAST_TARGET + "') }}", variables={}),
+              "variables": {"target": "{{ states('" + COMFORT + "') | float }}"}}
+    findings = await kyber.check.check_config(home, config)
+    assert "rule_variable_compare" in _keys(findings)
+
+
 async def test_home_assistant_schema_errors_are_findings(kyber, home):
     """A measured run: HA disabled the automation for a choose with ``default: true``."""
     config = {**FIXED, "actions": [{"choose": [], "default": True}]}

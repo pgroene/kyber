@@ -32,15 +32,15 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=222";
-import { getT } from "./src/i18n.js?v=16";
+import { STYLES } from "./src/styles.js?v=219";
+import { getT } from "./src/i18n.js?v=10";
 import { UtilsMixin } from "./src/utils-mixin.js?v=103";
 import { SessionMixin } from "./src/session-mixin.js?v=90";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=90";
 import { DebugMixin } from "./src/debug-mixin.js?v=115";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=99";
 import { EditorMixin } from "./src/editor-mixin.js?v=218";
-import { AIMixin } from "./src/ai-mixin.js?v=127";
+import { AIMixin } from "./src/ai-mixin.js?v=124";
 import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=122";
 
 // ---------------------------------------------------------------------------

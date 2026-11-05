@@ -106,9 +106,10 @@ A proposed automation or script is checked before its card appears: Home
 Assistant's own validator, the real entities (options, attributes, attribute
 values, including every value a schedule helper's blocks use), the fields of
 every service call (an unknown field such as `target_temp` for
-`climate.set_temperature` is reported with the valid ones) and two rules
+`climate.set_temperature` is reported with the valid ones) and three rules
 (`climate.set_temperature` needs `hvac_mode` to switch a thermostat on; a
-schedule trigger on an attribute misses the end of a block). The AI gets up
+schedule trigger on an attribute misses the end of a block; a variable
+compared with `states()` as is never matches a number). The AI gets up
 to two rounds to fix what the check finds. Whatever is still wrong appears
 in a yellow ⚠ box on the card, so you can see it before you apply the
 proposal. Outdated but still accepted syntax (`data_template`, `service:`)

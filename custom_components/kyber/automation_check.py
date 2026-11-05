@@ -10,6 +10,7 @@ one more round. This module finds what is wrong:
 - whether Home Assistant accepts the configuration (its own validator),
 - whether every entity, attribute, option and attribute value exists,
 - two domain rules with evidence behind them,
+- a variable compared with states() or state_attr() as is (number against text),
 - outdated syntax, which Home Assistant still accepts (style only).
 
 It also renders the entities a configuration uses, so the model sees their
@@ -36,6 +37,8 @@ _ENTITY_ID_RE = re.compile(r"\b([a-z_]+\.[a-z0-9_]+)\b")
 _STATE_ATTR_RE = re.compile(
     r"\b(?:state_attr|is_state_attr)\(\s*['\"]([a-z_]+\.[a-z0-9_]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]"
 )
+# states('x') / state_attr('x', 'a') without a filter after it: the call returns text as is.
+_STATE_CALL = r"(?:states|state_attr)\(\s*['\"][^'\"]+['\"]\s*(?:,\s*['\"][^'\"]+['\"]\s*)?\)"
 # States every entity can take; a trigger on them is legitimate.
 _ALWAYS_VALID_STATES = ("unavailable", "unknown")
 _ON_OFF_DOMAINS = frozenset({
@@ -288,6 +291,7 @@ class _Walker:
         self.schedule_values = schedule_values
         self.service_fields = service_fields or {}
         self.findings: list[Finding] = []
+        self.variables: frozenset[str] = frozenset()
 
     def check_service_data(self, node: dict, path: str) -> None:
         """Every data key must be a field of the service (Home Assistant's own service descriptions).
@@ -362,7 +366,37 @@ class _Walker:
                 continue
             self.check_values(eid, attr, values, where)
 
+    def check_variable_comparison(self, text: str, path: str) -> None:
+        """Rule: a variables: value compared with states()/state_attr() as is never matches a number.
+
+        Home Assistant renders variables to native types, so "21.0" becomes the
+        number 21.0, while states() returns the text '21.0'. Measured: a model
+        remembered the last target in an input_text and compared it this way;
+        the comparison was always true and the automation wrote on every trigger.
+        """
+        if not self.variables or "{" not in text:
+            return
+        names = "|".join(re.escape(n) for n in sorted(self.variables, key=len, reverse=True))
+        patterns = (
+            rf"(?<![\w.|])({names})\s*(==|!=)\s*({_STATE_CALL})(?!\s*\|)",
+            rf"(?<![\w.|])({_STATE_CALL})\s*(==|!=)\s*({names})(?![\w.|]|\s*\|)",
+        )
+        for pattern in patterns:
+            for match in re.finditer(pattern, text):
+                expression = match.group(0)
+                name = match.group(1) if match.group(1) in self.variables else match.group(3)
+                self._add(
+                    ERROR, "rule_variable_compare",
+                    f"template {path}: `{expression}` compares the variable '{name}' with text from "
+                    "states()/state_attr(). Home Assistant turns a rendered number into a number, so a "
+                    f"number never equals the text; convert both sides ({name} | string, or | float on both).",
+                    variable=name, expression=expression,
+                )
+
     def walk(self, node: Any, path: str) -> None:
+        if isinstance(node, str):
+            self.check_variable_comparison(node, path)
+            return
         if isinstance(node, list):
             self._sequence_rules(node, path)
             for i, item in enumerate(node):
@@ -418,6 +452,20 @@ class _Walker:
                 self.check_attribute(eid, attr, "template")
 
 
+def _variable_names(node: Any) -> frozenset[str]:
+    """Names defined in any variables: block of a configuration."""
+    names: set[str] = set()
+    if isinstance(node, list):
+        for item in node:
+            names |= _variable_names(item)
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            if key == "variables" and isinstance(value, dict):
+                names |= {k for k in value if isinstance(k, str) and k.isidentifier()}
+            names |= _variable_names(value)
+    return frozenset(names)
+
+
 def _top_level_findings(config: dict, kind: str, schedule_values: dict) -> list[Finding]:
     findings: list[Finding] = []
     if kind == "automation":
@@ -450,6 +498,7 @@ async def check_config(
     walker = _Walker(hass, schedule_values, await service_fields(hass))
     findings = await _schema_findings(hass, config, kind)
     body = {k: v for k, v in config.items() if k not in ("id", "alias", "description")}
+    walker.variables = _variable_names(body)
     walker.walk(body, "")
     walker.template_checks(body)
     findings += walker.findings + _top_level_findings(config, kind, schedule_values)

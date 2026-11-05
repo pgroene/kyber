@@ -150,6 +150,11 @@ the user sees it:
 - two domain rules: `climate.set_temperature` without `hvac_mode` (unless
   the thermostat is switched on just before), and schedule triggers that only
   watch an attribute and so miss the end of a block,
+- a `variables:` value compared with `==`/`!=` against `states()` or
+  `state_attr()` with no conversion on either side: Home Assistant renders a
+  variable to a native type, so `21.0` becomes a number and never equals the
+  text `'21.0'` (measured: an automation that should write only on a change
+  wrote on every trigger),
 - outdated syntax (`data_template`, `service:`, singular top-level keys);
   Home Assistant still accepts it, so it never triggers a correction on its
   own.
