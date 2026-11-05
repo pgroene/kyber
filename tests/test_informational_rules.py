@@ -28,3 +28,13 @@ def test_every_whitelisted_tool_is_in_the_tool_table() -> None:
 
 def test_derived_numbers_must_come_from_calc() -> None:
     assert "must come from a calc call" in _RESPONSE_MODE_INFORMATIONAL
+
+
+def test_no_inferred_causes_or_devices() -> None:
+    """An answer about a gap in recorded data guessed causes, called a template
+    sensor part of the same device because of its name, and moved evening
+    values to the morning."""
+    rules = _RESPONSE_MODE_INFORMATIONAL
+    assert "no guessed causes" in rules
+    assert "inferred from entity names" in rules
+    assert "time row it belongs to" in rules
