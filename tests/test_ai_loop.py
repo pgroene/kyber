@@ -299,10 +299,17 @@ class TestBuildLoopRedirectContent:
         result = _build_loop_redirect(calls)
         assert result is None
 
-    def test_redirect_ends_with_assistant(self):
-        calls = [("sig1", {"name": "get_area_entities", "area": "office"})]
-        result = _build_loop_redirect(calls)
-        assert result.endswith("Assistant:")
+    def test_round_with_a_note_ends_with_one_assistant_marker(self):
+        """The round adds the marker; a note must not bring its own."""
+        notes = [
+            _build_loop_redirect([("sig1", {"name": name, "area": "office", "query": "lamp"})])
+            for name in ("list_integrations", "get_area_entities", "search_entities")
+        ]
+        notes.append(http_api._SYNTHESIS_INSTRUCTIONS)
+        for note in notes:
+            text = http_api.ToolRound("[TOOL_CALL: {}]", "\n[TOOL_RESULT: {}]\n[]\n").with_note(note).text
+            assert text.endswith("]\nAssistant:")
+            assert text.count("Assistant:") == 1
 
     def test_search_entities_multi_query_redirect(self):
         calls = [("sig1", {"name": "search_entities", "queries": ["lamp", "light"]})]

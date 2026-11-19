@@ -107,7 +107,7 @@ async def test_build_context_includes_zones(hass: HomeAssistant, setup_integrati
     _inject_zone(hass, "zone.home", "Home", 52.0, 4.0)
     _inject_zone(hass, "zone.work", "Work", 52.1, 4.1)
 
-    context, stats = _build_context(hass)
+    context, live, stats = _build_context(hass)
 
     assert "Zones (GPS)" in context
     assert "Home" in context
@@ -120,7 +120,7 @@ async def test_build_context_passive_zones_excluded_from_block(hass: HomeAssista
     from custom_components.kyber.intent_and_context import _build_context
     _inject_zone(hass, "zone.secret", "Secret", 52.3, 4.3, passive=True)
 
-    context, stats = _build_context(hass)
+    context, live, stats = _build_context(hass)
     # "Secret" should not appear in zones block; it may still appear in states
     # but the zones_block specifically excludes passive zones
     if "Zones (GPS)" in context:
@@ -135,7 +135,10 @@ async def test_build_context_person_locations_shown(hass: HomeAssistant, setup_i
     from custom_components.kyber.intent_and_context import _build_context
     _inject_person(hass, "person.peter", "Peter", "home")
 
-    context, _ = _build_context(hass)
+    context, live, _ = _build_context(hass)
 
-    assert "Peter" in context
-    assert "home" in context.lower()
+    # Locations change: they are part of the live block before the question
+    assert "### Person Locations" in live
+    assert "Peter" in live
+    assert "home" in live.lower()
+    assert "### Person Locations" not in context

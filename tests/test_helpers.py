@@ -89,12 +89,12 @@ _sanitize_prompt_value = _http_api._sanitize_prompt_value
 
 def test_tuning_constants_are_centralized_in_const_module():
     """Inline tuning limits should be sourced from const.py."""
-    assert _const.MAX_INSTRUCTIONS_CHARS == 32_000
+    assert _const.CHARS_PER_TOKEN == 4
+    assert _const.PROMPT_CONTEXT_SHARE == 0.75
+    assert _const.KNOWLEDGE_BUDGET_SHARE == 0.10
     assert _const.KNOWLEDGE_BUDGET_CHARS == 2_000
     assert _const.MAX_TOOL_RESULT_CHARS == 4_000
     assert _const.TOOL_CALL_MAX_ROUNDS == 3
-    assert _http_api._MAX_INSTRUCTIONS_CHARS == _const.MAX_INSTRUCTIONS_CHARS
-    assert _http_api._KNOWLEDGE_BUDGET == _const.KNOWLEDGE_BUDGET_CHARS
     assert _http_api._MAX_TOOL_RESULT_CHARS == _const.MAX_TOOL_RESULT_CHARS
     assert _http_api._TOOL_CALL_MAX_ROUNDS == _const.TOOL_CALL_MAX_ROUNDS
 

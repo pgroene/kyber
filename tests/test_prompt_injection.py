@@ -39,18 +39,18 @@ async def test_complete_sanitizes_prompt_before_context_build(
         hass,
         kstore,
         user_prompt,
-        instructions,
+        prompt,
         request_id,
         entity_id="",
         user_id=None,
         is_admin=False,
     ):
         captured["user_prompt"] = user_prompt
-        return instructions, []
+        return []
 
     client = await hass_client()
     with patch(
-        "custom_components.kyber.http_api._inject_knowledge_into_instructions",
+        "custom_components.kyber.http_api._inject_knowledge_into_prompt",
         side_effect=_capture_injection,
     ), patch(
         "custom_components.kyber.api_utilities.async_generate_data",

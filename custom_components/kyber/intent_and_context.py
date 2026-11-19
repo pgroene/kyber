@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, NamedTuple
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
@@ -339,8 +339,22 @@ def _build_home_state_by_area(
     return home_state, stats
 
 
-def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
-    """Build a compact context string with domain stats + area home state."""
+class HomeContext(NamedTuple):
+    """The home as the chat prompt sees it.
+
+    ``static`` is the system prompt with the home structure (areas, labels,
+    zones, counts); it stays the same from one request to the next, so it can
+    open the prompt and be cached. ``live`` holds what changes all the time
+    (person locations, notable states) and belongs right before the question.
+    """
+
+    static: str
+    live: str
+    stats: dict[str, Any]
+
+
+def _build_context(hass: HomeAssistant) -> HomeContext:
+    """Build the system prompt with home structure, the live state block and stats."""
     area_reg = ar.async_get(hass)
     entity_reg = er.async_get(hass)
     device_reg = dr.async_get(hass)
@@ -385,7 +399,7 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
     home_state_by_area, area_stats = _build_home_state_by_area(entity_reg, device_reg, area_by_id, all_states)
     notable_state_block = ""
     if home_state_by_area != "(no area state available)":
-        notable_state_block = f"\n### Current Home State (notable only)\n{home_state_by_area}\n"
+        notable_state_block = f"### Current Home State (notable only)\n{home_state_by_area}\n"
 
     home_summary = (
         f"**Home:** {len(areas)} areas · {len(labels)} labels · "
@@ -440,8 +454,8 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
         if loc:
             person_location_lines.append(f"  {pname}: {loc}")
     if person_location_lines:
-        person_block = "\n### Person Locations\n" + "\n".join(person_location_lines) + "\n"
-        notable_state_block = person_block + notable_state_block
+        person_block = "### Person Locations\n" + "\n".join(person_location_lines) + "\n"
+        notable_state_block = person_block + ("\n" + notable_state_block if notable_state_block else "")
 
     tz_name = str(getattr(hass.config, "time_zone", "UTC") or "UTC")
     timezone_block = f"**Timezone:** {tz_name} — display all times in this timezone, not UTC.\n"
@@ -463,7 +477,7 @@ def _build_context(hass: HomeAssistant) -> tuple[str, dict[str, Any]]:
         labels_block=labels_block,
         zones_block=zones_block,
         timezone_block=timezone_block,
-        notable_state_block=notable_state_block,
     )
-    context_stats["prompt_chars"] = len(context)
-    return context, context_stats
+    live = f"## Live home state (now)\n{notable_state_block}\n" if notable_state_block else ""
+    context_stats["prompt_chars"] = len(context) + len(live)
+    return HomeContext(context, live, context_stats)

@@ -232,35 +232,80 @@ async def test_complete_releases_token_reservation_on_ai_failures(
     from custom_components.kyber import http_api as http_api_module
 
     (_, _, _, _, get_budget_provider, get_token_budget_store) = _kyber_imports()
-    entry = await _setup_token_budget_integration(hass, max_daily_tokens=5000)
+    entry = await _setup_token_budget_integration(hass, max_daily_tokens=1_000_000)
     store = get_token_budget_store(hass)
     provider = get_budget_provider(entry.data)
-    original_record = store.async_record
-    record_usage = AsyncMock(side_effect=original_record)
-    store.async_record = record_usage
     raised = (
         http_api_module.HomeAssistantError("provider unavailable")
         if raised_kind == "provider"
         else RuntimeError("boom")
     )
+    reserved: list[int] = []
+
+    async def failing_loop(*args, **kwargs):
+        reserved.append(store._pending.get(provider, 0))
+        raise raised
 
     client = await hass_client()
-    with patch.object(
-        store,
-        "async_check",
-        new=AsyncMock(return_value=(True, {"used": 0, "budget": 5000, "pct": 0, "warning": False})),
-    ), patch(
-        "custom_components.kyber.http_api._run_ai_loop",
-        new=AsyncMock(side_effect=raised),
-    ):
+    with patch("custom_components.kyber.http_api._run_ai_loop", new=failing_loop):
         resp = await client.post("/api/kyber/complete", json={"prompt": "Explain the living room lights"})
 
     assert resp.status == expected_status
-    record_usage.assert_awaited_once()
-    # On failure: 0 actual tokens recorded so the reservation is released
-    called_provider, recorded_tokens, recorded_budget = record_usage.await_args.args
-    assert called_provider == provider
-    assert recorded_budget == 5000
-    assert recorded_tokens == 0  # reservation released, not burned
-    usage = await store.async_get_usage(provider, 5000)
-    assert usage["used"] == 0  # net usage is zero after release
+    assert reserved and reserved[0] > 0  # the turn did reserve tokens
+    assert store._pending.get(provider, 0) == 0  # … and released them
+    usage = await store.async_get_usage(provider, 1_000_000)
+    assert usage["used"] == 0  # nothing burned
+
+
+async def test_reservation_settles_once(hass: HomeAssistant) -> None:
+    """Settling books the real usage; a later release must not free it twice."""
+    (_, _, _, _, _, get_token_budget_store) = _kyber_imports()
+    store = get_token_budget_store(hass)
+
+    other, _ = await store.async_reserve("home_assistant", 10_000, 300)
+    mine, _ = await store.async_reserve("home_assistant", 10_000, 500)
+    assert store._pending["home_assistant"] == 800
+
+    usage = await mine.async_settle(120)
+    mine.release()  # e.g. from a finally after success: must be a no-op
+    assert usage["used"] == 120
+    assert store._pending["home_assistant"] == 300  # the other request keeps its reservation
+
+    other.release()
+    other.release()
+    assert store._pending["home_assistant"] == 0
+
+
+async def test_reserve_refuses_without_reservation(hass: HomeAssistant) -> None:
+    """Over budget: no reservation is made, so there is nothing to release."""
+    (_, _, _, _, _, get_token_budget_store) = _kyber_imports()
+    store = get_token_budget_store(hass)
+    await store.async_record("home_assistant", 1_000, 1_000)
+
+    reservation, usage = await store.async_reserve("home_assistant", 1_000, 50)
+
+    assert reservation is None
+    assert usage["exceeded"] is True
+    assert store._pending.get("home_assistant", 0) == 0
+
+
+async def test_pending_resets_on_date_change(hass: HomeAssistant) -> None:
+    """Reservations from yesterday must not block today, nor eat today's reservations."""
+    (_, _, _, _, _, get_token_budget_store) = _kyber_imports()
+    store = get_token_budget_store(hass)
+    day1 = datetime(2025, 1, 1, 23, 59, tzinfo=timezone.utc)
+    day2 = datetime(2025, 1, 2, 0, 1, tzinfo=timezone.utc)
+
+    with patch("custom_components.kyber.token_budget.dt_util.now", return_value=day1):
+        # A leaked reservation that alone would exhaust the budget.
+        await store.async_check("home_assistant", 1_000, estimated_tokens=990)
+        spanning, _ = await store.async_reserve("home_assistant", 1_000, 5)
+        allowed, _ = await store.async_check("home_assistant", 1_000, estimated_tokens=10)
+        assert allowed is False
+
+    with patch("custom_components.kyber.token_budget.dt_util.now", return_value=day2):
+        today, _ = await store.async_reserve("home_assistant", 1_000, 10)
+        assert today is not None
+        assert store._pending["home_assistant"] == 10
+        spanning.release()  # reserved yesterday: must not touch today's reservation
+        assert store._pending["home_assistant"] == 10

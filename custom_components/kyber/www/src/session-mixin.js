@@ -7,14 +7,61 @@ export const SessionMixin = (Base) => class extends Base {
           role: msg?.role === "user" ? "user" : "assistant",
           content: String(msg?.content || "").trim(),
         };
-        // Preserve meta.history_entry_id for Undo button restoration on reload
-        if (msg?.meta?.history_entry_id) {
-          entry.meta = { history_entry_id: msg.meta.history_entry_id };
-        }
+        const meta = this._pickPersistedMeta(msg?.meta);
+        if (meta) entry.meta = meta;
         return entry;
       })
       .filter((msg) => msg.content.length > 0)
       .slice(-200);
+  }
+
+  /**
+   * Keep only the meta fields that survive a page reload:
+   * - history_entry_id: restores the Undo button of a [CHANGE] message
+   * - render: the cards of an AI reply (plan, YAML, clarify, memory) and their
+   *   state, so the reply is rebuilt as cards instead of plain text
+   */
+  _pickPersistedMeta(meta) {
+    if (!meta || typeof meta !== "object") return null;
+    const out = {};
+    if (meta.history_entry_id) out.history_entry_id = meta.history_entry_id;
+    if (meta.render && typeof meta.render === "object") out.render = meta.render;
+    return Object.keys(out).length ? out : null;
+  }
+
+  /**
+   * Remember what happened to a card of a persisted AI reply ("done" after a
+   * successful execute/apply/save, "dismissed" after cancel), so the card is
+   * not offered for a second run after a reload.
+   */
+  _setRenderStatus(historyEntry, card, status) {
+    const render = historyEntry?.meta?.render;
+    if (!render) return;
+    render.status = { ...(render.status || {}), [card]: status };
+    this._persistHistory();
+  }
+
+  /** Render one persisted message the way it looked when it was first shown. */
+  _renderRestoredMessage(msg) {
+    if (msg.role === "user") {
+      this._appendMessage(msg.content, "user");
+      return;
+    }
+    const render = msg.meta?.render;
+    // Internal [CHANGE] log lines stay plain text (with their Undo button)
+    if (!render && msg.content.startsWith("[CHANGE]")) {
+      this._appendMessage(msg.content, "assistant", msg.meta || null);
+      return;
+    }
+    this._appendAIResponse(
+      msg.content,
+      render?.yaml_blocks || [],
+      render?.plan || null,
+      render?.learned_fact || null,
+      render?.clarify || null,
+      render?.knowledge_used || [],
+      { restored: true, historyEntry: msg },
+    );
   }
 
   _resetChatView() {
@@ -27,13 +74,15 @@ export const SessionMixin = (Base) => class extends Base {
     const text = String(content || "").trim();
     if (!text) return;
     const entry = { role: role === "user" ? "user" : "assistant", content: text };
-    if (meta?.history_entry_id) entry.meta = { history_entry_id: meta.history_entry_id };
+    const keptMeta = this._pickPersistedMeta(meta);
+    if (keptMeta) entry.meta = keptMeta;
     this._chatHistory.push(entry);
     this._persistHistory();
     // Auto-generate session title every 5 messages
     if (this._chatHistory.length % 5 === 0) {
       this._autoNameSession();
     }
+    return entry;
   }
 
   async _persistHistory() {
@@ -42,6 +91,7 @@ export const SessionMixin = (Base) => class extends Base {
       await this._hass.callApi("POST", "kyber/history", {
         history: this._sanitizeHistoryForPersistence(this._chatHistory),
         compacted_summary: String(this._compactedSummary || "").trim(),
+        compacted_changes: this._compactedChanges,
       });
     } catch (err) {
       console.warn("[Kyber] _persistHistory error:", err);
@@ -54,6 +104,9 @@ export const SessionMixin = (Base) => class extends Base {
       const data = await this._hass.callApi("GET", "kyber/history");
       const persistedHistory = this._sanitizeHistoryForPersistence(data?.history || []);
       const persistedSummary = String(data?.compacted_summary || "").trim();
+      const persistedChanges = Array.isArray(data?.compacted_changes)
+        ? data.compacted_changes.filter((c) => typeof c === "string" && c.trim())
+        : [];
 
       // Capture session metadata
       this._activeSessionId = data?.session_id || null;
@@ -61,11 +114,12 @@ export const SessionMixin = (Base) => class extends Base {
 
       // Only apply restored data if nothing has been written in-memory yet.
       // This avoids races with tests and with very early user interactions.
-      if (this._chatHistory.length === 0 && !this._compactedSummary) {
+      if (this._chatHistory.length === 0 && !this._compactedSummary && !this._compactedChanges.length) {
         this._chatHistory = persistedHistory;
         this._compactedSummary = persistedSummary;
+        this._compactedChanges = persistedChanges;
         this._resetChatView();
-        this._chatHistory.forEach((msg) => this._appendMessage(msg.content, msg.role === "user" ? "user" : "assistant", msg.meta || null));
+        this._chatHistory.forEach((msg) => this._renderRestoredMessage(msg));
         console.log("[Kyber] restored", persistedHistory.length, "messages from history");
       }
       this._historyRestored = true;
@@ -74,6 +128,7 @@ export const SessionMixin = (Base) => class extends Base {
       // Non-fatal: start with empty in-memory history
       this._chatHistory = [];
       this._compactedSummary = "";
+      this._compactedChanges = [];
       this._resetChatView();
       this._historyRestored = true;
     }
@@ -82,6 +137,7 @@ export const SessionMixin = (Base) => class extends Base {
   async _clearHistory() {
     this._chatHistory = [];
     this._compactedSummary = "";
+    this._compactedChanges = [];
     this._resetChatView();
     try {
       await this._hass.callApi("DELETE", "kyber/history");
@@ -159,6 +215,7 @@ export const SessionMixin = (Base) => class extends Base {
     // Clear in-memory history for the new session
     this._chatHistory = [];
     this._compactedSummary = "";
+    this._compactedChanges = [];
     this._resetChatView();
     this._updateSessionIndicator();
     this._showContextRefreshedMessage("New session started");
@@ -190,6 +247,7 @@ export const SessionMixin = (Base) => class extends Base {
     // Reload history for this session
     this._chatHistory = [];
     this._compactedSummary = "";
+    this._compactedChanges = [];
     await this._restorePersistedHistory();
     this._appendMessage(`Switched to session: **${target.name}**`, "assistant");
     this._showContextRefreshedMessage("Session switched");
@@ -229,6 +287,7 @@ export const SessionMixin = (Base) => class extends Base {
     this._activeSessionId = data.active_session;
     this._chatHistory = [];
     this._compactedSummary = "";
+    this._compactedChanges = [];
     await this._restorePersistedHistory();
     this._appendMessage("Session deleted. Switched to previous session.", "assistant");
   }
