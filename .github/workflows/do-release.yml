@@ -28,7 +28,6 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
-  administration: write
 
 jobs:
   # ── Guard: skip release commits created by this workflow ─────────────────
