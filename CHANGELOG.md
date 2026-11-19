@@ -59,6 +59,10 @@ The `[Unreleased]` section is automatically promoted to a versioned entry by the
 
 ## [Unreleased]
 
+---
+
+## [0.7.8] — 2026-11-19 12:59 +0000
+
 ## [0.5.10] -- 2026-05-22
 
 ### Fixed
