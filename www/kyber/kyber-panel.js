@@ -41,7 +41,7 @@ import { DebugMixin } from "./src/debug-mixin.js?v=112";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=98";
 import { EditorMixin } from "./src/editor-mixin.js?v=216";
 import { AIMixin } from "./src/ai-mixin.js?v=122";
-import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=117";
+import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=118";
 
 // ---------------------------------------------------------------------------
 // Custom Element
