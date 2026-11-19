@@ -2359,7 +2359,7 @@ class KyberView(HomeAssistantView):
         except HomeAssistantError as err:
             _LOGGER.warning("Kyber: AI provider error: %s", err)
             return self.json_message(
-                f"AI provider error: {err}", HTTPStatus.SERVICE_UNAVAILABLE
+                "AI provider error. Check your AI Task configuration.", HTTPStatus.SERVICE_UNAVAILABLE
             )
         except Exception as err:  # noqa: BLE001
             _LOGGER.exception("Kyber: unexpected error during AI loop (type=%s)", type(err).__name__)

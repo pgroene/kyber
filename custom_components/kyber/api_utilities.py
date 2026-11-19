@@ -173,20 +173,16 @@ async def async_azure_ai_call(
     Retries up to 3 times on HTTP 429 (rate limit), honouring the Retry-After header.
     """
     import asyncio as _asyncio
-    from urllib.parse import urlsplit
     import aiohttp as _aiohttp
 
-    # Azure OpenAI chat completions always live at the resource root
-    # (https://{resource}.openai.azure.com or https://{resource}.services.ai.azure.com),
-    # never under a Foundry project path (e.g. /api/projects/{project}). Some Azure
-    # AI Foundry portals surface the project endpoint (with the /api/projects/...
-    # suffix) as "the" endpoint to copy, but using it verbatim here breaks routing
-    # and Azure responds with a misleading "API version not supported" 400 instead
-    # of a 404. Strip any path and keep only the scheme + host.
-    _split = urlsplit(endpoint)
-    _origin = f"{_split.scheme}://{_split.netloc}"
+    # Azure OpenAI chat completions live at the resource root, never under a
+    # Foundry project path (/api/projects/{project}). Some Azure AI Foundry portals
+    # surface the project endpoint as "the" endpoint to copy, which makes Azure
+    # answer with a misleading "API version not supported" 400. Strip only that
+    # suffix so a gateway/proxy path prefix is kept.
+    _base = re.sub(r"/api/projects(/.*)?$", "", endpoint.strip().rstrip("/"), flags=re.IGNORECASE)
     url = (
-        f"{_origin}/openai/deployments/{deployment}"
+        f"{_base}/openai/deployments/{deployment}"
         f"/chat/completions?api-version={api_version}"
     )
     chat = _chat_messages(instructions, system, messages)
@@ -604,7 +600,7 @@ class KyberSummarizeView(HomeAssistantView):
             _LOGGER.error("Summarize AI task failed: %s", err)
             # No text fallback: appending the raw messages grew the summary
             # without bound and then lost its newest part to the storage cap.
-            return self.json_message(f"Summarize failed: {err}", HTTPStatus.SERVICE_UNAVAILABLE)
+            return self.json_message("Summarize failed. Check your AI Task configuration.", HTTPStatus.SERVICE_UNAVAILABLE)
 
         summary_text: str = result.data if isinstance(result.data, str) else str(result.data)
         return self.json({"summary": _fit_summary(summary_text)})

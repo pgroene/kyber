@@ -200,11 +200,17 @@ class ChatPrompt:
         rounds = [r for r in tool_rounds if r]
         total_rounds = len(rounds)
 
-        def done(sel: _Selection, text: str | None = None, **record) -> PromptFit:
+        def done(sel: _Selection, text: str | None = None, overflow: int = 0, **record) -> PromptFit:
             text = self._text(sel) if text is None else text
             if not as_messages:
                 return PromptFit(text, limit, **record)
-            return PromptFit(text, limit, system=sel.core, messages=tuple(self._messages(sel)), **record)
+            messages = self._messages(sel)
+            if overflow > 0 and messages:
+                # Same last resort as the text path: keep the end of the newest message
+                last = dict(messages[-1])
+                last["content"] = last["content"][min(overflow, max(len(last["content"]) - 1, 0)):]
+                messages[-1] = last
+            return PromptFit(text, limit, system=sel.core, messages=tuple(messages), **record)
 
         if limit is None:
             return done(_Selection(
@@ -246,13 +252,15 @@ class ChatPrompt:
                 request = _cut_middle(request, base - limit)
             sel = _Selection(core, "", [], [], [], request, kept_rounds, total_rounds)
             text = self._text(sel)
-            if len(text) > limit:
+            overflow = max(len(text) - limit, 0)
+            if overflow:
                 # Pathological: question plus newest round exceed the window.
                 # Keep the end, which carries the question and "Assistant:".
                 text = text[-limit:]
             return done(
                 sel,
                 text,
+                overflow,
                 trimmed=True,
                 history_dropped=len(self.history),
                 summary_dropped=bool(self.summary),

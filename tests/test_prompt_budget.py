@@ -170,6 +170,13 @@ def test_question_survives_even_a_hopeless_limit() -> None:
     assert fit.text == _TURN[-30:]
 
 
+def test_messages_keep_the_question_end_under_a_hopeless_limit() -> None:
+    prompt = _prompt(request="## Live\n" + "s" * 500 + "\n")
+    fit = prompt.render_messages(30)
+    sent = fit.system + "".join(m["content"] for m in fit.messages)
+    assert len(sent) <= 30 and sent.endswith(_QUESTION[-10:])
+
+
 def test_conversation_block_is_untrimmed() -> None:
     prompt = _prompt(summary="sum", changes=["[CHANGE] x"], history=[("user", "a"), ("assistant", "b")])
     assert prompt.conversation_block == (
