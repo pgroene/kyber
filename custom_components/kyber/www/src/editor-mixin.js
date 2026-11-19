@@ -649,8 +649,13 @@ export const EditorMixin = (Base) => class extends Base {
     // to copy them; only the rest of the conversation is summarized.
     const isChange = (msg) => msg.role === "assistant" && (msg.content || "").startsWith("[CHANGE]");
     const changes = toCompact.filter(isChange).map((msg) => msg.content);
-    const prose = toCompact.filter((msg) => !isChange(msg))
-      .map(({ role, content }) => ({ role, content }));
+    const allChanges = [...this._compactedChanges, ...changes];
+    // Records beyond the cap are not dropped: they go to the summarizer instead
+    const overflow = allChanges.slice(0, Math.max(0, allChanges.length - this._COMPACTED_CHANGES_MAX));
+    const prose = [
+      ...overflow.map((content) => ({ role: "assistant", content })),
+      ...toCompact.filter((msg) => !isChange(msg)).map(({ role, content }) => ({ role, content })),
+    ];
 
     try {
       let summary = this._compactedSummary;
@@ -671,7 +676,7 @@ export const EditorMixin = (Base) => class extends Base {
       if (!toCompact.every((msg, i) => this._chatHistory[i] === msg)) return;
       this._chatHistory.splice(0, cutIndex);
       this._compactedSummary = summary;
-      this._compactedChanges = [...this._compactedChanges, ...changes].slice(-this._COMPACTED_CHANGES_MAX);
+      this._compactedChanges = allChanges.slice(-this._COMPACTED_CHANGES_MAX);
       this._showCompactionBanner();
       this._persistHistory();
     } catch (_err) {

@@ -427,6 +427,19 @@ describe("_maybeCompact — change records", () => {
     expect(element._compactedChanges.slice(-1)).toEqual(["[CHANGE] Renamed light.hall"]);
   });
 
+  it("sends the oldest records beyond the cap to the summarizer instead of dropping them", async () => {
+    vi.stubGlobal("fetch", mockSummarize("S"));
+    const { element } = makePanel();
+    element._compactedChanges = Array.from({ length: element._COMPACTED_CHANGES_MAX }, (_, i) => `[CHANGE] old ${i}`);
+    element._chatHistory = historyWithChanges();
+    await element._maybeCompact();
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    const sent = body.messages.map((m) => m.content);
+    expect(sent).toContain("[CHANGE] old 0");
+    expect(sent).toContain("[CHANGE] old 1");
+    expect(sent).not.toContain("[CHANGE] Renamed light.hall");
+  });
+
   it("moves only change records without calling the summarizer", async () => {
     vi.stubGlobal("fetch", mockSummarize("unused"));
     const { element } = makePanel();
