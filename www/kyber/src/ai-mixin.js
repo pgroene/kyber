@@ -1165,7 +1165,8 @@ export const AIMixin = (Base) => class extends Base {
       actionRow.appendChild(aiCopyBtn);
 
       // Thumbs up/down
-      if (knowledgeIds !== undefined) {
+      // Restored replies without used knowledge have nothing to rate
+      if (knowledgeIds !== undefined && !(restored && !knowledgeIds.length)) {
         const upBtn = document.createElement("button");
         upBtn.className = "tf-btn-rate tf-chat-up";
         upBtn.title = "Helpful";

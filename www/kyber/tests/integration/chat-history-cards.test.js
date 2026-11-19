@@ -60,6 +60,12 @@ describe("restored replies are rendered, not dumped as text", () => {
     expect(chips).toEqual(["Kitchen", "Hallway"]);
   });
 
+  it("shows no rating buttons on a restored reply that used no knowledge", async () => {
+    const { root } = await restoredPanel([{ role: "assistant", content: "Hello there" }]);
+    expect(root.querySelector(".ai-message-wrap .tf-chat-up")).toBeNull();
+    expect(root.querySelector(".ai-message-wrap .chat-copy-btn")).not.toBeNull();
+  });
+
   it("keeps [CHANGE] log lines as plain messages with their undo lookup", async () => {
     const { element } = makePanel({ callApi: makeCallApi([]) });
     await flushPromises();

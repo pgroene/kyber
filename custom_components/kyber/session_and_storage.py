@@ -32,7 +32,7 @@ _CHAT_SUMMARY_MAX_CHARS = 2000
 # [CHANGE] records that left the history through compaction: kept word for
 # word instead of in the summary, newest last.
 _COMPACTED_CHANGES_MAX = 20
-_CHANGE_MAX_CHARS = 1000
+_CHANGE_MAX_CHARS = 2000
 # Card payload (meta.render) of one AI reply; 20 messages × 20k stays well
 # below a few hundred kB per session.
 _CHAT_RENDER_MAX_CHARS = 20000
