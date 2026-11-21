@@ -499,7 +499,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
     if (/[:{}\[\],&*?|<>=!%@`#'"]/.test(s)) return true;
     if (/^[ \t]|[ \t]$/.test(s)) return true;
     if (s === "-" || s.startsWith("- ")) return true;
-    return s.includes("\n");
+    return /[\x00-\x1f\x7f-\x9f\u2028\u2029]/.test(s);
   }
 
   _configToYaml(obj, indent = 0) {
@@ -509,7 +509,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
     if (typeof obj === "number") return String(obj);
     if (typeof obj === "string") {
       if (this._yamlNeedsQuotes(obj)) {
-        return `"${obj.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`;
+        return JSON.stringify(obj);
       }
       return obj;
     }

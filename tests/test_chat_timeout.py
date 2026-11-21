@@ -173,6 +173,25 @@ async def test_chat_settings_endpoint_returns_default(hass: HomeAssistant, hass_
     assert (await resp.json()) == {"chat_timeout": DEFAULT_CHAT_TIMEOUT}
 
 
+async def test_chat_settings_reflects_saved_option_after_setup(hass: HomeAssistant, hass_client) -> None:
+    """An options value overrides entry data in hass.data["kyber_config"] and the endpoint."""
+    from custom_components.kyber import async_setup_entry as _setup_entry
+
+    entry = await _setup(hass, {CONF_CHAT_TIMEOUT: 300})
+    assert hass.data["kyber_config"][CONF_CHAT_TIMEOUT] == 300
+    entry.add_to_hass(hass)
+
+    # A saved option takes effect on the (reload-triggered) next setup
+    hass.config_entries.async_update_entry(entry, options={CONF_CHAT_TIMEOUT: 900})
+    with patch("custom_components.kyber._async_explore_integrations", new_callable=AsyncMock):
+        await _setup_entry(hass, entry)
+
+    assert hass.data["kyber_config"][CONF_CHAT_TIMEOUT] == 900
+    client = await hass_client()
+    resp = await client.get("/api/kyber/chat_settings")
+    assert (await resp.json()) == {"chat_timeout": 900}
+
+
 # ── Backend limits follow the chat timeout ────────────────────────────────────
 
 async def _complete_and_capture(hass: HomeAssistant, hass_client) -> tuple[list[float], dict]:

@@ -13,7 +13,7 @@
  *   R4 contains one of : { } [ ] , & * ? | < > = ! % @ ` # ' "
  *   R5 starts or ends with a space or a tab
  *   R6 starts with "- " or equals "-"
- *   R7 contains a newline
+ *   R7 contains a newline or any other control character (escaped)
  *
  * Non-strings (true/false/numbers/null) are never quoted.
  *
@@ -77,8 +77,8 @@ describe("_configToYaml string quoting", () => {
     // R5 — leading/trailing space or tab
     [" led", '" led"', "R5"],
     ["led ", '"led "', "R5"],
-    ["\tlead", '"\tlead"', "R5"],
-    ["trail\t", '"trail\t"', "R5"],
+    ["\tlead", '"\\tlead"', "R5"],
+    ["trail\t", '"trail\\t"', "R5"],
 
     // R6 — sequence item prefix
     ["- item", '"- item"', "R6"],
@@ -87,6 +87,8 @@ describe("_configToYaml string quoting", () => {
     // R7 — newline (escaped as \n in the quoted form)
     ["a\nb", '"a\\nb"', "R7"],
     ["line1\nline2\n", '"line1\\nline2\\n"', "R7"],
+    ["a\rb", '"a\\rb"', "R7"],
+    ["a\u0001b", '"a\\u0001b"', "R7"],
 
     // Bare (unquoted) — no rule matches
     ["kitchen", "kitchen", "bare"],
