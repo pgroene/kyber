@@ -17,7 +17,7 @@
     "@vitest/coverage-v8": "^4.1.6",
     "happy-dom": "^21.0.4",
     "jsdom": "^26.0.0",
-    "serve": "^14.2.6",
+    "serve": "^14.2.8",
     "vitest": "^4.1.11"
   }
 }
