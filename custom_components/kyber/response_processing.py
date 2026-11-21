@@ -176,9 +176,61 @@ def _extract_plan_block(text: str) -> dict | None:
     if not match:
         return None
     try:
-        return json.loads(match.group(1))
+        parsed = json.loads(match.group(1))
     except (json.JSONDecodeError, ValueError):
         return None
+    # Guard against malformed plans (JSON lists, "actions": null / string,
+    # string entries) that would crash callers expecting a dict of dicts.
+    if not isinstance(parsed, dict):
+        return None
+    if "actions" in parsed:
+        actions = parsed.get("actions")
+        if not isinstance(actions, list):
+            parsed["actions"] = []
+        else:
+            parsed["actions"] = [a for a in actions if isinstance(a, dict)]
+    return parsed
+
+
+_CONFIG_EDIT_ACTION_TYPES = {"edit_automation", "update_automation", "edit_script", "update_script"}
+
+
+def _lift_config_edit_plan(plan: dict | None) -> dict | None:
+    """Turn ``{"actions": [{"type": "edit_automation", ...}]}`` into an edit_automation plan.
+
+    The prompt asks for a top-level ``"edit_automation": true`` block, which the
+    panel renders as the automation edit card (diff view, apply, undo). Models
+    sometimes put it into ``actions`` instead; the generic plan card then sends
+    it to /api/kyber/execute as a plain action. Only a plan consisting of one
+    such action with a modified config is lifted; anything else is returned
+    unchanged.
+    """
+    if not isinstance(plan, dict) or plan.get("edit_automation") or plan.get("create_automation"):
+        return plan
+    actions = plan.get("actions")
+    if not isinstance(actions, list) or len(actions) != 1 or not isinstance(actions[0], dict):
+        return plan
+    action = actions[0]
+    if str(action.get("type", "")).lower() not in _CONFIG_EDIT_ACTION_TYPES:
+        return plan
+    modified = action.get("modified_config") or action.get("config")
+    if not isinstance(modified, dict) or not modified:
+        return plan
+
+    lifted: dict = {
+        "edit_automation": True,
+        "summary": plan.get("summary") or action.get("summary") or action.get("description") or "",
+        "modified_config": modified,
+    }
+    if "script" in str(action.get("type", "")).lower():
+        lifted["script"] = True
+    for key in ("entity_id", "automation_id", "script_id", "alias", "original_config"):
+        if action.get(key):
+            lifted[key] = action[key]
+    changes = action.get("changes") or plan.get("changes") or plan.get("warnings")
+    if isinstance(changes, list) and changes:
+        lifted["changes"] = [str(c) for c in changes]
+    return lifted
 
 
 def _strip_plan_block(text: str) -> str:
@@ -233,8 +285,9 @@ def _normalize_json_plan_blocks(text: str) -> str:
         domain = obj.get("domain", obj.get("name", ""))
         if not domain and "." in eid:
             domain = eid.split(".")[0]
-        service = f"{domain}.{ha_svc}" if domain else ha_svc
-        normalized = {"type": "call_service", "service": service, "entity_id": eid}
+        normalized = {"type": "call_service", "service": ha_svc, "entity_id": eid}
+        if domain:
+            normalized["domain"] = domain
         for k, v in obj.items():
             if k not in ("type", "entity_id", "target", "entity", "domain", "name"):
                 normalized[k] = v
@@ -309,10 +362,11 @@ def _normalize_json_plan_blocks(text: str) -> str:
             eid = str(obj.get("entity_id", obj.get("target", "")))
             domain = eid.split(".")[0] if "." in eid else obj.get("domain", obj.get("name", ""))
             # Use "turn_on" as the safest default — aligns with "I want X" intent
-            inferred_svc = f"{domain}.turn_on" if domain else "turn_on"
-            action = {"type": "call_service", "service": inferred_svc,
+            action = {"type": "call_service", "service": "turn_on",
                       "entity_id": eid, **{k: v for k, v in obj.items()
                                             if k not in ("type", "entity_id", "domain", "name")}}
+            if domain:
+                action["domain"] = domain
         elif "summary" not in obj and "actions" not in obj:
             action = obj  # wrap bare action as-is
         else:

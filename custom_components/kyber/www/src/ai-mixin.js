@@ -1,3 +1,8 @@
+// Fallback until /api/kyber/chat_settings answers — keep in sync with DEFAULT_CHAT_TIMEOUT in const.py
+export const DEFAULT_CHAT_TIMEOUT_SEC = 180;
+// Re-read /api/kyber/chat_settings before a request when the last attempt is older than this
+export const CHAT_SETTINGS_MAX_AGE_MS = 30_000;
+
 export const AIMixin = (Base) => class extends Base {
   async _downloadDebugBundle(requestId, btn) {
     const token = this._hass.auth.data.access_token;
@@ -282,11 +287,16 @@ export const AIMixin = (Base) => class extends Base {
     this._showThinking();
     const requestId = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + "-" + Math.random().toString(36).slice(2));
 
-    // 90-second timeout — each narrator batch takes up to ~60s; cancel re-enables the button
+    // Configurable timeout (Kyber options → "Chat timeout"); cancel re-enables the button.
+    // Re-read it when stale so a changed option applies to this request, not the next one.
+    if (Date.now() - (this._chatSettingsTriedAt || 0) > CHAT_SETTINGS_MAX_AGE_MS) {
+      await this._loadChatSettings();
+    }
+    const timeoutSec = this._chatTimeoutSec || DEFAULT_CHAT_TIMEOUT_SEC;
     this._chatAbort = new AbortController();
     const _chatTimeoutId = setTimeout(() => {
-      if (this._chatAbort) this._chatAbort.abort(new Error("Request timed out (90s). The AI narrator may be busy — try again in a moment."));
-    }, 90_000);
+      if (this._chatAbort) this._chatAbort.abort(new Error(`Request timed out (${timeoutSec}s). The AI may be busy or slow — try again, or raise "Chat timeout" in the Kyber integration options.`));
+    }, timeoutSec * 1000);
 
     // chatDone is hoisted above try so the finally block can stop the progress poll
     let chatDone = false;
@@ -491,7 +501,27 @@ export const AIMixin = (Base) => class extends Base {
       clearTimeout(_chatTimeoutId);
       this._chatAbort = null;
       askBtn.disabled = false;
+      // Pick up option changes without a page reload (used by the next request)
+      this._loadChatSettings();
     }
+  }
+
+  /** Fetch chat settings (timeout) from the backend; keeps the last known value on failure. */
+  async _loadChatSettings() {
+    try {
+      const token = this._hass?.auth?.data?.access_token;
+      if (!token) return;
+      this._chatSettingsTriedAt = Date.now();
+      const resp = await fetch("/api/kyber/chat_settings", {
+        headers: { Authorization: `Bearer ${token}` },
+        // never hold up a chat request for long because of this lookup
+        signal: typeof AbortSignal?.timeout === "function" ? AbortSignal.timeout(3000) : undefined,
+      });
+      if (!resp?.ok) return;
+      const data = await resp.json();
+      const sec = Number(data?.chat_timeout);
+      if (Number.isFinite(sec) && sec > 0) this._chatTimeoutSec = sec;
+    } catch { /* non-fatal — keep previous / default timeout */ }
   }
 
   _showWarningBanner(message) {

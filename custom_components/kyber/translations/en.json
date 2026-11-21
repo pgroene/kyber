@@ -7,6 +7,7 @@
         "data": {
           "ai_task_entity_id": "Chat Model",
           "max_tokens": "Chat Model: Context Window (tokens)",
+          "chat_timeout": "Chat timeout (seconds)",
           "narrator_ai_task_entity_id": "Operations Model (optional)",
           "narrator_max_tokens": "Operations Model: Context Window (tokens)",
           "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)",
@@ -26,6 +27,7 @@
         "data": {
           "ai_task_entity_id": "Chat Model",
           "max_tokens": "Chat Model: Context Window (tokens)",
+          "chat_timeout": "Chat timeout (seconds)",
           "narrator_ai_task_entity_id": "Operations Model (optional)",
           "narrator_max_tokens": "Operations Model: Context Window (tokens)",
           "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)",
@@ -60,11 +62,13 @@
             "data": {
               "ai_task_entity_id": "Chat Model",
               "max_tokens": "Chat Model: Context Window (tokens)",
+              "chat_timeout": "Chat timeout (seconds)",
               "narrator_ai_task_entity_id": "Operations Model (optional)",
               "narrator_max_tokens": "Operations Model: Context Window (tokens)"
             },
             "data_description": {
               "max_tokens": "{chat_stats}",
+              "chat_timeout": "How long the chat panel waits for an answer before giving up. Raise this for slow local models (e.g. Ollama on modest hardware).",
               "narrator_ai_task_entity_id": "Used for batching and small tasks such as entity narration. A smaller, cheaper model works well here. Defaults to the chat model.",
               "narrator_max_tokens": "{ops_stats}"
             }

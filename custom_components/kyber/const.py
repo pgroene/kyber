@@ -71,6 +71,7 @@ ANTHROPIC_MAX_TOKENS = 200_000                # Claude supports up to 200K conte
 CONF_MAX_TOKENS = "max_tokens"
 CONF_MAX_REQUESTS_PER_MINUTE = "max_requests_per_minute"
 CONF_MAX_DAILY_TOKENS = "max_daily_tokens"
+CONF_CHAT_TIMEOUT = "chat_timeout"                 # int seconds — total time the panel waits for a chat reply
 CONF_ENABLE_DEBUG_VIEWS = "enable_debug_views"
 CONF_ENABLE_MCP = "enable_mcp"
 CONF_ENABLE_MCP_IN_CHAT = "enable_mcp_in_chat"
@@ -132,6 +133,21 @@ DEFAULT_NARRATOR_MAX_TOKENS = 4_000
 DEFAULT_NARRATOR_INTERVAL_DAYS = 1
 DEFAULT_DEEP_LEARNING_INTERVAL_DAYS = 7
 DEFAULT_DEEP_LEARNING_MAX_BATCH = 5
+DEFAULT_CHAT_TIMEOUT = 180  # seconds
+MIN_CHAT_TIMEOUT = 30
+MAX_CHAT_TIMEOUT = 1800
+# Backend per-call limits never drop below these, even with a short chat timeout.
+MIN_AI_CALL_TIMEOUT = 180    # one AI round in the chat loop
+MIN_CLOUD_HTTP_TIMEOUT = 120  # one HTTP request to a cloud provider
+
+
+def get_chat_timeout(config: dict | None) -> int:
+    """Return the configured chat timeout in seconds, clamped to the allowed range."""
+    try:
+        value = int((config or {}).get(CONF_CHAT_TIMEOUT, DEFAULT_CHAT_TIMEOUT))
+    except (TypeError, ValueError):
+        value = DEFAULT_CHAT_TIMEOUT
+    return max(MIN_CHAT_TIMEOUT, min(MAX_CHAT_TIMEOUT, value))
 
 _CREDENTIAL_PATTERNS = [
     r"(?i)bearer\s+\S{4,}",
@@ -255,6 +271,7 @@ When the user wants to change/modify/update a specific automation:
 ```
 
 The frontend renders the changes visually — no YAML needed. The user approves or refines.
+`edit_automation` is a top-level key of the plan block as shown — never an entry in `actions`.
 
 #### Create new automation
 When the user wants to create a new automation, confirm all entity_ids exist first, then:

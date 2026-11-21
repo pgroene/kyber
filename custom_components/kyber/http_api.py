@@ -71,6 +71,9 @@ from .const import (
     SYSTEM_PROMPT_TEMPLATE,
     DEFAULT_LABEL_ASSIGNMENT_MODE,
     DEFAULT_MAX_DAILY_TOKENS,
+    MIN_AI_CALL_TIMEOUT,
+    MIN_CLOUD_HTTP_TIMEOUT,
+    get_chat_timeout,
     _sanitize_user_input,
 )
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, get_store as get_knowledge_store
@@ -91,6 +94,7 @@ from .response_processing import (
     _rewrap_bare_action_fences, _normalize_json_plan_blocks, _NARRATION_PATTERNS, _BARE_JSON_TOOL_RESULT_RE,
     _strip_role_echo_prefix, _BRIGHTNESS_INTENT_RE, _DIM_INTENT_RE,
     _augment_brightness_intent, _extract_clarify_block, _strip_plan_block,
+    _lift_config_edit_plan,
 )
 from .intent_and_context import (
     _QUICK_CREATE_AREA_RE, _try_quick_intent,
@@ -119,6 +123,7 @@ from .debug_and_diagnostics import (
 from .action_execution import (
     _CONFIG_CHANGING_ACTION_TYPES, _DESTRUCTIVE_SERVICES, _classify_risk,
     _action_requires_approval, _annotate_plan_approval, _build_service_undo,
+    _resolve_config_target,
     KyberExecuteView,
 )
 from .knowledge_integration import (
@@ -236,6 +241,63 @@ _SYNTHESIS_INSTRUCTIONS = (
 )
 
 
+_SWITCH_OFF_RE = re.compile(r"\b(?:uit|uitzetten|zet uit|turn off|turn_off)\b")
+_SWITCH_ON_RE = re.compile(r"\b(?:aan|aanzetten|zet aan|turn on|turn_on)\b")
+
+
+def _detect_switch_request(user_prompt: str, intent: str) -> str | None:
+    """Return "on"/"off" when an action prompt clearly asks to switch something.
+
+    Whole words only: plain substring checks matched "aan" in "staan"/"gaan" and
+    "uit" in "buiten"/"ruit", so informational questions such as
+    "Welke deuren staan open?" were filtered to the opposite state. Returns None
+    for informational prompts and when both directions are mentioned.
+    """
+    if intent != "action":
+        return None
+    lower = user_prompt.lower()
+    want_off = bool(_SWITCH_OFF_RE.search(lower))
+    want_on = bool(_SWITCH_ON_RE.search(lower))
+    if want_off == want_on:
+        return None
+    return "off" if want_off else "on"
+
+
+def _entity_rows(tool_result_data: dict) -> list[str]:
+    return [k for k in tool_result_data if isinstance(k, str) and "." in k and not k.startswith("_")]
+
+
+def _drop_already_seen_entities(tool_result_data: dict, seen_scores: dict[str, float]) -> tuple[dict, int]:
+    """Drop entity rows already shown in an earlier round with an equal or better _score.
+
+    A later query that returns the same entity with a higher score keeps it, so the
+    model sees the improved context. Rows without a real _score (search_entities
+    never sets one) are always kept: a follow-up search with other fields or
+    filters asks for new data. Returns (data, number of dropped rows).
+    """
+    to_drop = []
+    for eid in _entity_rows(tool_result_data):
+        raw_score = (tool_result_data[eid] or {}).get("_score")
+        if raw_score is None or eid not in seen_scores:
+            continue
+        if float(raw_score) <= seen_scores[eid]:
+            to_drop.append(eid)
+    if not to_drop:
+        return tool_result_data, 0
+    data = {k: v for k, v in tool_result_data.items() if k not in to_drop}
+    if not _entity_rows(data):
+        data["_note"] = "All matches already shown in a previous round with equal or better relevance."
+    return data, len(to_drop)
+
+
+def _record_seen_entity_scores(tool_result_data: dict, seen_scores: dict[str, float]) -> None:
+    """Remember the best _score per entity row (scored rows only) for later rounds."""
+    for eid in _entity_rows(tool_result_data):
+        raw_score = (tool_result_data[eid] or {}).get("_score")
+        if raw_score is not None and float(raw_score) > seen_scores.get(eid, -1):
+            seen_scores[eid] = float(raw_score)
+
+
 def _build_loop_redirect(tool_calls_filtered: list[tuple[str, dict]]) -> str | None:
     """Build a system hint to redirect the model when it repeated tool calls.
 
@@ -309,11 +371,11 @@ def _truncate_tool_result(data: Any, budget: int) -> str:
     """Serialize a tool result to JSON and truncate it to fit within *budget* characters.
 
     Strategies (in order):
-    1. If the raw JSON already fits â†’ return it as-is.
-    2. Dict with one or more items â†’ drop items from the end, wrap with metadata
+    1. If the raw JSON already fits → return it as-is.
+    2. Dict with one or more items → drop items from the end, wrap with metadata
        so the model knows the result was truncated and how many items were omitted.
-    3. List with one or more items â†’ same strategy.
-    4. Anything else (primitives, empty collections) â†’ hard-slice the string with
+    3. List with one or more items → same strategy.
+    4. Anything else (primitives, empty collections) → hard-slice the string with
        an appended marker so it's never silently truncated.
 
     The wrapper always adds ~180 chars of metadata overhead, so the actual item
@@ -379,12 +441,12 @@ _RESPONSE_MODE_INFORMATIONAL = (
     "<<RULES — never echo or quote these>>\n"
     "INFORMATIONAL mode:\n"
     "⚠️ The 'Plans and approval' section above DOES NOT APPLY here. Do NOT use any code block at all.\n"
-    "- Areas/labels/automations/scripts are in context â†’ write them out as plain text bullets NOW. "
+    "- Areas/labels/automations/scripts are in context → write them out as plain text bullets NOW. "
     "If there are 0 labels in context, say so — do NOT call get_labels when count is already known to be 0.\n"
-    "- Entity IDs/states not in context â†’ output [TOOL_CALL:{\"name\":\"...\"}] immediately, nothing else.\n"
+    "- Entity IDs/states not in context → output [TOOL_CALL:{\"name\":\"...\"}] immediately, nothing else.\n"
     "- If question is about a SPECIFIC state (e.g. 'lights that are on', 'open doors'), ADD a \"state\" filter to the tool call (e.g. \"state\":\"on\"). This returns only matching items — list ALL of them.\n"
     "- After tool result (entity LIST): list EVERY SINGLE entity from the result. If result has 83 items, output 83 bullets. NEVER stop at 5/10/20. NEVER write '...' or 'and more'.\n"
-    "- After tool result (single entity state): extract ONLY the attribute(s) the user asked about. Do NOT dump all attributes. E.g. for 'what time does the sun set?' â†’ show only next_setting, NOT next_dawn/noon/elevation/azimuth.\n"
+    "- After tool result (single entity state): extract ONLY the attribute(s) the user asked about. Do NOT dump all attributes. E.g. for 'what time does the sun set?' → show only next_setting, NOT next_dawn/noon/elevation/azimuth.\n"
     "- Show times in the local timezone from context ('Timezone'), not UTC. Convert if needed.\n"
     "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, get_zones, get_zone_occupants, list_integrations, get_integration_entities, search_automations, get_automation, get_datetime, get_todo_items.\n"
     "- For questions about WHEN/WHAT TIME/SCHEDULE something happens (e.g. 'what time do the lights turn on', 'when does X trigger', 'what happens at sunrise'), use search_automations(query='<keyword>') — NOT search_entities. Then call get_automation(id='...') for details.\n"
@@ -392,8 +454,8 @@ _RESPONSE_MODE_INFORMATIONAL = (
     "call list_integrations ONCE, scan the result for a matching platform name and sample_entities, "
     "then IMMEDIATELY call get_integration_entities(integration='<platform_name>'). "
     "Do NOT call list_integrations more than once.\n"
-    "- HA domain quick-reference: 'alerts/notifications' â†’ domain='alert'; 'persistent notifications' â†’ domain='persistent_notification'; "
-    "'problems/issues' â†’ binary_sensor with state='on'; 'alarms' â†’ domain='alarm_control_panel'.\n"
+    "- HA domain quick-reference: 'alerts/notifications' → domain='alert'; 'persistent notifications' → domain='persistent_notification'; "
+    "'problems/issues' → binary_sensor with state='on'; 'alarms' → domain='alarm_control_panel'.\n"
     "- Do NOT output a clarify block. There is always a tool that can answer. If unsure of the domain, call search_entities(query='<keyword>').\n"
     "- No preamble. No footer. No 'What would you like to do?' No 'Please let me know'. No 'For other timezones, please specify...'.\n"
     "- Do NOT output a plan block, json code block, or ANY code fence with summary/actions/warnings fields. Plain text and tool calls ONLY.\n"
@@ -403,9 +465,9 @@ _RESPONSE_MODE_INFORMATIONAL = (
 _RESPONSE_MODE_ACTION = (
     "<<RULES — never echo or quote these>>\n"
     "ACTION mode:\n"
-    "- Need entity IDs not yet in context? â†’ output [TOOL_CALL:{\"name\":\"...\"}] immediately.\n"
-    "- Entity IDs already in context or tool results? â†’ output plan block directly.\n"
-    "- If user says 'those'/'them'/'it' â†’ use the entities from the conversation history above.\n"
+    "- Need entity IDs not yet in context? → output [TOOL_CALL:{\"name\":\"...\"}] immediately.\n"
+    "- Entity IDs already in context or tool results? → output plan block directly.\n"
+    "- If user says 'those'/'them'/'it' → use the entities from the conversation history above.\n"
     "- Control devices via plan/actions block (call_service). Editing areas/labels/names uses assign_area/rename_entity/assign_label actions. NOT open_editor.\n"
     "- Use ONLY these tool names: list_entities_by_domain, get_entity_state, get_area_entities, list_entities_by_label, search_entities, list_entities_without_area, get_areas, get_labels, get_zones, get_zone_occupants, list_integrations, get_integration_entities, search_automations, get_automation, get_datetime, get_todo_items.\n"
     "- For 'fix/organise/order my entities': call list_entities_without_area, then propose a plan with assign_area actions.\n"
@@ -677,8 +739,8 @@ def _build_prompt_sections(
 async def _expand_search_query(hass: Any, entity_id: str, user_prompt: str) -> list[str]:
     """Ask the LLM to expand a user query into synonyms/related terms for better knowledge retrieval.
 
-    Examples: "koffie" â†’ ["koffie","coffee","espresso","nespresso","koffiezetapparaat"]
-              "licht woonkamer" â†’ ["licht","light","woonkamer","living room","lamp"]
+    Examples: "koffie" → ["koffie","coffee","espresso","nespresso","koffiezetapparaat"]
+              "licht woonkamer" → ["licht","light","woonkamer","living room","lamp"]
 
     Returns [] on any failure so callers always get a safe result.
     """
@@ -688,14 +750,14 @@ async def _expand_search_query(hass: Any, entity_id: str, user_prompt: str) -> l
         expansion_prompt = (
             "You are a smart home entity search assistant.\n"
             "Expand the following user query into 5-8 related lowercase search terms "
-            "for home automation knowledge retrieval. Include Dutchâ†”English synonyms, "
+            "for home automation knowledge retrieval. Include Dutch↔English synonyms, "
             "device names, room names, and brand names.\n"
             "Return ONLY a JSON array of strings, no explanation.\n\n"
             f'Query: "{user_prompt}"\n\n'
             "Examples:\n"
-            '- "koffie" â†’ ["koffie","coffee","espresso","nespresso","koffiezetapparaat","cappuccino"]\n'
-            '- "licht woonkamer" â†’ ["licht","light","woonkamer","living room","lamp","verlichting"]\n'
-            '- "tv" â†’ ["tv","television","televisie","media_player","samsung","shield"]\n'
+            '- "koffie" → ["koffie","coffee","espresso","nespresso","koffiezetapparaat","cappuccino"]\n'
+            '- "licht woonkamer" → ["licht","light","woonkamer","living room","lamp","verlichting"]\n'
+            '- "tv" → ["tv","television","televisie","media_player","samsung","shield"]\n'
         )
         result = await async_ai_call(
             hass,
@@ -710,7 +772,7 @@ async def _expand_search_query(hass: Any, entity_id: str, user_prompt: str) -> l
         if m:
             terms = json.loads(m.group())
             expanded = [str(t).lower().strip() for t in terms if isinstance(t, str) and t.strip()]
-            _LOGGER.debug("Kyber: query expansion '%s' â†’ %s", user_prompt[:60], expanded)
+            _LOGGER.debug("Kyber: query expansion '%s' → %s", user_prompt[:60], expanded)
             return expanded
     except Exception as err:  # noqa: BLE001
         _LOGGER.debug("Kyber: query expansion skipped: %s", err)
@@ -752,7 +814,7 @@ async def _inject_knowledge_into_prompt(
 
     if _translation_active and _detected_lang_early != "en":
         _en_query = translate_query_to_english(user_prompt)
-        _LOGGER.debug("Kyber: query translated '%s' â†’ '%s'", user_prompt[:60], _en_query[:60])
+        _LOGGER.debug("Kyber: query translated '%s' → '%s'", user_prompt[:60], _en_query[:60])
         search_query = _en_query
         extra_queries: list[str] = [user_prompt] if _en_query != user_prompt else []
     else:
@@ -933,14 +995,18 @@ async def _check_ollama_health(hass: Any, entity_id: str) -> dict:
 
     # 2. Find the Ollama config entry that owns this AI task entity via entity registry.
     #    Fall back to the first Ollama entry if the entity can't be matched.
+    #    An entity of another integration (OpenAI, Google, …) has no Ollama to
+    #    check: return "skipped" instead of an error the user cannot act on.
     ollama_url: str | None = None
     ollama_model: str | None = None
+    provider_domain: str | None = None
     try:
         from homeassistant.helpers import entity_registry as er
         ent_reg = er.async_get(hass)
         ent_entry = ent_reg.async_get(entity_id)
         if ent_entry and ent_entry.config_entry_id:
             cfg = hass.config_entries.async_get_entry(ent_entry.config_entry_id)
+            provider_domain = cfg.domain if cfg else None
             if cfg and cfg.domain == "ollama":
                 data = dict(cfg.data or {})
                 url = data.get("url") or data.get("base_url") or data.get("host")
@@ -949,6 +1015,12 @@ async def _check_ollama_health(hass: Any, entity_id: str) -> dict:
                 ollama_model = data.get("model") or data.get("model_name")
     except Exception:  # noqa: BLE001
         pass
+
+    if (provider_domain is not None and provider_domain != "ollama") or (
+        provider_domain is None and not hass.config_entries.async_entries("ollama")
+    ):
+        result["skipped"] = True
+        return result
 
     if not ollama_url:
         # Fallback: pick the first Ollama config entry
@@ -999,6 +1071,41 @@ async def _check_ollama_health(hass: Any, entity_id: str) -> dict:
     return result
 
 
+# Shown when the model produced no text at all. Same languages as the panel;
+# anything else gets English.
+_NO_ANSWER_MESSAGES: dict[str, dict[str, str]] = {
+    "no_action": {
+        "en": "I wasn't able to figure out the right action for that request — "
+              "could you rephrase or be more specific?",
+        "nl": "Ik kon geen passende actie vinden voor dit verzoek — "
+              "kun je het anders formuleren of specifieker zijn?",
+        "de": "Ich konnte für diese Anfrage keine passende Aktion finden. "
+              "Kannst du sie anders formulieren oder genauer beschreiben?",
+    },
+    "no_answer": {
+        "en": "I couldn't generate an answer for this request — "
+              "could you rephrase it or be more specific?",
+        "nl": "Ik kon geen antwoord genereren voor dit verzoek — "
+              "kun je het anders formuleren of specifieker zijn?",
+        "de": "Ich konnte auf diese Anfrage keine Antwort erzeugen. "
+              "Kannst du sie anders formulieren oder genauer beschreiben?",
+    },
+}
+
+
+def _no_answer_message(hass: Any, user_prompt: str, kind: str) -> str:
+    """Return the fallback message in the language of the prompt.
+
+    detect_language() returns "en" when it is unsure (short prompts such as
+    "prüfe die IDs"), so "en" falls back to the Home Assistant language.
+    """
+    lang = detect_language(user_prompt)
+    if lang == "en":
+        lang = str(getattr(getattr(hass, "config", None), "language", "") or "en")
+    texts = _NO_ANSWER_MESSAGES[kind]
+    return texts.get(lang.split("-")[0].lower(), texts["en"])
+
+
 async def _run_ai_loop(
     hass: Any,
     entity_id: str,
@@ -1021,7 +1128,14 @@ async def _run_ai_loop(
     """
     _cfg = config or {}
 
-    # â”€â”€ Cloud provider detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Per-call limits grow with the user's chat timeout so the backend never gives up
+    # before the panel does, but never drop below the old fixed values (Ollama can be
+    # slow on loaded hardware).
+    _chat_timeout = get_chat_timeout(_cfg)
+    _AI_CALL_TIMEOUT = max(MIN_AI_CALL_TIMEOUT, _chat_timeout)
+    _CLOUD_HTTP_TIMEOUT = max(MIN_CLOUD_HTTP_TIMEOUT, _chat_timeout)
+
+    # ── Cloud provider detection ──────────────────────────────────────────────
     # Explicit cloud_provider key takes precedence; fall back to legacy Azure detection
     _cloud_provider = str(_cfg.get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER)).strip()
     _cloud_use_for_chat = bool(_cfg.get(CONF_CLOUD_USE_FOR_CHAT, DEFAULT_CLOUD_USE_FOR_CHAT))
@@ -1072,7 +1186,7 @@ async def _run_ai_loop(
         # Qwen3 reads it from the user message anyway.
         prompt = dataclasses.replace(prompt, request=prompt.request + "/no_think\n")
 
-    # â”€â”€ Pre-flight: log entity state + check Ollama health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Pre-flight: log entity state + check Ollama health ───────────────────
     if _use_azure:
         _model_name = f"azure/{_azure_deployment}"
         _LOGGER.info(
@@ -1081,7 +1195,7 @@ async def _run_ai_loop(
         )
         _progress_emit(hass, request_id, {
             "type": "debug",
-            "message": f"[AIâ†’] provider=Azure endpoint={_azure_endpoint} deployment={_azure_deployment}",
+            "message": f"[AI→] provider=Azure endpoint={_azure_endpoint} deployment={_azure_deployment}",
         })
     elif _use_openai:
         _model_name = f"openai/{_openai_model}"
@@ -1091,7 +1205,7 @@ async def _run_ai_loop(
         )
         _progress_emit(hass, request_id, {
             "type": "debug",
-            "message": f"[AIâ†’] provider=OpenAI model={_openai_model}",
+            "message": f"[AI→] provider=OpenAI model={_openai_model}",
         })
     elif _use_anthropic:
         _model_name = f"anthropic/{_anthropic_model}"
@@ -1101,7 +1215,7 @@ async def _run_ai_loop(
         )
         _progress_emit(hass, request_id, {
             "type": "debug",
-            "message": f"[AIâ†’] provider=Anthropic model={_anthropic_model}",
+            "message": f"[AI→] provider=Anthropic model={_anthropic_model}",
         })
     else:
         _entity_state = hass.states.get(entity_id)
@@ -1143,7 +1257,9 @@ async def _run_ai_loop(
 
         # Check Ollama health asynchronously (non-blocking — we still proceed)
         _health = await _check_ollama_health(hass, entity_id)
-        if _health.get("error"):
+        if _health.get("skipped"):
+            _LOGGER.debug("Kyber: AI entity %s is not an Ollama entity — no Ollama health check", entity_id)
+        elif _health.get("error"):
             _LOGGER.warning("Kyber: Ollama health check: %s", _health["error"])
             _progress_emit(hass, request_id, {
                 "type": "warning",
@@ -1163,7 +1279,7 @@ async def _run_ai_loop(
             _progress_emit(hass, request_id, {
                 "type": "debug",
                 "message": (
-                    f"[AIâ†’] endpoint={_ollama_url} entity={entity_id} "
+                    f"[AI→] endpoint={_ollama_url} entity={entity_id} "
                     f"model={_model_name} | pulled: {', '.join(_available) or 'none'}"
                 ),
             })
@@ -1185,7 +1301,7 @@ async def _run_ai_loop(
                         f"Pulled models: {', '.join(_available) or 'none'}"
                     ),
                 })
-    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ─────────────────────────────────────────────────────────────────────────
 
     # Context window of the chat model: the provider's window for cloud chat,
     # otherwise the configured "Chat model: context window" option (pre-filled
@@ -1224,8 +1340,8 @@ async def _run_ai_loop(
     tool_rounds: list[ToolRound] = []  # tool call/result exchanges, one per round, oldest first
     tool_log: list = []  # summary of tool calls for UI feedback
     _aliases_saved: list[str] = []  # search aliases newly stored this turn
-    executed_calls_cache: dict = {}  # signature â†’ result str (dedup across rounds)
-    _seen_entity_scores: dict[str, float] = {}  # entity_id â†’ best score shown so far
+    executed_calls_cache: dict = {}  # signature → result str (dedup across rounds)
+    _seen_entity_scores: dict[str, float] = {}  # entity_id → best score shown so far
     response_text = ""
     _loop_redirect_given = False  # allow one redirect hint before falling back to synthesis
     _auto_plan_rescued = False    # set when call_service tool call is auto-converted to plan
@@ -1251,6 +1367,7 @@ async def _run_ai_loop(
                 api_version=_azure_api_version,
                 system=fit.system,
                 messages=list(fit.messages),
+                http_timeout=_CLOUD_HTTP_TIMEOUT,
             )
         elif _use_openai:
             call = async_openai_ai_call(
@@ -1260,6 +1377,7 @@ async def _run_ai_loop(
                 base_url=_openai_base_url or None,
                 system=fit.system,
                 messages=list(fit.messages),
+                http_timeout=_CLOUD_HTTP_TIMEOUT,
             )
         elif _use_anthropic:
             call = async_anthropic_ai_call(
@@ -1268,6 +1386,7 @@ async def _run_ai_loop(
                 model=_anthropic_model,
                 system=fit.system,
                 messages=list(fit.messages),
+                http_timeout=_CLOUD_HTTP_TIMEOUT,
             )
         else:
             call = async_ai_call(
@@ -1278,7 +1397,7 @@ async def _run_ai_loop(
             )
         return await asyncio.wait_for(call, timeout=_AI_CALL_TIMEOUT)
 
-    # â”€â”€ Quick-intent shortcut — skip the AI for trivially parseable requests
+    # ── Quick-intent shortcut — skip the AI for trivially parseable requests
     # like "create an area outside". Small local models loop on get_areas
     # because every action example in the prompt has an entity_id; bypassing
     # the model entirely is far more reliable for these patterns.
@@ -1318,7 +1437,6 @@ async def _run_ai_loop(
             "message": f"Asking AI (round {_round + 1})\u2026",
         })
         _t_start = time.monotonic()
-        _AI_CALL_TIMEOUT = 180  # seconds — Ollama can be slow on loaded hardware
         try:
             result = await _call_model(_fit)
         except asyncio.TimeoutError:
@@ -1439,7 +1557,9 @@ async def _run_ai_loop(
         seen_signatures: set = set()
         unique_calls = []
         for call in tool_calls:
-            # Canonical signature: tool name + sorted args
+            # Canonical signature: resolved tool name + sorted args, so an alias
+            # or another spelling of the same area counts as a repeat.
+            call = resolve_tool_call(call)
             sig_dict = {k: v for k, v in call.items() if k != "name"}
             sig = json.dumps({"name": call.get("name", ""), "args": sig_dict}, sort_keys=True)
             if sig in seen_signatures:
@@ -1567,9 +1687,9 @@ async def _run_ai_loop(
                 # State-filter: when the user wants to turn_off, drop entities that are
                 # already off (and vice versa). This reduces noise and helps the model
                 # auto-select the right entity without asking a follow-up.
-                _up = user_prompt.lower()
-                _want_off = any(w in _up for w in ("uit", "turn off", "turn_off", "uitzetten", "zet uit"))
-                _want_on  = any(w in _up for w in ("aan", "turn on", "turn_on", "aanzetten", "zet aan"))
+                _switch_to = _detect_switch_request(user_prompt, intent)
+                _want_off = _switch_to == "off"
+                _want_on = _switch_to == "on"
                 if (_want_off or _want_on) and not call.get("state"):
                     _target_state = "on" if _want_off else "off"
                     _all_eids = [k for k in tool_result_data if isinstance(k, str) and "." in k and not k.startswith("_")]
@@ -1589,30 +1709,13 @@ async def _run_ai_loop(
                         tool_result_data = _filtered
                         tool_result_str = json.dumps(_filtered)
 
-                # Seen-entity exclusion: on round 2+, drop entities whose score is no
-                # better than what was already shown in a previous search_entities round.
-                # If a later query returns the same entity with a higher score (more
-                # relevant match), it is kept so the model sees the improved context.
-                if _round > 0 and _seen_entity_scores:
-                    _eid_keys = [k for k in tool_result_data if isinstance(k, str) and "." in k and not k.startswith("_")]
-                    _to_drop = []
-                    for _eid in _eid_keys:
-                        _new_score = float((tool_result_data[_eid] or {}).get("_score") or 0)
-                        _old_score = _seen_entity_scores.get(_eid, -1)
-                        if _new_score <= _old_score:
-                            _to_drop.append(_eid)
-                    if _to_drop:
-                        tool_result_data = {k: v for k, v in tool_result_data.items() if k not in _to_drop}
-                        if not any(isinstance(k, str) and "." in k and not k.startswith("_") for k in tool_result_data):
-                            tool_result_data["_note"] = "All matches already shown in a previous round with equal or better relevance."
+                # Seen-entity exclusion (see _drop_already_seen_entities).
+                if _round > 0:
+                    tool_result_data, _dropped = _drop_already_seen_entities(tool_result_data, _seen_entity_scores)
+                    if _dropped:
                         tool_result_str = json.dumps(tool_result_data)
-                        _LOGGER.debug("Kyber: search_entities round %d — dropped %d already-seen entities (score not improved)", _round, len(_to_drop))
-
-                # Record best score seen per entity for future rounds
-                for _eid in (k for k in tool_result_data if isinstance(k, str) and "." in k and not k.startswith("_")):
-                    _score = float((tool_result_data[_eid] or {}).get("_score") or 0)
-                    if _score > _seen_entity_scores.get(_eid, -1):
-                        _seen_entity_scores[_eid] = _score
+                        _LOGGER.debug("Kyber: search_entities round %d — dropped %d already-seen entities (score not improved)", _round, _dropped)
+                _record_seen_entity_scores(tool_result_data, _seen_entity_scores)
 
             # Also record aliases from get_entity_state: when entity_id words
             # overlap with the user prompt we know the user was asking about that
@@ -1759,10 +1862,7 @@ async def _run_ai_loop(
                     _LOGGER.warning("Kyber: synthesis pass failed: %s", _synth_err)
             # Final guard: if synthesis also produced nothing, show a helpful message.
             if not _strip_tool_calls(response_text).strip():
-                response_text = (
-                    "I wasn't able to figure out the right action for that "
-                    "request \u2014 could you rephrase or be more specific?"
-                )
+                response_text = _no_answer_message(hass, user_prompt, "no_action")
             break
 
     # Fallback: if the tool loop exhausted max rounds without producing a text
@@ -1770,10 +1870,7 @@ async def _run_ai_loop(
     # the user always gets a helpful message instead of an empty response.
     if not _strip_tool_calls(response_text).strip():
         _LOGGER.warning("Kyber: tool loop exhausted max rounds with no text response — returning fallback")
-        response_text = (
-            "Ik kon geen antwoord genereren voor dit verzoek — "
-            "kon je het anders formuleren of specifieker zijn?"
-        )
+        response_text = _no_answer_message(hass, user_prompt, "no_answer")
 
     tool_exchange = "".join(r.text for r in tool_rounds)
     return response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, _aliases_saved, _token_usage
@@ -1986,6 +2083,25 @@ def _extract_response_components(
                 )
                 plan_block = None
 
+    # Rescue: an automation/script edit emitted as an entry in "actions" goes to
+    # the automation edit card instead of the generic plan card, and the edit
+    # card gets the real config id (not the entity_id slug) to save to.
+    lifted = _lift_config_edit_plan(plan_block)
+    if lifted is not plan_block:
+        _LOGGER.info("Kyber: lifted %s action into an edit_automation plan", plan_block["actions"][0].get("type"))
+        plan_block = lifted
+    if plan_block and plan_block.get("edit_automation"):
+        try:
+            _domain, _config_id, _entity_id = _resolve_config_target(
+                hass, {**plan_block, "type": "edit_script" if plan_block.get("script") else "edit_automation"},
+            )
+            if _config_id:
+                plan_block["automation_id"] = _config_id
+            if _entity_id:
+                plan_block["entity_id"] = _entity_id
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Kyber: could not resolve edit_automation target: %s", err)
+
     # Plan auto-resolution: when a plan references an entity_id that does
     # not exist (e.g. `light.werkkamer`) but the local part matches an area
     # name, expand to the REAL entities in that area for the requested
@@ -2023,6 +2139,14 @@ def _extract_response_components(
                     eid_norm = action.get("entity_id", "").strip()
                     domain_norm = action.get("domain", "").strip().lower()
                     service_norm = action.get("service", "").strip().lower()
+                    # Defensive split: "domain.service" in the service field must
+                    # become separate domain + bare service keys.
+                    if "." in service_norm:
+                        svc_domain, _, svc_name = service_norm.partition(".")
+                        if domain_norm:
+                            service_norm = svc_name
+                        else:
+                            domain_norm, service_norm = svc_domain, svc_name
                     if not domain_norm and eid_norm and "." in eid_norm:
                         domain_norm = eid_norm.split(".", 1)[0]
                     if domain_norm != action.get("domain") or service_norm != action.get("service"):
@@ -2420,7 +2544,7 @@ class KyberView(HomeAssistantView):
         learned_fact = learned_facts[0] if learned_facts else None
         # Auto-rate: detect negative cues in the response and auto-flag any
         # knowledge entries that were injected this turn. The user can
-        # override via the ðŸ‘/ðŸ‘Ž buttons on the message.
+        # override via the 👍/👎 buttons on the message.
         knowledge_used_ids = [e["id"] for e in (relevant_knowledge or [])]
         auto_rating: int | None = None
         if knowledge_used_ids:
@@ -2525,7 +2649,7 @@ class KyberView(HomeAssistantView):
                                 await _kstore.async_add_proposal(
                                     proposal_type="area_assignment",
                                     subject=_eid,
-                                    content=f"ðŸ“ {_fname} toewijzen aan {_aname}",
+                                    content=f"📍 {_fname} toewijzen aan {_aname}",
                                     pending_action={"type": "assign_area", "entity_id": _eid, "area_id": _aid},
                                     entity_name=_fname,
                                     area_name=_aname,
@@ -2563,7 +2687,7 @@ class KyberView(HomeAssistantView):
                             await _kstore2.async_add_proposal(
                                 proposal_type="area_assignment",
                                 subject=_eid2,
-                                content=f"ðŸ“ {_fname2} toewijzen aan {_aname2}",
+                                content=f"📍 {_fname2} toewijzen aan {_aname2}",
                                 pending_action={"type": "assign_area", "entity_id": _eid2, "area_id": _area_id2},
                                 entity_name=_fname2,
                                 area_name=_aname2,
@@ -2578,13 +2702,13 @@ class KyberView(HomeAssistantView):
                             if _label_mode == LABEL_ASSIGNMENT_AUTO:
                                 try:
                                     _er2.async_update_entity(_eid2, labels=(_er2.async_get(_eid2).labels or set()) | {_label_id2})
-                                    _LOGGER.info("Kyber label-assignment: auto-applied '%s' â†’ %s", _lname2, _eid2)
+                                    _LOGGER.info("Kyber label-assignment: auto-applied '%s' → %s", _lname2, _eid2)
                                 except Exception as _le:  # noqa: BLE001
                                     _LOGGER.warning("Kyber label-assignment: could not apply '%s': %s", _lname2, _le)
                             await _kstore2.async_add_proposal(
                                 proposal_type="label_assignment",
                                 subject=_eid2,
-                                content=f"ðŸ· Label '{_lname2}' toewijzen aan {_fname2}",
+                                content=f"🏷 Label '{_lname2}' toewijzen aan {_fname2}",
                                 pending_action={"type": "assign_label", "entity_id": _eid2, "label_id": _label_id2},
                                 entity_name=_fname2,
                                 label_name=_lname2,
@@ -2672,6 +2796,18 @@ class KyberPingView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:  # noqa: ARG002
         return self.json({"ok": True})
+
+
+class KyberChatSettingsView(HomeAssistantView):
+    """GET /api/kyber/chat_settings — chat settings the panel needs (any logged-in user)."""
+
+    url = "/api/kyber/chat_settings"
+    name = "api:kyber:chat_settings"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        return self.json({"chat_timeout": get_chat_timeout(hass.data.get("kyber_config"))})
 
 
 class KyberSelfUpdateView(HomeAssistantView):

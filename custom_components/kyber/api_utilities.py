@@ -19,7 +19,7 @@ except ImportError:  # HA < 2025.2 (test environments)
     async def async_generate_data(*args, **kwargs):  # type: ignore[misc]
         raise RuntimeError("homeassistant.components.ai_task not available (HA < 2025.2)")
 
-from .const import CONF_AI_TASK_ENTITY_ID, CONF_AZURE_ENDPOINT, CONF_AZURE_API_KEY, CONF_AZURE_DEPLOYMENT, CONF_AZURE_API_VERSION, DEFAULT_AZURE_API_VERSION, DOMAIN
+from .const import CONF_AI_TASK_ENTITY_ID, CONF_AZURE_ENDPOINT, CONF_AZURE_API_KEY, CONF_AZURE_DEPLOYMENT, CONF_AZURE_API_VERSION, DEFAULT_AZURE_API_VERSION, DOMAIN, MIN_CLOUD_HTTP_TIMEOUT
 from .session_and_storage import (
     _async_load_chat_store, _async_save_chat_store,
     _migrate_user_to_sessions, _get_active_session, _sanitize_history,
@@ -163,6 +163,7 @@ async def async_azure_ai_call(
     instructions: str = "",
     system: str = "",
     messages: list[dict] | None = None,
+    http_timeout: int = MIN_CLOUD_HTTP_TIMEOUT,
 ) -> _AzureAIResult:
     """Call Azure AI Foundry (Azure OpenAI) chat completions directly via aiohttp.
 
@@ -202,7 +203,7 @@ async def async_azure_ai_call(
     for _attempt in range(_MAX_RETRIES):
         try:
             async with _aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
+                async with session.post(url, json=payload, headers=headers, timeout=_aiohttp.ClientTimeout(total=http_timeout)) as resp:
                     if resp.status == 429:
                         try:
                             _retry_after = min(int(resp.headers.get("Retry-After", "20")), 60)
@@ -259,6 +260,7 @@ async def async_openai_ai_call(
     system: str = "",
     messages: list[dict] | None = None,
     base_url: str | None = None,
+    http_timeout: int = MIN_CLOUD_HTTP_TIMEOUT,
 ) -> _AzureAIResult:
     """Call OpenAI chat completions directly via aiohttp.
 
@@ -293,7 +295,7 @@ async def async_openai_ai_call(
     for _attempt in range(_MAX_RETRIES):
         try:
             async with _aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
+                async with session.post(url, json=payload, headers=headers, timeout=_aiohttp.ClientTimeout(total=http_timeout)) as resp:
                     if resp.status == 429:
                         try:
                             _retry_after = min(int(resp.headers.get("Retry-After", "20")), 60)
@@ -349,6 +351,7 @@ async def async_anthropic_ai_call(
     instructions: str = "",
     system: str = "",
     messages: list[dict] | None = None,
+    http_timeout: int = MIN_CLOUD_HTTP_TIMEOUT,
 ) -> _AzureAIResult:
     """Call Anthropic Claude via the Messages API.
 
@@ -392,7 +395,7 @@ async def async_anthropic_ai_call(
     for _attempt in range(_MAX_RETRIES):
         try:
             async with _aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
+                async with session.post(url, json=payload, headers=headers, timeout=_aiohttp.ClientTimeout(total=http_timeout)) as resp:
                     if resp.status == 429:
                         try:
                             _retry_after = min(int(resp.headers.get("retry-after", "20")), 60)

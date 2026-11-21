@@ -145,7 +145,7 @@ Output: {{"type":"alias","subject":"<HA entity_id or area name>","user_term":"<c
 TYPE 2 — ROUTINE: User expresses a recurring time/context preference ("elke ochtend", "als ik wakker word",
 "every morning", "next time I ...", "volgende keer als ...").
 Output: {{"type":"routine","subject":"<short label e.g. morning coffee>",\
-"content":"<when context> â†’ <action>","category":"routine","tags":["<context word>","<action word>"]}}
+"content":"<when context> → <action>","category":"routine","tags":["<context word>","<action word>"]}}
 
 User said: "{user_prompt}"
 Recent conversation context:
@@ -225,10 +225,10 @@ async def _try_extract_learned_fact(
 class KyberKnowledgeView(HomeAssistantView):
     """CRUD endpoint for learned knowledge entries.
 
-    GET    /api/kyber/knowledge            â†’ list all
-    GET    /api/kyber/knowledge?q=...      â†’ search
-    POST   /api/kyber/knowledge            â†’ add (body: category, content, ...)
-    DELETE /api/kyber/knowledge?id=ENTRYID â†’ delete
+    GET    /api/kyber/knowledge            → list all
+    GET    /api/kyber/knowledge?q=...      → search
+    POST   /api/kyber/knowledge            → add (body: category, content, ...)
+    DELETE /api/kyber/knowledge?id=ENTRYID → delete
     """
 
     url = "/api/kyber/knowledge"
@@ -380,8 +380,8 @@ class KyberKnowledgeEntryView(HomeAssistantView):
 class KyberKnowledgeAnalyzeView(HomeAssistantView):
     """Run the automation/scene/script analyzer and return inferred proposals.
 
-    GET  /api/kyber/knowledge/analyze         â†’ return proposals (not saved)
-    POST /api/kyber/knowledge/analyze         â†’ body: {entry_indices: [...], save: true}
+    GET  /api/kyber/knowledge/analyze         → return proposals (not saved)
+    POST /api/kyber/knowledge/analyze         → body: {entry_indices: [...], save: true}
                                                 save selected proposals
     """
 
@@ -434,8 +434,8 @@ class KyberKnowledgeDeepAnalyzeView(HomeAssistantView):
     the home that the item implies. Accepted facts are saved into the
     KnowledgeStore tagged with `deep:<kind>` + `src:<ident>`.
 
-    GET  /api/kyber/knowledge/analyze_deep        â†’ memo status (what's been analyzed)
-    POST /api/kyber/knowledge/analyze_deep        â†’ run a sweep
+    GET  /api/kyber/knowledge/analyze_deep        → memo status (what's been analyzed)
+    POST /api/kyber/knowledge/analyze_deep        → run a sweep
        body: {kinds?: ["automation","script","blueprint"],
               limit?: int = 5,
               force?: bool = false}
@@ -472,7 +472,7 @@ class KyberKnowledgeDeepAnalyzeView(HomeAssistantView):
         limit = max(1, min(50, limit))
         force = bool(body.get("force", False))
 
-        # background=true â†’ fire-and-forget, return immediately with job state
+        # background=true → fire-and-forget, return immediately with job state
         if body.get("background"):
             if _DEEP_JOB["running"]:
                 return self.json({"status": "already_running", "job": dict(_DEEP_JOB)})
@@ -593,7 +593,7 @@ class KyberKnowledgeFeedbackView(HomeAssistantView):
         })
 
 
-# â”€â”€ Status accessor for _DEEP_JOB (used by debug status view) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Status accessor for _DEEP_JOB (used by debug status view) ────────────────
 def get_deep_job_status() -> dict:
     """Return a copy of the current deep analysis job state."""
     return dict(_DEEP_JOB)

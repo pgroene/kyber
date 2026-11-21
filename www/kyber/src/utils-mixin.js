@@ -121,7 +121,7 @@ export const UtilsMixin = (Base) => class extends Base {
     if (typeof obj === "boolean") return String(obj);
     if (typeof obj === "number") return String(obj);
     if (typeof obj === "string") {
-      if (/[\n:{}[\],&*#?|<>=!%@`]/.test(obj) || obj === "") {
+      if (this._yamlNeedsQuotes(obj)) {
         return JSON.stringify(obj);
       }
       return obj;
