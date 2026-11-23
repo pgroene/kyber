@@ -457,8 +457,7 @@ export const SlashMixin = (Base) => class extends Base {
     const now = Date.now();
     if (this._acFactsCache && now - (this._acFactsCacheTs || 0) < 30000) return this._acFactsCache;
     try {
-      const token = this._hass?.auth?.data?.access_token;
-      const resp = await fetch("/api/kyber/knowledge", { headers: { Authorization: `Bearer ${token}` } });
+      const resp = await this._hass.fetchWithAuth("/api/kyber/knowledge");
       const data = await resp.json();
       this._acFactsCache = data.entries || [];
       this._acFactsCacheTs = Date.now();
@@ -471,8 +470,7 @@ export const SlashMixin = (Base) => class extends Base {
     const now = Date.now();
     if (this._acSessionsCache && now - (this._acSessionsCacheTs || 0) < 15000) return this._acSessionsCache;
     try {
-      const token = this._hass?.auth?.data?.access_token;
-      const resp = await fetch("/api/kyber/sessions", { headers: { Authorization: `Bearer ${token}` } });
+      const resp = await this._hass.fetchWithAuth("/api/kyber/sessions");
       const data = await resp.json();
       this._acSessionsCache = data.sessions || [];
       this._acSessionsCacheTs = Date.now();

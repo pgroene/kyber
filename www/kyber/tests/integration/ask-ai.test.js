@@ -72,11 +72,11 @@ describe("_askAI — request payload", () => {
     expect(body.yaml).toBe("alias: test");
   });
 
-  it("includes Authorization header with hass token", async () => {
+  it("sends the request through hass.fetchWithAuth (bearer header)", async () => {
     const { element } = makePanel();
     await askWithInput(element, "Hello");
     const headers = fetch.mock.calls[0][1].headers;
-    expect(headers.Authorization).toBe("Bearer test-token");
+    expect(headers.authorization).toBe("Bearer test-token");
   });
 
   it("sends compacted_summary in body when set", async () => {

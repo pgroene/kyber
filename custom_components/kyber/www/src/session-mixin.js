@@ -167,10 +167,9 @@ export const SessionMixin = (Base) => class extends Base {
     );
     if (messages.length < 2) return;
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/sessions/name", {
+      const resp = await this._hass.fetchWithAuth("/api/kyber/sessions/name", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages }),
       });
       if (!resp.ok) return;
@@ -187,8 +186,7 @@ export const SessionMixin = (Base) => class extends Base {
   async _loadSessionList() {
     if (!this._hass) return [];
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/sessions", { headers: { Authorization: `Bearer ${token}` } });
+      const resp = await this._hass.fetchWithAuth("/api/kyber/sessions");
       if (!resp.ok) return [];
       const data = await resp.json();
       this._sessions = (data.sessions || []).map((s) => ({ id: s.id, name: s.name, history: Array(s.message_count), active: s.active }));
@@ -200,10 +198,9 @@ export const SessionMixin = (Base) => class extends Base {
 
   async _createSession(name) {
     if (!this._hass) return;
-    const token = this._hass.auth.data.access_token;
-    const resp = await fetch("/api/kyber/sessions", {
+    const resp = await this._hass.fetchWithAuth("/api/kyber/sessions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, switch: true }),
     });
     const t = this._t || ((k) => k);
@@ -235,10 +232,9 @@ export const SessionMixin = (Base) => class extends Base {
       this._appendMessage(t("ss_not_found", { name: nameOrId }), "assistant");
       return;
     }
-    const token = this._hass.auth.data.access_token;
-    const switchResp = await fetch("/api/kyber/sessions", {
+    const switchResp = await this._hass.fetchWithAuth("/api/kyber/sessions", {
       method: "PUT",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "switch", session_id: target.id }),
     });
     if (!switchResp.ok) {
@@ -258,10 +254,9 @@ export const SessionMixin = (Base) => class extends Base {
 
   async _renameSession(newName) {
     if (!this._hass) return;
-    const token = this._hass.auth.data.access_token;
-    const resp = await fetch("/api/kyber/sessions", {
+    const resp = await this._hass.fetchWithAuth("/api/kyber/sessions", {
       method: "PUT",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "rename", name: newName }),
     });
     const t = this._t || ((k) => k);
@@ -277,10 +272,9 @@ export const SessionMixin = (Base) => class extends Base {
 
   async _deleteSession(sessionId) {
     if (!this._hass) return;
-    const token = this._hass.auth.data.access_token;
-    const resp = await fetch("/api/kyber/sessions", {
+    const resp = await this._hass.fetchWithAuth("/api/kyber/sessions", {
       method: "DELETE",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sessionId }),
     });
     const t = this._t || ((k) => k);

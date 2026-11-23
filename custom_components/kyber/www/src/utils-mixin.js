@@ -166,14 +166,30 @@ export const UtilsMixin = (Base) => class extends Base {
       .replace(/>/g, "&gt;");
   }
 
+  /**
+   * HA counts every 401 as a failed login and bans the client IP after a few
+   * (http: ip_ban_enabled). hass.fetchWithAuth refreshes an expired token, but a
+   * revoked one still answers 401 — so a poller that got one stays quiet until HA
+   * hands the panel a different access token.
+   */
+  _pollAllowed() {
+    const token = this._hass?.auth?.data?.access_token;
+    return !!token && token !== this._rejectedToken;
+  }
+
+  /** Remember a 401 for _pollAllowed(); returns true when resp was one. */
+  _noteAuthRejected(resp) {
+    if (resp?.status !== 401) return false;
+    this._rejectedToken = this._hass?.auth?.data?.access_token || "";
+    return true;
+  }
+
   /** Fetch the knowledge count from the backend and init the badge. */
   async _loadMemoryCount() {
     try {
       const token = this._hass?.auth?.data?.access_token;
       if (!token) return;
-      const resp = await fetch("/api/kyber/knowledge", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const resp = await this._hass.fetchWithAuth("/api/kyber/knowledge");
       if (!resp.ok) return;
       const data = await resp.json();
       this._updateMemoryBadge((data.entries || []).length, false);
@@ -246,9 +262,7 @@ export const UtilsMixin = (Base) => class extends Base {
     try {
       const token = this._hass?.auth?.data?.access_token;
       if (!token) return;
-      const resp = await fetch("/api/kyber/history/actions?limit=50", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const resp = await this._hass.fetchWithAuth("/api/kyber/history/actions?limit=50");
       if (!resp.ok) return;
       const data = await resp.json();
       this._actionHistory = Array.isArray(data.entries) ? data.entries : [];
@@ -296,10 +310,8 @@ export const UtilsMixin = (Base) => class extends Base {
       btn.textContent = t("ut_undoing");
     }
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch(`/api/kyber/history/actions/${encodeURIComponent(entryId)}/undo`, {
+      const resp = await this._hass.fetchWithAuth(`/api/kyber/history/actions/${encodeURIComponent(entryId)}/undo`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok || data.status === "failed") {

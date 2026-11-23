@@ -33,7 +33,7 @@ import {
 // Styles
 // ---------------------------------------------------------------------------
 import { STYLES } from "./src/styles.js?v=217";
-import { getT } from "./src/i18n.js?v=5";
+import { getT } from "./src/i18n.js?v=6";
 import { UtilsMixin } from "./src/utils-mixin.js?v=103";
 import { SessionMixin } from "./src/session-mixin.js?v=90";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=90";
@@ -600,11 +600,10 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
   }
 
   async _checkKyberStatus() {
-    if (!this._hass?.auth?.data?.access_token) return;
+    if (!this._pollAllowed()) return;
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/debug/status", { headers: { Authorization: `Bearer ${token}` } });
-      if (!resp.ok) return;
+      const resp = await this._hass.fetchWithAuth("/api/kyber/debug/status");
+      if (this._noteAuthRejected(resp) || !resp.ok) return;
       const data = await resp.json();
       const t = this._t || ((k) => k);
       this._updateTokenBadgeFromUsage(data.token_usage || this._tokenUsage);

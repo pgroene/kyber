@@ -52,6 +52,9 @@
         if (!resp.ok) throw new Error(`callApi ${path} → ${resp.status}`);
         return resp.json();
       },
+      // Like HA: adds the bearer header, then a plain fetch (intercepted by page.route())
+      fetchWithAuth: (path, init = {}) =>
+        fetch(path, { ...init, headers: { ...(init.headers || {}), authorization: "Bearer test-token" } }),
       // HA WebSocket calls
       callWS: async (msg) => {
         if (msg.type === "lovelace/dashboards") return [];

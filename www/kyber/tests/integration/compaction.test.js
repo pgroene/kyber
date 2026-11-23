@@ -156,9 +156,9 @@ describe("_maybeCompact — triggered by size (chars > SIZE_TRIGGER)", () => {
     expect(element._compactedSummary).toBe("Compacted summary");
   });
 
-  it("uses Authorization header with hass token", async () => {
+  it("sends the request through hass.fetchWithAuth (bearer header)", async () => {
     await element._maybeCompact();
-    expect(fetch.mock.calls[0][1].headers.Authorization).toBe("Bearer test-token");
+    expect(fetch.mock.calls[0][1].headers.authorization).toBe("Bearer test-token");
   });
 
   it("sends POST to /api/kyber/summarize with JSON content-type", async () => {

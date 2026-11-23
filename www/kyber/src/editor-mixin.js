@@ -216,10 +216,9 @@ export const EditorMixin = (Base) => class extends Base {
 
   /** Execute a list of plan actions via the /execute endpoint. */
   async _executeActions(actions) {
-    const token = this._hass.auth.data.access_token;
-    const resp = await fetch("/api/kyber/execute", {
+    const resp = await this._hass.fetchWithAuth("/api/kyber/execute", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ actions }),
     });
     if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
@@ -399,7 +398,6 @@ export const EditorMixin = (Base) => class extends Base {
     // Fetch list of all dashboards and populate selector
     this._setStatus(t("ed_loading_dashboards"));
     try {
-      const token = this._hass.auth.data.access_token;
       // Use hass.panels — always available, no extra API call
       // Exclude "lovelace" (the default Overview) — it's handled by __default__
       const panels = this._hass.panels || {};
@@ -479,11 +477,8 @@ export const EditorMixin = (Base) => class extends Base {
     this._setStatus(t("loading"));
     this.shadowRoot.getElementById("btn-save").disabled = true;
     try {
-      const token = this._hass.auth.data.access_token;
       const apiPath = urlPath ? `lovelace/config?url_path=${urlPath}` : "lovelace/config";
-      const resp = await fetch(`/api/${apiPath}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const resp = await this._hass.fetchWithAuth(`/api/${apiPath}`);
       let config;
       if (resp.status === 404) {
         // Dashboard exists as a panel but has no stored config yet (or is in yaml mode).
@@ -527,12 +522,10 @@ export const EditorMixin = (Base) => class extends Base {
     this._setStatus(t("ed_saving_dashboard"));
 
     try {
-      const token = this._hass.auth.data.access_token;
-
       // Parse YAML server-side → JSON
-      const parseResp = await fetch("/api/kyber/parse_yaml", {
+      const parseResp = await this._hass.fetchWithAuth("/api/kyber/parse_yaml", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ yaml: yamlText }),
       });
       if (!parseResp.ok) {
@@ -548,9 +541,9 @@ export const EditorMixin = (Base) => class extends Base {
       // use fetch directly to get a meaningful error message.
       const path = this._currentDashboardPath;
       const apiPath = path ? `lovelace/config?url_path=${path}` : "lovelace/config";
-      const saveResp = await fetch(`/api/${apiPath}`, {
+      const saveResp = await this._hass.fetchWithAuth(`/api/${apiPath}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),
       });
 
@@ -671,10 +664,9 @@ export const EditorMixin = (Base) => class extends Base {
     try {
       let summary = this._compactedSummary;
       if (prose.length) {
-        const token = this._hass.auth.data.access_token;
-        const resp = await fetch("/api/kyber/summarize", {
+        const resp = await this._hass.fetchWithAuth("/api/kyber/summarize", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ previous_summary: this._compactedSummary, messages: prose }),
         });
         // A failed summary leaves the history as it is; the next answer retries
@@ -2365,10 +2357,7 @@ export const EditorMixin = (Base) => class extends Base {
     this._setStatus(t("ed_loading_blueprint", { path }));
 
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch(`/api/kyber/blueprint?path=${encodeURIComponent(path)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const resp = await this._hass.fetchWithAuth(`/api/kyber/blueprint?path=${encodeURIComponent(path)}`);
       if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
       const data = await resp.json();
 
@@ -2413,10 +2402,9 @@ export const EditorMixin = (Base) => class extends Base {
     this._setStatus(t("ed_saving_blueprint"));
 
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/blueprint", {
+      const resp = await this._hass.fetchWithAuth("/api/kyber/blueprint", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: this._currentBlueprintPath, yaml: yamlText }),
       });
       if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
@@ -2463,10 +2451,9 @@ export const EditorMixin = (Base) => class extends Base {
     const cleaned = cleanedLines.join("\n");
     this._parseLineToEditorLine = parseLineToEditorLine;
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/parse_yaml", {
+      const resp = await this._hass.fetchWithAuth("/api/kyber/parse_yaml", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ yaml: cleaned }),
       });
       if (!resp.ok) {
@@ -2878,10 +2865,9 @@ YAML:
 ${yamlText}`;
 
     try {
-      const token = this._hass.auth.data.access_token;
-      const resp = await fetch("/api/kyber/complete", {
+      const resp = await this._hass.fetchWithAuth("/api/kyber/complete", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt,
           context: "yaml_fix",
@@ -3011,15 +2997,10 @@ ${yamlText}`;
     btn.disabled = true;
 
     try {
-      const token = this._hass.auth.data.access_token;
-
       // Step 1: Parse YAML server-side → get JSON config
-      const parseResp = await fetch("/api/kyber/parse_yaml", {
+      const parseResp = await this._hass.fetchWithAuth("/api/kyber/parse_yaml", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ yaml: yamlText }),
       });
 
@@ -3043,12 +3024,9 @@ ${yamlText}`;
       // with _currentAutomationId (always a string).
       const configToSave = { ...config, id: this._currentAutomationId };
 
-      const saveResp = await fetch(`/api/${apiPath}`, {
+      const saveResp = await this._hass.fetchWithAuth(`/api/${apiPath}`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(configToSave),
       });
 

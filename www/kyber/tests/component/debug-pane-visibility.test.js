@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { fetchWithAuthFor } from "../helpers.js";
 
 function renderPanel(mode = "chat", debugEnabled = false, isAdmin = true) {
   const element = document.createElement("kyber-panel");
@@ -15,13 +16,15 @@ function renderPanel(mode = "chat", debugEnabled = false, isAdmin = true) {
   element._startStatusPolling = vi.fn();
   element._renderDebugTab = vi.fn();
 
-  element.hass = {
+  const hass = {
     auth: { data: { access_token: "test-token" } },
     user: { is_admin: isAdmin },
     states: {},
     panels: {},
     callApi: vi.fn().mockResolvedValue({}),
   };
+  hass.fetchWithAuth = fetchWithAuthFor(hass);
+  element.hass = hass;
 
   return { element, fetchMock };
 }
@@ -99,13 +102,15 @@ describe("debug pane visibility", () => {
     element._startStatusPolling = vi.fn();
     element._renderDebugTab = vi.fn();
 
-    element.hass = {
+    const hass = {
       auth: { data: { access_token: "test-token" } },
       user: { is_admin: true },
       states: {},
       panels: {},
       callApi: vi.fn().mockResolvedValue({ enabled: true }),
     };
+    hass.fetchWithAuth = fetchWithAuthFor(hass);
+    element.hass = hass;
 
     element.panel = { config: { mode: "debug" } };
     await new Promise((resolve) => setTimeout(resolve, 0));
