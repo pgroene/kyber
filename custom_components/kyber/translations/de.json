@@ -2,53 +2,183 @@
   "config": {
     "step": {
       "user": {
-        "title": "Kyber ? Einrichtung",
-        "description": "W?hlen Sie Ihre KI-Aufgaben-Entit?t und konfigurieren Sie Token-Limit sowie Startverhalten.",
+        "title": "Kyber – Einrichtung",
+        "description": "Wählen Sie Ihre KI-Aufgaben-Entität und konfigurieren Sie Token-Limit sowie Startverhalten.",
         "data": {
-          "ai_task_entity_id": "Chat-Modell",
-          "max_tokens": "Chat-Modell: Kontextfenster (Token)",
-          "chat_timeout": "Chat-Zeitlimit (Sekunden)",
-          "narrator_ai_task_entity_id": "Operationsmodell (optional)",
-          "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)",
-          "enable_debug_views": "Debug-Ansichten aktivieren (Kyber-Debug-Seitenleiste + Debug-Tools pro Runde)",
-          "run_initial_analyze": "1 initialen Analyse-Durchlauf nach der Installation ausf?hren",
-          "initial_deep_learning_runs": "Initiale Deep-Learning-Durchl?ufe (1-10, empfohlen: 10)",
-          "narrator_enabled": "Entit?ts-Erz?hler aktivieren",
-          "narrator_max_batch": "Batch-Gr??e des Erz?hlers",
-          "area_assignment_mode": "Bereichszuteilungsmodus"
+          "ai_task_entity_id": "Chat-Modell"
         },
-        "data_description": {
-          "narrator_ai_task_entity_id": "Wird f?r Batch-Verarbeitung und kleine Aufgaben wie Entit?tsbeschreibungen verwendet. Ein kleineres, g?nstigeres Modell funktioniert hier gut. Standardm??ig das Chat-Modell."
+        "sections": {
+          "model_config": {
+            "name": "Modellkonfiguration",
+            "data": {
+              "max_tokens": "Chat-Modell: Kontextfenster (Token)",
+              "max_daily_tokens": "Tägliches Token-Budget (0 = unbegrenzt)",
+              "chat_timeout": "Chat-Zeitlimit (Sekunden)",
+              "narrator_ai_task_entity_id": "Operationsmodell (optional)",
+              "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)"
+            },
+            "data_description": {
+              "max_daily_tokens": "Gilt für das Chat-Panel und MCP gemeinsam. Ist es aufgebraucht, werden Anfragen bis Mitternacht abgelehnt.",
+              "chat_timeout": "Wie lange das Chat-Panel auf eine Antwort wartet, bevor es abbricht. Für langsame lokale Modelle (z. B. Ollama auf schwächerer Hardware) erhöhen.",
+              "narrator_ai_task_entity_id": "Wird für Batch-Verarbeitung und kleine Aufgaben wie Entitätsbeschreibungen verwendet. Ein kleineres, günstigeres Modell funktioniert hier gut. Standardmäßig das Chat-Modell."
+            }
+          },
+          "cloud_config": {
+            "name": "Cloud-KI-Anbieter",
+            "data": {
+              "cloud_provider": "Cloud-Anbieter",
+              "cloud_use_for_chat": "Cloud-Anbieter für den Chat verwenden",
+              "azure_endpoint": "Azure-Endpunkt-URL",
+              "azure_api_key": "Azure-API-Schlüssel",
+              "azure_deployment": "Name des Azure-Deployments",
+              "azure_api_version": "Azure-API-Version",
+              "openai_api_key": "API-Schlüssel für OpenAI oder kompatible Anbieter",
+              "openai_model": "Modellname",
+              "openai_base_url": "API-Basis-URL (leer lassen für den OpenAI-Standard)",
+              "anthropic_api_key": "Anthropic-API-Schlüssel",
+              "anthropic_model": "Anthropic-Modell"
+            },
+            "data_description": {
+              "cloud_provider": "Cloud-KI-Anbieter auswählen. Die Zugangsdaten des Anbieters erscheinen nach dem Speichern und erneuten Öffnen der Optionen.",
+              "openai_base_url": "Eigene API-Basis-URL (z. B. Endpunkt von Groq oder OpenRouter). Leer lassen für den OpenAI-Standard.",
+              "azure_endpoint": "Endpunkt-URL Ihrer Azure-OpenAI-Ressource"
+            }
+          },
+          "agents": {
+            "name": "Agenten",
+            "data": {
+              "narrator_enabled": "Entitäts-Erzähler aktivieren",
+              "narrator_interval_days": "Erzähler: alle N Tage ausführen",
+              "narrator_max_batch": "Batch-Größe des Erzählers",
+              "run_initial_analyze": "1 initialen Analyse-Durchlauf nach der Installation ausführen",
+              "deep_learning_interval_days": "Deep Learning: alle N Tage ausführen",
+              "deep_learning_max_batch": "Deep-Learning-Batch-Größe"
+            }
+          },
+          "area_assignment": {
+            "name": "Automatische Zuweisungen",
+            "data": {
+              "area_assignment_mode": "Bereichszuteilungsmodus",
+              "label_assignment_mode": "Label-Zuweisungsmodus"
+            },
+            "data_description": {
+              "area_assignment_mode": "Bereichszuweisungen für in Gesprächen erwähnte Entitäten vorschlagen oder automatisch anwenden.",
+              "label_assignment_mode": "Kyber:-Gerätetyp-Labels für Entitäten im Gespräch vorschlagen oder automatisch anwenden."
+            }
+          },
+          "developer": {
+            "name": "Entwickler",
+            "data": {
+              "enable_debug_views": "Debug-Ansichten aktivieren (Kyber-Debug-Seitenleiste + Debug-Tools pro Runde)",
+              "enable_mcp": "MCP-Server aktivieren",
+              "enable_mcp_in_chat": "Externe MCP-Server im Chat verwenden",
+              "mcp_allow_state_changes": "MCP darf Zustände im Zuhause ändern",
+              "mcp_client_servers": "Externe MCP-Server (JSON)",
+              "max_requests_per_minute": "Max. Anfragen pro Minute je Benutzer (0 = unbegrenzt)"
+            },
+            "data_description": {
+              "enable_mcp": "Stellt den MCP-Endpunkt unter POST /api/kyber/mcp bereit, damit externe KI-Clients (ChatGPT, Claude und andere) Kyber nutzen können.",
+              "enable_mcp_in_chat": "Das Chat-Modell darf die Werkzeuge der unten eingetragenen MCP-Server aufrufen.",
+              "mcp_allow_state_changes": "MCP-Clients dürfen Geräte direkt schalten und Werte setzen (hass_turn_on, hass_turn_off, hass_toggle, hass_set_value). Ausgeschaltet können sie nur lesen.",
+              "mcp_client_servers": "Eine JSON-Liste mit einem Eintrag je Server: name, url und token.",
+              "max_requests_per_minute": "Gilt für das Chat-Panel und MCP."
+            }
+          }
         }
       },
       "reconfigure": {
-        "title": "Kyber ? Neu konfigurieren",
-        "description": "Aktualisieren Sie Ihre KI-Aufgaben-Entit?t und Einstellungen.",
+        "title": "Kyber – Neu konfigurieren",
+        "description": "Aktualisieren Sie Ihre KI-Aufgaben-Entität und Einstellungen.",
         "data": {
-          "ai_task_entity_id": "Chat-Modell",
-          "max_tokens": "Chat-Modell: Kontextfenster (Token)",
-          "chat_timeout": "Chat-Zeitlimit (Sekunden)",
-          "narrator_ai_task_entity_id": "Operationsmodell (optional)",
-          "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)",
-          "enable_debug_views": "Debug-Ansichten aktivieren (Kyber-Debug-Seitenleiste + Debug-Tools pro Runde)",
-          "run_initial_analyze": "1 initialen Analyse-Durchlauf nach der Installation ausf?hren",
-          "initial_deep_learning_runs": "Initiale Deep-Learning-Durchl?ufe (1-10, empfohlen: 10)",
-          "narrator_enabled": "Entit?ts-Erz?hler aktivieren",
-          "narrator_max_batch": "Batch-Gr??e des Erz?hlers",
-          "area_assignment_mode": "Bereichszuteilungsmodus"
+          "ai_task_entity_id": "Chat-Modell"
         },
-        "data_description": {
-          "narrator_ai_task_entity_id": "Wird f?r Batch-Verarbeitung und kleine Aufgaben wie Entit?tsbeschreibungen verwendet. Ein kleineres, g?nstigeres Modell funktioniert hier gut. Standardm??ig das Chat-Modell."
+        "sections": {
+          "model_config": {
+            "name": "Modellkonfiguration",
+            "data": {
+              "max_tokens": "Chat-Modell: Kontextfenster (Token)",
+              "max_daily_tokens": "Tägliches Token-Budget (0 = unbegrenzt)",
+              "chat_timeout": "Chat-Zeitlimit (Sekunden)",
+              "narrator_ai_task_entity_id": "Operationsmodell (optional)",
+              "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)"
+            },
+            "data_description": {
+              "max_daily_tokens": "Gilt für das Chat-Panel und MCP gemeinsam. Ist es aufgebraucht, werden Anfragen bis Mitternacht abgelehnt.",
+              "chat_timeout": "Wie lange das Chat-Panel auf eine Antwort wartet, bevor es abbricht. Für langsame lokale Modelle (z. B. Ollama auf schwächerer Hardware) erhöhen.",
+              "narrator_ai_task_entity_id": "Wird für Batch-Verarbeitung und kleine Aufgaben wie Entitätsbeschreibungen verwendet. Ein kleineres, günstigeres Modell funktioniert hier gut. Standardmäßig das Chat-Modell."
+            }
+          },
+          "cloud_config": {
+            "name": "Cloud-KI-Anbieter",
+            "data": {
+              "cloud_provider": "Cloud-Anbieter",
+              "cloud_use_for_chat": "Cloud-Anbieter für den Chat verwenden",
+              "azure_endpoint": "Azure-Endpunkt-URL",
+              "azure_api_key": "Azure-API-Schlüssel",
+              "azure_deployment": "Name des Azure-Deployments",
+              "azure_api_version": "Azure-API-Version",
+              "openai_api_key": "API-Schlüssel für OpenAI oder kompatible Anbieter",
+              "openai_model": "Modellname",
+              "openai_base_url": "API-Basis-URL (leer lassen für den OpenAI-Standard)",
+              "anthropic_api_key": "Anthropic-API-Schlüssel",
+              "anthropic_model": "Anthropic-Modell"
+            },
+            "data_description": {
+              "cloud_provider": "Cloud-KI-Anbieter auswählen. Die Zugangsdaten des Anbieters erscheinen nach dem Speichern und erneuten Öffnen der Optionen.",
+              "openai_base_url": "Eigene API-Basis-URL (z. B. Endpunkt von Groq oder OpenRouter). Leer lassen für den OpenAI-Standard.",
+              "azure_endpoint": "Endpunkt-URL Ihrer Azure-OpenAI-Ressource"
+            }
+          },
+          "agents": {
+            "name": "Agenten",
+            "data": {
+              "narrator_enabled": "Entitäts-Erzähler aktivieren",
+              "narrator_interval_days": "Erzähler: alle N Tage ausführen",
+              "narrator_max_batch": "Batch-Größe des Erzählers",
+              "run_initial_analyze": "1 initialen Analyse-Durchlauf nach der Installation ausführen",
+              "deep_learning_interval_days": "Deep Learning: alle N Tage ausführen",
+              "deep_learning_max_batch": "Deep-Learning-Batch-Größe"
+            }
+          },
+          "area_assignment": {
+            "name": "Automatische Zuweisungen",
+            "data": {
+              "area_assignment_mode": "Bereichszuteilungsmodus",
+              "label_assignment_mode": "Label-Zuweisungsmodus"
+            },
+            "data_description": {
+              "area_assignment_mode": "Bereichszuweisungen für in Gesprächen erwähnte Entitäten vorschlagen oder automatisch anwenden.",
+              "label_assignment_mode": "Kyber:-Gerätetyp-Labels für Entitäten im Gespräch vorschlagen oder automatisch anwenden."
+            }
+          },
+          "developer": {
+            "name": "Entwickler",
+            "data": {
+              "enable_debug_views": "Debug-Ansichten aktivieren (Kyber-Debug-Seitenleiste + Debug-Tools pro Runde)",
+              "enable_mcp": "MCP-Server aktivieren",
+              "enable_mcp_in_chat": "Externe MCP-Server im Chat verwenden",
+              "mcp_allow_state_changes": "MCP darf Zustände im Zuhause ändern",
+              "mcp_client_servers": "Externe MCP-Server (JSON)",
+              "max_requests_per_minute": "Max. Anfragen pro Minute je Benutzer (0 = unbegrenzt)"
+            },
+            "data_description": {
+              "enable_mcp": "Stellt den MCP-Endpunkt unter POST /api/kyber/mcp bereit, damit externe KI-Clients (ChatGPT, Claude und andere) Kyber nutzen können.",
+              "enable_mcp_in_chat": "Das Chat-Modell darf die Werkzeuge der unten eingetragenen MCP-Server aufrufen.",
+              "mcp_allow_state_changes": "MCP-Clients dürfen Geräte direkt schalten und Werte setzen (hass_turn_on, hass_turn_off, hass_toggle, hass_set_value). Ausgeschaltet können sie nur lesen.",
+              "mcp_client_servers": "Eine JSON-Liste mit einem Eintrag je Server: name, url und token.",
+              "max_requests_per_minute": "Gilt für das Chat-Panel und MCP."
+            }
+          }
         }
       }
     },
     "error": {
-      "entity_not_found": "Die ausgew?hlte KI-Aufgaben-Entit?t wurde nicht gefunden. Stellen Sie sicher, dass Ihre KI-Integration (z. B. Ollama, Home Assistant Cloud, OpenAI) eingerichtet ist und die Entit?t existiert.",
-      "cannot_connect": "Der KI-Anbieter konnte nicht erreicht werden. Pr?fen Sie Ihre Integrationskonfiguration."
+      "entity_not_found": "Die ausgewählte KI-Aufgaben-Entität wurde nicht gefunden. Stellen Sie sicher, dass Ihre KI-Integration (z. B. Ollama, Home Assistant Cloud, OpenAI) eingerichtet ist und die Entität existiert.",
+      "cannot_connect": "Der KI-Anbieter konnte nicht erreicht werden. Prüfen Sie Ihre Integrationskonfiguration."
     },
     "abort": {
       "already_configured": "Kyber ist bereits konfiguriert.",
-      "reconfigure_successful": "Kyber wurde mit der neuen KI-Entit?t neu konfiguriert."
+      "reconfigure_successful": "Kyber wurde mit der neuen KI-Entität neu konfiguriert."
     }
   },
   "options": {
@@ -62,30 +192,53 @@
             "data": {
               "ai_task_entity_id": "Chat-Modell",
               "max_tokens": "Chat-Modell: Kontextfenster (Token)",
+              "max_daily_tokens": "Tägliches Token-Budget (0 = unbegrenzt)",
               "chat_timeout": "Chat-Zeitlimit (Sekunden)",
               "narrator_ai_task_entity_id": "Operationsmodell (optional)",
               "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)"
             },
             "data_description": {
-              "max_tokens": "{chat_stats}",
+              "max_tokens": "Aufrufe: {chat_calls} · Ø {chat_avg} s · Min. {chat_min} s · Max. {chat_max} s · ~{chat_tokens} Token · Fehler: {chat_errors}",
+              "max_daily_tokens": "Gilt für das Chat-Panel und MCP gemeinsam. Ist es aufgebraucht, werden Anfragen bis Mitternacht abgelehnt.",
               "chat_timeout": "Wie lange das Chat-Panel auf eine Antwort wartet, bevor es abbricht. Für langsame lokale Modelle (z. B. Ollama auf schwächerer Hardware) erhöhen.",
-              "narrator_ai_task_entity_id": "Wird f?r Batch-Verarbeitung und kleine Aufgaben wie Entit?tsbeschreibungen verwendet. Ein kleineres, g?nstigeres Modell funktioniert hier gut. Standardm??ig das Chat-Modell.",
-              "narrator_max_tokens": "{ops_stats}"
+              "narrator_ai_task_entity_id": "Wird für Batch-Verarbeitung und kleine Aufgaben wie Entitätsbeschreibungen verwendet. Ein kleineres, günstigeres Modell funktioniert hier gut. Standardmäßig das Chat-Modell.",
+              "narrator_max_tokens": "Aufrufe: {ops_calls} · Ø {ops_avg} s · Min. {ops_min} s · Max. {ops_max} s · ~{ops_tokens} Token · Fehler: {ops_errors}"
+            }
+          },
+          "cloud_config": {
+            "name": "Cloud-KI-Anbieter",
+            "data": {
+              "cloud_provider": "Cloud-Anbieter",
+              "cloud_use_for_chat": "Cloud-Anbieter für den Chat verwenden",
+              "azure_endpoint": "Azure-Endpunkt-URL",
+              "azure_api_key": "Azure-API-Schlüssel",
+              "azure_deployment": "Name des Azure-Deployments",
+              "azure_api_version": "Azure-API-Version",
+              "openai_api_key": "API-Schlüssel für OpenAI oder kompatible Anbieter",
+              "openai_model": "Modellname",
+              "openai_base_url": "API-Basis-URL (leer lassen für den OpenAI-Standard)",
+              "anthropic_api_key": "Anthropic-API-Schlüssel",
+              "anthropic_model": "Anthropic-Modell"
+            },
+            "data_description": {
+              "cloud_provider": "Cloud-KI-Anbieter auswählen. Die Zugangsdaten des Anbieters erscheinen nach dem Speichern und erneuten Öffnen der Optionen.",
+              "openai_base_url": "Eigene API-Basis-URL (z. B. Endpunkt von Groq oder OpenRouter). Leer lassen für den OpenAI-Standard.",
+              "azure_endpoint": "Endpunkt-URL Ihrer Azure-OpenAI-Ressource"
             }
           },
           "agents": {
             "name": "Agenten",
             "data": {
-              "narrator_enabled": "Entit?ts-Erz?hler aktivieren",
-              "narrator_interval_days": "Erz?hler: alle N Tage ausf?hren",
-              "narrator_max_batch": "Batch-Gr??e des Erz?hlers",
-              "run_initial_analyze": "Analyse-Durchlauf beim HA-Neustart ausf?hren",
-              "deep_learning_interval_days": "Deep Learning: alle N Tage ausf?hren",
-              "deep_learning_max_batch": "Deep-Learning-Batch-Gr??e"
+              "narrator_enabled": "Entitäts-Erzähler aktivieren",
+              "narrator_interval_days": "Erzähler: alle N Tage ausführen",
+              "narrator_max_batch": "Batch-Größe des Erzählers",
+              "run_initial_analyze": "Analyse-Durchlauf beim HA-Neustart ausführen",
+              "deep_learning_interval_days": "Deep Learning: alle N Tage ausführen",
+              "deep_learning_max_batch": "Deep-Learning-Batch-Größe"
             },
             "data_description": {
-              "narrator_interval_days": "{narrator_run_stats}",
-              "deep_learning_interval_days": "{deep_learning_run_stats}"
+              "narrator_interval_days": "Letzter Lauf: {narrator_last} · Nächster: {narrator_next} · Läufe seit dem Neustart: {narrator_total}",
+              "deep_learning_interval_days": "Letzter Lauf: {deep_learning_last} · Nächster: {deep_learning_next} · Läufe seit dem Neustart: {deep_learning_total}"
             }
           },
           "area_assignment": {
@@ -95,17 +248,46 @@
               "label_assignment_mode": "Label-Zuweisungsmodus"
             },
             "data_description": {
-              "area_assignment_mode": "Bereichszuweisungen f?r in Gespr?chen erw?hnte Entit?ten vorschlagen oder automatisch anwenden.",
-              "label_assignment_mode": "Kyber:-Ger?tetyp-Labels f?r Entit?ten im Gespr?ch vorschlagen oder automatisch anwenden."
+              "area_assignment_mode": "Bereichszuweisungen für in Gesprächen erwähnte Entitäten vorschlagen oder automatisch anwenden.",
+              "label_assignment_mode": "Kyber:-Gerätetyp-Labels für Entitäten im Gespräch vorschlagen oder automatisch anwenden."
             }
           },
           "developer": {
             "name": "Entwickler",
             "data": {
-              "enable_debug_views": "Debug-Ansichten aktivieren (Kyber-Debug-Seitenleiste + Debug-Tools pro Runde)"
+              "enable_debug_views": "Debug-Ansichten aktivieren (Kyber-Debug-Seitenleiste + Debug-Tools pro Runde)",
+              "enable_mcp": "MCP-Server aktivieren",
+              "enable_mcp_in_chat": "Externe MCP-Server im Chat verwenden",
+              "mcp_allow_state_changes": "MCP darf Zustände im Zuhause ändern",
+              "mcp_client_servers": "Externe MCP-Server (JSON)",
+              "max_requests_per_minute": "Max. Anfragen pro Minute je Benutzer (0 = unbegrenzt)"
+            },
+            "data_description": {
+              "enable_mcp": "Stellt den MCP-Endpunkt unter POST /api/kyber/mcp bereit, damit externe KI-Clients (ChatGPT, Claude und andere) Kyber nutzen können.",
+              "enable_mcp_in_chat": "Das Chat-Modell darf die Werkzeuge der unten eingetragenen MCP-Server aufrufen.",
+              "mcp_allow_state_changes": "MCP-Clients dürfen Geräte direkt schalten und Werte setzen (hass_turn_on, hass_turn_off, hass_toggle, hass_set_value). Ausgeschaltet können sie nur lesen.",
+              "mcp_client_servers": "Eine JSON-Liste mit einem Eintrag je Server: name, url und token.",
+              "max_requests_per_minute": "Gilt für das Chat-Panel und MCP."
             }
           }
         }
+      }
+    }
+  },
+  "selector": {
+    "assignment_mode": {
+      "options": {
+        "off": "Aus",
+        "suggest": "Vorschlagen (empfohlen)",
+        "auto": "Automatisch"
+      }
+    },
+    "cloud_provider": {
+      "options": {
+        "none": "Keiner (lokale HA-ai_task-Entität verwenden)",
+        "azure": "Azure AI Foundry",
+        "openai": "OpenAI (oder kompatibel: Groq, Mistral, OpenRouter …)",
+        "anthropic": "Anthropic (Claude)"
       }
     }
   }

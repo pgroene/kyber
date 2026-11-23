@@ -139,12 +139,13 @@ export const SessionMixin = (Base) => class extends Base {
     this._compactedSummary = "";
     this._compactedChanges = [];
     this._resetChatView();
+    const t = this._t || ((k) => k);
     try {
       await this._hass.callApi("DELETE", "kyber/history");
-      this._setStatus("History cleared");
-      this._showContextRefreshedMessage("History cleared");
+      this._setStatus(t("ss_history_cleared"));
+      this._showContextRefreshedMessage(t("ss_history_cleared"));
     } catch (err) {
-      this._setStatus(`History clear failed: ${err.message || String(err)}`, "error");
+      this._setStatus(t("ss_history_clear_failed", { msg: err.message || String(err) }), "error");
     }
   }
 
@@ -205,8 +206,9 @@ export const SessionMixin = (Base) => class extends Base {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ name, switch: true }),
     });
+    const t = this._t || ((k) => k);
     if (!resp.ok) {
-      this._appendMessage(`Failed to create session (HTTP ${resp.status})`, "assistant");
+      this._appendMessage(t("ss_create_failed", { status: resp.status }), "assistant");
       return;
     }
     const data = await resp.json();
@@ -218,18 +220,19 @@ export const SessionMixin = (Base) => class extends Base {
     this._compactedChanges = [];
     this._resetChatView();
     this._updateSessionIndicator();
-    this._showContextRefreshedMessage("New session started");
+    this._showContextRefreshedMessage(t("ss_new_session_started"));
   }
 
   async _switchSession(nameOrId) {
     if (!this._hass) return;
+    const t = this._t || ((k) => k);
     const sessions = await this._loadSessionList();
     const num = parseInt(nameOrId, 10);
     const target = !isNaN(num) && num >= 1 && num <= sessions.length
       ? sessions[num - 1]
       : sessions.find((s) => s.name.toLowerCase() === nameOrId.toLowerCase() || s.id === nameOrId);
     if (!target) {
-      this._appendMessage(`Session not found: "${nameOrId}". Use \`/session list\` to see available sessions.`, "assistant");
+      this._appendMessage(t("ss_not_found", { name: nameOrId }), "assistant");
       return;
     }
     const token = this._hass.auth.data.access_token;
@@ -239,7 +242,7 @@ export const SessionMixin = (Base) => class extends Base {
       body: JSON.stringify({ action: "switch", session_id: target.id }),
     });
     if (!switchResp.ok) {
-      this._appendMessage(`Failed to switch session (HTTP ${switchResp.status})`, "assistant");
+      this._appendMessage(t("ss_switch_failed", { status: switchResp.status }), "assistant");
       return;
     }
     this._activeSessionId = target.id;
@@ -249,8 +252,8 @@ export const SessionMixin = (Base) => class extends Base {
     this._compactedSummary = "";
     this._compactedChanges = [];
     await this._restorePersistedHistory();
-    this._appendMessage(`Switched to session: **${target.name}**`, "assistant");
-    this._showContextRefreshedMessage("Session switched");
+    this._appendMessage(t("ss_switched", { name: target.name }), "assistant");
+    this._showContextRefreshedMessage(t("ss_session_switched"));
   }
 
   async _renameSession(newName) {
@@ -261,14 +264,15 @@ export const SessionMixin = (Base) => class extends Base {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ action: "rename", name: newName }),
     });
+    const t = this._t || ((k) => k);
     if (!resp.ok) {
-      this._appendMessage(`Failed to rename session (HTTP ${resp.status})`, "assistant");
+      this._appendMessage(t("ss_rename_failed", { status: resp.status }), "assistant");
       return;
     }
     const oldName = this._activeSessionName;
     this._activeSessionName = newName;
     this._updateSessionIndicator();
-    this._appendMessage(`Session renamed from **${oldName}** to **${newName}**`, "assistant");
+    this._appendMessage(t("ss_renamed", { old: oldName, name: newName }), "assistant");
   }
 
   async _deleteSession(sessionId) {
@@ -279,8 +283,9 @@ export const SessionMixin = (Base) => class extends Base {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sessionId }),
     });
+    const t = this._t || ((k) => k);
     if (!resp.ok) {
-      this._appendMessage(`Failed to delete session (HTTP ${resp.status})`, "assistant");
+      this._appendMessage(t("ss_delete_failed", { status: resp.status }), "assistant");
       return;
     }
     const data = await resp.json();
@@ -289,51 +294,54 @@ export const SessionMixin = (Base) => class extends Base {
     this._compactedSummary = "";
     this._compactedChanges = [];
     await this._restorePersistedHistory();
-    this._appendMessage("Session deleted. Switched to previous session.", "assistant");
+    this._appendMessage(t("ss_deleted"), "assistant");
   }
 
   async _handleSessionCommand(argStr) {
     const parts = argStr.match(/^(\w+)(?:\s+(.*))?$/i);
     const sub = parts ? parts[1].toLowerCase() : "";
     const rest = parts ? (parts[2] || "").trim() : "";
+    const t = this._t || ((k) => k);
 
     if (!sub || sub === "list") {
       const sessions = await this._loadSessionList();
       if (!sessions.length) {
-        this._appendMessage("No sessions yet. Use `/session new [name]` to create one.", "assistant");
+        this._appendMessage(t("ss_no_sessions"), "assistant");
         return;
       }
       const lines = sessions.map((s, i) => {
-        const active = s.id === this._activeSessionId ? " ← active" : "";
-        return `${i + 1}. **${s.name}** (${s.history.length} messages)${active}`;
+        const params = { num: i + 1, name: s.name, n: s.history.length };
+        return s.id === this._activeSessionId
+          ? t("ss_list_line_active", params)
+          : t("ss_list_line", params);
       });
-      this._appendMessage("**Chat Sessions:**\n" + lines.join("\n"), "assistant");
+      this._appendMessage(t("ss_list_header") + "\n" + lines.join("\n"), "assistant");
       return;
     }
     if (sub === "new") {
       const name = rest || `Session ${(this._sessions || []).length + 1}`;
       await this._createSession(name);
-      this._appendMessage(`Started new session: **${name}**`, "assistant");
+      this._appendMessage(t("ss_started", { name }), "assistant");
       return;
     }
     if (sub === "switch") {
-      if (!rest) { this._appendMessage("Usage: `/session switch <name>`", "assistant"); return; }
+      if (!rest) { this._appendMessage(t("ss_switch_usage"), "assistant"); return; }
       await this._switchSession(rest);
       return;
     }
     if (sub === "delete") {
       const session = this._getActiveSession();
-      if (!session) { this._appendMessage("No active session to delete.", "assistant"); return; }
+      if (!session) { this._appendMessage(t("ss_no_active"), "assistant"); return; }
       this._buildCommandCard({
         icon: "🗑",
-        title: `Delete session: ${session.name}`,
-        detail: `${session.history.length} messages will be lost.`,
+        title: t("ss_delete_title", { name: session.name }),
+        detail: t("ss_delete_detail", { n: (this._chatHistory || []).length }),
         danger: true,
         onConfirm: async () => { await this._deleteSession(session.id); },
       });
       return;
     }
-    this._appendMessage(`Unknown session sub-command: "${sub}". Try: new, list, switch, delete`, "assistant");
+    this._appendMessage(t("ss_unknown_sub", { sub }), "assistant");
   }
 
   _logChange(description) {

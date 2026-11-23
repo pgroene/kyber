@@ -282,11 +282,12 @@ def _build_options_schema(
         vol.Optional(CONF_CLOUD_PROVIDER, default=cloud_provider): selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=[
-                    {"value": CLOUD_PROVIDER_NONE, "label": "None (use local HA ai_task entity)"},
-                    {"value": CLOUD_PROVIDER_AZURE, "label": "Azure AI Foundry"},
-                    {"value": CLOUD_PROVIDER_OPENAI, "label": "OpenAI (or compatible: Groq, Mistral, OpenRouter…)"},
-                    {"value": CLOUD_PROVIDER_ANTHROPIC, "label": "Anthropic (Claude)"},
+                    CLOUD_PROVIDER_NONE,
+                    CLOUD_PROVIDER_AZURE,
+                    CLOUD_PROVIDER_OPENAI,
+                    CLOUD_PROVIDER_ANTHROPIC,
                 ],
+                translation_key="cloud_provider",
                 mode=selector.SelectSelectorMode.DROPDOWN,
             )
         ),
@@ -363,11 +364,8 @@ def _build_options_schema(
                             default=area_assignment_mode,
                         ): selector.SelectSelector(
                             selector.SelectSelectorConfig(
-                                options=[
-                                    selector.SelectOptionDict(value=AREA_ASSIGNMENT_OFF, label="Off"),
-                                    selector.SelectOptionDict(value=AREA_ASSIGNMENT_SUGGEST, label="Suggest (recommended)"),
-                                    selector.SelectOptionDict(value=AREA_ASSIGNMENT_AUTO, label="Automatic"),
-                                ],
+                                options=[AREA_ASSIGNMENT_OFF, AREA_ASSIGNMENT_SUGGEST, AREA_ASSIGNMENT_AUTO],
+                                translation_key="assignment_mode",
                                 mode=selector.SelectSelectorMode.LIST,
                             )
                         ),
@@ -376,11 +374,8 @@ def _build_options_schema(
                             default=label_assignment_mode,
                         ): selector.SelectSelector(
                             selector.SelectSelectorConfig(
-                                options=[
-                                    selector.SelectOptionDict(value=LABEL_ASSIGNMENT_OFF, label="Off"),
-                                    selector.SelectOptionDict(value=LABEL_ASSIGNMENT_SUGGEST, label="Suggest (recommended)"),
-                                    selector.SelectOptionDict(value=LABEL_ASSIGNMENT_AUTO, label="Automatic"),
-                                ],
+                                options=[LABEL_ASSIGNMENT_OFF, LABEL_ASSIGNMENT_SUGGEST, LABEL_ASSIGNMENT_AUTO],
+                                translation_key="assignment_mode",
                                 mode=selector.SelectSelectorMode.LIST,
                             )
                         ),
@@ -497,6 +492,22 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
 class KyberOptionsFlow(OptionsFlow):
     """Options flow for Kyber — lets the user edit all settings after install."""
 
+    def _stats_placeholders(self) -> dict[str, str]:
+        """Placeholders for the stats lines; every form render of step init needs them."""
+        from .model_stats import run_stats_placeholders, stats_placeholders
+
+        def _get(key: str, default: Any) -> Any:
+            return self.config_entry.options.get(key, self.config_entry.data.get(key, default))
+
+        entity_id = _get(CONF_AI_TASK_ENTITY_ID, "")
+        narrator_entity = str(_get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip() or entity_id
+        return {
+            **stats_placeholders(self.hass, entity_id, "chat"),
+            **stats_placeholders(self.hass, narrator_entity, "ops"),
+            **run_stats_placeholders(self.hass, "narrator", "narrator"),
+            **run_stats_placeholders(self.hass, "deep_learning", "deep_learning"),
+        }
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -530,6 +541,7 @@ class KyberOptionsFlow(OptionsFlow):
                         narrator_max_tokens=int(model.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS)),
                     ),
                     errors={CONF_AI_TASK_ENTITY_ID: "entity_not_found"},
+                    description_placeholders=self._stats_placeholders(),
                 )
 
             # If the cloud provider just changed to a non-None value and the user
@@ -562,7 +574,7 @@ class KyberOptionsFlow(OptionsFlow):
                         cloud_use_for_chat=bool(cloud.get(CONF_CLOUD_USE_FOR_CHAT, _get(CONF_CLOUD_USE_FOR_CHAT, DEFAULT_CLOUD_USE_FOR_CHAT))),
                         collapsed=False,
                     ),
-                    description_placeholders={"info": f"Enter credentials for {selected_provider}"},
+                    description_placeholders=self._stats_placeholders(),
                 )
 
             data: dict[str, Any] = {
@@ -653,14 +665,8 @@ class KyberOptionsFlow(OptionsFlow):
             mcp_client_servers=str(_get(CONF_MCP_CLIENT_SERVERS, DEFAULT_MCP_CLIENT_SERVERS)),
         )
 
-        from .model_stats import format_stats as _fmt_stats, format_run_stats as _fmt_run_stats
         return self.async_show_form(
             step_id="init",
             data_schema=schema,
-            description_placeholders={
-                "chat_stats": _fmt_stats(self.hass, entity_id) if entity_id else "No model configured",
-                "ops_stats": _fmt_stats(self.hass, narrator_entity) if narrator_entity else "No model configured",
-                "narrator_run_stats": _fmt_run_stats(self.hass, "narrator"),
-                "deep_learning_run_stats": _fmt_run_stats(self.hass, "deep_learning"),
-            },
+            description_placeholders=self._stats_placeholders(),
         )

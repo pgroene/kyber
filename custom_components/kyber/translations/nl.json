@@ -5,38 +5,170 @@
         "title": "Kyber — Instellen",
         "description": "Selecteer je AI-taakentiteit en stel de tokenlimiet en het opstartgedrag in.",
         "data": {
-          "ai_task_entity_id": "Chatmodel",
-          "max_tokens": "Chatmodel: Contextvenster (tokens)",
-          "narrator_ai_task_entity_id": "Operationeel model (optioneel)",
-          "narrator_max_tokens": "Operationeel model: Contextvenster (tokens)",
-          "enable_debug_views": "Debugweergaven inschakelen (Kyber Debug zijbalk + per-beurt debugtools)",
-          "run_initial_analyze": "1 initiële analysepass uitvoeren na installatie",
-          "initial_deep_learning_runs": "Initiële deep learning runs (1-10, aanbevolen: 10)",
-          "narrator_enabled": "Entiteitsverteller inschakelen",
-          "narrator_max_batch": "Batchgrootte verteller",
-          "area_assignment_mode": "Ruimtekoppelingsmodus"
+          "ai_task_entity_id": "Chatmodel"
         },
-        "data_description": {
-          "narrator_ai_task_entity_id": "Gebruikt voor batchverwerking en kleine taken zoals entiteitsvertellingen. Een kleiner, goedkoper model werkt hier goed. Standaard het chatmodel."
+        "sections": {
+          "model_config": {
+            "name": "Modelconfiguratie",
+            "data": {
+              "max_tokens": "Chatmodel: Contextvenster (tokens)",
+              "max_daily_tokens": "Dagelijks tokenbudget (0 = onbeperkt)",
+              "chat_timeout": "Chat-time-out (seconden)",
+              "narrator_ai_task_entity_id": "Operationeel model (optioneel)",
+              "narrator_max_tokens": "Operationeel model: Contextvenster (tokens)"
+            },
+            "data_description": {
+              "max_daily_tokens": "Gedeeld door het chatpaneel en MCP. Is het op, dan worden verzoeken tot middernacht geweigerd.",
+              "chat_timeout": "Hoe lang het chatpaneel op een antwoord wacht voordat het stopt. Verhoog dit voor trage lokale modellen (bijv. Ollama op bescheiden hardware).",
+              "narrator_ai_task_entity_id": "Gebruikt voor batchverwerking en kleine taken zoals entiteitsvertellingen. Een kleiner, goedkoper model werkt hier goed. Standaard het chatmodel."
+            }
+          },
+          "cloud_config": {
+            "name": "Cloud-AI-provider",
+            "data": {
+              "cloud_provider": "Cloudprovider",
+              "cloud_use_for_chat": "Cloudprovider gebruiken voor de chat",
+              "azure_endpoint": "Azure-endpoint-URL",
+              "azure_api_key": "Azure-API-sleutel",
+              "azure_deployment": "Naam van de Azure-deployment",
+              "azure_api_version": "Azure-API-versie",
+              "openai_api_key": "API-sleutel voor OpenAI of een compatibele provider",
+              "openai_model": "Modelnaam",
+              "openai_base_url": "API-basis-URL (leeg laten voor de standaard van OpenAI)",
+              "anthropic_api_key": "Anthropic-API-sleutel",
+              "anthropic_model": "Anthropic-model"
+            },
+            "data_description": {
+              "cloud_provider": "Kies een cloud-AI-provider. De inloggegevens van de provider verschijnen na opslaan en opnieuw openen van de opties.",
+              "openai_base_url": "Eigen API-basis-URL (bijv. het endpoint van Groq of OpenRouter). Leeg laten voor de standaard van OpenAI.",
+              "azure_endpoint": "Endpoint-URL van je Azure OpenAI-resource"
+            }
+          },
+          "agents": {
+            "name": "Agenten",
+            "data": {
+              "narrator_enabled": "Entiteitsverteller inschakelen",
+              "narrator_interval_days": "Verteller: elke N dagen uitvoeren",
+              "narrator_max_batch": "Batchgrootte verteller",
+              "run_initial_analyze": "1 initiële analysepass uitvoeren na installatie",
+              "deep_learning_interval_days": "Deep learning: elke N dagen uitvoeren",
+              "deep_learning_max_batch": "Deep learning batchgrootte"
+            }
+          },
+          "area_assignment": {
+            "name": "Automatische toewijzingen",
+            "data": {
+              "area_assignment_mode": "Ruimtekoppelingsmodus",
+              "label_assignment_mode": "Labelkoppelingsmodus"
+            },
+            "data_description": {
+              "area_assignment_mode": "Ruimtekoppelingen voorstellen of automatisch toepassen op entiteiten die in gesprekken worden genoemd.",
+              "label_assignment_mode": "Kyber: apparaattype-labels voorstellen of automatisch toepassen op entiteiten in het gesprek."
+            }
+          },
+          "developer": {
+            "name": "Ontwikkelaar",
+            "data": {
+              "enable_debug_views": "Debugweergaven inschakelen (Kyber Debug zijbalk + per-beurt debugtools)",
+              "enable_mcp": "MCP-server inschakelen",
+              "enable_mcp_in_chat": "Externe MCP-servers gebruiken in de chat",
+              "mcp_allow_state_changes": "MCP mag de status van het huis wijzigen",
+              "mcp_client_servers": "Externe MCP-servers (JSON)",
+              "max_requests_per_minute": "Max. verzoeken per minuut per gebruiker (0 = onbeperkt)"
+            },
+            "data_description": {
+              "enable_mcp": "Registreert het MCP-endpoint op POST /api/kyber/mcp, zodat externe AI-clients (ChatGPT, Claude en andere) Kyber kunnen gebruiken.",
+              "enable_mcp_in_chat": "Het chatmodel mag de tools van de hieronder ingevulde MCP-servers aanroepen.",
+              "mcp_allow_state_changes": "MCP-clients mogen apparaten direct schakelen en waarden instellen (hass_turn_on, hass_turn_off, hass_toggle, hass_set_value). Uitgeschakeld kunnen ze alleen lezen.",
+              "mcp_client_servers": "Een JSON-lijst met één item per server: name, url en token.",
+              "max_requests_per_minute": "Geldt voor het chatpaneel en MCP."
+            }
+          }
         }
       },
       "reconfigure": {
         "title": "Kyber — Opnieuw instellen",
         "description": "Werk je AI-taakentiteit en instellingen bij.",
         "data": {
-          "ai_task_entity_id": "Chatmodel",
-          "max_tokens": "Chatmodel: Contextvenster (tokens)",
-          "narrator_ai_task_entity_id": "Operationeel model (optioneel)",
-          "narrator_max_tokens": "Operationeel model: Contextvenster (tokens)",
-          "enable_debug_views": "Debugweergaven inschakelen (Kyber Debug zijbalk + per-beurt debugtools)",
-          "run_initial_analyze": "1 initiële analysepass uitvoeren na installatie",
-          "initial_deep_learning_runs": "Initiële deep learning runs (1-10, aanbevolen: 10)",
-          "narrator_enabled": "Entiteitsverteller inschakelen",
-          "narrator_max_batch": "Batchgrootte verteller",
-          "area_assignment_mode": "Ruimtekoppelingsmodus"
+          "ai_task_entity_id": "Chatmodel"
         },
-        "data_description": {
-          "narrator_ai_task_entity_id": "Gebruikt voor batchverwerking en kleine taken zoals entiteitsvertellingen. Een kleiner, goedkoper model werkt hier goed. Standaard het chatmodel."
+        "sections": {
+          "model_config": {
+            "name": "Modelconfiguratie",
+            "data": {
+              "max_tokens": "Chatmodel: Contextvenster (tokens)",
+              "max_daily_tokens": "Dagelijks tokenbudget (0 = onbeperkt)",
+              "chat_timeout": "Chat-time-out (seconden)",
+              "narrator_ai_task_entity_id": "Operationeel model (optioneel)",
+              "narrator_max_tokens": "Operationeel model: Contextvenster (tokens)"
+            },
+            "data_description": {
+              "max_daily_tokens": "Gedeeld door het chatpaneel en MCP. Is het op, dan worden verzoeken tot middernacht geweigerd.",
+              "chat_timeout": "Hoe lang het chatpaneel op een antwoord wacht voordat het stopt. Verhoog dit voor trage lokale modellen (bijv. Ollama op bescheiden hardware).",
+              "narrator_ai_task_entity_id": "Gebruikt voor batchverwerking en kleine taken zoals entiteitsvertellingen. Een kleiner, goedkoper model werkt hier goed. Standaard het chatmodel."
+            }
+          },
+          "cloud_config": {
+            "name": "Cloud-AI-provider",
+            "data": {
+              "cloud_provider": "Cloudprovider",
+              "cloud_use_for_chat": "Cloudprovider gebruiken voor de chat",
+              "azure_endpoint": "Azure-endpoint-URL",
+              "azure_api_key": "Azure-API-sleutel",
+              "azure_deployment": "Naam van de Azure-deployment",
+              "azure_api_version": "Azure-API-versie",
+              "openai_api_key": "API-sleutel voor OpenAI of een compatibele provider",
+              "openai_model": "Modelnaam",
+              "openai_base_url": "API-basis-URL (leeg laten voor de standaard van OpenAI)",
+              "anthropic_api_key": "Anthropic-API-sleutel",
+              "anthropic_model": "Anthropic-model"
+            },
+            "data_description": {
+              "cloud_provider": "Kies een cloud-AI-provider. De inloggegevens van de provider verschijnen na opslaan en opnieuw openen van de opties.",
+              "openai_base_url": "Eigen API-basis-URL (bijv. het endpoint van Groq of OpenRouter). Leeg laten voor de standaard van OpenAI.",
+              "azure_endpoint": "Endpoint-URL van je Azure OpenAI-resource"
+            }
+          },
+          "agents": {
+            "name": "Agenten",
+            "data": {
+              "narrator_enabled": "Entiteitsverteller inschakelen",
+              "narrator_interval_days": "Verteller: elke N dagen uitvoeren",
+              "narrator_max_batch": "Batchgrootte verteller",
+              "run_initial_analyze": "1 initiële analysepass uitvoeren na installatie",
+              "deep_learning_interval_days": "Deep learning: elke N dagen uitvoeren",
+              "deep_learning_max_batch": "Deep learning batchgrootte"
+            }
+          },
+          "area_assignment": {
+            "name": "Automatische toewijzingen",
+            "data": {
+              "area_assignment_mode": "Ruimtekoppelingsmodus",
+              "label_assignment_mode": "Labelkoppelingsmodus"
+            },
+            "data_description": {
+              "area_assignment_mode": "Ruimtekoppelingen voorstellen of automatisch toepassen op entiteiten die in gesprekken worden genoemd.",
+              "label_assignment_mode": "Kyber: apparaattype-labels voorstellen of automatisch toepassen op entiteiten in het gesprek."
+            }
+          },
+          "developer": {
+            "name": "Ontwikkelaar",
+            "data": {
+              "enable_debug_views": "Debugweergaven inschakelen (Kyber Debug zijbalk + per-beurt debugtools)",
+              "enable_mcp": "MCP-server inschakelen",
+              "enable_mcp_in_chat": "Externe MCP-servers gebruiken in de chat",
+              "mcp_allow_state_changes": "MCP mag de status van het huis wijzigen",
+              "mcp_client_servers": "Externe MCP-servers (JSON)",
+              "max_requests_per_minute": "Max. verzoeken per minuut per gebruiker (0 = onbeperkt)"
+            },
+            "data_description": {
+              "enable_mcp": "Registreert het MCP-endpoint op POST /api/kyber/mcp, zodat externe AI-clients (ChatGPT, Claude en andere) Kyber kunnen gebruiken.",
+              "enable_mcp_in_chat": "Het chatmodel mag de tools van de hieronder ingevulde MCP-servers aanroepen.",
+              "mcp_allow_state_changes": "MCP-clients mogen apparaten direct schakelen en waarden instellen (hass_turn_on, hass_turn_off, hass_toggle, hass_set_value). Uitgeschakeld kunnen ze alleen lezen.",
+              "mcp_client_servers": "Een JSON-lijst met één item per server: name, url en token.",
+              "max_requests_per_minute": "Geldt voor het chatpaneel en MCP."
+            }
+          }
         }
       }
     },
@@ -60,13 +192,38 @@
             "data": {
               "ai_task_entity_id": "Chatmodel",
               "max_tokens": "Chatmodel: Contextvenster (tokens)",
+              "max_daily_tokens": "Dagelijks tokenbudget (0 = onbeperkt)",
+              "chat_timeout": "Chat-time-out (seconden)",
               "narrator_ai_task_entity_id": "Operationeel model (optioneel)",
               "narrator_max_tokens": "Operationeel model: Contextvenster (tokens)"
             },
             "data_description": {
-              "max_tokens": "{chat_stats}",
+              "max_tokens": "Aanroepen: {chat_calls} · Gem. {chat_avg} s · Min. {chat_min} s · Max. {chat_max} s · ~{chat_tokens} tokens · Fouten: {chat_errors}",
+              "max_daily_tokens": "Gedeeld door het chatpaneel en MCP. Is het op, dan worden verzoeken tot middernacht geweigerd.",
+              "chat_timeout": "Hoe lang het chatpaneel op een antwoord wacht voordat het stopt. Verhoog dit voor trage lokale modellen (bijv. Ollama op bescheiden hardware).",
               "narrator_ai_task_entity_id": "Gebruikt voor batchverwerking en kleine taken zoals entiteitsvertellingen. Een kleiner, goedkoper model werkt hier goed. Standaard het chatmodel.",
-              "narrator_max_tokens": "{ops_stats}"
+              "narrator_max_tokens": "Aanroepen: {ops_calls} · Gem. {ops_avg} s · Min. {ops_min} s · Max. {ops_max} s · ~{ops_tokens} tokens · Fouten: {ops_errors}"
+            }
+          },
+          "cloud_config": {
+            "name": "Cloud-AI-provider",
+            "data": {
+              "cloud_provider": "Cloudprovider",
+              "cloud_use_for_chat": "Cloudprovider gebruiken voor de chat",
+              "azure_endpoint": "Azure-endpoint-URL",
+              "azure_api_key": "Azure-API-sleutel",
+              "azure_deployment": "Naam van de Azure-deployment",
+              "azure_api_version": "Azure-API-versie",
+              "openai_api_key": "API-sleutel voor OpenAI of een compatibele provider",
+              "openai_model": "Modelnaam",
+              "openai_base_url": "API-basis-URL (leeg laten voor de standaard van OpenAI)",
+              "anthropic_api_key": "Anthropic-API-sleutel",
+              "anthropic_model": "Anthropic-model"
+            },
+            "data_description": {
+              "cloud_provider": "Kies een cloud-AI-provider. De inloggegevens van de provider verschijnen na opslaan en opnieuw openen van de opties.",
+              "openai_base_url": "Eigen API-basis-URL (bijv. het endpoint van Groq of OpenRouter). Leeg laten voor de standaard van OpenAI.",
+              "azure_endpoint": "Endpoint-URL van je Azure OpenAI-resource"
             }
           },
           "agents": {
@@ -80,8 +237,8 @@
               "deep_learning_max_batch": "Deep learning batchgrootte"
             },
             "data_description": {
-              "narrator_interval_days": "{narrator_run_stats}",
-              "deep_learning_interval_days": "{deep_learning_run_stats}"
+              "narrator_interval_days": "Laatste run: {narrator_last} · Volgende: {narrator_next} · Runs sinds de herstart: {narrator_total}",
+              "deep_learning_interval_days": "Laatste run: {deep_learning_last} · Volgende: {deep_learning_next} · Runs sinds de herstart: {deep_learning_total}"
             }
           },
           "area_assignment": {
@@ -98,10 +255,39 @@
           "developer": {
             "name": "Ontwikkelaar",
             "data": {
-              "enable_debug_views": "Debugweergaven inschakelen (Kyber Debug zijbalk + per-beurt debugtools)"
+              "enable_debug_views": "Debugweergaven inschakelen (Kyber Debug zijbalk + per-beurt debugtools)",
+              "enable_mcp": "MCP-server inschakelen",
+              "enable_mcp_in_chat": "Externe MCP-servers gebruiken in de chat",
+              "mcp_allow_state_changes": "MCP mag de status van het huis wijzigen",
+              "mcp_client_servers": "Externe MCP-servers (JSON)",
+              "max_requests_per_minute": "Max. verzoeken per minuut per gebruiker (0 = onbeperkt)"
+            },
+            "data_description": {
+              "enable_mcp": "Registreert het MCP-endpoint op POST /api/kyber/mcp, zodat externe AI-clients (ChatGPT, Claude en andere) Kyber kunnen gebruiken.",
+              "enable_mcp_in_chat": "Het chatmodel mag de tools van de hieronder ingevulde MCP-servers aanroepen.",
+              "mcp_allow_state_changes": "MCP-clients mogen apparaten direct schakelen en waarden instellen (hass_turn_on, hass_turn_off, hass_toggle, hass_set_value). Uitgeschakeld kunnen ze alleen lezen.",
+              "mcp_client_servers": "Een JSON-lijst met één item per server: name, url en token.",
+              "max_requests_per_minute": "Geldt voor het chatpaneel en MCP."
             }
           }
         }
+      }
+    }
+  },
+  "selector": {
+    "assignment_mode": {
+      "options": {
+        "off": "Uit",
+        "suggest": "Voorstellen (aanbevolen)",
+        "auto": "Automatisch"
+      }
+    },
+    "cloud_provider": {
+      "options": {
+        "none": "Geen (lokale HA-ai_task-entiteit gebruiken)",
+        "azure": "Azure AI Foundry",
+        "openai": "OpenAI (of compatibel: Groq, Mistral, OpenRouter…)",
+        "anthropic": "Anthropic (Claude)"
       }
     }
   }

@@ -151,7 +151,7 @@ test.describe("Correction micro-agent flow", () => {
 
     // The result element should show the failure + correction text
     await expect(page.locator(".plan-result.error").last()).toContainText(
-      "action(s) failed",
+      /1 action failed/,
       { timeout: 5000 }
     );
     await page.screenshot({ path: "screenshots/correction-failure-shown.png" });

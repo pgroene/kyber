@@ -22,6 +22,7 @@ import {
 export const EditorMixin = (Base) => class extends Base {
   _initEditor(container) {
     const self = this;
+    const t = this._t || ((k) => k);
 
     // Create diagram and inspector panels as flex siblings to the CodeMirror editor
     const diag = document.createElement("div");
@@ -122,10 +123,10 @@ export const EditorMixin = (Base) => class extends Base {
     picker.hidden = true;
     picker.innerHTML = `
       <div class="elp-header">
-        <span class="elp-title">Add entity</span>
-        <button class="elp-close" title="Close">✕</button>
+        <span class="elp-title">${this._escH(t("ed_add_entity"))}</span>
+        <button class="elp-close" title="${this._escH(t("ed_close"))}">✕</button>
       </div>
-      <input class="elp-search" id="elp-search" type="text" placeholder="Search entities…" autocomplete="off">
+      <input class="elp-search" id="elp-search" type="text" placeholder="${this._escH(t("ed_search_entities"))}" autocomplete="off">
       <div class="elp-results" id="elp-results"></div>
     `;
     editorPane.appendChild(picker);
@@ -246,6 +247,7 @@ export const EditorMixin = (Base) => class extends Base {
     const diag = shadow.getElementById("automation-diagram");
     const editor = this._editor?.dom;
     if (!simPane) return;
+    const t = this._t || ((k) => k);
     if (diag) diag.hidden = true;
     if (editor) editor.style.display = "";
     simPane.hidden = false;
@@ -258,9 +260,9 @@ export const EditorMixin = (Base) => class extends Base {
     if (config) {
       this._buildAutomationTester(config, id, simPane);
     } else if (this._editorMode === "blueprint" && this._editor) {
-      simPane.innerHTML = "<p style='color:#aaa;padding:16px'>Switch to YAML tab first to load the blueprint, then return here.</p>";
+      simPane.innerHTML = `<p style='color:#aaa;padding:16px'>${this._escH(t("ed_sim_switch_to_yaml"))}</p>`;
     } else {
-      simPane.innerHTML = "<p style='color:#aaa;padding:8px'>No automation loaded.</p>";
+      simPane.innerHTML = `<p style='color:#aaa;padding:8px'>${this._escH(t("ed_sim_no_automation"))}</p>`;
     }
   }
 
@@ -295,7 +297,8 @@ export const EditorMixin = (Base) => class extends Base {
     this._currentAutomationId = configId;
     this._editorTitle = friendlyName;
     this._editorMode = isScript ? "script" : "automation";
-    this.shadowRoot.getElementById("btn-save").textContent = isScript ? "Save script" : "Save automation";
+    const t = this._t || ((k) => k);
+    this.shadowRoot.getElementById("btn-save").textContent = isScript ? t("ed_save_script") : t("ed_save_automation");
     this._saveEditorSession(configId, isScript ? "script" : "automation", friendlyName);
     // Reset to YAML tab and show the Test tab button
     this._showYamlTab();
@@ -346,8 +349,9 @@ export const EditorMixin = (Base) => class extends Base {
     this._entityListContextKey = null;
     this._entityListPickerOpen = false;
     // Restore button labels
+    const t = this._t || ((k) => k);
     const saveBtn = this.shadowRoot.getElementById("btn-save");
-    if (saveBtn) { saveBtn.textContent = "Save"; saveBtn.disabled = true; }
+    if (saveBtn) { saveBtn.textContent = t("btn_save"); saveBtn.disabled = true; }
     // Hide dashboard/blueprint-specific controls
     const sel = this.shadowRoot.getElementById("dashboard-select");
     if (sel) sel.style.display = "none";
@@ -363,6 +367,7 @@ export const EditorMixin = (Base) => class extends Base {
 
   async _openDashboard(targetUrlPath = null) {
     if (!this._hass) return;
+    const t = this._t || ((k) => k);
 
     const editorPane = this.shadowRoot.getElementById("editor-container");
     if (!this._editor) this._initEditor(editorPane);
@@ -383,16 +388,16 @@ export const EditorMixin = (Base) => class extends Base {
     this.shadowRoot.querySelectorAll(".editor-controls").forEach((el) => {
       el.style.display = "block";
     });
-    this.shadowRoot.getElementById("btn-save").textContent = "Save dashboard";
-    this._setEditorContextLabel("dashboard", "Dashboard editor");
+    this.shadowRoot.getElementById("btn-save").textContent = t("ed_save_dashboard");
+    this._setEditorContextLabel("dashboard", t("ed_dashboard_editor"));
     // Hide test tab — not applicable for dashboards
     const testBtnD = this.shadowRoot.getElementById("btn-tab-test");
     if (testBtnD) testBtnD.style.display = "none";
-    this._setStatus("Opening…");
+    this._setStatus(t("ed_opening"));
     this.shadowRoot.getElementById("btn-save").disabled = true;
 
     // Fetch list of all dashboards and populate selector
-    this._setStatus("Loading dashboards…");
+    this._setStatus(t("ed_loading_dashboards"));
     try {
       const token = this._hass.auth.data.access_token;
       // Use hass.panels — always available, no extra API call
@@ -410,7 +415,7 @@ export const EditorMixin = (Base) => class extends Base {
       // Default Overview dashboard
       const defOpt = document.createElement("option");
       defOpt.value = "__default__";
-      defOpt.textContent = "Overview (default)";
+      defOpt.textContent = t("ed_overview_default");
       sel.appendChild(defOpt);
       // All lovelace panels (already filtered above — no mode check needed)
       (dashboards || []).forEach((d) => {
@@ -442,7 +447,7 @@ export const EditorMixin = (Base) => class extends Base {
             this.shadowRoot.getElementById("btn-save").disabled = false;
             const dashTitle = sel.options[sel.selectedIndex]?.textContent || "";
             this._setEditorContextLabel("dashboard", dashTitle);
-            this._setStatus(`Editing: ${dashTitle}`);
+            this._setStatus(t("ed_editing", { name: dashTitle }));
             loaded = true;
             break;
           } catch (_e) {
@@ -456,12 +461,12 @@ export const EditorMixin = (Base) => class extends Base {
           this._setEditorContent(this._configToYaml(starter));
           this._dirty = false;
           this.shadowRoot.getElementById("btn-save").disabled = false;
-          this._setEditorContextLabel("dashboard", "Overview (default)");
-          this._setStatus("No stored dashboard config yet — edit this template and save.");
+          this._setEditorContextLabel("dashboard", t("ed_overview_default"));
+          this._setStatus(t("ed_no_dashboard_config_yet"));
         }
       }
     } catch (err) {
-      this._setStatus(`Error loading dashboard: ${err.message || String(err)}`, "error");
+      this._setStatus(t("ed_error_loading_dashboard", { msg: err.message || String(err) }), "error");
     }
 
     if (this._editor) setTimeout(() => this._editor.requestMeasure(), 50);
@@ -469,8 +474,9 @@ export const EditorMixin = (Base) => class extends Base {
 
   async _loadDashboard(urlPath) {
     if (!this._hass) return;
+    const t = this._t || ((k) => k);
     this._currentDashboardPath = urlPath;
-    this._setStatus("Loading…");
+    this._setStatus(t("loading"));
     this.shadowRoot.getElementById("btn-save").disabled = true;
     try {
       const token = this._hass.auth.data.access_token;
@@ -483,7 +489,7 @@ export const EditorMixin = (Base) => class extends Base {
         // Dashboard exists as a panel but has no stored config yet (or is in yaml mode).
         // Show a starter so the user can create initial config.
         config = { title: urlPath || "Home", views: [{ title: "Home", cards: [] }] };
-        this._setStatus(`No stored config for "${urlPath || "default"}" — edit this starter and save.`);
+        this._setStatus(t("ed_no_stored_config_for", { name: urlPath || t("ed_default") }));
       } else if (!resp.ok) {
         let errMsg = `HTTP ${resp.status}`;
         try {
@@ -494,15 +500,15 @@ export const EditorMixin = (Base) => class extends Base {
       } else {
         config = await resp.json();
         const sel = this.shadowRoot.getElementById("dashboard-select");
-        const label = sel ? sel.options[sel.selectedIndex]?.textContent : urlPath || "default";
-        this._setStatus(`Editing: ${label}`);
+        const label = sel ? sel.options[sel.selectedIndex]?.textContent : urlPath || t("ed_default");
+        this._setStatus(t("ed_editing", { name: label }));
       }
       this._setEditorContent(this._configToYaml(config));
       this._dirty = false;
       this.shadowRoot.getElementById("btn-save").disabled = false;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
-      this._setStatus(`Error loading dashboard: ${msg}`, "error");
+      const msg = err instanceof Error ? err.message : (err != null ? String(err) : t("ed_unknown_error"));
+      this._setStatus(t("ed_error_loading_dashboard", { msg }), "error");
     }
   }
 
@@ -510,14 +516,15 @@ export const EditorMixin = (Base) => class extends Base {
     if (!this._hass) return;
     const yamlText = this._editor.state.doc.toString().trim();
     const btn = this.shadowRoot.getElementById("btn-save");
+    const t = this._t || ((k) => k);
 
     if (!yamlText) {
-      this._setStatus("Cannot save: dashboard config is empty.", "error");
+      this._setStatus(t("ed_dashboard_empty"), "error");
       return;
     }
 
     btn.disabled = true;
-    this._setStatus("Saving dashboard…");
+    this._setStatus(t("ed_saving_dashboard"));
 
     try {
       const token = this._hass.auth.data.access_token;
@@ -557,7 +564,7 @@ export const EditorMixin = (Base) => class extends Base {
           }
         } catch (_) { /* keep HTTP status as fallback */ }
         if (saveResp.status === 404) {
-          errMsg = `Dashboard not found in HA storage. Make sure it is in storage mode (not YAML mode). Create it first with "New Dashboard" if needed.`;
+          errMsg = t("ed_dashboard_not_found");
         }
         console.error("_saveDashboard: HA API error", saveResp.status, errMsg);
         throw new Error(errMsg);
@@ -565,26 +572,30 @@ export const EditorMixin = (Base) => class extends Base {
 
       const sel = this.shadowRoot.getElementById("dashboard-select");
       const label = sel ? sel.options[sel.selectedIndex]?.textContent : (path || "default");
+      // The chat history goes to the LLM and stays English; the default
+      // dashboard's option text is translated, so name it explicitly.
+      const historyLabel = sel && sel.value === "__default__" ? "Overview (default)" : label;
       this._dirty = false;
       btn.disabled = false;
-      this._addChatHistory("user", `I saved the "${label}" dashboard YAML.`);
-      this._addChatHistory("assistant", `[CHANGE] Dashboard "${label}" saved successfully.`);
-      this._setStatus(`${label} saved ✓ — reload the browser tab to see changes`, "success");
+      this._addChatHistory("user", `I saved the "${historyLabel}" dashboard YAML.`);
+      this._addChatHistory("assistant", `[CHANGE] Dashboard "${historyLabel}" saved successfully.`);
+      this._setStatus(t("ed_dashboard_saved", { name: label }), "success");
     } catch (err) {
       btn.disabled = false;
-      const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
-      this._setStatus(`Save failed: ${msg}`, "error");
+      const msg = err instanceof Error ? err.message : (err != null ? String(err) : t("ed_unknown_error"));
+      this._setStatus(t("ed_save_failed", { msg }), "error");
     }
   }
 
   async _createNewDashboard() {
-    const title = prompt("New dashboard title (e.g. \"My Dashboard\"):");
+    const t = this._t || ((k) => k);
+    const title = prompt(t("ed_new_dashboard_prompt"));
     if (!title || !title.trim()) return;
     // Generate a url_path slug from the title
     const slug = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    if (!slug) { alert("Invalid title — please use letters or numbers."); return; }
+    if (!slug) { alert(t("ed_invalid_dashboard_title")); return; }
 
-    this._setStatus("Creating dashboard…");
+    this._setStatus(t("ed_creating_dashboard"));
     try {
       // Use WebSocket API — the REST endpoint doesn't exist in all HA versions
       await this._hass.callWS({
@@ -611,9 +622,9 @@ export const EditorMixin = (Base) => class extends Base {
       this.shadowRoot.getElementById("btn-save").disabled = false;
       // Invalidate dashboard cache so AI sees the new dashboard
       this._dashboardList = null;
-      this._setStatus(`New dashboard "${title.trim()}" created — edit and save to populate it.`);
+      this._setStatus(t("ed_dashboard_created", { name: title.trim() }));
     } catch (err) {
-      this._setStatus(`Failed to create dashboard: ${err.message || String(err)}`, "error");
+      this._setStatus(t("ed_create_dashboard_failed", { msg: err.message || String(err) }), "error");
     }
   }
 
@@ -687,11 +698,12 @@ export const EditorMixin = (Base) => class extends Base {
   _showCompactionBanner() {
     const history = this.shadowRoot?.getElementById("chat-history");
     if (!history) return;
+    const t = this._t || ((k) => k);
     const wrap = document.createElement("div");
     wrap.className = "chat-message-wrap system-compact";
     const msg = document.createElement("div");
     msg.className = "chat-message system-compact";
-    msg.textContent = "💬 Older context was summarized to keep responses accurate. For a fresh start, begin a new conversation.";
+    msg.textContent = t("ed_context_compacted");
     wrap.appendChild(msg);
     history.appendChild(wrap);
     history.scrollTop = history.scrollHeight;
@@ -874,6 +886,7 @@ export const EditorMixin = (Base) => class extends Base {
   // ── Diagram from JSON config (accurate, expanded) ─────────────────────────
 
   _renderDiagramFromJson(diag, cfg, yamlText) {
+    const t = this._t || ((k) => k);
     const isScript = this._editorMode === "script";
 
     // Scripts use sequence: instead of trigger:/action:
@@ -903,7 +916,7 @@ export const EditorMixin = (Base) => class extends Base {
           .map(([k, v]) => `<div class="adg-bp-row"><span class="adg-bp-key">${this._escH(k)}:</span> <span class="adg-bp-val">${this._escH(String(v))}</span></div>`)
           .join("");
         diag.innerHTML = `<div class="adg-blueprint-info">
-          <div class="adg-bp-header">📋 <strong>${this._escH(bp.path || "Blueprint")}</strong></div>
+          <div class="adg-bp-header">📋 <strong>${this._escH(bp.path || t("ed_blueprint"))}</strong></div>
           ${inputRows ? `<div class="adg-bp-inputs">${inputRows}</div>` : ""}
         </div>`;
         return;
@@ -996,14 +1009,14 @@ export const EditorMixin = (Base) => class extends Base {
         condDetail = parts.join(", ");
       } else if (c === "time") {
         const parts = [];
-        if (cond.after) parts.push(`after ${cond.after}`);
-        if (cond.before) parts.push(`before ${cond.before}`);
+        if (cond.after) parts.push(t("ed_after", { v: cond.after }));
+        if (cond.before) parts.push(t("ed_before", { v: cond.before }));
         if (cond.weekday) condDetail = [].concat(cond.weekday).join(", ");
         condSub = parts.join(", ") || "";
       } else if (c === "sun") {
         const parts = [];
-        if (cond.after) parts.push(`after ${cond.after}`);
-        if (cond.before) parts.push(`before ${cond.before}`);
+        if (cond.after) parts.push(t("ed_after", { v: cond.after }));
+        if (cond.before) parts.push(t("ed_before", { v: cond.before }));
         condSub = parts.join(", ") || "";
       } else if (c === "zone") {
         const entityId = (Array.isArray(cond.entity_id) ? cond.entity_id[0] : cond.entity_id) || "";
@@ -1041,9 +1054,9 @@ export const EditorMixin = (Base) => class extends Base {
       const optCls = optItem._isDefault ? "adg-option-default" : "adg-option";
       nodeEl.className = `adg-node adg-action ${optCls} adg-expandable`;
       if (optBlock?.from_line != null) { nodeEl.dataset.from = String(optBlock.from_line); nodeEl.dataset.to = String(optBlock.to_line ?? optBlock.from_line); }
-      const condStr = conds.length ? ` · ${conds.length} cond` : "";
-      const seqStr = seq.length ? `${seq.length} action${seq.length !== 1 ? "s" : ""}${condStr}` : (conds.length ? `${conds.length} cond` : "");
-      nodeEl.innerHTML = `<span class="adg-icon">${optItem._isDefault ? "↩" : "📋"}</span><span class="adg-title">${this._escH(optItem._label)}</span>${seqStr ? `<span class="adg-sub">${seqStr}</span>` : ""}`;
+      const condStr = conds.length ? ` · ${t("ed_n_cond", { n: conds.length })}` : "";
+      const seqStr = seq.length ? `${t(seq.length !== 1 ? "ed_n_actions" : "ed_n_action", { n: seq.length })}${condStr}` : (conds.length ? t("ed_n_cond", { n: conds.length }) : "");
+      nodeEl.innerHTML = `<span class="adg-icon">${optItem._isDefault ? "↩" : "📋"}</span><span class="adg-title">${this._escH(optItem._label)}</span>${seqStr ? `<span class="adg-sub">${this._escH(seqStr)}</span>` : ""}`;
       nodeEl.addEventListener("click", (e) => {
         const col1NodesEl = wrapper.parentElement;
         col1NodesEl?.querySelectorAll(".adg-node").forEach((n) => n.classList.remove("adg-selected"));
@@ -1055,7 +1068,7 @@ export const EditorMixin = (Base) => class extends Base {
           // Build actions column — conditions are clickable (jump to specific condition line)
           const nodes = [];
           if (conds.length) {
-           nodes.push(mkHeader("when:"));
+           nodes.push(mkHeader(t("ed_hdr_when")));
            conds.forEach((c, ci) => {
              const condBlock = optBlock?.conditions?.[ci];
              const condClickFn = condBlock?.from_line != null
@@ -1065,7 +1078,7 @@ export const EditorMixin = (Base) => class extends Base {
            });
           }
           if (seq.length) {
-            if (conds.length) nodes.push(mkHeader("then:"));
+            if (conds.length) nodes.push(mkHeader(t("ed_hdr_then")));
             seq.forEach((a, i) => {
               const lb = optBlock?.actions?.[i];
               nodes.push(renderActionNode(a, "adg-action", lb?.from_line ?? 0, lb?.to_line ?? 0, 0, null, colLevel + 1));
@@ -1101,7 +1114,7 @@ export const EditorMixin = (Base) => class extends Base {
       nodeEl.className = `adg-node ${cls}${depth ? " adg-sub-node" : ""}${isExpandable ? " adg-expandable" : ""}${dirty}`;
       nodeEl.dataset.from = String(fromLine); nodeEl.dataset.to = String(toLine);
       nodeEl.setAttribute("style", indent);
-      nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}${isExpandable ? " — click to expand" : ""}${dirty ? " (modified)" : ""}`);
+      nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}${isExpandable ? t("ed_click_to_expand_suffix") : ""}${dirty ? t("ed_modified_suffix") : ""}`);
       nodeEl.innerHTML = `<span class="adg-icon">${icon}</span><span class="adg-title">${safeTitle}</span>${sub ? `<span class="adg-sub">${safeSub}</span>` : ""}${isExpandable ? `<span class="adg-expand-btn">▶</span>` : ""}`;
 
       nodeEl.addEventListener("click", (e) => {
@@ -1126,7 +1139,7 @@ export const EditorMixin = (Base) => class extends Base {
                 nodes.push(mkHeader(`count: ${item.repeat.count}`));
               } else if (item.repeat.for_each !== undefined) {
                 const n = Array.isArray(item.repeat.for_each) ? item.repeat.for_each.length : "?";
-                nodes.push(mkHeader(`for_each: ${n} items`));
+                nodes.push(mkHeader(t("ed_for_each_items", { n })));
               } else if (whileConds.length) {
                 nodes.push(mkHeader("while:"));
                 const condBlocks = this._parseRepeatCondBlocks(fromLine, toLine, "while");
@@ -1161,7 +1174,7 @@ export const EditorMixin = (Base) => class extends Base {
               const nodes = [];
               [].concat(item.parallel || []).forEach((branch, bi) => {
                 const seq = [].concat(branch.sequence || branch || []);
-                if (item.parallel.length > 1) nodes.push(mkHeader(branch.alias || `branch ${bi + 1}`));
+                if (item.parallel.length > 1) nodes.push(mkHeader(branch.alias || t("ed_branch", { n: bi + 1 })));
                 seq.forEach((child) => nodes.push(renderActionNode(child, "adg-action", fromLine, toLine, 0, null, colLevel + 1)));
               });
               addDrilldownCol(colLevel + 1, title, nodes);
@@ -1213,7 +1226,7 @@ export const EditorMixin = (Base) => class extends Base {
       if (!items.length) return null;
       const section = document.createElement("div");
       section.className = "adg-section";
-      section.innerHTML = `<div class="adg-label">${label}</div>`;
+      section.innerHTML = `<div class="adg-label">${this._escH(label)}</div>`;
       const nodesEl = document.createElement("div");
       nodesEl.className = "adg-nodes";
       items.forEach((item, idx) => {
@@ -1235,7 +1248,7 @@ export const EditorMixin = (Base) => class extends Base {
           nodeEl.className = `adg-node ${cls}${dirty}`;
           nodeEl.dataset.from = String(fromLine);
           nodeEl.dataset.to = String(toLine);
-          nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}${dirty ? " (modified)" : ""}`);
+          nodeEl.setAttribute("title", `${title}${sub ? ": " + sub : ""}${dirty ? t("ed_modified_suffix") : ""}`);
           nodeEl.innerHTML = `<span class="adg-icon">${icon}</span><span class="adg-title">${this._escH(title)}</span>${sub ? `<span class="adg-sub">${this._escH(sub)}</span>` : ""}`;
           nodeEl.addEventListener("click", () => { if (fromLine != null) this._jumpEditorToBlock(fromLine, toLine); });
           nodesEl.appendChild(nodeEl);
@@ -1252,7 +1265,7 @@ export const EditorMixin = (Base) => class extends Base {
       if (fieldEntries.length) {
         fieldsSection = document.createElement("div");
         fieldsSection.className = "adg-section";
-        fieldsSection.innerHTML = `<div class="adg-label">PARAMETERS</div>`;
+        fieldsSection.innerHTML = `<div class="adg-label">${this._escH(t("ed_diag_parameters"))}</div>`;
         const nodesEl = document.createElement("div");
         nodesEl.className = "adg-nodes";
         fieldEntries.forEach(([name, meta]) => {
@@ -1268,9 +1281,9 @@ export const EditorMixin = (Base) => class extends Base {
       }
     }
 
-    const actionLabel = isScript ? "DO" : "THEN";
-    const triggerSection  = renderSection(triggers, "triggers", "WHEN", "adg-trigger", this._diagLineBlocks.triggers);
-    const condSection     = renderSection(conditions, "conditions", "IF", "adg-condition", this._diagLineBlocks.conditions);
+    const actionLabel = isScript ? t("ed_diag_do") : t("ed_diag_then");
+    const triggerSection  = renderSection(triggers, "triggers", t("ed_diag_when"), "adg-trigger", this._diagLineBlocks.triggers);
+    const condSection     = renderSection(conditions, "conditions", t("ed_diag_if"), "adg-condition", this._diagLineBlocks.conditions);
     const actionSection   = renderSection(actions, "actions", actionLabel, "adg-action", this._diagLineBlocks.actions);
 
     const arrow = () => { const d = document.createElement("div"); d.className = "adg-arrow"; d.textContent = "→"; return d; };
@@ -1304,18 +1317,18 @@ export const EditorMixin = (Base) => class extends Base {
         if (deletedItems.length) {
           const delSection = document.createElement("div");
           delSection.className = "adg-section adg-deleted-section";
-          delSection.innerHTML = `<div class="adg-label adg-deleted-label">🗑 REMOVED</div>`;
+          delSection.innerHTML = `<div class="adg-label adg-deleted-label">${this._escH(t("ed_diag_removed"))}</div>`;
           const nodesEl = document.createElement("div");
           nodesEl.className = "adg-nodes";
           deletedItems.forEach(({ item, text }) => {
             const { icon, title, sub } = this._blockMetaFromJson("actions", item);
             const nodeEl = document.createElement("div");
             nodeEl.className = "adg-node adg-action adg-ghost-node";
-            nodeEl.setAttribute("title", `Deleted: ${title}${sub ? ": " + sub : ""} — click ⟲ to restore`);
+            nodeEl.setAttribute("title", t("ed_deleted_node_title", { name: `${title}${sub ? ": " + sub : ""}` }));
             const restoreBtn = document.createElement("button");
             restoreBtn.className = "adg-restore-btn";
             restoreBtn.textContent = "⟲";
-            restoreBtn.title = "Restore this action";
+            restoreBtn.title = t("ed_restore_action_title");
             restoreBtn.addEventListener("click", (e) => {
               e.stopPropagation();
               this._restoreDeletedAction(text);
@@ -1335,6 +1348,7 @@ export const EditorMixin = (Base) => class extends Base {
   // Restore a deleted action by appending its YAML block back to the actions section
   _restoreDeletedAction(yamlBlock) {
     if (!this._editor || !yamlBlock) return;
+    const t = this._t || ((k) => k);
     const current = this._editor.state.doc.toString();
     const lines = current.split("\n");
     // Find the last line of the actions/sequence section
@@ -1342,7 +1356,7 @@ export const EditorMixin = (Base) => class extends Base {
     const sectionKey = isScript ? /^(sequence|actions)\s*:/m : /^(actions)\s*:/m;
     const sectionMatch = current.match(sectionKey);
     if (!sectionMatch) {
-      this._setStatus("Cannot restore — actions section not found", "error");
+      this._setStatus(t("ed_restore_no_actions_section"), "error");
       return;
     }
     // Find the insertion point: end of the last action item
@@ -1369,11 +1383,12 @@ export const EditorMixin = (Base) => class extends Base {
     this._setEditorContent(newYaml);
     this._dirty = true;
     this.shadowRoot.getElementById("btn-save").disabled = false;
-    this._setStatus("Action restored — review and save", "success");
+    this._setStatus(t("ed_action_restored"), "success");
   }
 
   // Returns child actions for compound action types (used for expand/collapse in diagram)
   _getActionChildren(item) {
+    const t = this._t || ((k) => k);
     if (item._isOption || item._isDefault) {
       return [].concat(item.sequence || []);
     }
@@ -1391,7 +1406,7 @@ export const EditorMixin = (Base) => class extends Base {
         const conds = [].concat(opt.conditions || opt.condition || []);
         return {
           _isOption: true,
-          _label: `option ${i + 1}`,
+          _label: t("ed_option", { n: i + 1 }),
           _condCount: conds.length,
           _conditions: conds,
           sequence: [].concat(opt.sequence || opt.then || []),
@@ -1590,6 +1605,7 @@ export const EditorMixin = (Base) => class extends Base {
   }
 
   _blockMetaFromJson(section, item) {
+    const t = this._t || ((k) => k);
     if (section === "triggers") {
       const p = item.platform || item.trigger || item.triggers?.platform || "";
       const ICONS = { sun: "🌅", state: "📡", time: "⏰", homeassistant: "🏠", webhook: "🌐", event: "⚡", template: "📋", zone: "📍", numeric_state: "🔢", device: "📱", calendar: "📅", tag: "🏷", mqtt: "📡", geo_location: "🗺", persistent_notification: "🔔", conversation: "💬" };
@@ -1620,7 +1636,7 @@ export const EditorMixin = (Base) => class extends Base {
       let sub = "";
       if (c === "and" || c === "or" || c === "not") {
         const nested = [].concat(item.conditions || []);
-        sub = `${nested.length} condition${nested.length !== 1 ? "s" : ""}`;
+        sub = t(nested.length !== 1 ? "ed_n_conditions" : "ed_n_condition", { n: nested.length });
       } else if (c === "template") {
         const vt = (item.value_template || "").replace(/\\"/g, '"').replace(/\\'/g, "'");
         const statesMatch = vt.match(/states\(\s*['"]([^'"]+)['"]\s*\)\s*(==|!=|>|<|>=|<=)\s*['"]?([^"'\\}\s]+)/);
@@ -1643,14 +1659,14 @@ export const EditorMixin = (Base) => class extends Base {
         if (parts.length) sub += ` ${parts.join(", ")}`;
       } else if (c === "time") {
         const parts = [];
-        if (item.after) parts.push(`after ${item.after}`);
-        if (item.before) parts.push(`before ${item.before}`);
+        if (item.after) parts.push(t("ed_after", { v: item.after }));
+        if (item.before) parts.push(t("ed_before", { v: item.before }));
         sub = parts.join(", ") || "";
         if (item.weekday) sub = (sub ? sub + " " : "") + [].concat(item.weekday).join(",");
       } else if (c === "sun") {
         const parts = [];
-        if (item.after) parts.push(`after ${item.after}`);
-        if (item.before) parts.push(`before ${item.before}`);
+        if (item.after) parts.push(t("ed_after", { v: item.after }));
+        if (item.before) parts.push(t("ed_before", { v: item.before }));
         sub = parts.join(", ") || "";
       } else if (c === "trigger") {
         sub = [].concat(item.id || []).join(", ");
@@ -1667,20 +1683,20 @@ export const EditorMixin = (Base) => class extends Base {
     if (item.if !== undefined) {
       const condCount = [].concat(item.if || []).length;
       const actCount = [].concat(item.then || []).length + [].concat(item.else || []).length;
-      return { icon: "🔀", title: "if/then", sub: `${condCount} condition${condCount !== 1 ? "s" : ""} · ${actCount} actions ▶` };
+      return { icon: "🔀", title: "if/then", sub: `${t(condCount !== 1 ? "ed_n_conditions" : "ed_n_condition", { n: condCount })} · ${t("ed_n_actions_expand", { n: actCount })}` };
     }
     if (item.choose !== undefined) {
       const totalActions = (item.choose || []).reduce((n, opt) => n + ([].concat(opt.sequence || opt.then || [])).length, 0)
         + [].concat(item.default || []).length;
-      return { icon: "🔀", title: "choose", sub: `${(item.choose || []).length} options · ${totalActions} actions ▶` };
+      return { icon: "🔀", title: "choose", sub: `${t("ed_n_options", { n: (item.choose || []).length })} · ${t("ed_n_actions_expand", { n: totalActions })}` };
     }
-    if (item.parallel !== undefined) return { icon: "⚡", title: "parallel", sub: `${(item.parallel || []).length} actions` };
+    if (item.parallel !== undefined) return { icon: "⚡", title: "parallel", sub: t("ed_n_actions", { n: (item.parallel || []).length }) };
     if (item.repeat !== undefined) {
       const seqCount = [].concat(item.repeat?.sequence || []).length;
       const whileCount = [].concat(item.repeat?.while || []).length;
       const untilCount = [].concat(item.repeat?.until || []).length;
-      const condStr = whileCount ? `while ${whileCount} cond · ` : (untilCount ? `until ${untilCount} cond · ` : "");
-      return { icon: "🔁", title: "repeat", sub: item.repeat?.count ? `${item.repeat.count}× · ${seqCount} actions ▶` : `${condStr}${seqCount} actions ▶` };
+      const condStr = whileCount ? `${t("ed_repeat_while_cond", { n: whileCount })} · ` : (untilCount ? `${t("ed_repeat_until_cond", { n: untilCount })} · ` : "");
+      return { icon: "🔁", title: "repeat", sub: item.repeat?.count ? `${item.repeat.count}× · ${t("ed_n_actions_expand", { n: seqCount })}` : `${condStr}${t("ed_n_actions_expand", { n: seqCount })}` };
     }
     if (item.wait_template !== undefined || item.wait_for_trigger !== undefined) return { icon: "⏳", title: "wait", sub: "" };
     if (item.delay !== undefined) {
@@ -1744,13 +1760,14 @@ export const EditorMixin = (Base) => class extends Base {
           ${sub ? `<span class="adg-sub">${safeSub}</span>` : ""}
         </div>`;
       }).join("");
-      return `<div class="adg-section"><div class="adg-label">${label}</div><div class="adg-nodes">${nodes}</div></div>`;
+      return `<div class="adg-section"><div class="adg-label">${this._escH(label)}</div><div class="adg-nodes">${nodes}</div></div>`;
     };
 
-    const actionLabel = isScript ? "DO" : "THEN";
+    const t = this._t || ((k) => k);
+    const actionLabel = isScript ? t("ed_diag_do") : t("ed_diag_then");
     const parts = [];
-    if (!isScript) parts.push(renderSection("triggers", blocks.triggers, "WHEN", "adg-trigger"));
-    if (!isScript && blocks.conditions.length) parts.push(renderSection("conditions", blocks.conditions, "IF", "adg-condition"));
+    if (!isScript) parts.push(renderSection("triggers", blocks.triggers, t("ed_diag_when"), "adg-trigger"));
+    if (!isScript && blocks.conditions.length) parts.push(renderSection("conditions", blocks.conditions, t("ed_diag_if"), "adg-condition"));
     parts.push(renderSection("actions", blocks.actions, actionLabel, "adg-action"));
 
     diag.innerHTML = parts.filter(Boolean).join('<div class="adg-arrow">→</div>');
@@ -1922,17 +1939,18 @@ export const EditorMixin = (Base) => class extends Base {
     // Clean display of the template expression
     const cleanExpr = templateStr.replace(/\{\{|\}\}/g, "").trim();
 
+    const t = this._t || ((k) => k);
     tplInsp.hidden = false;
     tplInsp.innerHTML = `
       <div class="ti-header">
-        <span class="ti-label">📋 Template</span>
-        <button class="ti-close" title="Close">✕</button>
+        <span class="ti-label">${this._escH(t("ed_tpl_title"))}</span>
+        <button class="ti-close" title="${this._escH(t("ed_close"))}">✕</button>
       </div>
       <div class="ti-expr"><code>${this._escH(cleanExpr)}</code></div>
       ${entityChips ? `<div class="ti-entities">${entityChips}</div>` : ""}
       <div class="ti-preview">
-        <span class="ti-preview-label">Result:</span>
-        <span class="ti-preview-value" id="ti-preview-val">evaluating…</span>
+        <span class="ti-preview-label">${this._escH(t("ed_tpl_result"))}</span>
+        <span class="ti-preview-value" id="ti-preview-val">${this._escH(t("ed_tpl_evaluating"))}</span>
       </div>
     `;
     // Force high contrast so the expression stays readable regardless of theme/cached CSS
@@ -2049,6 +2067,7 @@ export const EditorMixin = (Base) => class extends Base {
       }).join("");
 
     const stateClass = stateObj.state === "on" ? "ei-on" : stateObj.state === "off" ? "ei-off" : "";
+    const t = this._t || ((k) => k);
     insp.hidden = false;
     insp.innerHTML = `
       <div class="ei-header">
@@ -2057,12 +2076,12 @@ export const EditorMixin = (Base) => class extends Base {
           <span class="ei-entity">${entityId}</span>
         </div>
         <span class="ei-state ${stateClass}">${stateObj.state}</span>
-        <button class="ei-close" title="Close">✕</button>
+        <button class="ei-close" title="${this._escH(t("ed_close"))}">✕</button>
       </div>
-      <div class="ei-body"><table class="ei-table">${rows || "<tr><td colspan='2' class='ei-key'>no attributes</td></tr>"}</table></div>
+      <div class="ei-body"><table class="ei-table">${rows || `<tr><td colspan='2' class='ei-key'>${this._escH(t("ed_no_attributes"))}</td></tr>`}</table></div>
       <div class="ei-footer">
-        <a class="ei-config-link" href="/config/entities/entity_id/${entityId}" target="_top" title="Open entity settings">⚙ Configure</a>
-        <a class="ei-config-link" href="/developer-tools/state?entity_id=${entityId}" target="_top" title="Open in Developer Tools">🔧 Dev Tools</a>
+        <a class="ei-config-link" href="/config/entities/entity_id/${entityId}" target="_top" title="${this._escH(t("ed_open_entity_settings"))}">${this._escH(t("ed_configure"))}</a>
+        <a class="ei-config-link" href="/developer-tools/state?entity_id=${entityId}" target="_top" title="${this._escH(t("ed_open_dev_tools"))}">${this._escH(t("ed_dev_tools"))}</a>
       </div>
     `;
     insp.querySelector(".ei-close").addEventListener("click", () => { insp.hidden = true; });
@@ -2187,11 +2206,13 @@ export const EditorMixin = (Base) => class extends Base {
     const items = this._entityListCurrentEntities || [];
     if (!items.length) { currentEl.hidden = true; return; }
     currentEl.hidden = false;
+    const t = this._t || ((k) => k);
+    const removeTitle = this._escH(t("ed_remove"));
     currentEl.innerHTML = items.map((eid) => {
       const name = this._hass?.states?.[eid]?.attributes?.friendly_name || eid.split(".")[1] || eid;
       return `<div class="elp-current-item" data-id="${eid}">
         <span class="elp-name" title="${eid}">${name}</span>
-        <button class="elp-remove" title="Remove">✕</button>
+        <button class="elp-remove" title="${removeTitle}">✕</button>
       </div>`;
     }).join("");
     currentEl.querySelectorAll(".elp-remove").forEach((btn) => {
@@ -2240,7 +2261,7 @@ export const EditorMixin = (Base) => class extends Base {
       .slice(0, 20);
 
     if (!matches.length) {
-      resultsEl.innerHTML = `<div class="elp-empty">No entities found</div>`;
+      resultsEl.innerHTML = `<div class="elp-empty">${this._escH((this._t || ((k) => k))("ed_no_entities_found"))}</div>`;
       return;
     }
 
@@ -2332,7 +2353,7 @@ export const EditorMixin = (Base) => class extends Base {
     if (!btn) return;
     if (blueprintPath) {
       btn.style.display = "";
-      btn.title = `Open blueprint: ${blueprintPath}`;
+      btn.title = (this._t || ((k) => k))("ed_open_blueprint_title", { path: blueprintPath });
     } else {
       btn.style.display = "none";
     }
@@ -2340,7 +2361,8 @@ export const EditorMixin = (Base) => class extends Base {
 
   async _openBlueprint(path) {
     if (!path || !this._hass) return;
-    this._setStatus(`Loading blueprint: ${path}…`);
+    const t = this._t || ((k) => k);
+    this._setStatus(t("ed_loading_blueprint", { path }));
 
     try {
       const token = this._hass.auth.data.access_token;
@@ -2371,23 +2393,24 @@ export const EditorMixin = (Base) => class extends Base {
       this._setEditorContextLabel("blueprint", path.split("/").pop());
       this._setEditorContent(data.yaml);
       this._dirty = false;
-      this.shadowRoot.getElementById("btn-save").textContent = "Save blueprint";
+      this.shadowRoot.getElementById("btn-save").textContent = t("ed_save_blueprint");
       this.shadowRoot.getElementById("btn-save").disabled = false;
       this._updateBlueprintButton(null); // hide "Edit blueprint" while editing the blueprint
-      this._setStatus(`Blueprint: ${path}`);
+      this._setStatus(t("ed_blueprint_status", { path }));
       this._saveEditorSession(path, "blueprint", path.split("/").pop());
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this._setStatus(`Failed to load blueprint: ${msg}`, "error");
+      this._setStatus(t("ed_load_blueprint_failed", { msg }), "error");
     }
   }
 
   async _saveBlueprintYaml() {
     if (!this._currentBlueprintPath || !this._hass) return;
+    const t = this._t || ((k) => k);
     const yamlText = this._editor.state.doc.toString();
     const btn = this.shadowRoot.getElementById("btn-save");
     btn.disabled = true;
-    this._setStatus("Saving blueprint…");
+    this._setStatus(t("ed_saving_blueprint"));
 
     try {
       const token = this._hass.auth.data.access_token;
@@ -2398,20 +2421,27 @@ export const EditorMixin = (Base) => class extends Base {
       });
       if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
       this._dirty = false;
-      btn.textContent = "✓ Saved";
-      this._setStatus(`Blueprint saved: ${this._currentBlueprintPath}`);
-      setTimeout(() => { btn.textContent = "Save blueprint"; btn.disabled = false; }, 2000);
+      btn.textContent = t("ae_saved");
+      this._setStatus(t("ed_blueprint_saved", { path: this._currentBlueprintPath }));
+      setTimeout(() => { btn.textContent = t("ed_save_blueprint"); btn.disabled = false; }, 2000);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       btn.disabled = false;
-      this._setStatus(`Save failed: ${msg}`, "error");
+      this._setStatus(t("ed_save_failed", { msg }), "error");
     }
   }
 
   _setEditorContextLabel(mode, label) {
     const ctxLabel = this.shadowRoot.getElementById("editor-context-label");
     if (!ctxLabel) return;
-    ctxLabel.textContent = `${mode} > ${label}`;
+    const t = this._t || ((k) => k);
+    const modeLabels = {
+      automation: t("ed_ctx_automation"),
+      script: t("ed_ctx_script"),
+      dashboard: t("ed_ctx_dashboard"),
+      blueprint: t("ed_ctx_blueprint"),
+    };
+    ctxLabel.textContent = `${modeLabels[mode] || mode} > ${label}`;
   }
 
   // Re-parse editor YAML server-side to update diagram config.
@@ -2495,13 +2525,14 @@ export const EditorMixin = (Base) => class extends Base {
       if (editorContainer) editorContainer.appendChild(errorBar);
       else return;
     }
+    const t = this._t || ((k) => k);
     errorBar.hidden = false;
     errorBar.innerHTML = `
       <span class="yeb-icon">⚠</span>
-      <button class="yeb-msg yeb-jump" title="Click to jump to error line">${this._escH(displayErrMsg).slice(0, 120)}</button>
-      <button class="yeb-btn yeb-autofix" title="Ask AI to fix this error">🤖 Auto-fix</button>
-      <button class="yeb-btn yeb-guided" title="Guided error resolution">💡 Guide me</button>
-      <button class="yeb-close" title="Dismiss">✕</button>
+      <button class="yeb-msg yeb-jump" title="${this._escH(t("ed_jump_to_error_title"))}">${this._escH(displayErrMsg).slice(0, 120)}</button>
+      <button class="yeb-btn yeb-autofix" title="${this._escH(t("ed_autofix_title"))}">${this._escH(t("ed_autofix"))}</button>
+      <button class="yeb-btn yeb-guided" title="${this._escH(t("ed_guided_title"))}">${this._escH(t("ed_guide_me"))}</button>
+      <button class="yeb-close" title="${this._escH(t("ed_dismiss"))}">✕</button>
     `;
     errorBar.querySelector(".yeb-jump").addEventListener("click", () => {
       if (this._errorLineNum) this._setErrorLine(this._errorLineNum);
@@ -2815,7 +2846,7 @@ export const EditorMixin = (Base) => class extends Base {
       overlay.style.height = `${height}px`;
 
       badge.hidden = false;
-      badge.textContent = `\u26a0 line ${lineNum}`;
+      badge.textContent = (this._t || ((k) => k))("ed_error_line_badge", { n: lineNum });
       badge.style.top = `${Math.max(0, top - 20)}px`;
       badge.style.left = "6px";
     } catch {
@@ -2825,6 +2856,7 @@ export const EditorMixin = (Base) => class extends Base {
 
   async _aiAutofix(errMsg, yamlText) {
     if (!this._hass) return;
+    const t = this._t || ((k) => k);
     const errorBar = this.shadowRoot.getElementById("yaml-error-bar");
 
     // Auto-fix known HA YAML formatting issues ({} / [] on standalone lines)
@@ -2836,7 +2868,7 @@ export const EditorMixin = (Base) => class extends Base {
 
     // Show progress in the error bar
     const autofixBtn = errorBar?.querySelector(".yeb-autofix");
-    if (autofixBtn) { autofixBtn.disabled = true; autofixBtn.textContent = "🤖 Fixing…"; }
+    if (autofixBtn) { autofixBtn.disabled = true; autofixBtn.textContent = t("ed_autofix_running"); }
 
     const prompt = `Fix this YAML syntax error automatically. Return ONLY the corrected YAML, no explanation, no markdown fences.
 
@@ -2856,7 +2888,7 @@ ${yamlText}`;
           history: [],
         }),
       });
-      if (!resp.ok) throw new Error(`AI request failed: ${resp.status}`);
+      if (!resp.ok) throw new Error(t("ed_ai_request_failed", { status: resp.status }));
       const data = await resp.json();
       const aiText = (data.response || data.text || "").trim();
 
@@ -2866,8 +2898,8 @@ ${yamlText}`;
       if (fenceMatch) fixedYaml = fenceMatch[1].trim();
 
       if (!fixedYaml) {
-        this._setStatus("AI returned empty fix", "error");
-        if (autofixBtn) { autofixBtn.disabled = false; autofixBtn.textContent = "🤖 Auto-fix"; }
+        this._setStatus(t("ed_ai_empty_fix"), "error");
+        if (autofixBtn) { autofixBtn.disabled = false; autofixBtn.textContent = t("ed_autofix"); }
         return;
       }
 
@@ -2875,8 +2907,8 @@ ${yamlText}`;
       this._showFixPreview(fixedYaml, yamlText, errMsg);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this._setStatus(`Auto-fix failed: ${msg}`, "error");
-      if (autofixBtn) { autofixBtn.disabled = false; autofixBtn.textContent = "🤖 Auto-fix"; }
+      this._setStatus(t("ed_autofix_failed", { msg }), "error");
+      if (autofixBtn) { autofixBtn.disabled = false; autofixBtn.textContent = t("ed_autofix"); }
     }
   }
 
@@ -2893,20 +2925,21 @@ ${yamlText}`;
       if ((origLines[i] || "") !== (fixLines[i] || "")) changedCount++;
     }
 
+    const t = this._t || ((k) => k);
     errorBar.innerHTML = `
       <span class="yeb-icon">🔧</span>
-      <span class="yeb-msg">AI fix ready — ${changedCount} line${changedCount !== 1 ? "s" : ""} changed</span>
-      <button class="yeb-btn yeb-apply">✅ Apply fix</button>
-      <button class="yeb-btn yeb-reject">❌ Reject</button>
+      <span class="yeb-msg">${this._escH(t(changedCount !== 1 ? "ed_fix_ready_lines" : "ed_fix_ready_line", { n: changedCount }))}</span>
+      <button class="yeb-btn yeb-apply">${this._escH(t("ed_apply_fix"))}</button>
+      <button class="yeb-btn yeb-reject">${this._escH(t("ed_reject"))}</button>
     `;
     errorBar.querySelector(".yeb-apply").addEventListener("click", () => {
       this._setEditorContent(fixedYaml);
       errorBar.hidden = true;
-      this._setStatus("AI fix applied ✓", "success");
+      this._setStatus(t("ed_fix_applied"), "success");
     });
     errorBar.querySelector(".yeb-reject").addEventListener("click", () => {
       errorBar.hidden = true;
-      this._setStatus("Fix rejected");
+      this._setStatus(t("ed_fix_rejected"));
     });
   }
 
@@ -2917,7 +2950,7 @@ ${yamlText}`;
       this._setEditorContent(fixed);
       const errorBar = this.shadowRoot.getElementById("yaml-error-bar");
       if (errorBar) errorBar.hidden = true;
-      this._setStatus("Auto-fixed: removed HA empty {} / [] lines ✓", "success");
+      this._setStatus((this._t || ((k) => k))("ed_autofixed_empty_blocks"), "success");
       return;
     }
     // Send the error to the chat as a guided conversation
@@ -2942,7 +2975,8 @@ ${yamlText}`;
     if (!configId || !this._hass) return;
     const isScript = this._editorMode === "script";
     const apiPath = isScript ? `config/script/config/${configId}` : `config/automation/config/${configId}`;
-    this._setStatus(`Loading ${isScript ? "script" : "automation"}…`);
+    const t = this._t || ((k) => k);
+    this._setStatus(isScript ? t("ed_loading_script") : t("ed_loading_automation"));
 
     try {
       const config = await this._hass.callApi("GET", apiPath);
@@ -2954,15 +2988,15 @@ ${yamlText}`;
       this._currentAutomationId = configId;
       this._dirty = false;
       this.shadowRoot.getElementById("btn-save").disabled = true;
-      this._setStatus(`Loaded: ${configId}`);
+      this._setStatus(t("ed_loaded", { id: configId }));
       this._renderAutomationDiagram(yamlText);
       // Detect use_blueprint and show/hide the Edit blueprint button
       const blueprintPath = config.use_blueprint?.path || null;
       this._currentBlueprintPath = blueprintPath;
       this._updateBlueprintButton(blueprintPath);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
-      this._setStatus(`Error loading: ${msg}`, "error");
+      const msg = err instanceof Error ? err.message : (err != null ? String(err) : t("ed_unknown_error"));
+      this._setStatus(t("ed_error_loading", { msg }), "error");
     }
   }
 
@@ -2970,8 +3004,9 @@ ${yamlText}`;
     if (!this._currentAutomationId || !this._hass) return;
     const yamlText = this._editor.state.doc.toString();
     const isScript = this._editorMode === "script";
+    const t = this._t || ((k) => k);
 
-    this._setStatus("Saving…");
+    this._setStatus(t("ae_saving"));
     const btn = this.shadowRoot.getElementById("btn-save");
     btn.disabled = true;
 
@@ -3037,11 +3072,11 @@ ${yamlText}`;
       const kind = isScript ? "script" : "automation";
       this._addChatHistory("user", `I saved the YAML for ${this._currentAutomationId}.`);
       this._addChatHistory("assistant", `[CHANGE] ${kind} YAML saved: ${this._currentAutomationId}`);
-      this._setStatus("Saved ✓", "success");
+      this._setStatus(t("ed_saved_check"), "success");
     } catch (err) {
       btn.disabled = false;
-      const msg = err instanceof Error ? err.message : (err != null ? String(err) : "unknown error");
-      this._setStatus(`Save failed: ${msg}`, "error");
+      const msg = err instanceof Error ? err.message : (err != null ? String(err) : t("ed_unknown_error"));
+      this._setStatus(t("ed_save_failed", { msg }), "error");
       // Show error bar with AI fix options for YAML errors
       if (msg.includes("YAML") || msg.includes("parse") || msg.includes("invalid")) {
         this._showYamlError(msg, yamlText);
@@ -3112,10 +3147,11 @@ ${yamlText}`;
     editorPane.classList.add("open");
     this.shadowRoot.querySelectorAll(".editor-controls").forEach((el) => { el.style.display = "block"; });
 
+    const t = this._t || ((k) => k);
     let ctxType = "automation";
-    let saveBtnText = "Save automation";
-    if (isScript)    { ctxType = "script";    saveBtnText = "Save script"; }
-    if (isBlueprint) { ctxType = "blueprint"; saveBtnText = "Save blueprint"; }
+    let saveBtnText = t("ed_save_automation");
+    if (isScript)    { ctxType = "script";    saveBtnText = t("ed_save_script"); }
+    if (isBlueprint) { ctxType = "blueprint"; saveBtnText = t("ed_save_blueprint"); }
     this._setEditorContextLabel(ctxType, this._editorTitle);
     const saveBtn = this.shadowRoot.getElementById("btn-save");
     if (saveBtn) saveBtn.textContent = saveBtnText;
@@ -3151,7 +3187,7 @@ ${yamlText}`;
       this._setEditorContent(draft);
       this._dirty = true;
       if (saveBtn) saveBtn.disabled = false;
-      this._setStatus("Restored unsaved draft — review and save to apply", "warning");
+      this._setStatus(t("ed_draft_restored"), "warning");
       // Re-parse draft YAML to get accurate JSON config (draft may differ from saved)
       this._reparseEditorConfig(draft);
       this._renderAutomationDiagram(draft);

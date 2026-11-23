@@ -1,72 +1,73 @@
 const _HELP_DATA = {
-  autopilot:  { icon: "🤖", desc: "Toggle auto-execution of AI proposals", cmds: [
-    { usage: "/autopilot on",  desc: "Execute proposals automatically — no confirmation needed" },
-    { usage: "/autopilot off", desc: "Show a confirm card before any change is applied" },
+  autopilot:  { icon: "🤖", descKey: "sc_help_autopilot", cmds: [
+    { usage: "/autopilot on",  descKey: "sc_help_autopilot_on" },
+    { usage: "/autopilot off", descKey: "sc_help_autopilot_off" },
   ]},
-  dashboard:  { icon: "📊", desc: "Manage Lovelace dashboards", cmds: [
-    { usage: "/dashboard open [name]", desc: "Load a dashboard into the YAML editor" },
-    { usage: "/dashboard close",       desc: "Close editor without saving" },
-    { usage: "/dashboard save",        desc: "Save current editor content back to HA" },
-    { usage: "/dashboard new",         desc: "Create a new storage-mode dashboard" },
-    { usage: "/dashboard delete",      desc: "Permanently delete the open dashboard" },
+  dashboard:  { icon: "📊", descKey: "sc_help_dashboard", cmds: [
+    { usage: "/dashboard open [name]", descKey: "sc_help_dashboard_open" },
+    { usage: "/dashboard close",       descKey: "sc_help_editor_close" },
+    { usage: "/dashboard save",        descKey: "sc_help_dashboard_save" },
+    { usage: "/dashboard new",         descKey: "sc_help_dashboard_new" },
+    { usage: "/dashboard delete",      descKey: "sc_help_dashboard_delete" },
   ]},
-  automation: { icon: "⚡", desc: "Manage automations", cmds: [
-    { usage: "/automation open <name>",   desc: "Fuzzy-find and open an automation in the YAML editor" },
-    { usage: "/automation close",         desc: "Close editor without saving" },
-    { usage: "/automation save",          desc: "Save current automation YAML" },
-    { usage: "/automation new",           desc: "Open HA's automation editor in a new tab" },
-    { usage: "/automation delete <name>", desc: "Permanently delete an automation" },
+  automation: { icon: "⚡", descKey: "sc_help_automation", cmds: [
+    { usage: "/automation open <name>",   descKey: "sc_help_automation_open" },
+    { usage: "/automation close",         descKey: "sc_help_editor_close" },
+    { usage: "/automation save",          descKey: "sc_help_automation_save" },
+    { usage: "/automation new",           descKey: "sc_help_automation_new" },
+    { usage: "/automation delete <name>", descKey: "sc_help_automation_delete" },
   ]},
-  script:     { icon: "📜", desc: "Manage scripts", cmds: [
-    { usage: "/script open <name>",   desc: "Open a script in the YAML editor" },
-    { usage: "/script close",         desc: "Close editor without saving" },
-    { usage: "/script save",          desc: "Save current script YAML" },
-    { usage: "/script new",           desc: "Open HA's script editor in a new tab" },
-    { usage: "/script delete <name>", desc: "Permanently delete a script" },
+  script:     { icon: "📜", descKey: "sc_help_script", cmds: [
+    { usage: "/script open <name>",   descKey: "sc_help_script_open" },
+    { usage: "/script close",         descKey: "sc_help_editor_close" },
+    { usage: "/script save",          descKey: "sc_help_script_save" },
+    { usage: "/script new",           descKey: "sc_help_script_new" },
+    { usage: "/script delete <name>", descKey: "sc_help_script_delete" },
   ]},
-  blueprint:  { icon: "🗺", desc: "Browse or edit HA blueprints", cmds: [
-    { usage: "/blueprint open <path>",  desc: "Open a blueprint YAML file in the editor" },
-    { usage: "/blueprint browse",       desc: "Open the HA Blueprint page in a new tab" },
+  blueprint:  { icon: "🗺", descKey: "sc_help_blueprint", cmds: [
+    { usage: "/blueprint open <path>",  descKey: "sc_help_blueprint_open" },
+    { usage: "/blueprint browse",       descKey: "sc_help_blueprint_browse" },
   ]},
-  area:       { icon: "🏠", desc: "Manage Home Assistant areas", cmds: [
-    { usage: "/area new <name>",            desc: "Create a new area" },
-    { usage: "/area delete <name>",         desc: "Delete an area (entities become unassigned)" },
-    { usage: "/area rename <old> to <new>", desc: "Rename an area" },
-    { usage: "/area list",                  desc: "List all areas with their IDs" },
+  area:       { icon: "🏠", descKey: "sc_help_area", cmds: [
+    { usage: "/area new <name>",            descKey: "sc_help_area_new" },
+    { usage: "/area delete <name>",         descKey: "sc_help_area_delete" },
+    { usage: "/area rename <old> to <new>", descKey: "sc_help_area_rename" },
+    { usage: "/area list",                  descKey: "sc_help_area_list" },
   ]},
-  session:    { icon: "💬", desc: "Manage named chat sessions", cmds: [
-    { usage: "/session new [name]",    desc: "Create a new session and switch to it" },
-    { usage: "/session list",          desc: "Show all sessions with message counts" },
-    { usage: "/session switch <name>", desc: "Switch to a different session" },
-    { usage: "/session delete",        desc: "Delete the current session" },
+  session:    { icon: "💬", descKey: "sc_help_session", cmds: [
+    { usage: "/session new [name]",    descKey: "sc_help_session_new" },
+    { usage: "/session list",          descKey: "sc_help_session_list" },
+    { usage: "/session switch <name>", descKey: "sc_help_session_switch" },
+    { usage: "/session delete",        descKey: "sc_help_session_delete" },
   ]},
-  memory:     { icon: "🧠", desc: "View and manage Kyber's learned memory", cmds: [
-    { usage: "/memory list",           desc: "Show all saved facts inline in the chat" },
-    { usage: "/memory search <query>", desc: "Search saved facts by keyword or category" },
-    { usage: "/memory add <text>",     desc: "Add a new fact directly from chat" },
-    { usage: "/memory delete <id>",    desc: "Delete an entry by ID" },
-    { usage: "/memory analyze",        desc: "Scan automations/scenes/scripts and propose new facts" },
-    { usage: "/memory deep",           desc: "Start deep background analysis (6-lens rotation)" },
-    { usage: "/memory stats",          desc: "Show entry counts by category and source" },
+  memory:     { icon: "🧠", descKey: "sc_help_memory", cmds: [
+    { usage: "/memory list",           descKey: "sc_help_memory_list" },
+    { usage: "/memory search <query>", descKey: "sc_help_memory_search" },
+    { usage: "/memory add <text>",     descKey: "sc_help_memory_add" },
+    { usage: "/memory delete <id>",    descKey: "sc_help_memory_delete" },
+    { usage: "/memory analyze",        descKey: "sc_help_memory_analyze" },
+    { usage: "/memory deep",           descKey: "sc_help_memory_deep" },
+    { usage: "/memory stats",          descKey: "sc_help_memory_stats" },
   ]},
-  reset:      { icon: "🔄", desc: "Clear the current chat", cmds: [
-    { usage: "/reset", desc: "Shows a danger confirm card — on Execute, clears all messages and history" },
+  reset:      { icon: "🔄", descKey: "sc_help_reset", cmds: [
+    { usage: "/reset", descKey: "sc_help_reset_run" },
   ]},
-  update:     { icon: "⬆️", desc: "Update Kyber to the latest version", cmds: [
-    { usage: "/update",                desc: "Check for updates via HACS and install if available" },
-    { usage: "/update restart",        desc: "Install via HACS and restart Home Assistant automatically" },
-    { usage: "/update force",          desc: "Bypass HACS — download directly from GitHub and install" },
-    { usage: "/update force restart",  desc: "Bypass HACS, install and restart Home Assistant" },
+  update:     { icon: "⬆️", descKey: "sc_help_update", cmds: [
+    { usage: "/update",                descKey: "sc_help_update_check" },
+    { usage: "/update restart",        descKey: "sc_help_update_restart" },
+    { usage: "/update force",          descKey: "sc_help_update_force" },
+    { usage: "/update force restart",  descKey: "sc_help_update_force_restart" },
   ]},
-  help:       { icon: "❓", desc: "Show help for Kyber slash commands", cmds: [
-    { usage: "/help",           desc: "Overview of all commands" },
-    { usage: "/help <command>", desc: "Detailed help card for a specific command" },
+  help:       { icon: "❓", descKey: "sc_help_help", cmds: [
+    { usage: "/help",           descKey: "sc_help_help_overview" },
+    { usage: "/help <command>", descKey: "sc_help_help_topic" },
   ]},
 };
 _HELP_DATA.knowledge = _HELP_DATA.memory;
 
 export const SlashMixin = (Base) => class extends Base {
   _showHelp(topic) {
+    const t = this._t || ((k) => k);
     const key = topic === "memory" ? "knowledge" : (topic || "");
     const history = this.shadowRoot?.getElementById("chat-history");
     if (!history) return;
@@ -79,16 +80,16 @@ export const SlashMixin = (Base) => class extends Base {
         <div class="kh-header">
           <span class="kh-icon">${h.icon}</span>
           <strong class="kh-title">/${topic || key}</strong>
-          <span class="kh-subtitle">${h.desc}</span>
+          <span class="kh-subtitle">${t(h.descKey)}</span>
         </div>
         <div class="kh-rows">
           ${h.cmds.map((c) => `
             <div class="kh-row" data-fill="${this._escapeAttr(c.usage)}">
               <code class="kh-usage">${this._escapeHtml(c.usage)}</code>
-              <span class="kh-row-desc">${this._escapeHtml(c.desc)}</span>
+              <span class="kh-row-desc">${this._escapeHtml(t(c.descKey))}</span>
             </div>`).join("")}
         </div>
-        <div class="kh-footer">Click a row to fill it into the input ↑</div>`;
+        <div class="kh-footer">${t("sc_help_row_hint")}</div>`;
       card.querySelectorAll(".kh-row").forEach((row) => {
         row.addEventListener("click", () => {
           const ta = this.shadowRoot.getElementById("prompt-input");
@@ -102,7 +103,7 @@ export const SlashMixin = (Base) => class extends Base {
 
     if (key && !_HELP_DATA[key]) {
       const known = Object.keys(_HELP_DATA).filter((k) => k !== "knowledge").join(", ");
-      this._appendMessage(`No help found for "${topic}". Available: ${known}`, "assistant");
+      this._appendMessage(t("sc_help_not_found", { topic, known }), "assistant");
       return;
     }
 
@@ -115,12 +116,12 @@ export const SlashMixin = (Base) => class extends Base {
         <div class="kho-item" data-cmd="${k}">
           <span class="kho-icon">${h.icon}</span>
           <strong class="kho-name">/${k}</strong>
-          <span class="kho-desc">${h.desc}</span>
+          <span class="kho-desc">${t(h.descKey)}</span>
         </div>`).join("");
     card.innerHTML = `
-      <div class="kho-title">⌨️ Kyber Slash Commands</div>
+      <div class="kho-title">${t("sc_help_overview_title")}</div>
       <div class="kho-grid">${items}</div>
-      <div class="kho-footer">Click a command for details, or type <code>/help &lt;command&gt;</code></div>`;
+      <div class="kho-footer">${t("sc_help_overview_footer")} <code>/help &lt;command&gt;</code></div>`;
     card.querySelectorAll(".kho-item").forEach((el) => {
       el.addEventListener("click", () => this._showHelp(el.dataset.cmd));
     });
@@ -137,6 +138,7 @@ export const SlashMixin = (Base) => class extends Base {
   }
 
   _onPromptInput(textarea) {
+    const t = this._t || ((k) => k);
     const val = textarea.value;
 
     // ── Top-level slash command autocomplete (/au… /da…) ──────────────
@@ -144,10 +146,10 @@ export const SlashMixin = (Base) => class extends Base {
     if (slashAc) {
       const partial = slashAc[1].toLowerCase();
       const cmds = ["autopilot on", "autopilot off", "dashboard", "automation", "script", "blueprint", "area", "knowledge", "memory", "reset", "update", "help", "session"];
-      const matches = cmds.filter((c) => c.startsWith(partial)).map((c) => ({
-        entity_id: "/" + c,
-        friendly_name: _HELP_DATA[c.split(" ")[0]]?.desc || "",
-      }));
+      const matches = cmds.filter((c) => c.startsWith(partial)).map((c) => {
+        const dk = _HELP_DATA[c.split(" ")[0]]?.descKey;
+        return { entity_id: "/" + c, friendly_name: dk ? t(dk) : "" };
+      });
       if (matches.length) {
         this._acItems = matches;
         this._acToken = val;
@@ -183,10 +185,10 @@ export const SlashMixin = (Base) => class extends Base {
       const opts = ["restart"];
       const matches = opts
         .filter((s) => s.startsWith(partial))
-        .map((s) => ({
-          entity_id: `/update force ${s}`,
-          friendly_name: (_HELP_DATA.update?.cmds || []).find((c) => c.usage === `/update force ${s}`)?.desc || "",
-        }));
+        .map((s) => {
+          const dk = (_HELP_DATA.update?.cmds || []).find((c) => c.usage === `/update force ${s}`)?.descKey;
+          return { entity_id: `/update force ${s}`, friendly_name: dk ? t(dk) : "" };
+        });
       if (matches.length) {
         this._acItems = matches;
         this._acToken = val;
@@ -206,7 +208,7 @@ export const SlashMixin = (Base) => class extends Base {
         .filter((s) => s.startsWith(partial))
         .map((s) => {
           const entry = (helpData?.cmds || []).find((c) => c.usage.match(new RegExp(`^\\/${cmd} ${s}\\b`)));
-          return { entity_id: `/${cmd} ${s}`, friendly_name: entry?.desc || "" };
+          return { entity_id: `/${cmd} ${s}`, friendly_name: entry?.descKey ? t(entry.descKey) : "" };
         });
       if (matches.length) {
         this._acItems = matches;
@@ -258,7 +260,7 @@ export const SlashMixin = (Base) => class extends Base {
           .slice(0, 8)
           .map(({ term, type }) => ({
             entity_id: `/${cmd} search ${term}`,
-            badge: type,
+            badge: type === "category" ? t("sc_badge_category") : t("sc_badge_tag"),
             friendly_name: "",
           }));
         if (filtered.length) {
@@ -282,8 +284,8 @@ export const SlashMixin = (Base) => class extends Base {
           .slice(0, 8)
           .map((s) => ({
             entity_id: `/session ${action} ${s.name}`,
-            badge: s.id === this._activeSessionId ? "active" : null,
-            friendly_name: `${s.message_count} msg${s.message_count !== 1 ? "s" : ""}`,
+            badge: s.id === this._activeSessionId ? t("sc_badge_active") : null,
+            friendly_name: t(s.message_count !== 1 ? "sc_msg_count_other" : "sc_msg_count_one", { n: s.message_count }),
           }));
         if (filtered.length) {
           this._acItems = filtered;
@@ -521,6 +523,7 @@ export const SlashMixin = (Base) => class extends Base {
   // ──── /update ────────────────────────────────────────────────────
 
   async _cmdUpdate(action = "", nameArg = "") {
+    const t = this._t || ((k) => k);
     const force = action === "force";
     const withRestart = force ? nameArg.trim().toLowerCase() === "restart" : action === "restart";
 
@@ -537,45 +540,42 @@ export const SlashMixin = (Base) => class extends Base {
     );
 
     if (!updateEntity) {
-      const known = allUpdateEntities.map((s) => s.entity_id).join(", ") || "none";
-      this._showMsg(
-        `⚠️ No HACS update entity found for Kyber.\n\nUpdate entities: ${known}\n\n` +
-        `Use **/update force** to install directly from GitHub without HACS.`
-      );
+      const known = allUpdateEntities.map((s) => s.entity_id).join(", ") || t("sc_none");
+      this._showMsg(t("sc_update_no_entity", { known }));
       return;
     }
 
     const entityId     = updateEntity.entity_id;
-    const installedVer = (updateEntity.attributes.installed_version || "unknown").replace(/^v/i, "");
-    const latestVer    = (updateEntity.attributes.latest_version    || "unknown").replace(/^v/i, "");
+    const installedVer = (updateEntity.attributes.installed_version || t("sc_unknown")).replace(/^v/i, "");
+    const latestVer    = (updateEntity.attributes.latest_version    || t("sc_unknown")).replace(/^v/i, "");
     const hasUpdate    = updateEntity.state === "on";
     const releaseUrl   = updateEntity.attributes.release_url || null;
 
     if (!hasUpdate) {
       this._buildCommandCard({
         icon: "🔄",
-        title: "Kyber is up-to-date (via HACS)",
-        detail: `Installed: v${installedVer}\nIf a newer release exists, use **/update force** to install directly from GitHub.`,
-        executeLabel: "🔄 Refresh HACS",
+        title: t("sc_update_uptodate_title"),
+        detail: t("sc_update_uptodate_detail", { ver: installedVer }),
+        executeLabel: t("sc_update_refresh_hacs"),
         onConfirm: async (card) => {
           const btn = card.querySelector(".btn-cmd-execute");
-          btn.textContent = "⏳ Refreshing…";
+          btn.textContent = t("sc_update_refreshing");
           try {
             await this._hass.callService("homeassistant", "update_entity", { entity_id: entityId });
-            btn.textContent = "✅ Refreshed";
+            btn.textContent = t("sc_update_refreshed");
             await new Promise((r) => setTimeout(r, 1500));
             const refreshed = this._hass.states[entityId];
             const nowLatest = (refreshed?.attributes?.latest_version || "").replace(/^v/i, "");
             if (refreshed?.state === "on") {
-              this._appendMessage(`⬆️ Update found! Kyber v${nowLatest} is available. Run **/update** again to install.`, "assistant");
+              this._appendMessage(t("sc_update_found", { ver: nowLatest }), "assistant");
             } else {
-              this._appendMessage(`✅ Kyber v${installedVer} is up-to-date (just refreshed from GitHub).\n\nTip: use **/update force** to install directly without HACS.`, "assistant");
+              this._appendMessage(t("sc_update_uptodate_refreshed", { ver: installedVer }), "assistant");
             }
             this._checkUpdateBadge();
           } catch (err) {
-          btn.textContent = "▶ Execute"; btn.disabled = false;
+          btn.textContent = t("cmd_confirm_execute"); btn.disabled = false;
             card.querySelector(".btn-cmd-cancel").disabled = false;
-            this._setStatus(`Refresh failed: ${err.message}`, "error");
+            this._setStatus(t("sc_refresh_failed", { msg: err.message }), "error");
           }
         },
       });
@@ -591,13 +591,13 @@ export const SlashMixin = (Base) => class extends Base {
 
     this._buildCommandCard({
       icon: "⬆️",
-      title: `Update Kyber via HACS${withRestart ? " + Restart" : ""}`,
+      title: t(withRestart ? "sc_update_hacs_title_restart" : "sc_update_hacs_title"),
       detail: [
         `v${installedVer} → v${latestVer}`,
         hacsReleaseNotes ? `\n📋 ${hacsReleaseNotes.trim()}` : "",
-        withRestart ? "\n⚠️ HA will restart after update." : "",
+        withRestart ? `\n${t("sc_update_restart_note")}` : "",
       ].filter(Boolean).join(""),
-      warning: withRestart ? "Home Assistant will restart. Active sessions will be interrupted." : null,
+      warning: withRestart ? t("sc_restart_warning") : null,
       onConfirm: async (card) => {
         const t = this._t || ((k) => k);
         const btn = card.querySelector(".btn-cmd-execute");
@@ -606,10 +606,10 @@ export const SlashMixin = (Base) => class extends Base {
           await this._hass.callService("update", "install", { entity_id: entityId });
           btn.textContent = `${t("update_installed")} v${latestVer}`;
           this._appendMessage(
-            `✅ Kyber updated to **v${latestVer}**.\n\n` +
+            `${t("sc_update_done", { ver: latestVer })}\n\n` +
             (hacsReleaseNotes
-              ? `📋 **Release notes:**\n${hacsReleaseNotes}`
-              : (releaseUrl ? `[Release notes](${releaseUrl})` : "")),
+              ? `📋 **${t("sc_release_notes")}:**\n${hacsReleaseNotes}`
+              : (releaseUrl ? `[${t("sc_release_notes")}](${releaseUrl})` : "")),
             "assistant"
           );
           this._checkUpdateBadge();
@@ -629,13 +629,14 @@ export const SlashMixin = (Base) => class extends Base {
 
   // ── /update force — bypass HACS, download directly from GitHub ───
   async _cmdUpdateForce(withRestart = false) {
-    this._setStatus("Checking GitHub for latest Kyber release…");
+    const t = this._t || ((k) => k);
+    this._setStatus(t("sc_force_checking"));
     let info;
     try {
       info = await this._hass.callApi("GET", "kyber/self_update");
     } catch (err) {
       this._setStatus("");
-      this._showMsg(`⚠️ Could not reach update endpoint: ${err?.message || err?.error || String(err)}`);
+      this._showMsg(t("sc_force_unreachable", { msg: err?.message || err?.error || String(err) }));
       return;
     }
     this._setStatus("");
@@ -643,7 +644,7 @@ export const SlashMixin = (Base) => class extends Base {
     const { current_version, latest_version, update_available, release_url, release_notes } = info;
 
     if (!update_available) {
-      this._showMsg(`✅ Kyber v${current_version} is already the latest version (GitHub: v${latest_version}).`);
+      this._showMsg(t("sc_force_latest", { ver: current_version, latest: latest_version }));
       this._checkUpdateBadge();
       return;
     }
@@ -651,14 +652,14 @@ export const SlashMixin = (Base) => class extends Base {
     const detail = [
       `v${current_version} → v${latest_version}`,
       release_notes ? `\n📋 ${release_notes.trim()}` : "",
-      withRestart ? "\n⚠️ Home Assistant will restart after installing." : "",
+      withRestart ? `\n${t("sc_force_restart_note")}` : "",
     ].filter(Boolean).join("");
 
     this._buildCommandCard({
       icon: "⬆️",
-      title: `Force-update Kyber${withRestart ? " + Restart" : ""}`,
+      title: t(withRestart ? "sc_force_title_restart" : "sc_force_title"),
       detail,
-      warning: withRestart ? "Home Assistant will restart. Active sessions will be interrupted." : null,
+      warning: withRestart ? t("sc_restart_warning") : null,
       onConfirm: async (card) => {
         const t = this._t || ((k) => k);
         const btn = card.querySelector(".btn-cmd-execute");
@@ -668,11 +669,11 @@ export const SlashMixin = (Base) => class extends Base {
           btn.textContent = `${t("update_updated")} v${latest_version}`;
           const postNotes = result.release_notes || "";
           this._appendMessage(
-            `✅ Kyber force-updated to **v${latest_version}**.\n\n` +
+            `${t("sc_force_done", { ver: latest_version })}\n\n` +
             (postNotes
-              ? `📋 **Release notes:**\n${postNotes}`
-              : (release_url ? `[Release notes](${release_url})` : "")) +
-            (result.restarting ? "\n\n⏳ Restarting Home Assistant…" : "\n\n🔄 Restart HA to apply the new version."),
+              ? `📋 **${t("sc_release_notes")}:**\n${postNotes}`
+              : (release_url ? `[${t("sc_release_notes")}](${release_url})` : "")) +
+            `\n\n${t(result.restarting ? "sc_force_restarting" : "sc_force_restart_hint")}`,
             "assistant"
           );
           this._checkUpdateBadge();
@@ -692,6 +693,7 @@ export const SlashMixin = (Base) => class extends Base {
   // ──── /dashboard ─────────────────────────────────────────────────
 
   _cmdDashboard(action, nameArg) {
+    const t = this._t || ((k) => k);
     switch (action) {
       case "open": {
         const panels = this._hass.panels || {};
@@ -703,58 +705,58 @@ export const SlashMixin = (Base) => class extends Base {
              all.find((p) => p.url_path.includes(lower)))
           : null;
         const urlPath = match ? (match.url_path === "lovelace" ? null : match.url_path) : null;
-        const label = match ? (match.title || match.url_path) : "Overview (default)";
+        const label = match ? (match.title || match.url_path) : t("sc_dash_overview_default");
         this._buildCommandCard({
-          icon: "📊", title: `Open dashboard editor`,
+          icon: "📊", title: t("sc_dash_open_title"),
           detail: label,
           onConfirm: (card) => {
             this._openDashboard(urlPath);
-            card.querySelector(".btn-cmd-execute").textContent = "✓ Opened";
+            card.querySelector(".btn-cmd-execute").textContent = t("sc_opened");
           },
         });
         break;
       }
       case "close":
         this._closeEditor();
-        this._showMsg("Dashboard editor closed.");
+        this._showMsg(t("sc_dash_closed"));
         break;
       case "save":
-        if (this._editorMode !== "dashboard") { this._showMsg("No dashboard is currently open."); return; }
+        if (this._editorMode !== "dashboard") { this._showMsg(t("sc_dash_none_open")); return; }
         this._buildCommandCard({
-          icon: "💾", title: "Save dashboard",
+          icon: "💾", title: t("sc_dash_save_title"),
           detail: this.shadowRoot.getElementById("dashboard-select")?.options[
             this.shadowRoot.getElementById("dashboard-select")?.selectedIndex]?.textContent || "",
           onConfirm: (card) => {
-            this._saveDashboard().then(() => { card.querySelector(".btn-cmd-execute").textContent = "✓ Saved"; });
+            this._saveDashboard().then(() => { card.querySelector(".btn-cmd-execute").textContent = t("ae_saved"); });
           },
         });
         break;
       case "new":
         this._buildCommandCard({
-          icon: "＋", title: "Create new dashboard",
-          detail: nameArg || "(enter title when prompted)",
+          icon: "＋", title: t("sc_dash_new_title"),
+          detail: nameArg || t("sc_dash_new_detail"),
           onConfirm: () => this._createNewDashboard(),
         });
         break;
       case "delete": {
         const sel = this.shadowRoot.getElementById("dashboard-select");
         const urlPath = this._currentDashboardPath;
-        const label = sel?.options[sel?.selectedIndex]?.textContent || urlPath || "(none)";
-        if (!urlPath) { this._showMsg("No specific dashboard is open (can't delete the default Overview)."); return; }
+        const label = sel?.options[sel?.selectedIndex]?.textContent || urlPath || t("sc_none_paren");
+        if (!urlPath) { this._showMsg(t("sc_dash_cannot_delete")); return; }
         this._buildCommandCard({
-          icon: "🗑", title: "Delete dashboard",
+          icon: "🗑", title: t("sc_dash_delete_title"),
           detail: label, danger: true,
-          warning: "This permanently removes the dashboard from the sidebar.",
+          warning: t("sc_dash_delete_warning"),
           onConfirm: async (card) => {
             try {
               const panels = this._hass.panels || {};
               const p = Object.values(panels).find((x) => x.url_path === urlPath);
               if (p) await this._hass.callWS({ type: "lovelace/dashboards/delete", dashboard_id: p.id || urlPath });
               this._closeEditor();
-              card.querySelector(".btn-cmd-execute").textContent = "✓ Deleted";
-              this._showMsg(`Dashboard "${label}" deleted.`);
+              card.querySelector(".btn-cmd-execute").textContent = t("sc_deleted");
+              this._showMsg(t("sc_dash_deleted", { name: label }));
             } catch (err) {
-              this._setStatus(`Delete failed: ${err.message}`, "error");
+              this._setStatus(t("sc_delete_failed", { msg: err.message }), "error");
               card.querySelector(".btn-cmd-execute").disabled = false;
             }
           },
@@ -762,61 +764,62 @@ export const SlashMixin = (Base) => class extends Base {
         break;
       }
       default:
-        this._showMsg(`/dashboard commands: open [name], close, save, new, delete`);
+        this._showMsg(t("sc_cmd_list", { cmd: "/dashboard", subs: "open [name], close, save, new, delete" }));
     }
   }
 
   // ──── /automation ────────────────────────────────────────────────
 
   _cmdAutomation(action, nameArg) {
+    const t = this._t || ((k) => k);
     switch (action) {
       case "open": {
         const state = this._findEntity("automation", nameArg);
-        if (!state) { this._showMsg(`Automation not found: "${nameArg}". Try a partial name.`); return; }
+        if (!state) { this._showMsg(t("sc_auto_not_found_hint", { name: nameArg })); return; }
         this._openEditor(state.entity_id);
         break;
       }
       case "close":
         this._closeEditor();
-        this._showMsg("Editor closed.");
+        this._showMsg(t("sc_editor_closed"));
         break;
       case "save":
-        if (!this._currentAutomationId) { this._showMsg("No automation is currently open."); return; }
+        if (!this._currentAutomationId) { this._showMsg(t("sc_auto_none_open")); return; }
         this._buildCommandCard({
-          icon: "💾", title: "Save automation",
+          icon: "💾", title: t("sc_auto_save_title"),
           detail: this._currentAutomationId,
           onConfirm: (card) => {
-            this._saveAutomation().then(() => { card.querySelector(".btn-cmd-execute").textContent = "✓ Saved"; });
+            this._saveAutomation().then(() => { card.querySelector(".btn-cmd-execute").textContent = t("ae_saved"); });
           },
         });
         break;
       case "new":
         this._buildCommandCard({
-          icon: "＋", title: "Create new automation",
-          detail: "Opens HA's automation editor in a new tab",
+          icon: "＋", title: t("sc_auto_new_title"),
+          detail: t("sc_auto_new_detail"),
           onConfirm: (card) => {
             window.open("/config/automation/edit/new", "_blank");
-            card.querySelector(".btn-cmd-execute").textContent = "✓ Opened";
+            card.querySelector(".btn-cmd-execute").textContent = t("sc_opened");
           },
         });
         break;
       case "delete": {
         const state = this._findEntity("automation", nameArg);
-        if (!state) { this._showMsg(`Automation not found: "${nameArg}".`); return; }
+        if (!state) { this._showMsg(t("sc_auto_not_found", { name: nameArg })); return; }
         const friendly = state.attributes.friendly_name || state.entity_id;
         const configId = state.attributes.id;
         this._buildCommandCard({
-          icon: "🗑", title: "Delete automation",
+          icon: "🗑", title: t("sc_auto_delete_title"),
           detail: `${state.entity_id} — ${friendly}`,
           danger: true,
-          warning: "This permanently deletes the automation.",
+          warning: t("sc_auto_delete_warning"),
           onConfirm: async (card) => {
             try {
               await this._hass.callApi("DELETE", `config/automation/config/${configId}`);
-              card.querySelector(".btn-cmd-execute").textContent = "✓ Deleted";
-              this._showMsg(`Automation "${friendly}" deleted.`);
+              card.querySelector(".btn-cmd-execute").textContent = t("sc_deleted");
+              this._showMsg(t("sc_auto_deleted", { name: friendly }));
             } catch (err) {
-              this._setStatus(`Delete failed: ${err.message}`, "error");
+              this._setStatus(t("sc_delete_failed", { msg: err.message }), "error");
               card.querySelector(".btn-cmd-execute").disabled = false;
             }
           },
@@ -824,60 +827,61 @@ export const SlashMixin = (Base) => class extends Base {
         break;
       }
       default:
-        this._showMsg(`/automation commands: open <name>, close, save, new, delete <name>`);
+        this._showMsg(t("sc_cmd_list", { cmd: "/automation", subs: "open <name>, close, save, new, delete <name>" }));
     }
   }
 
   // ──── /script ────────────────────────────────────────────────────
 
   _cmdScript(action, nameArg) {
+    const t = this._t || ((k) => k);
     switch (action) {
       case "open": {
         const state = this._findEntity("script", nameArg);
-        if (!state) { this._showMsg(`Script not found: "${nameArg}".`); return; }
+        if (!state) { this._showMsg(t("sc_script_not_found", { name: nameArg })); return; }
         this._openEditor(state.entity_id);
         break;
       }
       case "close":
         this._closeEditor();
-        this._showMsg("Editor closed.");
+        this._showMsg(t("sc_editor_closed"));
         break;
       case "save":
         this._buildCommandCard({
-          icon: "💾", title: "Save script",
-          detail: this._currentAutomationId || "(current)",
+          icon: "💾", title: t("sc_script_save_title"),
+          detail: this._currentAutomationId || t("sc_current_paren"),
           onConfirm: (card) => {
-            this._saveAutomation().then(() => { card.querySelector(".btn-cmd-execute").textContent = "✓ Saved"; });
+            this._saveAutomation().then(() => { card.querySelector(".btn-cmd-execute").textContent = t("ae_saved"); });
           },
         });
         break;
       case "new":
         this._buildCommandCard({
-          icon: "＋", title: "Create new script",
-          detail: "Opens HA's script editor in a new tab",
+          icon: "＋", title: t("sc_script_new_title"),
+          detail: t("sc_script_new_detail"),
           onConfirm: (card) => {
             window.open("/config/script/edit/new", "_blank");
-            card.querySelector(".btn-cmd-execute").textContent = "✓ Opened";
+            card.querySelector(".btn-cmd-execute").textContent = t("sc_opened");
           },
         });
         break;
       case "delete": {
         const state = this._findEntity("script", nameArg);
-        if (!state) { this._showMsg(`Script not found: "${nameArg}".`); return; }
+        if (!state) { this._showMsg(t("sc_script_not_found", { name: nameArg })); return; }
         const friendly = state.attributes.friendly_name || state.entity_id;
         const configId = state.entity_id.replace("script.", "");
         this._buildCommandCard({
-          icon: "🗑", title: "Delete script",
+          icon: "🗑", title: t("sc_script_delete_title"),
           detail: `${state.entity_id} — ${friendly}`,
           danger: true,
-          warning: "This permanently deletes the script.",
+          warning: t("sc_script_delete_warning"),
           onConfirm: async (card) => {
             try {
               await this._hass.callApi("DELETE", `config/script/config/${configId}`);
-              card.querySelector(".btn-cmd-execute").textContent = "✓ Deleted";
-              this._showMsg(`Script "${friendly}" deleted.`);
+              card.querySelector(".btn-cmd-execute").textContent = t("sc_deleted");
+              this._showMsg(t("sc_script_deleted", { name: friendly }));
             } catch (err) {
-              this._setStatus(`Delete failed: ${err.message}`, "error");
+              this._setStatus(t("sc_delete_failed", { msg: err.message }), "error");
               card.querySelector(".btn-cmd-execute").disabled = false;
             }
           },
@@ -885,13 +889,14 @@ export const SlashMixin = (Base) => class extends Base {
         break;
       }
       default:
-        this._showMsg(`/script commands: open <name>, close, save, new, delete <name>`);
+        this._showMsg(t("sc_cmd_list", { cmd: "/script", subs: "open <name>, close, save, new, delete <name>" }));
     }
   }
 
   // ──── /blueprint ─────────────────────────────────────────────────
 
   _cmdBlueprint(action, nameArg) {
+    const t = this._t || ((k) => k);
     switch (action) {
       case "open":
         if (nameArg) {
@@ -899,48 +904,49 @@ export const SlashMixin = (Base) => class extends Base {
           this._openBlueprint(nameArg);
         } else {
           this._buildCommandCard({
-            icon: "🗺", title: "Browse blueprints",
-            detail: "Opens HA's Blueprint page in a new tab",
+            icon: "🗺", title: t("sc_bp_browse_title"),
+            detail: t("sc_bp_browse_detail"),
             onConfirm: (card) => {
               window.open("/config/blueprint", "_blank");
-              card.querySelector(".btn-cmd-execute").textContent = "✓ Opened";
+              card.querySelector(".btn-cmd-execute").textContent = t("sc_opened");
             },
           });
         }
         break;
       case "browse":
         this._buildCommandCard({
-          icon: "🗺", title: "Browse blueprints",
-          detail: "Opens HA's Blueprint page in a new tab",
+          icon: "🗺", title: t("sc_bp_browse_title"),
+          detail: t("sc_bp_browse_detail"),
           onConfirm: (card) => {
             window.open("/config/blueprint", "_blank");
-            card.querySelector(".btn-cmd-execute").textContent = "✓ Opened";
+            card.querySelector(".btn-cmd-execute").textContent = t("sc_opened");
           },
         });
         break;
       default:
-        this._showMsg(`/blueprint commands: open <path> (edit in editor), browse (opens HA blueprint page)`);
+        this._showMsg(t("sc_bp_usage"));
     }
   }
 
   // ──── /area ──────────────────────────────────────────────────────
 
   _cmdArea(action, nameArg) {
+    const t = this._t || ((k) => k);
     switch (action) {
       case "new":
       case "create": {
         const name = nameArg;
-        if (!name) { this._showMsg(`Usage: /area new <name>`); return; }
+        if (!name) { this._showMsg(t("sc_usage", { usage: "/area new <name>" })); return; }
         this._buildCommandCard({
-          icon: "＋", title: "Create area",
+          icon: "＋", title: t("sc_area_create_title"),
           detail: name,
           onConfirm: async (card) => {
             try {
               await this._executeActions([{ type: "create_area", name }]);
-              card.querySelector(".btn-cmd-execute").textContent = "✓ Created";
-              this._showMsg(`Area "${name}" created.`);
+              card.querySelector(".btn-cmd-execute").textContent = t("ae_created");
+              this._showMsg(t("sc_area_created", { name }));
             } catch (err) {
-              this._setStatus(`Failed: ${err.message}`, "error");
+              this._setStatus(t("sc_failed", { msg: err.message }), "error");
               card.querySelector(".btn-cmd-execute").disabled = false;
             }
           },
@@ -948,19 +954,19 @@ export const SlashMixin = (Base) => class extends Base {
         break;
       }
       case "delete": {
-        if (!nameArg) { this._showMsg(`Usage: /area delete <name>`); return; }
+        if (!nameArg) { this._showMsg(t("sc_usage", { usage: "/area delete <name>" })); return; }
         // Find area by name
         this._buildCommandCard({
-          icon: "🗑", title: "Delete area",
+          icon: "🗑", title: t("sc_area_delete_title"),
           detail: nameArg,
           danger: true,
-          warning: "Entities assigned to this area will become unassigned.",
+          warning: t("sc_area_delete_warning"),
           onConfirm: async (card) => {
             try {
               await this._executeActions([{ type: "delete_area", area_id: nameArg.toLowerCase().replace(/\s+/g, "_") }]);
-              card.querySelector(".btn-cmd-execute").textContent = "✓ Deleted";
+              card.querySelector(".btn-cmd-execute").textContent = t("sc_deleted");
             } catch (err) {
-              this._setStatus(`Failed: ${err.message}`, "error");
+              this._setStatus(t("sc_failed", { msg: err.message }), "error");
               card.querySelector(".btn-cmd-execute").disabled = false;
             }
           },
@@ -969,10 +975,10 @@ export const SlashMixin = (Base) => class extends Base {
       }
       case "rename": {
         const parts = nameArg.split(/\s+to\s+/i);
-        if (parts.length < 2) { this._showMsg(`Usage: /area rename <old> to <new>`); return; }
+        if (parts.length < 2) { this._showMsg(t("sc_usage", { usage: "/area rename <old> to <new>" })); return; }
         const [oldName, newName] = parts;
         this._buildCommandCard({
-          icon: "✏", title: "Rename area",
+          icon: "✏", title: t("sc_area_rename_title"),
           detail: `"${oldName}" → "${newName}"`,
           onConfirm: async (card) => {
             try {
@@ -981,9 +987,9 @@ export const SlashMixin = (Base) => class extends Base {
                 area_id: oldName.trim().toLowerCase().replace(/\s+/g, "_"),
                 name: newName.trim(),
               }]);
-              card.querySelector(".btn-cmd-execute").textContent = "✓ Renamed";
+              card.querySelector(".btn-cmd-execute").textContent = t("sc_renamed");
             } catch (err) {
-              this._setStatus(`Failed: ${err.message}`, "error");
+              this._setStatus(t("sc_failed", { msg: err.message }), "error");
               card.querySelector(".btn-cmd-execute").disabled = false;
             }
           },
@@ -993,14 +999,14 @@ export const SlashMixin = (Base) => class extends Base {
       case "list": {
         const areaReg = Object.values(this._hass.areas || {});
         if (areaReg.length) {
-          this._showMsg("Areas:\n" + areaReg.map((a) => `• ${a.name} (${a.area_id})`).join("\n"));
+          this._showMsg(t("sc_areas_header") + "\n" + areaReg.map((a) => `• ${a.name} (${a.area_id})`).join("\n"));
         } else {
-          this._showMsg("No areas found. (HA areas may not be exposed to custom panels in all versions.)");
+          this._showMsg(t("sc_areas_none"));
         }
         break;
       }
       default:
-        this._showMsg(`/area commands: new <name>, delete <name>, rename <old> to <new>, list`);
+        this._showMsg(t("sc_cmd_list", { cmd: "/area", subs: "new <name>, delete <name>, rename <old> to <new>, list" }));
     }
   }
 };

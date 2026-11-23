@@ -5,40 +5,170 @@
         "title": "Kyber — Setup",
         "description": "Select your AI task entity and configure token limit and startup behaviour.",
         "data": {
-          "ai_task_entity_id": "Chat Model",
-          "max_tokens": "Chat Model: Context Window (tokens)",
-          "chat_timeout": "Chat timeout (seconds)",
-          "narrator_ai_task_entity_id": "Operations Model (optional)",
-          "narrator_max_tokens": "Operations Model: Context Window (tokens)",
-          "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)",
-          "run_initial_analyze": "Run 1 initial analyze pass after install",
-          "initial_deep_learning_runs": "Initial deep learning runs (1-10, recommended: 10)",
-          "narrator_enabled": "Enable entity narrator",
-          "narrator_max_batch": "Narrator batch size",
-          "area_assignment_mode": "Area assignment mode"
+          "ai_task_entity_id": "Chat Model"
         },
-        "data_description": {
-          "narrator_ai_task_entity_id": "Used for batching and small tasks such as entity narration. A smaller, cheaper model works well here. Defaults to the chat model."
+        "sections": {
+          "model_config": {
+            "name": "Model Configuration",
+            "data": {
+              "max_tokens": "Chat Model: Context Window (tokens)",
+              "max_daily_tokens": "Daily token budget (0 = unlimited)",
+              "chat_timeout": "Chat timeout (seconds)",
+              "narrator_ai_task_entity_id": "Operations Model (optional)",
+              "narrator_max_tokens": "Operations Model: Context Window (tokens)"
+            },
+            "data_description": {
+              "max_daily_tokens": "Shared by the chat panel and MCP. Once it is used up, requests are refused until midnight.",
+              "chat_timeout": "How long the chat panel waits for an answer before giving up. Raise this for slow local models (e.g. Ollama on modest hardware).",
+              "narrator_ai_task_entity_id": "Used for batching and small tasks such as entity narration. A smaller, cheaper model works well here. Defaults to the chat model."
+            }
+          },
+          "cloud_config": {
+            "name": "Cloud AI Provider",
+            "data": {
+              "cloud_provider": "Cloud Provider",
+              "cloud_use_for_chat": "Use cloud provider for chat",
+              "azure_endpoint": "Azure Endpoint URL",
+              "azure_api_key": "Azure API Key",
+              "azure_deployment": "Azure Deployment Name",
+              "azure_api_version": "Azure API Version",
+              "openai_api_key": "OpenAI / Compatible API Key",
+              "openai_model": "Model name",
+              "openai_base_url": "API Base URL (leave blank for OpenAI default)",
+              "anthropic_api_key": "Anthropic API Key",
+              "anthropic_model": "Anthropic Model"
+            },
+            "data_description": {
+              "cloud_provider": "Select a cloud AI provider. Provider credentials appear after saving and re-opening options.",
+              "openai_base_url": "Custom API base URL (e.g. Groq or OpenRouter endpoint). Leave blank for OpenAI default.",
+              "azure_endpoint": "Your Azure OpenAI resource endpoint URL"
+            }
+          },
+          "agents": {
+            "name": "Agents",
+            "data": {
+              "narrator_enabled": "Enable entity narrator",
+              "narrator_interval_days": "Narrator: run every N days",
+              "narrator_max_batch": "Narrator batch size",
+              "run_initial_analyze": "Run 1 initial analyze pass after install",
+              "deep_learning_interval_days": "Deep learning: run every N days",
+              "deep_learning_max_batch": "Deep learning batch size"
+            }
+          },
+          "area_assignment": {
+            "name": "Auto Assignments",
+            "data": {
+              "area_assignment_mode": "Area assignment mode",
+              "label_assignment_mode": "Label assignment mode"
+            },
+            "data_description": {
+              "area_assignment_mode": "Suggest or auto-apply area assignments to entities mentioned in conversation.",
+              "label_assignment_mode": "Suggest or auto-apply kyber: device-type labels to entities in conversation."
+            }
+          },
+          "developer": {
+            "name": "Developer",
+            "data": {
+              "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)",
+              "enable_mcp": "Enable MCP server",
+              "enable_mcp_in_chat": "Use external MCP servers in chat",
+              "mcp_allow_state_changes": "MCP can change state of home",
+              "mcp_client_servers": "External MCP servers (JSON)",
+              "max_requests_per_minute": "Max requests per minute per user (0 = unlimited)"
+            },
+            "data_description": {
+              "enable_mcp": "Registers the MCP endpoint at POST /api/kyber/mcp so external AI clients (ChatGPT, Claude and others) can use Kyber.",
+              "enable_mcp_in_chat": "Lets the chat model call the tools of the MCP servers listed below.",
+              "mcp_allow_state_changes": "Allows MCP clients to switch devices and set values directly (hass_turn_on, hass_turn_off, hass_toggle, hass_set_value). When off, they can only read.",
+              "mcp_client_servers": "A JSON list with one entry per server: name, url and token.",
+              "max_requests_per_minute": "Applies to the chat panel and MCP."
+            }
+          }
         }
       },
       "reconfigure": {
         "title": "Kyber — Reconfigure",
         "description": "Update your AI task entity and settings.",
         "data": {
-          "ai_task_entity_id": "Chat Model",
-          "max_tokens": "Chat Model: Context Window (tokens)",
-          "chat_timeout": "Chat timeout (seconds)",
-          "narrator_ai_task_entity_id": "Operations Model (optional)",
-          "narrator_max_tokens": "Operations Model: Context Window (tokens)",
-          "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)",
-          "run_initial_analyze": "Run 1 initial analyze pass after install",
-          "initial_deep_learning_runs": "Initial deep learning runs (1-10, recommended: 10)",
-          "narrator_enabled": "Enable entity narrator",
-          "narrator_max_batch": "Narrator batch size",
-          "area_assignment_mode": "Area assignment mode"
+          "ai_task_entity_id": "Chat Model"
         },
-        "data_description": {
-          "narrator_ai_task_entity_id": "Used for batching and small tasks such as entity narration. A smaller, cheaper model works well here. Defaults to the chat model."
+        "sections": {
+          "model_config": {
+            "name": "Model Configuration",
+            "data": {
+              "max_tokens": "Chat Model: Context Window (tokens)",
+              "max_daily_tokens": "Daily token budget (0 = unlimited)",
+              "chat_timeout": "Chat timeout (seconds)",
+              "narrator_ai_task_entity_id": "Operations Model (optional)",
+              "narrator_max_tokens": "Operations Model: Context Window (tokens)"
+            },
+            "data_description": {
+              "max_daily_tokens": "Shared by the chat panel and MCP. Once it is used up, requests are refused until midnight.",
+              "chat_timeout": "How long the chat panel waits for an answer before giving up. Raise this for slow local models (e.g. Ollama on modest hardware).",
+              "narrator_ai_task_entity_id": "Used for batching and small tasks such as entity narration. A smaller, cheaper model works well here. Defaults to the chat model."
+            }
+          },
+          "cloud_config": {
+            "name": "Cloud AI Provider",
+            "data": {
+              "cloud_provider": "Cloud Provider",
+              "cloud_use_for_chat": "Use cloud provider for chat",
+              "azure_endpoint": "Azure Endpoint URL",
+              "azure_api_key": "Azure API Key",
+              "azure_deployment": "Azure Deployment Name",
+              "azure_api_version": "Azure API Version",
+              "openai_api_key": "OpenAI / Compatible API Key",
+              "openai_model": "Model name",
+              "openai_base_url": "API Base URL (leave blank for OpenAI default)",
+              "anthropic_api_key": "Anthropic API Key",
+              "anthropic_model": "Anthropic Model"
+            },
+            "data_description": {
+              "cloud_provider": "Select a cloud AI provider. Provider credentials appear after saving and re-opening options.",
+              "openai_base_url": "Custom API base URL (e.g. Groq or OpenRouter endpoint). Leave blank for OpenAI default.",
+              "azure_endpoint": "Your Azure OpenAI resource endpoint URL"
+            }
+          },
+          "agents": {
+            "name": "Agents",
+            "data": {
+              "narrator_enabled": "Enable entity narrator",
+              "narrator_interval_days": "Narrator: run every N days",
+              "narrator_max_batch": "Narrator batch size",
+              "run_initial_analyze": "Run 1 initial analyze pass after install",
+              "deep_learning_interval_days": "Deep learning: run every N days",
+              "deep_learning_max_batch": "Deep learning batch size"
+            }
+          },
+          "area_assignment": {
+            "name": "Auto Assignments",
+            "data": {
+              "area_assignment_mode": "Area assignment mode",
+              "label_assignment_mode": "Label assignment mode"
+            },
+            "data_description": {
+              "area_assignment_mode": "Suggest or auto-apply area assignments to entities mentioned in conversation.",
+              "label_assignment_mode": "Suggest or auto-apply kyber: device-type labels to entities in conversation."
+            }
+          },
+          "developer": {
+            "name": "Developer",
+            "data": {
+              "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)",
+              "enable_mcp": "Enable MCP server",
+              "enable_mcp_in_chat": "Use external MCP servers in chat",
+              "mcp_allow_state_changes": "MCP can change state of home",
+              "mcp_client_servers": "External MCP servers (JSON)",
+              "max_requests_per_minute": "Max requests per minute per user (0 = unlimited)"
+            },
+            "data_description": {
+              "enable_mcp": "Registers the MCP endpoint at POST /api/kyber/mcp so external AI clients (ChatGPT, Claude and others) can use Kyber.",
+              "enable_mcp_in_chat": "Lets the chat model call the tools of the MCP servers listed below.",
+              "mcp_allow_state_changes": "Allows MCP clients to switch devices and set values directly (hass_turn_on, hass_turn_off, hass_toggle, hass_set_value). When off, they can only read.",
+              "mcp_client_servers": "A JSON list with one entry per server: name, url and token.",
+              "max_requests_per_minute": "Applies to the chat panel and MCP."
+            }
+          }
         }
       }
     },
@@ -62,47 +192,17 @@
             "data": {
               "ai_task_entity_id": "Chat Model",
               "max_tokens": "Chat Model: Context Window (tokens)",
+              "max_daily_tokens": "Daily token budget (0 = unlimited)",
               "chat_timeout": "Chat timeout (seconds)",
               "narrator_ai_task_entity_id": "Operations Model (optional)",
               "narrator_max_tokens": "Operations Model: Context Window (tokens)"
             },
             "data_description": {
-              "max_tokens": "{chat_stats}",
+              "max_tokens": "Calls: {chat_calls} · Avg: {chat_avg}s · Min: {chat_min}s · Max: {chat_max}s · ~{chat_tokens} tokens · Errors: {chat_errors}",
+              "max_daily_tokens": "Shared by the chat panel and MCP. Once it is used up, requests are refused until midnight.",
               "chat_timeout": "How long the chat panel waits for an answer before giving up. Raise this for slow local models (e.g. Ollama on modest hardware).",
               "narrator_ai_task_entity_id": "Used for batching and small tasks such as entity narration. A smaller, cheaper model works well here. Defaults to the chat model.",
-              "narrator_max_tokens": "{ops_stats}"
-            }
-          },
-          "agents": {
-            "name": "Agents",
-            "data": {
-              "narrator_enabled": "Enable entity narrator",
-              "narrator_interval_days": "Narrator: run every N days",
-              "narrator_max_batch": "Narrator batch size",
-              "run_initial_analyze": "Run analyze pass on HA restart",
-              "deep_learning_interval_days": "Deep learning: run every N days",
-              "deep_learning_max_batch": "Deep learning batch size"
-            },
-            "data_description": {
-              "narrator_interval_days": "{narrator_run_stats}",
-              "deep_learning_interval_days": "{deep_learning_run_stats}"
-            }
-          },
-          "area_assignment": {
-            "name": "Auto Assignments",
-            "data": {
-              "area_assignment_mode": "Area assignment mode",
-              "label_assignment_mode": "Label assignment mode"
-            },
-            "data_description": {
-              "area_assignment_mode": "Suggest or auto-apply area assignments to entities mentioned in conversation.",
-              "label_assignment_mode": "Suggest or auto-apply kyber: device-type labels to entities in conversation."
-            }
-          },
-          "developer": {
-            "name": "Developer",
-            "data": {
-              "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)"
+              "narrator_max_tokens": "Calls: {ops_calls} · Avg: {ops_avg}s · Min: {ops_min}s · Max: {ops_max}s · ~{ops_tokens} tokens · Errors: {ops_errors}"
             }
           },
           "cloud_config": {
@@ -125,8 +225,69 @@
               "openai_base_url": "Custom API base URL (e.g. Groq or OpenRouter endpoint). Leave blank for OpenAI default.",
               "azure_endpoint": "Your Azure OpenAI resource endpoint URL"
             }
+          },
+          "agents": {
+            "name": "Agents",
+            "data": {
+              "narrator_enabled": "Enable entity narrator",
+              "narrator_interval_days": "Narrator: run every N days",
+              "narrator_max_batch": "Narrator batch size",
+              "run_initial_analyze": "Run analyze pass on HA restart",
+              "deep_learning_interval_days": "Deep learning: run every N days",
+              "deep_learning_max_batch": "Deep learning batch size"
+            },
+            "data_description": {
+              "narrator_interval_days": "Last run: {narrator_last} · Next: {narrator_next} · Total runs this session: {narrator_total}",
+              "deep_learning_interval_days": "Last run: {deep_learning_last} · Next: {deep_learning_next} · Total runs this session: {deep_learning_total}"
+            }
+          },
+          "area_assignment": {
+            "name": "Auto Assignments",
+            "data": {
+              "area_assignment_mode": "Area assignment mode",
+              "label_assignment_mode": "Label assignment mode"
+            },
+            "data_description": {
+              "area_assignment_mode": "Suggest or auto-apply area assignments to entities mentioned in conversation.",
+              "label_assignment_mode": "Suggest or auto-apply kyber: device-type labels to entities in conversation."
+            }
+          },
+          "developer": {
+            "name": "Developer",
+            "data": {
+              "enable_debug_views": "Enable debug views (Kyber Debug sidebar + per-turn debug tools)",
+              "enable_mcp": "Enable MCP server",
+              "enable_mcp_in_chat": "Use external MCP servers in chat",
+              "mcp_allow_state_changes": "MCP can change state of home",
+              "mcp_client_servers": "External MCP servers (JSON)",
+              "max_requests_per_minute": "Max requests per minute per user (0 = unlimited)"
+            },
+            "data_description": {
+              "enable_mcp": "Registers the MCP endpoint at POST /api/kyber/mcp so external AI clients (ChatGPT, Claude and others) can use Kyber.",
+              "enable_mcp_in_chat": "Lets the chat model call the tools of the MCP servers listed below.",
+              "mcp_allow_state_changes": "Allows MCP clients to switch devices and set values directly (hass_turn_on, hass_turn_off, hass_toggle, hass_set_value). When off, they can only read.",
+              "mcp_client_servers": "A JSON list with one entry per server: name, url and token.",
+              "max_requests_per_minute": "Applies to the chat panel and MCP."
+            }
           }
         }
+      }
+    }
+  },
+  "selector": {
+    "assignment_mode": {
+      "options": {
+        "off": "Off",
+        "suggest": "Suggest (recommended)",
+        "auto": "Automatic"
+      }
+    },
+    "cloud_provider": {
+      "options": {
+        "none": "None (use local HA ai_task entity)",
+        "azure": "Azure AI Foundry",
+        "openai": "OpenAI (or compatible: Groq, Mistral, OpenRouter…)",
+        "anthropic": "Anthropic (Claude)"
       }
     }
   }

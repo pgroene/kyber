@@ -76,7 +76,7 @@ async def test_proposal_approve_assign_area_executes_and_creates_memory(
     assert resp.status == 200
     data = await resp.json()
     assert data["status"] == "ok"
-    assert data["memory"] == "De koffiezetapparaat (switch.koffiezetapparaat) staat in de keuken."
+    assert data["memory"] == "koffiezetapparaat (switch.koffiezetapparaat) is in the area 'keuken'."
     assert entity_reg.async_get(entry.entity_id).area_id == area.id
 
     await kstore.async_load()
@@ -113,7 +113,7 @@ async def test_proposal_approve_assign_label_executes_and_creates_memory(
 
     assert resp.status == 200
     data = await resp.json()
-    assert data["memory"] == "De switch.koffiezetapparaat (switch.koffiezetapparaat) is gemarkeerd als kyber:appliance."
+    assert data["memory"] == "switch.koffiezetapparaat (switch.koffiezetapparaat) has the label 'kyber:appliance'."
     assert label.label_id in (entity_reg.async_get(entry.entity_id).labels or set())
 
 
