@@ -206,64 +206,64 @@ export const NL = {
   err_force_update_failed: "Geforceerde update mislukt",
 };
 
-// ?? German (de) ?????????????????????????????????????????????????????????????
+// ── German (de) ──────────────────────────────────────────────────────────────
 export const DE = {
   // Sidebar / header
-  brand: "Kyber Assistent",
-  memory_badge_title: "Erinnerungsfakten ? klicken, um abgerufene Fakten anzuzeigen",
-  update_badge: "Update",
-  autopilot_badge: "? Autopilot",
-  btn_clear_history: "Verlauf l?schen",
-  btn_debug_title: "Debug-/Speicherinspektor ?ffnen",
+  brand:              "Kyber Assistent",
+  memory_badge_title: "Erinnerungsfakten – klicken, um abgerufene Fakten anzuzeigen",
+  update_badge:       "Update",
+  autopilot_badge:    "⚡ Autopilot",
+  btn_clear_history:  "Verlauf löschen",
+  btn_debug_title:    "Debug-/Speicherinspektor öffnen",
 
   // Editor toolbar
-  btn_save: "Speichern",
-  btn_close_editor: "? Editor schlie?en",
+  btn_save:           "Speichern",
+  btn_close_editor:   "✕ Editor schließen",
 
   // Chat input
-  placeholder: "Frag mich alles ?ber dein Smart Home? (f?r Befehle / eingeben)",
-  btn_ask: "Fragen",
+  placeholder:        "Frag mich alles über dein Smart Home … (/ für Befehle eingeben)",
+  btn_ask:            "Fragen",
 
   // Greeting
-  greeting: "Hallo! Frag mich alles ?ber dein Smart Home ? ich kann Entit?ten, Bereiche, Labels verwalten oder Automationen zum Bearbeiten ?ffnen.",
+  greeting:           "Hallo! Frag mich alles über dein Smart Home – ich kann Entitäten, Bereiche und Labels verwalten oder Automationen zum Bearbeiten öffnen.",
 
   // Explorer banner
-  exploring: "Dein Zuhause wird erkundet?",
+  exploring:          "Dein Zuhause wird erkundet …",
 
   // Debug panel
-  debug_title: "?? Kyber Debug",
-  debug_tab_memory: "?? Speicher",
-  debug_tab_last: "?? Letzte Runde",
-  debug_tab_status: "?? Status",
-  debug_tab_logs: "?? Protokolle",
-  debug_tab_tests: "?? Tests",
-  debug_tab_mcp: "?? MCP",
-  debug_loading: "Wird geladen?",
+  debug_title:        "🐞 Kyber Debug",
+  debug_tab_memory:   "🧠 Speicher",
+  debug_tab_last:     "📥 Letzte Runde",
+  debug_tab_status:   "⚙️ Status",
+  debug_tab_logs:     "📋 Protokolle",
+  debug_tab_tests:    "🧪 Tests",
+  debug_tab_mcp:      "🔌 MCP",
+  debug_loading:      "Wird geladen …",
 
   // Memory popover
-  memory_popover_header: "?? In dieser Runde abgerufen",
-  memory_popover_empty: "Keine Fakten abgerufen.",
-  memory_popover_view_all: "Alles im Speicher-Tab anzeigen ?",
+  memory_popover_header:   "🧠 In dieser Runde abgerufen",
+  memory_popover_empty:    "Keine Fakten abgerufen.",
+  memory_popover_view_all: "Alles im Speicher-Tab anzeigen →",
 
   // Status / AI
-  thinking: "Denke nach?",
-  cancelling: "Wird abgebrochen?",
-  loading: "Wird geladen?",
-  copy_title: "Kopieren",
-  copy_failed_title: "Kopieren fehlgeschlagen ? Zwischenablage nicht verf?gbar",
-  retry_btn: "? Erneut versuchen",
+  thinking:           "Denke nach …",
+  cancelling:         "Wird abgebrochen …",
+  loading:            "Wird geladen …",
+  copy_title:         "Kopieren",
+  copy_failed_title:  "Kopieren fehlgeschlagen – Zwischenablage nicht verfügbar",
+  retry_btn:          "↺ Erneut versuchen",
 
   // Copy feedback
-  copy_done: "?",
-  copy_fail: "?",
+  copy_done:          "✓",
+  copy_fail:          "✗",
 
   // Knowledge tab
-  knowledge_empty: "Noch kein Wissen gespeichert.",
-  knowledge_loading: "Wissen wird geladen?",
+  knowledge_empty:    "Noch kein Wissen gespeichert.",
+  knowledge_loading:  "Wissen wird geladen …",
 
   // Slash commands
-  cmd_confirm_execute: "? Ausf?hren",
-  cmd_cancel: "Abbrechen",
+  cmd_confirm_execute: "▶ Ausführen",
+  cmd_cancel:          "Abbrechen",
 
   // Automation edit/create card
   ae_view:             "▼ Anzeigen",
@@ -286,20 +286,20 @@ export const DE = {
   restored_card_done:  "✓ Bereits ausgeführt",
 
   // Restart overlay
-  restart_title: "Home Assistant wird neu gestartet?",
-  restart_subtitle: "Diese Seite wird automatisch neu geladen.",
-  restart_waiting: "Warte auf Home Assistant?",
-  restart_back: "? Home Assistant ist zur?ck ? neu laden?",
-  restart_slow: "Dauert l?nger als erwartet ? manuell neu laden.",
+  restart_title:        "Home Assistant wird neu gestartet …",
+  restart_subtitle:     "Diese Seite wird automatisch neu geladen.",
+  restart_waiting:      "Warte auf Home Assistant …",
+  restart_back:         "✅ Home Assistant ist zurück – Seite wird neu geladen …",
+  restart_slow:         "Dauert länger als erwartet – bitte manuell neu laden.",
 
   // Update
-  update_installing: "? Installation",
-  update_installed: "? Installiert",
-  update_downloading: "? Herunterladen",
-  update_updated: "? Aktualisiert",
+  update_installing:    "⏳ Wird installiert",
+  update_installed:     "✅ Installiert",
+  update_downloading:   "⏳ Wird heruntergeladen",
+  update_updated:       "✅ Aktualisiert",
 
   // Errors
-  err_update_failed: "Update fehlgeschlagen",
+  err_update_failed:       "Update fehlgeschlagen",
   err_force_update_failed: "Erzwungenes Update fehlgeschlagen",
 };
 

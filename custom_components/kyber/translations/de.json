@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "Kyber ? Einrichtung",
-        "description": "W?hlen Sie Ihre KI-Aufgaben-Entit?t und konfigurieren Sie Token-Limit sowie Startverhalten.",
+        "title": "Kyber – Einrichtung",
+        "description": "Wählen Sie Ihre KI-Aufgaben-Entität und konfigurieren Sie Token-Limit sowie Startverhalten.",
         "data": {
           "ai_task_entity_id": "Chat-Modell",
           "max_tokens": "Chat-Modell: Kontextfenster (Token)",
@@ -11,19 +11,19 @@
           "narrator_ai_task_entity_id": "Operationsmodell (optional)",
           "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)",
           "enable_debug_views": "Debug-Ansichten aktivieren (Kyber-Debug-Seitenleiste + Debug-Tools pro Runde)",
-          "run_initial_analyze": "1 initialen Analyse-Durchlauf nach der Installation ausf?hren",
-          "initial_deep_learning_runs": "Initiale Deep-Learning-Durchl?ufe (1-10, empfohlen: 10)",
-          "narrator_enabled": "Entit?ts-Erz?hler aktivieren",
-          "narrator_max_batch": "Batch-Gr??e des Erz?hlers",
+          "run_initial_analyze": "1 initialen Analyse-Durchlauf nach der Installation ausführen",
+          "initial_deep_learning_runs": "Initiale Deep-Learning-Durchläufe (1-10, empfohlen: 10)",
+          "narrator_enabled": "Entitäts-Erzähler aktivieren",
+          "narrator_max_batch": "Batch-Größe des Erzählers",
           "area_assignment_mode": "Bereichszuteilungsmodus"
         },
         "data_description": {
-          "narrator_ai_task_entity_id": "Wird f?r Batch-Verarbeitung und kleine Aufgaben wie Entit?tsbeschreibungen verwendet. Ein kleineres, g?nstigeres Modell funktioniert hier gut. Standardm??ig das Chat-Modell."
+          "narrator_ai_task_entity_id": "Wird für Batch-Verarbeitung und kleine Aufgaben wie Entitätsbeschreibungen verwendet. Ein kleineres, günstigeres Modell funktioniert hier gut. Standardmäßig das Chat-Modell."
         }
       },
       "reconfigure": {
-        "title": "Kyber ? Neu konfigurieren",
-        "description": "Aktualisieren Sie Ihre KI-Aufgaben-Entit?t und Einstellungen.",
+        "title": "Kyber – Neu konfigurieren",
+        "description": "Aktualisieren Sie Ihre KI-Aufgaben-Entität und Einstellungen.",
         "data": {
           "ai_task_entity_id": "Chat-Modell",
           "max_tokens": "Chat-Modell: Kontextfenster (Token)",
@@ -31,24 +31,24 @@
           "narrator_ai_task_entity_id": "Operationsmodell (optional)",
           "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)",
           "enable_debug_views": "Debug-Ansichten aktivieren (Kyber-Debug-Seitenleiste + Debug-Tools pro Runde)",
-          "run_initial_analyze": "1 initialen Analyse-Durchlauf nach der Installation ausf?hren",
-          "initial_deep_learning_runs": "Initiale Deep-Learning-Durchl?ufe (1-10, empfohlen: 10)",
-          "narrator_enabled": "Entit?ts-Erz?hler aktivieren",
-          "narrator_max_batch": "Batch-Gr??e des Erz?hlers",
+          "run_initial_analyze": "1 initialen Analyse-Durchlauf nach der Installation ausführen",
+          "initial_deep_learning_runs": "Initiale Deep-Learning-Durchläufe (1-10, empfohlen: 10)",
+          "narrator_enabled": "Entitäts-Erzähler aktivieren",
+          "narrator_max_batch": "Batch-Größe des Erzählers",
           "area_assignment_mode": "Bereichszuteilungsmodus"
         },
         "data_description": {
-          "narrator_ai_task_entity_id": "Wird f?r Batch-Verarbeitung und kleine Aufgaben wie Entit?tsbeschreibungen verwendet. Ein kleineres, g?nstigeres Modell funktioniert hier gut. Standardm??ig das Chat-Modell."
+          "narrator_ai_task_entity_id": "Wird für Batch-Verarbeitung und kleine Aufgaben wie Entitätsbeschreibungen verwendet. Ein kleineres, günstigeres Modell funktioniert hier gut. Standardmäßig das Chat-Modell."
         }
       }
     },
     "error": {
-      "entity_not_found": "Die ausgew?hlte KI-Aufgaben-Entit?t wurde nicht gefunden. Stellen Sie sicher, dass Ihre KI-Integration (z. B. Ollama, Home Assistant Cloud, OpenAI) eingerichtet ist und die Entit?t existiert.",
-      "cannot_connect": "Der KI-Anbieter konnte nicht erreicht werden. Pr?fen Sie Ihre Integrationskonfiguration."
+      "entity_not_found": "Die ausgewählte KI-Aufgaben-Entität wurde nicht gefunden. Stellen Sie sicher, dass Ihre KI-Integration (z. B. Ollama, Home Assistant Cloud, OpenAI) eingerichtet ist und die Entität existiert.",
+      "cannot_connect": "Der KI-Anbieter konnte nicht erreicht werden. Prüfen Sie Ihre Integrationskonfiguration."
     },
     "abort": {
       "already_configured": "Kyber ist bereits konfiguriert.",
-      "reconfigure_successful": "Kyber wurde mit der neuen KI-Entit?t neu konfiguriert."
+      "reconfigure_successful": "Kyber wurde mit der neuen KI-Entität neu konfiguriert."
     }
   },
   "options": {
@@ -69,19 +69,19 @@
             "data_description": {
               "max_tokens": "{chat_stats}",
               "chat_timeout": "Wie lange das Chat-Panel auf eine Antwort wartet, bevor es abbricht. Für langsame lokale Modelle (z. B. Ollama auf schwächerer Hardware) erhöhen.",
-              "narrator_ai_task_entity_id": "Wird f?r Batch-Verarbeitung und kleine Aufgaben wie Entit?tsbeschreibungen verwendet. Ein kleineres, g?nstigeres Modell funktioniert hier gut. Standardm??ig das Chat-Modell.",
+              "narrator_ai_task_entity_id": "Wird für Batch-Verarbeitung und kleine Aufgaben wie Entitätsbeschreibungen verwendet. Ein kleineres, günstigeres Modell funktioniert hier gut. Standardmäßig das Chat-Modell.",
               "narrator_max_tokens": "{ops_stats}"
             }
           },
           "agents": {
             "name": "Agenten",
             "data": {
-              "narrator_enabled": "Entit?ts-Erz?hler aktivieren",
-              "narrator_interval_days": "Erz?hler: alle N Tage ausf?hren",
-              "narrator_max_batch": "Batch-Gr??e des Erz?hlers",
-              "run_initial_analyze": "Analyse-Durchlauf beim HA-Neustart ausf?hren",
-              "deep_learning_interval_days": "Deep Learning: alle N Tage ausf?hren",
-              "deep_learning_max_batch": "Deep-Learning-Batch-Gr??e"
+              "narrator_enabled": "Entitäts-Erzähler aktivieren",
+              "narrator_interval_days": "Erzähler: alle N Tage ausführen",
+              "narrator_max_batch": "Batch-Größe des Erzählers",
+              "run_initial_analyze": "Analyse-Durchlauf beim HA-Neustart ausführen",
+              "deep_learning_interval_days": "Deep Learning: alle N Tage ausführen",
+              "deep_learning_max_batch": "Deep-Learning-Batch-Größe"
             },
             "data_description": {
               "narrator_interval_days": "{narrator_run_stats}",
@@ -95,9 +95,12 @@
               "label_assignment_mode": "Label-Zuweisungsmodus"
             },
             "data_description": {
-              "area_assignment_mode": "Bereichszuweisungen f?r in Gespr?chen erw?hnte Entit?ten vorschlagen oder automatisch anwenden.",
-              "label_assignment_mode": "Kyber:-Ger?tetyp-Labels f?r Entit?ten im Gespr?ch vorschlagen oder automatisch anwenden."
+              "area_assignment_mode": "Bereichszuweisungen für in Gesprächen erwähnte Entitäten vorschlagen oder automatisch anwenden.",
+              "label_assignment_mode": "Kyber:-Gerätetyp-Labels für Entitäten im Gespräch vorschlagen oder automatisch anwenden."
             }
+          },
+          "cloud_config": {
+            "name": "Cloud-KI-Anbieter"
           },
           "developer": {
             "name": "Entwickler",
