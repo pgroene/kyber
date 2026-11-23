@@ -2,7 +2,7 @@
 
 Covers:
 - Fix 5: Background tasks stored and cancelled on unload
-- Fix 6: _update_listener correctly diffs consecutive options snapshots
+- Fix 6: _update_listener (now tested in test_lifecycle.py)
 - Fix 7: Knowledge store mutations serialized under lock
 - Fix 8: Retry-After header parsed defensively (handles HTTP-date strings)
 - Fix 9: Debug mode sets logging.DEBUG (not logging.INFO)
@@ -97,86 +97,8 @@ _dd = _load_module("custom_components.kyber.debug_and_diagnostics", "custom_comp
 
 
 # ---------------------------------------------------------------------------
-# Fix 6 — _update_listener uses consecutive-options snapshot, not entry.data
+# Fix 6 — update listener: covered against the real code in test_lifecycle.py
 # ---------------------------------------------------------------------------
-
-class TestUpdateListenerBaseline:
-    """_make_update_listener returns a listener that correctly detects change sets."""
-
-    def _make_listener_fn(self):
-        """Load __init__ _make_update_listener without a full HA runtime."""
-        # We only need the function, not the full module — import lazily.
-        import importlib.util as _iu
-        spec = _iu.spec_from_file_location(
-            "custom_components.kyber.__init__stub",
-            str(ROOT / "custom_components" / "kyber" / "__init__.py"),
-        )
-        # Instead of executing the huge __init__, extract the function via AST/text.
-        # Simpler: just replicate the logic inline for the unit test.
-        NARRATOR_ONLY_KEYS = frozenset({"narrator_max_batch"})
-
-        def _make_update_listener():
-            state = {"prev_opts": None}
-
-            async def _listener(hass, entry):
-                new_opts = entry.options or {}
-                if state["prev_opts"] is None:
-                    state["prev_opts"] = dict(entry.data)
-                prev_opts = state["prev_opts"]
-                changed_keys = {
-                    k for k in set(prev_opts) | set(new_opts)
-                    if prev_opts.get(k) != new_opts.get(k)
-                }
-                state["prev_opts"] = dict(new_opts)
-                if changed_keys and changed_keys.issubset(NARRATOR_ONLY_KEYS):
-                    return "narrator_only"
-                return "reload"
-
-            return _listener
-
-        return _make_update_listener
-
-    def test_first_call_uses_data_as_baseline(self):
-        """On first call, entry.data is used as the baseline."""
-        make = self._make_listener_fn()
-        listener = make()
-
-        class _Entry:
-            data = {"narrator_max_batch": 10, "chat_model": "gpt-4"}
-            options = {"narrator_max_batch": 20, "chat_model": "gpt-4"}
-
-        result = _run(listener(None, _Entry()))
-        # narrator_max_batch changed, chat_model unchanged → narrator-only → skip reload
-        assert result == "narrator_only"
-
-    def test_second_call_compares_against_previous_options(self):
-        """Second call diffs new options against first-call options, not entry.data."""
-        make = self._make_listener_fn()
-        listener = make()
-
-        class _Entry1:
-            data = {"chat_model": "gpt-4"}
-            options = {"chat_model": "gpt-4"}
-
-        class _Entry2:
-            data = {"chat_model": "gpt-4"}
-            options = {"chat_model": "gpt-4o"}  # changed from first call
-
-        _run(listener(None, _Entry1()))  # first call establishes baseline
-        result = _run(listener(None, _Entry2()))  # second call detects chat_model change
-        assert result == "reload"
-
-    def test_narrator_only_change_skips_reload(self):
-        """When only narrator_max_batch changes, return narrator_only (no reload)."""
-        make = self._make_listener_fn()
-        listener = make()
-
-        class _Entry:
-            data = {}
-            options = {"narrator_max_batch": 5}
-
-        result = _run(listener(None, _Entry()))
-        assert result == "narrator_only"
 
 
 # ---------------------------------------------------------------------------

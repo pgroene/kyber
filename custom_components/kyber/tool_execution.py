@@ -12,7 +12,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
 
-from .knowledge import get_store as get_knowledge_store
+from .knowledge import alias_entity_ids, get_store as get_knowledge_store
 from .analyzer import analyze_automations as _analyze_automations
 from .domain_docs import get_domain_docs as _get_domain_docs
 from .source import (
@@ -138,10 +138,12 @@ def _search_entity_aliases(
         if entry.get("category") != "entity_alias":
             continue
         subject = entry.get("subject", "")  # the alias phrase
-        content = entry.get("content", "")  # the entity_id
+        content = entry.get("content", "")  # the entity_id(s), bare or in a sentence
         if not subject or not content:
             continue
-        entity_id = content.strip()
+        entity_ids = alias_entity_ids(content)
+        if not entity_ids:
+            continue
 
         # Score this alias against each query
         best = 0.0
@@ -153,9 +155,10 @@ def _search_entity_aliases(
                 best_alias = subject
 
         if best > 0.0:
-            if best > alias_scores.get(entity_id, 0.0):
-                alias_scores[entity_id] = best
-                alias_notes[entity_id] = best_alias
+            for entity_id in entity_ids:
+                if best > alias_scores.get(entity_id, 0.0):
+                    alias_scores[entity_id] = best
+                    alias_notes[entity_id] = best_alias
 
     if not alias_scores:
         return {}

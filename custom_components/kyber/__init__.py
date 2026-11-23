@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
+from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
@@ -13,10 +16,7 @@ from .const import (
     CONF_AI_TASK_ENTITY_ID,
     CONF_NARRATOR_AI_TASK_ENTITY_ID,
     CONF_ENABLE_DEBUG_VIEWS,
-    CONF_ENABLE_MCP,
-    DEFAULT_ENABLE_MCP,
     CONF_INITIAL_DEEP_LEARNING_RUNS,
-    CONF_INITIAL_LEARNING_DONE,
     CONF_INITIAL_LEARNING_VERSION,
     CONF_NARRATOR_ENABLED,
     CONF_NARRATOR_MAX_BATCH,
@@ -46,6 +46,8 @@ from .http_api import KyberView, KyberSaveView, KyberExecuteView, KyberSummarize
 from .action_history import KyberActionHistoryView, KyberActionHistoryUndoView, KyberActionHistoryEntryView
 from .debug_and_diagnostics import KyberHomeExportView, KyberMemoryExportView, KyberGlobalLogHandler, KyberDebugLogsView
 from .mcp import KyberMCPView, KyberMcpLogView
+from .runtime_state import async_setup_runtime_state, get_runtime_state
+from .view_gate import CONFIG_KEY, gate_view, kyber_loaded
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,19 +63,22 @@ async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -
 
     Guarded by a version number so it re-runs automatically when the learning
     logic is improved (bump CURRENT_INITIAL_LEARNING_VERSION in const.py).
-    Uses force=True so the AI is called on every item regardless of whether
-    the YAML has changed since the last run.
+    Uses force=True so the AI is called regardless of whether the YAML has
+    changed since the last run. All runs share one sweep, so each run picks
+    the least recently analysed items that this sweep has not tried yet, and
+    each run uses a different prompt lens.
     """
     import asyncio
 
-    data = dict(entry.data)
-    stored_version = int(data.get(CONF_INITIAL_LEARNING_VERSION, 0))
+    runtime = get_runtime_state(hass)
+    stored_version = int(runtime.get(CONF_INITIAL_LEARNING_VERSION, 0) or 0)
     if stored_version >= CURRENT_INITIAL_LEARNING_VERSION:
         _LOGGER.debug(
             "Kyber initial learning already at v%d — skipping", stored_version
         )
         return
 
+    data = dict(entry.data)
     ai_entity_id = str(data.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
     run_initial_analyze = bool(
         data.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)
@@ -126,15 +131,19 @@ async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -
             _LOGGER.warning("Kyber initial analyze run failed: %s", err)
 
     total_facts = 0
+    sweep: set[str] = set()
     for i in range(deep_runs):
         _LOGGER.warning(
             "Kyber initial learning: AI deep-analysis run %d/%d…", i + 1, deep_runs
         )
         try:
-            # force=True: analyze every automation/script even if hash unchanged,
-            # retiring old knowledge entries first to avoid duplicates.
             result = await _deep.analyze_pending(
-                hass, ai_entity_id=ai_entity_id, limit=5, force=True
+                hass,
+                ai_entity_id=ai_entity_id,
+                limit=5,
+                force=True,
+                prompt_variant=i,
+                sweep=sweep,
             )
             n_analyzed = len(result.get("analyzed", []))
             n_facts = sum(
@@ -165,9 +174,7 @@ async def _async_run_initial_learning(hass: HomeAssistant, entry: ConfigEntry) -
                 "Kyber initial deep learning run %d/%d failed: %s", i + 1, deep_runs, err
             )
 
-    data[CONF_INITIAL_LEARNING_VERSION] = CURRENT_INITIAL_LEARNING_VERSION
-    data[CONF_INITIAL_LEARNING_DONE] = True
-    hass.config_entries.async_update_entry(entry, data=data)
+    await runtime.async_set(CONF_INITIAL_LEARNING_VERSION, CURRENT_INITIAL_LEARNING_VERSION)
     _LOGGER.warning(
         "Kyber initial learning v%d complete ✓ — %d total facts stored across %d runs",
         CURRENT_INITIAL_LEARNING_VERSION,
@@ -182,10 +189,9 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
     Called via async_at_start so HA has already finished loading when we run.
     Idempotent — skips already-explored ones.
 
-    After Phase 1+2 completes, fires Phase 3 (entity narrator) if an AI
-    task entity is configured.
+    After Phase 1+2 completes, runs whatever background learning is due
+    (narrator, deep learning). Later checks come from the hourly timer.
     """
-    import asyncio
     from homeassistant.helpers import entity_registry as er
     from .knowledge import get_knowledge_store
     from .integration_explorer import async_startup_explore_all
@@ -261,126 +267,150 @@ async def _async_explore_integrations(hass: HomeAssistant, entry: ConfigEntry) -
         _LOGGER.info("Kyber: dashboard indexer found %d named entities, stored %d label entries", len(dashboard_names), label_count)
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("Kyber: dashboard indexer failed: %s", err)
-        dashboard_names = {}
 
-    # Phase 3: AI narrator — only if enabled and an AI task entity is configured.
-    ai_entity_id = str((entry.data or {}).get(CONF_AI_TASK_ENTITY_ID, "")).strip()
+    await _async_run_due_learning(hass, entry)
+
+
+_LEARNING_CYCLE_LOCK_KEY = "kyber_learning_cycle_lock"
+_LEARNING_CHECK_INTERVAL = timedelta(hours=1)
+
+
+async def _async_run_due_learning(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Run the narrator and deep learning if their interval has elapsed.
+
+    Called once after the startup exploration and then by the hourly timer.
+    One cycle at a time: a check that finds a cycle still running does nothing.
+    """
+    import asyncio
+
+    cycle_lock: asyncio.Lock = hass.data.setdefault(_LEARNING_CYCLE_LOCK_KEY, asyncio.Lock())
+    if cycle_lock.locked():
+        _LOGGER.debug("Kyber: learning cycle still running — skipping this check")
+        return
+    async with cycle_lock:
+        await _async_run_due_learning_locked(hass, entry)
+
+
+async def _async_run_due_learning_locked(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    import asyncio
+    import time as _time
+
+    config = {**entry.data, **(entry.options or {})}
+    ai_entity_id = (
+        str((entry.data or {}).get(CONF_AI_TASK_ENTITY_ID, "")).strip()
+        or str(config.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
+    )
     if not ai_entity_id:
-        config = {**entry.data, **(entry.options or {})}
-        ai_entity_id = str(config.get(CONF_AI_TASK_ENTITY_ID, "")).strip()
-    if ai_entity_id:
-        import time as _time
-        config = {**entry.data, **(entry.options or {})}
-        narrator_enabled = bool(config.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED))
-        if not narrator_enabled:
-            _LOGGER.info("Kyber: narrator disabled via settings — skipping")
-        else:
-            max_batch = int(config.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH))
-            narrator_max_tokens = int(config.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS))
-            narrator_ai_entity_id = str(config.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip() or ai_entity_id
-            narrator_interval_days = int(config.get(CONF_NARRATOR_INTERVAL_DAYS, DEFAULT_NARRATOR_INTERVAL_DAYS))
+        return
+    runtime = get_runtime_state(hass)
 
-            # Read last-run timestamp from entry.data so it persists across restarts
-            narrator_last_run = float(entry.data.get(CONF_NARRATOR_LAST_RUN_TS, 0))
-            narrator_interval_secs = narrator_interval_days * 86400
-            time_since_narrator = _time.time() - narrator_last_run
-            if narrator_last_run > 0 and time_since_narrator < narrator_interval_secs:
-                _LOGGER.info(
-                    "Kyber: narrator skipped — last run %.1fh ago, interval is %dd (%.1fh remaining)",
-                    time_since_narrator / 3600,
-                    narrator_interval_days,
-                    (narrator_interval_secs - time_since_narrator) / 3600,
-                )
-            else:
-                narrator_lock = hass.data.get("kyber_narrator_lock")
-                if narrator_lock and narrator_lock.locked():
-                    _LOGGER.info("Kyber: narrator skipped — another run is already in progress")
-                else:
-                    _NARRATOR_RETRY_DELAY = 600   # 10 minutes between retries
-                    _NARRATOR_MAX_RETRIES = 3
-                    async with narrator_lock:
-                        for attempt in range(1 + _NARRATOR_MAX_RETRIES):
-                            try:
-                                from .entity_narrator import async_narrate_entities
-                                from .knowledge import get_knowledge_store as _gks
-                                from homeassistant.helpers import entity_registry as _er
-                                from .model_stats import record_run as _record_run
-                                kstore = _gks(hass)
-                                entity_reg = _er.async_get(hass)
-                                narrator_stats = await async_narrate_entities(
-                                    hass, kstore, entity_reg, narrator_ai_entity_id,
-                                    max_batch=max_batch,
-                                    narrator_max_tokens=narrator_max_tokens,
-                                    dashboard_names=dashboard_names,
-                                )
-                                errors = narrator_stats.get("errors", 0)
-                                _LOGGER.info(
-                                    "Kyber: narrator complete (attempt %d) — %d accepted, %d low-quality, "
-                                    "%d parse failures, %d errors (batch_size=%d)",
-                                    attempt + 1,
-                                    narrator_stats.get("accepted", 0),
-                                    narrator_stats.get("low_quality", 0),
-                                    narrator_stats.get("parse_failures", 0),
-                                    errors,
-                                    narrator_stats.get("batch_size_used", 0),
-                                )
-                                if errors == 0 or attempt >= _NARRATOR_MAX_RETRIES:
-                                    hass.config_entries.async_update_entry(
-                                        entry, data={**entry.data, CONF_NARRATOR_LAST_RUN_TS: _time.time()}
-                                    )
-                                    _record_run(hass, "narrator", interval_secs=narrator_interval_secs)
-                                    break
-                                _LOGGER.warning(
-                                    "Kyber: narrator had %d errors — retrying in %ds (attempt %d/%d)…",
-                                    errors, _NARRATOR_RETRY_DELAY, attempt + 1, _NARRATOR_MAX_RETRIES,
-                                )
-                                await asyncio.sleep(_NARRATOR_RETRY_DELAY)
-                            except Exception as err:  # noqa: BLE001
-                                _LOGGER.warning("Kyber: entity narrator failed (attempt %d): %s", attempt + 1, err)
-                                if attempt < _NARRATOR_MAX_RETRIES:
-                                    await asyncio.sleep(_NARRATOR_RETRY_DELAY)
-                                break
+    narrator_enabled = bool(config.get(CONF_NARRATOR_ENABLED, DEFAULT_NARRATOR_ENABLED))
+    if not narrator_enabled:
+        _LOGGER.info("Kyber: narrator disabled via settings — skipping")
+    else:
+        max_batch = int(config.get(CONF_NARRATOR_MAX_BATCH, DEFAULT_NARRATOR_MAX_BATCH))
+        narrator_max_tokens = int(config.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS))
+        narrator_ai_entity_id = str(config.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip() or ai_entity_id
+        narrator_interval_days = int(config.get(CONF_NARRATOR_INTERVAL_DAYS, DEFAULT_NARRATOR_INTERVAL_DAYS))
 
-        # Deep learning interval-based scheduling
-        deep_learning_interval_days = int(config.get(CONF_DEEP_LEARNING_INTERVAL_DAYS, DEFAULT_DEEP_LEARNING_INTERVAL_DAYS))
-        deep_last_run = float(entry.data.get(CONF_DEEP_LEARNING_LAST_RUN_TS, 0))
-        deep_interval_secs = deep_learning_interval_days * 86400
-        time_since_deep = _time.time() - deep_last_run
-        if deep_last_run > 0 and time_since_deep < deep_interval_secs:
+        narrator_last_run = float(runtime.get(CONF_NARRATOR_LAST_RUN_TS, 0) or 0)
+        narrator_interval_secs = narrator_interval_days * 86400
+        time_since_narrator = _time.time() - narrator_last_run
+        if narrator_last_run > 0 and time_since_narrator < narrator_interval_secs:
             _LOGGER.info(
-                "Kyber: deep learning skipped — last run %.1fh ago, interval is %dd (%.1fh remaining)",
-                time_since_deep / 3600,
-                deep_learning_interval_days,
-                (deep_interval_secs - time_since_deep) / 3600,
+                "Kyber: narrator skipped — last run %.1fh ago, interval is %dd (%.1fh remaining)",
+                time_since_narrator / 3600,
+                narrator_interval_days,
+                (narrator_interval_secs - time_since_narrator) / 3600,
             )
         else:
-            deep_learning_lock = hass.data.get("kyber_deep_learning_lock")
-            if deep_learning_lock and deep_learning_lock.locked():
-                _LOGGER.info("Kyber: deep learning skipped — another run is already in progress")
+            narrator_lock = hass.data.get("kyber_narrator_lock")
+            if narrator_lock and narrator_lock.locked():
+                _LOGGER.info("Kyber: narrator skipped — another run is already in progress")
             else:
-                run_initial_analyze = bool(config.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE))
-                _LOGGER.info(
-                    "Kyber: scheduled deep learning run (interval=%dd, analyze=%s)",
-                    deep_learning_interval_days, run_initial_analyze,
-                )
-                async with deep_learning_lock:
-                    try:
-                        from .model_stats import record_run as _record_run2
-                        if run_initial_analyze:
-                            await hass.async_add_executor_job(_analyze_automations, hass)
-                            _LOGGER.info("Kyber: scheduled deep learning: fast analysis complete")
-                        result = await _deep.analyze_pending(hass, ai_entity_id=ai_entity_id, limit=int(config.get(CONF_DEEP_LEARNING_MAX_BATCH, DEFAULT_DEEP_LEARNING_MAX_BATCH)), force=False)
-                        n_analyzed = len(result.get("analyzed", []))
-                        _LOGGER.info(
-                            "Kyber: scheduled deep learning complete — %d items analyzed, %d errors",
-                            n_analyzed, len(result.get("errors", [])),
-                        )
-                        hass.config_entries.async_update_entry(
-                            entry, data={**entry.data, CONF_DEEP_LEARNING_LAST_RUN_TS: _time.time()}
-                        )
-                        _record_run2(hass, "deep_learning", interval_secs=deep_interval_secs)
-                    except Exception as err:  # noqa: BLE001
-                        _LOGGER.warning("Kyber: scheduled deep learning failed: %s", err)
+                from .dashboard_indexer import get_dashboard_entity_names
+                dashboard_names = get_dashboard_entity_names(hass)
+                _NARRATOR_RETRY_DELAY = 600   # 10 minutes between retries
+                _NARRATOR_MAX_RETRIES = 3
+                async with narrator_lock:
+                    for attempt in range(1 + _NARRATOR_MAX_RETRIES):
+                        try:
+                            from .entity_narrator import async_narrate_entities
+                            from .knowledge import get_knowledge_store as _gks
+                            from homeassistant.helpers import entity_registry as _er
+                            from .model_stats import record_run as _record_run
+                            kstore = _gks(hass)
+                            entity_reg = _er.async_get(hass)
+                            narrator_stats = await async_narrate_entities(
+                                hass, kstore, entity_reg, narrator_ai_entity_id,
+                                max_batch=max_batch,
+                                narrator_max_tokens=narrator_max_tokens,
+                                dashboard_names=dashboard_names,
+                            )
+                            errors = narrator_stats.get("errors", 0)
+                            _LOGGER.info(
+                                "Kyber: narrator complete (attempt %d) — %d accepted, %d low-quality, "
+                                "%d parse failures, %d errors (batch_size=%d)",
+                                attempt + 1,
+                                narrator_stats.get("accepted", 0),
+                                narrator_stats.get("low_quality", 0),
+                                narrator_stats.get("parse_failures", 0),
+                                errors,
+                                narrator_stats.get("batch_size_used", 0),
+                            )
+                            if errors == 0 or attempt >= _NARRATOR_MAX_RETRIES:
+                                await runtime.async_set(CONF_NARRATOR_LAST_RUN_TS, _time.time())
+                                _record_run(hass, "narrator", interval_secs=narrator_interval_secs)
+                                break
+                            _LOGGER.warning(
+                                "Kyber: narrator had %d errors — retrying in %ds (attempt %d/%d)…",
+                                errors, _NARRATOR_RETRY_DELAY, attempt + 1, _NARRATOR_MAX_RETRIES,
+                            )
+                            await asyncio.sleep(_NARRATOR_RETRY_DELAY)
+                        except Exception as err:  # noqa: BLE001
+                            _LOGGER.warning("Kyber: entity narrator failed (attempt %d): %s", attempt + 1, err)
+                            if attempt < _NARRATOR_MAX_RETRIES:
+                                await asyncio.sleep(_NARRATOR_RETRY_DELAY)
+                            break
+
+    # Deep learning interval-based scheduling
+    deep_learning_interval_days = int(config.get(CONF_DEEP_LEARNING_INTERVAL_DAYS, DEFAULT_DEEP_LEARNING_INTERVAL_DAYS))
+    deep_last_run = float(runtime.get(CONF_DEEP_LEARNING_LAST_RUN_TS, 0) or 0)
+    deep_interval_secs = deep_learning_interval_days * 86400
+    time_since_deep = _time.time() - deep_last_run
+    if deep_last_run > 0 and time_since_deep < deep_interval_secs:
+        _LOGGER.info(
+            "Kyber: deep learning skipped — last run %.1fh ago, interval is %dd (%.1fh remaining)",
+            time_since_deep / 3600,
+            deep_learning_interval_days,
+            (deep_interval_secs - time_since_deep) / 3600,
+        )
+        return
+    deep_learning_lock = hass.data.get("kyber_deep_learning_lock")
+    if deep_learning_lock and deep_learning_lock.locked():
+        _LOGGER.info("Kyber: deep learning skipped — another run is already in progress")
+        return
+    run_initial_analyze = bool(config.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE))
+    _LOGGER.info(
+        "Kyber: scheduled deep learning run (interval=%dd, analyze=%s)",
+        deep_learning_interval_days, run_initial_analyze,
+    )
+    async with deep_learning_lock:
+        try:
+            from .model_stats import record_run as _record_run2
+            if run_initial_analyze:
+                await hass.async_add_executor_job(_analyze_automations, hass)
+                _LOGGER.info("Kyber: scheduled deep learning: fast analysis complete")
+            result = await _deep.analyze_pending(hass, ai_entity_id=ai_entity_id, limit=int(config.get(CONF_DEEP_LEARNING_MAX_BATCH, DEFAULT_DEEP_LEARNING_MAX_BATCH)), force=False)
+            n_analyzed = len(result.get("analyzed", []))
+            _LOGGER.info(
+                "Kyber: scheduled deep learning complete — %d items analyzed, %d errors",
+                n_analyzed, len(result.get("errors", [])),
+            )
+            await runtime.async_set(CONF_DEEP_LEARNING_LAST_RUN_TS, _time.time())
+            _record_run2(hass, "deep_learning", interval_secs=deep_interval_secs)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Kyber: scheduled deep learning failed: %s", err)
 
 
 async def _async_seed_language_hints(hass: HomeAssistant) -> None:
@@ -478,35 +508,120 @@ def _resolve_debug_enabled(entry: ConfigEntry) -> bool:
 _NARRATOR_ONLY_KEYS: frozenset[str] = frozenset({CONF_NARRATOR_MAX_BATCH})
 
 _BG_TASKS_KEY = "kyber_bg_tasks"
+_HTTP_REGISTERED_KEY = "kyber_http_registered"
+# Upper bound for waiting on cancelled background tasks during unload. A task
+# that ignores cancellation must not hold the config entry's setup lock.
+_UNLOAD_TASK_TIMEOUT = 10.0
 
 
-def _make_update_listener() -> Any:
-    """Return an update listener that correctly diffs consecutive options snapshots."""
-    state: dict[str, Any] = {"prev_opts": None}
+def _make_update_listener(baseline: Mapping[str, Any]) -> Any:
+    """Return an update listener that reloads only on real options changes.
+
+    ``baseline`` is ``entry.options`` as it was at setup. HA also calls update
+    listeners when ``entry.data`` or the title changes; those calls see the
+    same options and are ignored.
+    """
+    state: dict[str, Any] = {"prev_opts": dict(baseline)}
 
     async def _listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-        new_opts = entry.options or {}
-        if state["prev_opts"] is None:
-            # First call: use entry.data as baseline (initial setup values).
-            state["prev_opts"] = dict(entry.data)
+        new_opts = dict(entry.options or {})
         prev_opts = state["prev_opts"]
         changed_keys = {
             k for k in set(prev_opts) | set(new_opts)
             if prev_opts.get(k) != new_opts.get(k)
         }
-        state["prev_opts"] = dict(new_opts)
-        if changed_keys and changed_keys.issubset(_NARRATOR_ONLY_KEYS):
+        state["prev_opts"] = new_opts
+        if not changed_keys:
+            _LOGGER.debug("Kyber: config entry updated without options change — skipping reload")
+            return
+        if changed_keys.issubset(_NARRATOR_ONLY_KEYS):
             _LOGGER.debug(
                 "Kyber: narrator-only options changed %s — skipping reload", changed_keys
             )
+            # Views read the live config from hass.data; keep it current.
+            hass.data[CONFIG_KEY] = {**entry.data, **new_opts}
             return
         await hass.config_entries.async_reload(entry.entry_id)
 
     return _listener
 
 
+def _build_views(config: dict[str, Any]) -> list[Any]:
+    """All Kyber HTTP views except the MCP ones."""
+    return [
+        KyberView(config),
+        KyberProgressView(),
+        KyberHistoryView(),
+        KyberSessionsView(),
+        KyberSessionNameView(config),
+        KyberSaveView(),
+        KyberExecuteView(),
+        KyberActionHistoryView(),
+        KyberActionHistoryUndoView(),
+        KyberActionHistoryEntryView(),
+        KyberSummarizeView(config),
+        KyberKnowledgeView(),
+        KyberKnowledgeEntryView(),
+        KyberKnowledgeAnalyzeView(),
+        KyberKnowledgeDeepAnalyzeView(config),
+        KyberKnowledgeFeedbackView(),
+        KyberKnowledgePurgeView(),
+        KyberDebugLastTurnView(),
+        KyberDebugToolHistoryView(),
+        KyberDebugStatusView(),
+        KyberDebugBundleView(),
+        KyberBugReportView(),
+        KyberDebugModeView(),
+        KyberHomeExportView(),
+        KyberMemoryExportView(),
+        KyberDebugLogsView(),
+        KyberPromptTestsView(),
+        KyberPromptTestsRunView(),
+        KyberPromptTestsCaptureView(),
+        KyberPromptTestsRegenerateView(),
+        KyberLabelsView(),
+        KyberAreaSuggestionsView(),
+        KyberProposalApproveView(),
+        KyberPingView(),
+        KyberChatSettingsView(),
+        KyberSelfUpdateView(),
+        KyberNarratorRunView(config),
+        KyberExplorerRunView(),
+        KyberClassicLogView(),
+        KyberBlueprintView(),
+    ]
+
+
+async def _async_register_http_once(hass: HomeAssistant, config: dict[str, Any]) -> None:
+    """Register views and the static path once per HA run.
+
+    aiohttp cannot drop routes, and a second registration of the same URL is
+    never reached (the first one wins). Every view is gated instead: it answers
+    503 while no entry is loaded, the MCP views 404 while MCP is off. Views read
+    the live config from hass.data, so the ``config`` passed here is only the
+    construction-time fallback.
+    """
+    if hass.data.get(_HTTP_REGISTERED_KEY):
+        return
+    for view in _build_views(config):
+        hass.http.register_view(gate_view(view))
+    hass.http.register_view(gate_view(KyberMCPView(config), mcp=True))
+    hass.http.register_view(gate_view(KyberMcpLogView(), mcp=True))
+
+    # Serve frontend files from the component's www/ directory.
+    # This makes HACS installs work without manual file copying.
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig("/local/kyber", str(_WWW_DIR), cache_headers=True)]
+    )
+    hass.data[_HTTP_REGISTERED_KEY] = True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bool:
     """Set up Kyber from a config entry."""
+    # Before anything reads the runtime values and before the update listener
+    # exists: moving legacy values out of entry.data is a config entry update.
+    await async_setup_runtime_state(hass, entry)
+
     config = {**entry.data, **(entry.options or {})}
     import json as _json
     _manifest_path = Path(__file__).parent.joinpath("manifest.json")
@@ -520,7 +635,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.data[_DEBUG_MODE_KEY] = debug_enabled
     # Store full config so background tasks (summarize, session_name, fact_extract)
     # can fall back to Azure when the local entity doesn't support thinking mode.
-    hass.data["kyber_config"] = config
+    # Its presence also marks the entry as loaded for the gated HTTP views.
+    hass.data[CONFIG_KEY] = config
     # Store AI entity ID so the debug status endpoint can display it.
     hass.data["kyber_ai_task_entity"] = config.get(CONF_AI_TASK_ENTITY_ID, "")
     # Also store the narrator entity (falls back to chat entity if not separately configured).
@@ -541,55 +657,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     hass.data["kyber_narrator_ai_busy"] = False
     hass.data["kyber_deep_learning_ai_busy"] = False
 
-    hass.http.register_view(KyberView(config))
-    hass.http.register_view(KyberProgressView())
-    hass.http.register_view(KyberHistoryView())
-    hass.http.register_view(KyberSessionsView())
-    hass.http.register_view(KyberSessionNameView(config))
-    hass.http.register_view(KyberSaveView())
-    hass.http.register_view(KyberExecuteView())
-    hass.http.register_view(KyberActionHistoryView())
-    hass.http.register_view(KyberActionHistoryUndoView())
-    hass.http.register_view(KyberActionHistoryEntryView())
-    hass.http.register_view(KyberSummarizeView(config))
-    hass.http.register_view(KyberKnowledgeView())
-    hass.http.register_view(KyberKnowledgeEntryView())
-    hass.http.register_view(KyberKnowledgeAnalyzeView())
-    hass.http.register_view(KyberKnowledgeDeepAnalyzeView(config))
-    hass.http.register_view(KyberKnowledgeFeedbackView())
-    hass.http.register_view(KyberKnowledgePurgeView())
-    hass.http.register_view(KyberDebugLastTurnView())
-    hass.http.register_view(KyberDebugToolHistoryView())
-    hass.http.register_view(KyberDebugStatusView())
-    hass.http.register_view(KyberDebugBundleView())
-    hass.http.register_view(KyberBugReportView())
-    hass.http.register_view(KyberDebugModeView())
-    hass.http.register_view(KyberHomeExportView())
-    hass.http.register_view(KyberMemoryExportView())
-    hass.http.register_view(KyberDebugLogsView())
-    hass.http.register_view(KyberPromptTestsView())
-    hass.http.register_view(KyberPromptTestsRunView())
-    hass.http.register_view(KyberPromptTestsCaptureView())
-    hass.http.register_view(KyberPromptTestsRegenerateView())
-    hass.http.register_view(KyberLabelsView())
-    hass.http.register_view(KyberAreaSuggestionsView())
-    hass.http.register_view(KyberProposalApproveView())
-    hass.http.register_view(KyberPingView())
-    hass.http.register_view(KyberChatSettingsView())
-    hass.http.register_view(KyberSelfUpdateView())
-    hass.http.register_view(KyberNarratorRunView(config))
-    hass.http.register_view(KyberExplorerRunView())
-    mcp_enabled = bool(
-        entry.options.get(CONF_ENABLE_MCP, entry.data.get(CONF_ENABLE_MCP, DEFAULT_ENABLE_MCP))
-    )
-    if mcp_enabled:
-        hass.http.register_view(KyberMCPView(config))
-        hass.http.register_view(KyberMcpLogView())
-    hass.http.register_view(KyberClassicLogView())
-    hass.http.register_view(KyberBlueprintView())
-    hass.http.register_view(KyberActionHistoryView())
-    hass.http.register_view(KyberActionHistoryUndoView())
-    hass.http.register_view(KyberActionHistoryEntryView())
+    await _async_register_http_once(hass, config)
 
     # Install global log handler + set logger level
     _kyber_root = logging.getLogger("custom_components.kyber")
@@ -601,12 +669,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     _kyber_root.addHandler(_global_handler)
     hass.data["kyber_global_log_handler"] = _global_handler
 
-    # Serve frontend files from the component's www/ directory.
-    # This makes HACS installs work without manual file copying.
-    await hass.http.async_register_static_paths(
-        [StaticPathConfig("/local/kyber", str(_WWW_DIR), cache_headers=True)]
-    )
-
     try:
         await async_register_panel(
             hass,
@@ -614,7 +676,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
             webcomponent_name="kyber-panel",
             sidebar_title="Kyber",
             sidebar_icon="mdi:robot",
-            module_url="/local/kyber/kyber-panel.js?v=330",
+            module_url="/local/kyber/kyber-panel.js?v=331",
         )
     except Exception:  # noqa: BLE001
         _LOGGER.debug("Panel registration skipped (test environment)")
@@ -629,14 +691,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
                 webcomponent_name="kyber-panel",
                 sidebar_title="Kyber Debug",
                 sidebar_icon="mdi:bug",
-                module_url="/local/kyber/kyber-panel.js?v=330",
+                module_url="/local/kyber/kyber-panel.js?v=331",
                 config={"mode": "debug"},
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Debug panel registration skipped (test environment)")
 
     # Always schedule the initial learning task; the function itself guards
-    # against re-running via CONF_INITIAL_LEARNING_DONE.
+    # against re-running via the stored initial learning version.
     _bg_task_list: list[Any] = []
     hass.data[_BG_TASKS_KEY] = _bg_task_list
     _bg_task_list.append(hass.async_create_task(_async_run_initial_learning(hass, entry)))
@@ -647,6 +709,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
     # tracker doesn't wait for these long-running background jobs and log a
     # spurious "blocking startup" warning.
     import asyncio as _asyncio
+    from homeassistant.helpers.event import async_track_time_interval
     from homeassistant.helpers.start import async_at_start
     from homeassistant.core import callback as _callback
 
@@ -657,7 +720,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
 
     async_at_start(hass, _on_ha_started)
 
-    entry.async_on_unload(entry.add_update_listener(_make_update_listener()))
+    # Without this the "every N days" intervals were only checked at setup:
+    # an HA instance running for weeks never narrated or deep-learned again.
+    @_callback
+    def _on_learning_tick(_now: Any) -> None:
+        if not kyber_loaded(hass):
+            return
+        _bg_task_list[:] = [t for t in _bg_task_list if not t.done()]
+        _bg_task_list.append(_asyncio.ensure_future(_async_run_due_learning(hass, entry)))
+
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass, _on_learning_tick, _LEARNING_CHECK_INTERVAL, cancel_on_shutdown=True
+        )
+    )
+
+    entry.async_on_unload(entry.add_update_listener(_make_update_listener(entry.options)))
 
     _LOGGER.info(
         "Kyber set up OK — AI entity: %s, debug_views=%s",
@@ -669,16 +747,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> boo
 
 async def async_unload_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bool:
     """Unload a config entry."""
-    # Cancel any tracked background tasks started during setup.
     import asyncio as _asyncio
-    _bg_tasks = hass.data.pop(_BG_TASKS_KEY, [])
+    # Close the gated HTTP views first so no new request starts work.
+    hass.data.pop(CONFIG_KEY, None)
+    # Cancel any tracked background tasks started during setup.
+    _bg_tasks = [t for t in hass.data.pop(_BG_TASKS_KEY, []) if not t.done()]
     for _task in _bg_tasks:
-        if not _task.done():
-            _task.cancel()
-            try:
-                await _task
-            except (_asyncio.CancelledError, Exception):
-                pass
+        _task.cancel()
+    if _bg_tasks:
+        _done, _pending = await _asyncio.wait(_bg_tasks, timeout=_UNLOAD_TASK_TIMEOUT)
+        if _pending:
+            _LOGGER.warning(
+                "Kyber: %d background task(s) still running %.0fs after cancel — unloading anyway",
+                len(_pending), _UNLOAD_TASK_TIMEOUT,
+            )
     # Remove panels so reloads and removals cleanly re-evaluate registration.
     try:
         from homeassistant.components.frontend import async_remove_panel
@@ -691,12 +773,3 @@ async def async_unload_entry(hass: HomeAssistant, entry: KyberConfigEntry) -> bo
     if _handler:
         logging.getLogger("custom_components.kyber").removeHandler(_handler)
     return True
-
-
-
-
-
-
-
-
-

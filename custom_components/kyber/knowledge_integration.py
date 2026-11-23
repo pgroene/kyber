@@ -84,6 +84,9 @@ async def _async_background_deep_analysis(
         running=True, run=0, runs=runs, analyzed=0, facts=0, errors=0,
         pending=0, current_item=None, started_at=time.time(), finished_at=None,
     )
+    # Forced runs share one sweep so each pass takes the next items instead
+    # of re-analysing the first `limit` ones.
+    sweep: set[str] | None = set() if force else None
     try:
         for i in range(runs):
             _DEEP_JOB["run"] = i + 1
@@ -94,6 +97,7 @@ async def _async_background_deep_analysis(
                 limit=limit,
                 force=force,
                 prompt_variant=i,
+                sweep=sweep,
             )
             n_analyzed = len(result.get("analyzed", []))
             n_facts = sum(len(a.get("fact_ids", [])) for a in result.get("analyzed", []))

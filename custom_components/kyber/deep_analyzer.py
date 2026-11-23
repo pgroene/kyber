@@ -398,6 +398,34 @@ async def _is_duplicate_fact(kstore: Any, content: str) -> bool:
         return False
 
 
+def _sweep_key(kind: str, ident: str) -> str:
+    return f"{kind}:{ident}"
+
+
+def _order_for_sweep(
+    candidates: list[tuple[str, dict[str, Any]]],
+    memo: AnalysisMemo,
+    sweep: set[str] | None,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Order force candidates: not yet in this sweep, least recently analysed first."""
+    keyed = [
+        (kind, item, _identity(kind, item)) for kind, item in candidates
+    ]
+    if sweep is not None:
+        remaining = [c for c in keyed if _sweep_key(c[0], c[2]) not in sweep]
+        if not remaining and keyed:
+            sweep.clear()  # every item had its turn — start the next round
+            remaining = keyed
+        keyed = remaining
+
+    def _last_analyzed(c: tuple[str, dict[str, Any], str]) -> int:
+        rec = memo.get(c[0], c[2]) if c[2] else None
+        return int((rec or {}).get("analyzed_at") or 0)
+
+    # sorted() is stable: items analysed at the same time keep config order.
+    return [(kind, item) for kind, item, _ in sorted(keyed, key=_last_analyzed)]
+
+
 async def analyze_pending(
     hass: HomeAssistant,
     *,
@@ -406,8 +434,18 @@ async def analyze_pending(
     limit: int = 5,
     force: bool = False,
     prompt_variant: int = 0,
+    sweep: set[str] | None = None,
 ) -> dict[str, Any]:
     """Walk all configured items; analyze ones whose hash changed (up to `limit`).
+
+    With ``force`` every item is due regardless of hash and lens. Items are
+    then taken least recently analysed first, so repeated calls work through
+    all of them instead of re-analysing the first ``limit`` every time.
+
+    ``sweep`` lets several calls share one pass over the items: every item a
+    call attempts (successfully or not) is added to it, and later calls skip
+    those. Once every candidate has been attempted the set is cleared and the
+    next round starts over. A failing item therefore cannot block the rest.
 
     Returns:
         {analyzed: [{kind, ident, facts, fact_ids}], skipped: N, errors: [...]}.
@@ -482,6 +520,9 @@ async def analyze_pending(
         state.entity_id for state in hass.states.async_all()
     }
 
+    if force:
+        candidates = _order_for_sweep(candidates, memo, sweep)
+
     analyzed: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     skipped = 0
@@ -525,38 +566,43 @@ async def analyze_pending(
             # Reached this run's budget — leave for next sweep.
             break
         processed += 1
+        if sweep is not None:
+            sweep.add(_sweep_key(kind, ident))
 
-        try:
-            # Check preemption before each item (catches chat that started between items).
-            if hass.data.get(_CHAT_BUSY_KEY):
-                raise _ChatPreemptError()
+        # A chat preempts the item; it is retried once the chat is over.
+        raw: str | None = None
+        while True:
+            try:
+                # Check preemption before each attempt (catches chat that started between items).
+                if hass.data.get(_CHAT_BUSY_KEY):
+                    raise _ChatPreemptError()
 
-            _set_deep_progress(processed - 1, ident)
+                _set_deep_progress(processed - 1, ident)
 
-            prompt = _build_prompt(kind, item, prompt_variant, entity_names=entity_names, entity_areas=entity_areas, entity_devices=entity_devices)
-            raw = await _run_ai(hass, ai_entity_id, prompt)
-        except _ChatPreemptError:
-            _LOGGER.info("Kyber deep-analyzer: preempted by chat — pausing")
-            _set_deep_progress(processed - 1, ident, paused=True)
-            while hass.data.get(_CHAT_BUSY_KEY):
-                await asyncio.sleep(1)
-            backoff = _CHAT_BACKOFF_SECONDS[min(_chat_preempt_count, len(_CHAT_BACKOFF_SECONDS) - 1)]
-            _chat_preempt_count += 1
-            _LOGGER.info("Kyber deep-analyzer: chat ended — resuming in %ds (attempt %d)", backoff, _chat_preempt_count)
-            await asyncio.sleep(backoff)
-            _set_deep_progress(processed - 1, ident)
-            processed -= 1  # re-process this item
-            continue
-        except asyncio.TimeoutError:
-            _LOGGER.warning(
-                "Kyber deep_analyzer: AI call timed out (%ds) for %s:%s — skipping",
-                _AI_CALL_TIMEOUT, kind, ident,
-            )
-            errors.append({"kind": kind, "ident": ident, "error": f"AI timeout after {_AI_CALL_TIMEOUT}s"})
-            continue
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Kyber deep_analyzer: AI call failed for %s:%s: %s", kind, ident, err)
-            errors.append({"kind": kind, "ident": ident, "error": str(err)})
+                prompt = _build_prompt(kind, item, prompt_variant, entity_names=entity_names, entity_areas=entity_areas, entity_devices=entity_devices)
+                raw = await _run_ai(hass, ai_entity_id, prompt)
+                break
+            except _ChatPreemptError:
+                _LOGGER.info("Kyber deep-analyzer: preempted by chat — pausing")
+                _set_deep_progress(processed - 1, ident, paused=True)
+                while hass.data.get(_CHAT_BUSY_KEY):
+                    await asyncio.sleep(1)
+                backoff = _CHAT_BACKOFF_SECONDS[min(_chat_preempt_count, len(_CHAT_BACKOFF_SECONDS) - 1)]
+                _chat_preempt_count += 1
+                _LOGGER.info("Kyber deep-analyzer: chat ended — resuming in %ds (attempt %d)", backoff, _chat_preempt_count)
+                await asyncio.sleep(backoff)
+            except asyncio.TimeoutError:
+                _LOGGER.warning(
+                    "Kyber deep_analyzer: AI call timed out (%ds) for %s:%s — skipping",
+                    _AI_CALL_TIMEOUT, kind, ident,
+                )
+                errors.append({"kind": kind, "ident": ident, "error": f"AI timeout after {_AI_CALL_TIMEOUT}s"})
+                break
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Kyber deep_analyzer: AI call failed for %s:%s: %s", kind, ident, err)
+                errors.append({"kind": kind, "ident": ident, "error": str(err)})
+                break
+        if raw is None:
             continue
 
         # Successful item — reset chat preemption backoff counter.

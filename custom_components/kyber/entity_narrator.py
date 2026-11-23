@@ -22,6 +22,7 @@ knowledge store so the debug panel can display them across restarts.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json as _json
 import logging
 import re
@@ -440,15 +441,23 @@ async def _run_ai(hass: "HomeAssistant", ai_entity_id: str, prompt: str) -> str:
 
 
 def _init_stats() -> dict[str, Any]:
+    # "due" is how many entities this run has to describe; 0 means everything
+    # was already up to date. "total" counts the ones handed to the model so
+    # far. The debug panel tells "running", "nothing to do" and "done" apart
+    # with running/due; the timestamps are epoch seconds for local display.
     return {
         "total": 0,
+        "due": 0,
         "accepted": 0,
         "low_quality": 0,
         "errors": 0,
         "batches": 0,
         "parse_failures": 0,
         "batch_size_used": 0,
-        "last_run": "",
+        "running": True,
+        "started_at": time.time(),
+        "finished_at": None,
+        "last_run": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
 
 
@@ -492,6 +501,37 @@ async def async_purge_implausible_aliases(kstore: "KnowledgeStore") -> int:
     return len(to_delete)
 
 
+_SIG_TAG_PREFIX = "sig:"
+
+
+def _identity_sig(name: str, area_name: str | None) -> str:
+    """Tag that changes when an entity's name or area changes."""
+    digest = hashlib.sha1(f"{name}\x1f{area_name or ''}".encode()).hexdigest()[:12]
+    return f"{_SIG_TAG_PREFIX}{digest}"
+
+
+def _resolve_area_name(reg_entry: Any, device_reg: Any, area_reg: Any) -> str | None:
+    """Area of an entity: its own, else its device's."""
+    area_id = reg_entry.area_id
+    if not area_id and reg_entry.device_id:
+        dev = device_reg.async_get(reg_entry.device_id)
+        if dev:
+            area_id = dev.area_id
+    area_obj = area_reg.async_get_area(area_id) if area_id else None
+    return area_obj.name if area_obj else None
+
+
+async def _cancel_and_wait(task: "asyncio.Future") -> None:
+    """Cancel ``task`` and wait until it has finished.
+
+    ``asyncio.wait`` does not re-raise the task's own CancelledError, so a
+    cancellation of the *calling* task still propagates. ``await task`` inside
+    ``except CancelledError: pass`` would swallow both.
+    """
+    task.cancel()
+    await asyncio.wait({task})
+
+
 async def async_narrate_entities(
     hass: "HomeAssistant",
     kstore: "KnowledgeStore",
@@ -504,25 +544,55 @@ async def async_narrate_entities(
 ) -> dict[str, Any]:
     """Phase 3: AI-generated descriptions for interesting entities.
 
-    Returns the stats dict for this run.
+    Returns the stats dict for this run. The stats are marked finished even
+    when the run fails or is cancelled, so the panel never shows a run as
+    still going after it has stopped.
     """
     stats = _init_stats()
-    stats["last_run"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     hass.data[NARRATOR_STATS_KEY] = stats
+    try:
+        return await _narrate_entities(
+            hass, kstore, entity_reg, ai_entity_id, stats,
+            max_batch=max_batch,
+            narrator_max_tokens=narrator_max_tokens,
+            dashboard_names=dashboard_names,
+        )
+    finally:
+        stats["running"] = False
+        stats["finished_at"] = time.time()
+        hass.data[NARRATOR_STATS_KEY] = dict(stats)
 
+
+async def _narrate_entities(
+    hass: "HomeAssistant",
+    kstore: "KnowledgeStore",
+    entity_reg: Any,
+    ai_entity_id: str,
+    stats: dict[str, Any],
+    *,
+    max_batch: int,
+    narrator_max_tokens: int,
+    dashboard_names: dict[str, str] | None,
+) -> dict[str, Any]:
     home_lang, devices_hint = detect_home_language(hass)
     _LOGGER.info("Kyber narrator: detected home language '%s'", home_lang)
 
     await kstore.async_load()
 
-    # Which entity_ids already have narrator entries at this version?
-    existing: set[str] = {
-        entry.get("subject", "")
-        for entry in kstore._entries.values()
-        if _NARRATOR_VERSION_TAG in (entry.get("tags") or [])
-        and entry.get("source") == "entity_narrator"
-        and entry.get("subject")
-    }
+    # Narrator entries per entity_id: the current-version descriptions (incl.
+    # low-quality markers) and every alias pointing at the entity.
+    existing: dict[str, list[dict[str, Any]]] = {}
+    aliases: dict[str, list[str]] = {}
+    for entry in kstore._entries.values():
+        if entry.get("source") != "entity_narrator":
+            continue
+        if entry.get("category") == "entity_alias":
+            aliases.setdefault(entry.get("content", ""), []).append(entry["id"])
+        elif _NARRATOR_VERSION_TAG in (entry.get("tags") or []) and entry.get("subject"):
+            existing.setdefault(entry["subject"], []).append(entry)
+    adopt_sig: dict[str, list[str]] = {}
+    stale_ids: list[str] = []
+    sig_by_eid: dict[str, str] = {}
 
     area_reg = ar.async_get(hass)
     device_reg = dr.async_get(hass)
@@ -537,8 +607,6 @@ async def async_narrate_entities(
     candidates: list[tuple[Any, ...]] = []
     for reg_entry in entity_reg.entities.values():
         eid = reg_entry.entity_id
-        if eid in existing:
-            continue
 
         # Skip entities that are disabled or hidden — the AI cannot query them.
         if getattr(reg_entry, "disabled_by", None) or getattr(reg_entry, "hidden_by", None):
@@ -546,6 +614,27 @@ async def async_narrate_entities(
 
         state = hass.states.get(eid)
         attrs = state.attributes if state else {}
+        area_name = _resolve_area_name(reg_entry, device_reg, area_reg)
+        sig = _identity_sig(attrs.get("friendly_name") or eid, area_name)
+
+        described = existing.get(eid)
+        if described and state is None:
+            continue  # no state, no friendly_name: cannot tell whether it changed
+        if described:
+            known_sigs = {
+                t for e in described for t in (e.get("tags") or []) if t.startswith(_SIG_TAG_PREFIX)
+            }
+            if sig in known_sigs:
+                continue
+            if not known_sigs:
+                # Written before signatures existed: take the current name and
+                # area as baseline instead of re-describing every entity.
+                for e in described:
+                    adopt_sig[e["id"]] = [sig]
+                continue
+            # Renamed or moved: drop the old description and its aliases.
+            stale_ids.extend(e["id"] for e in described)
+            stale_ids.extend(aliases.get(eid, []))
         device_class = (
             attrs.get("device_class")
             or (reg_entry.device_class if hasattr(reg_entry, "device_class") else None)
@@ -567,15 +656,6 @@ async def async_narrate_entities(
         ):
             continue
 
-        # Resolve area: entity → device → area.
-        area_id = reg_entry.area_id
-        if not area_id and reg_entry.device_id:
-            dev = device_reg.async_get(reg_entry.device_id)
-            if dev:
-                area_id = dev.area_id
-        area_obj = area_reg.async_get_area(area_id) if area_id else None
-        area_name = area_obj.name if area_obj else None
-
         # Device info.
         manufacturer = model = None
         if reg_entry.device_id:
@@ -595,12 +675,23 @@ async def async_narrate_entities(
             siblings.append((sib.entity_id, sib_name))
 
         candidates.append((eid, state, reg_entry, area_name, manufacturer, model, siblings))
+        sig_by_eid[eid] = sig
+
+    if adopt_sig:
+        await kstore.async_add_tags(adopt_sig)
+    if stale_ids:
+        removed = await kstore.async_delete_entries(stale_ids)
+        _LOGGER.info(
+            "Kyber narrator: %d entries of renamed or moved entities removed for re-description",
+            removed,
+        )
 
     # Sort so dashboard entities (known human names) are narrated first — highest value.
     _dash_names: dict[str, str] = dashboard_names or {}
     candidates.sort(key=lambda row: (0 if row[0] in _dash_names else 1))
 
     total = len(candidates)
+    stats["due"] = total
     _LOGGER.info("Kyber narrator: %d entities to narrate", total)
 
     def _set_progress(done: int, current_name: str = "") -> None:
@@ -718,6 +809,7 @@ async def async_narrate_entities(
         use_v3 = False
         ai_failed = False
         hass.data["kyber_narrator_ai_busy"] = True
+        _ai_task: asyncio.Future | None = None
         try:
             prompt = build_batch_prompt([(r[0], r[6]) for r in batch_rows], home_lang=home_lang, devices_hint=devices_hint)
             _ai_task = asyncio.ensure_future(_run_ai(hass, ai_entity_id, prompt))
@@ -727,11 +819,7 @@ async def async_narrate_entities(
             # the chat queue for longer than the frontend's 90s timeout.
             while elapsed < 45.0:
                 if hass.data.get(_CHAT_BUSY_KEY):
-                    _ai_task.cancel()
-                    try:
-                        await _ai_task
-                    except asyncio.CancelledError:
-                        pass
+                    await _cancel_and_wait(_ai_task)
                     _LOGGER.info("Kyber narrator: AI call cancelled mid-flight — chat active")
                     ai_failed = True
                     break
@@ -741,11 +829,7 @@ async def async_narrate_entities(
                     raw = _ai_task.result()
                     break
             if not ai_failed and raw is None:
-                _ai_task.cancel()
-                try:
-                    await _ai_task
-                except asyncio.CancelledError:
-                    pass
+                await _cancel_and_wait(_ai_task)
                 stats["errors"] += 1
                 ai_failed = True
             if not ai_failed:
@@ -764,9 +848,13 @@ async def async_narrate_entities(
                     parsed_count, len(batch),
                 )
         except asyncio.CancelledError:
-            ai_failed = True
-            stats["errors"] += len(batch)
-            _LOGGER.warning("Kyber narrator: AI task cancelled")
+            # The run itself is being cancelled (unload, reload): stop the AI
+            # call too and let the cancellation through instead of counting it
+            # as a failed batch and carrying on with the next one.
+            if _ai_task is not None and not _ai_task.done():
+                _ai_task.cancel()
+            _LOGGER.info("Kyber narrator: run cancelled")
+            raise
         except Exception as err:  # noqa: BLE001
             ai_failed = True
             stats["errors"] += len(batch)
@@ -806,7 +894,7 @@ async def async_narrate_entities(
                 accepted = bool(description) and (use_v3 or eid in description)
                 if accepted:
                     stats["accepted"] += 1
-                    tags = [eid, domain, _NARRATOR_VERSION_TAG]
+                    tags = [eid, domain, _NARRATOR_VERSION_TAG, sig_by_eid[eid]]
                     if device_type:
                         tags.append(device_type)
                     if device_class:
@@ -897,7 +985,7 @@ async def async_narrate_entities(
                             "general",
                             f"[narrator] {name} [{eid}]",
                             subject=eid,
-                            tags=[eid, domain, _NARRATOR_VERSION_TAG, "low_quality"],
+                            tags=[eid, domain, _NARRATOR_VERSION_TAG, sig_by_eid[eid], "low_quality"],
                             source="entity_narrator",
                             confidence=0.1,
                             provenance=f"AI narrator v{_NARRATOR_VERSION} (low quality)",
