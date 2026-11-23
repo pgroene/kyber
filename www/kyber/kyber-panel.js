@@ -33,7 +33,7 @@ import {
 // Styles
 // ---------------------------------------------------------------------------
 import { STYLES } from "./src/styles.js?v=217";
-import { getT } from "./src/i18n.js?v=5";
+import { getT } from "./src/i18n.js?v=6";
 import { UtilsMixin } from "./src/utils-mixin.js?v=103";
 import { SessionMixin } from "./src/session-mixin.js?v=90";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=90";
