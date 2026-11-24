@@ -225,3 +225,70 @@ class TestGetEntityStateDatetimeSerialization:
         })
         data = json.loads(result)
         assert "error" in data
+
+    def test_last_updated_and_last_changed_via_fields(self):
+        """last_updated/last_changed live on the state object, not attributes;
+        requesting them via fields must return ISO timestamps, not _missing_fields."""
+        lu = datetime(2026, 11, 2, 11, 55, 30, tzinfo=timezone.utc)
+        lc = datetime(2026, 11, 2, 11, 55, 0, tzinfo=timezone.utc)
+        hass = _make_hass("sensor.energy_meter", "12000.0", {"unit_of_measurement": "kWh"})
+        state = hass.states.get("sensor.energy_meter")
+        state.last_updated = lu
+        state.last_changed = lc
+        result = _execute_tool(hass, {
+            "name": "get_entity_state",
+            "entity_id": "sensor.energy_meter",
+            "fields": ["state", "last_updated", "last_changed"],
+        })
+        data = json.loads(result)
+        assert "_missing_fields" not in data
+        assert data["last_updated"].startswith("2026-11-02T11:55:30")
+        assert data["last_changed"].startswith("2026-11-02T11:55:00")
+
+
+class TestStateClassProjection:
+    """state_class tells a meter (differences count) from a momentary value
+    (averages count); it used to be dropped from every projection."""
+
+    def test_default_get_entity_state_keeps_state_class(self):
+        hass = _make_hass("sensor.energy_import", "4711.2", {
+            "unit_of_measurement": "kWh", "state_class": "total_increasing",
+            "device_class": "energy",
+        })
+        data = json.loads(_execute_tool(hass, {
+            "name": "get_entity_state", "entity_id": "sensor.energy_import",
+        }))
+        assert data["attributes"]["state_class"] == "total_increasing"
+        assert "device_class" not in data["attributes"]
+
+    def test_list_projection_carries_state_class(self):
+        hass = _make_hass("sensor.power", "530", {
+            "friendly_name": "Power", "state_class": "measurement", "device_class": "power",
+        })
+        data = json.loads(_execute_tool(hass, {
+            "name": "list_entities_by_domain", "domain": "sensor",
+        }))
+        assert data["sensor.power"] == {
+            "name": "Power", "state": "530", "device_class": "power", "state_class": "measurement",
+        }
+
+    def test_list_projection_omits_missing_state_class(self):
+        hass = _make_hass("light.desk", "on", {"friendly_name": "Desk"})
+        data = json.loads(_execute_tool(hass, {
+            "name": "list_entities_by_domain", "domain": "light",
+        }))
+        assert data["light.desk"] == {"name": "Desk", "state": "on"}
+
+    def test_recorder_tools_run_async(self):
+        assert {"get_statistics", "get_history"} <= tool_execution._ASYNC_TOOLS
+
+    def test_recorder_tool_summaries(self):
+        parts = tool_execution._tool_result_summary_parts
+        assert parts(
+            {"name": "get_statistics", "entity_ids": ["sensor.a", "sensor.b", "sensor.c"]},
+            {"series": []},
+        ) == ("ts_statistics", {"entities": "sensor.a +2"})
+        assert parts({"name": "get_history", "entity_ids": "sensor.a"}, {}) == (
+            "ts_history", {"entities": "sensor.a"},
+        )
+

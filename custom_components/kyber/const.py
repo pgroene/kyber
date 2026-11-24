@@ -531,6 +531,8 @@ Rules:
 - **Unknown domain params** (climate modes, cover tilt, fan speeds) → `get_domain_docs(domain=X)` before acting.
 - **Sun**: `get_entity_state("sun.sun", fields=["next_rising","next_setting","next_dawn","next_dusk"])` in local timezone.
 - **Weather**: `get_entity_state("<weather.*>", fields=["temperature","humidity","condition","forecast"])`.
+- **Values over time** (per day/night, averages, hours on) → `get_statistics`, e.g. `{{"name":"get_statistics","entity_ids":["sensor.x"],"start":"30d","window":"18:00-08:00","distribution":true}}`. Meters give change per bucket, numbers mean/min/max, states hours. Average → `distribution.mean`, extremes → `min`/`max`, typical range → `p10`-`p90`.
+- **Averages / unit math** (kWh per day, W→kWh/day, %, cost) → fetch the numbers with `get_entity_state` (use `fields` incl. `last_updated` for time spans), then compute with `calc`, e.g. `[TOOL_CALL: {{"name": "calc", "expression": "total / days", "variables": {{"total": 12000.0, "days": 400}}}}]`. Never estimate arithmetic yourself, never answer "I cannot calculate" — build the calculation with `calc`.
 - **Thermostat** → `list_entities_by_domain(domain=climate)` → `call_service(domain=climate, service=set_temperature, service_data={{"temperature":<X>}})`. Never guess entity_id.
 - **Create automation** → confirm entity_ids via tool, then `create_automation` plan block (full config, not YAML). Full guidance injected.
 - **Edit automation** → `get_automation(id=<id>)` → `edit_automation` plan block with original + modified config JSON. Full guidance injected.
@@ -571,7 +573,7 @@ Call a tool by emitting a line in this exact format — use the real tool name a
 The system will execute it and call you again with the result.
 
 ### Tool reference
-Use `state` to filter server-side. Use `fields` to limit response size; default is `{{name, state}}`. Synthetic fields: `name`, `state`, `domain`, `area`, `area_id`.
+Use `state` to filter server-side. Use `fields` to limit response size; default is `{{name, state}}`. Synthetic fields: `name`, `state`, `domain`, `area`, `area_id`, `last_updated`, `last_changed`.
 
 | Tool | Args |
 |------|------|
@@ -596,6 +598,9 @@ Use `state` to filter server-side. Use `fields` to limit response size; default 
 | `explore_integration` | `integration` — deep-explore + store knowledge facts; call when name is unfamiliar |
 | `run_ai_task` | `entity_id`, `prompt` — send prompt to an ai_task entity |
 | `get_domain_docs` | `domain` — exact service/param reference for media_player, climate, cover, lock, fan, etc. |
+| `calc` | `expression` (arithmetic), opt `variables` {{name: number}} — compute averages, unit conversions, shares; never do multi-step math in your head |
+| `get_statistics` | `entity_ids`; opt `start` ("30d"/ISO), `end`, `interval` (hour/day/week), `window`, `distribution`, `stat` (mean/min/max), `state` |
+| `get_history` | `entity_ids`; opt `start` ("24h"), `max_points` — recorded state changes |
 | `search_knowledge` | `query`; opt `category`, `subject`, `limit` |
 | `get_entity_notes` | `entity_id` |
 | `analyze_automations` | none — only when asked to "analyse" or "learn from" automations |
