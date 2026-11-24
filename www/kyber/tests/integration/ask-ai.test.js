@@ -57,19 +57,38 @@ describe("_askAI — request payload", () => {
     expect(fetch).toHaveBeenCalledWith("/api/kyber/complete", expect.any(Object));
   });
 
-  it("sends prompt and editor yaml in request body", async () => {
-    const { element } = makePanel();
+  const stubEditorWith = (element, text, selected = "") => {
     element._editor = {
       state: {
-        doc: { toString: () => "alias: test" },
-        selection: { main: { from: 0, to: 0 } },
-        sliceDoc: () => "",
+        doc: { toString: () => text, lineAt: () => ({ number: 1 }) },
+        selection: { main: { from: 0, to: selected.length } },
+        sliceDoc: () => selected,
       },
     };
+  };
+
+  it("sends prompt and editor yaml in request body", async () => {
+    const { element } = makePanel();
+    stubEditorWith(element, "alias: test");
+    element.shadowRoot.getElementById("editor-container").classList.add("open");
     await askWithInput(element, "Check this YAML");
     const body = JSON.parse(fetch.mock.calls[0][1].body);
     expect(body.prompt).toBe("Check this YAML");
     expect(body.yaml).toBe("alias: test");
+  });
+
+  it("a closed editor sends neither its leftover text nor a selection", async () => {
+    // Closing keeps the CodeMirror text; sending it made the model answer
+    // "since the editor is open" and target an editor the user had closed.
+    const { element } = makePanel();
+    stubEditorWith(element, "alias: old automation", "alias");
+    element.shadowRoot.getElementById("editor-container").classList.add("open");
+    element._closeEditor();
+    await askWithInput(element, "Change the heating automation");
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.yaml).toBe("");
+    expect(body.editor_selection).toBeNull();
+    expect(body.editor_id).toBeNull();
   });
 
   it("sends the request through hass.fetchWithAuth (bearer header)", async () => {
@@ -119,6 +138,37 @@ describe("_askAI — request payload", () => {
 
 describe("_askAI — response handling", () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it("an unreadable plan block shows a notice instead of vanishing", async () => {
+    const raw = '{"edit_automation": true, "summary": oops}';
+    vi.stubGlobal("fetch", mockFetch({
+      response: `Here is the corrected draft:\n\n\`\`\`plan\n${raw}\n\`\`\``,
+      yaml_blocks: [],
+      plan: null,
+    }));
+    const { element } = makePanel({ language: "de" });
+    await askWithInput(element, "Change the heating automation");
+    await flushPromises();
+    const note = element.shadowRoot.querySelector(".plan-unreadable");
+    expect(note).not.toBeNull();
+    expect(note.textContent).toContain("nicht lesen");
+    expect(note.querySelector("pre").textContent).toBe(raw);
+    // The bubble still hides the raw JSON
+    const bubbles = [...element.shadowRoot.querySelectorAll(".chat-message.assistant")];
+    expect(bubbles.at(-1).textContent).not.toContain("edit_automation");
+  });
+
+  it("a parsed plan shows no unreadable notice", async () => {
+    vi.stubGlobal("fetch", mockFetch({
+      response: "Done:\n\n```plan\n{\"actions\": []}\n```",
+      yaml_blocks: [],
+      plan: { summary: "x", actions: [{ type: "call_service", service: "light.turn_on" }] },
+    }));
+    const { element } = makePanel();
+    await askWithInput(element, "Turn on the light");
+    await flushPromises();
+    expect(element.shadowRoot.querySelector(".plan-unreadable")).toBeNull();
+  });
 
   it("shows AI text as assistant chat message", async () => {
     vi.stubGlobal("fetch", mockFetch({ response: "Looks great!", yaml_blocks: [], plan: null }));

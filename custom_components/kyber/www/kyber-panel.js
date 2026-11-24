@@ -32,16 +32,16 @@ import {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-import { STYLES } from "./src/styles.js?v=217";
-import { getT } from "./src/i18n.js?v=8";
+import { STYLES } from "./src/styles.js?v=218";
+import { getT } from "./src/i18n.js?v=9";
 import { UtilsMixin } from "./src/utils-mixin.js?v=103";
 import { SessionMixin } from "./src/session-mixin.js?v=90";
 import { KnowledgeMixin } from "./src/knowledge-mixin.js?v=90";
-import { DebugMixin } from "./src/debug-mixin.js?v=114";
+import { DebugMixin } from "./src/debug-mixin.js?v=115";
 import { SlashMixin } from "./src/slash-commands-mixin.js?v=99";
-import { EditorMixin } from "./src/editor-mixin.js?v=217";
-import { AIMixin } from "./src/ai-mixin.js?v=123";
-import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=120";
+import { EditorMixin } from "./src/editor-mixin.js?v=218";
+import { AIMixin } from "./src/ai-mixin.js?v=124";
+import { PlanCardsMixin } from "./src/plan-cards-mixin.js?v=121";
 
 // ---------------------------------------------------------------------------
 // Custom Element
@@ -434,7 +434,8 @@ class KyberPanel extends AIMixin(PlanCardsMixin(SlashMixin(EditorMixin(DebugMixi
 
       // Close on outside click
       const _close = (e) => {
-        if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener("click", _close, true); }
+        const path = e.composedPath ? e.composedPath() : [];
+        if (!path.includes(pop)) { pop.remove(); document.removeEventListener("click", _close, true); }
       };
       document.addEventListener("click", _close, true);
     });

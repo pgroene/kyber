@@ -408,3 +408,48 @@ test.describe("run_simulation plan block", () => {
     await page.screenshot({ path: "screenshots/automation-run-simulation.png" });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Edit card — reorder, inspect, open in editor (real browser drag and drop)
+// ---------------------------------------------------------------------------
+
+test.describe("Edit automation card — editing", () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoHarness(page);
+  });
+
+  test("dragging a row by its handle moves it on screen", async ({ page }) => {
+    await injectEditCard(page);
+    await page.locator(".ae-btn-expand").first().click();
+    const rows = page.locator('.ae-rows[data-section="action"] .ae-row');
+    await expect(rows.first()).toContainText("switch.turn_on");
+
+    await rows.nth(0).locator(".ae-drag-handle").dragTo(rows.nth(1));
+
+    await expect(rows.first()).toContainText("notify.send_message");
+    await expect(rows.nth(1)).toContainText("switch.turn_on");
+  });
+
+  test("a row expands to its YAML and the delete icon is visible", async ({ page }) => {
+    await injectEditCard(page);
+    await page.locator(".ae-btn-expand").first().click();
+    const row = page.locator('.ae-rows[data-section="action"] .ae-row').first();
+    await row.locator(".ae-row-desc").click();
+    await expect(row.locator(".ae-row-detail")).toContainText("entity_id: switch.espresso");
+    await expect(row.locator(".ae-row-delete svg")).toBeVisible();
+    await page.locator('.ae-rows[data-section="action"] .ae-row').nth(1).locator(".ae-row-delete").hover();
+
+    await page.screenshot({ path: "screenshots/automation-edit-row-expanded.png" });
+  });
+
+  test("open in editor locks Apply on the card", async ({ page }) => {
+    await injectEditCard(page);
+    await page.evaluate(() => {
+      window.__panel._openEditor = async () => {};
+      window.__panel._setEditorContent = (text) => { window.__editorText = text; };
+    });
+    await page.locator(".automation-edit-card .ae-btn-editor").first().click();
+    await expect(page.locator(".automation-edit-card .ae-btn-apply").first()).toBeDisabled();
+    expect(await page.evaluate(() => window.__editorText)).toContain("switch.espresso");
+  });
+});

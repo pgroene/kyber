@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
 from .const import TOOL_CALL_MAX_ROUNDS
+
+_LOGGER = logging.getLogger(__name__)
 
 _YAML_BLOCK_RE = re.compile(r"```yaml\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _PLAN_BLOCK_RE = re.compile(r"```plan\s*([\s\S]+?)\s*```", re.IGNORECASE)
@@ -160,6 +163,26 @@ def _extract_yaml_blocks(text: str) -> list[str]:
     return [match.group(1) for match in _YAML_BLOCK_RE.finditer(text)]
 
 
+_TRAILING_COMMA_RE = re.compile(r",(\s*[}\]])")
+
+
+def _loads_lenient(raw: str) -> Any:
+    """Parse model-written JSON, forgiving two common slips.
+
+    Models write raw line breaks inside long strings (Jinja templates) and
+    leave a comma before a closing bracket. Both are rejected by strict JSON
+    but unambiguous. Returns None when the text is still not JSON.
+    """
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        pass
+    try:
+        return json.loads(_TRAILING_COMMA_RE.sub(r"\1", raw), strict=False)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
 def _extract_plan_block(text: str) -> dict | None:
     """Extract the first ```plan``` JSON block from a response string.
 
@@ -175,9 +198,13 @@ def _extract_plan_block(text: str) -> dict | None:
         match = _TAG_PLAN_RE.search(text)
     if not match:
         return None
-    try:
-        parsed = json.loads(match.group(1))
-    except (json.JSONDecodeError, ValueError):
+    parsed = _loads_lenient(match.group(1))
+    if parsed is None:
+        # The block stays in the reply text; the panel shows it as unreadable
+        # instead of dropping the proposal without a word.
+        _LOGGER.warning(
+            "Kyber: plan block is not valid JSON, no card shown: %.300s", match.group(1)
+        )
         return None
     # Guard against malformed plans (JSON lists, "actions": null / string,
     # string entries) that would crash callers expecting a dict of dicts.

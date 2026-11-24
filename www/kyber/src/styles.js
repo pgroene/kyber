@@ -22,7 +22,13 @@ export const STYLES = `
     display: grid;
     grid-template-rows: 56px 1fr;
     grid-template-columns: 1fr;
-    height: 100%;
+    /* Bind to the viewport, not the host: HA does not always give the panel
+       element a definite height, and height:100% then grows to content height.
+       The whole page would scroll as one area and the editor column would stay
+       at the top, out of sight below a long chat history. Set here rather than
+       on :host, because outer styles on the panel element override :host. */
+    height: 100vh;
+    height: 100dvh;
     position: relative;
     background: var(--panel-bg);
     color: var(--text-color);
@@ -1065,6 +1071,10 @@ export const STYLES = `
   }
   .btn-debug:hover { color: var(--primary-color); border-color: var(--primary-color); }
   .debug-pane {
+    /* Full width below chat and editor. Auto-placed, it would land in column 1
+       only once the editor opens, leaving an empty cell under the editor. */
+    grid-column: 1 / -1;
+    grid-row: 3;
     flex: 0 0 auto;
     display: flex;
     flex-direction: column;
@@ -1550,6 +1560,20 @@ export const STYLES = `
   .plan-result.success { color: var(--success); }
   .plan-result.error   { color: var(--danger); }
 
+  .plan-unreadable {
+    background: color-mix(in srgb, var(--danger, #e53935) 8%, var(--panel-bg));
+    border: 1px solid var(--danger, #e53935);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 4px 0;
+    font-size: 13px;
+  }
+  .plan-unreadable summary { cursor: pointer; margin-top: 6px; color: var(--secondary-text-color, #888); font-size: 12px; }
+  .plan-unreadable pre {
+    font-size: 11px; white-space: pre-wrap; word-break: break-word;
+    max-height: 240px; overflow-y: auto; margin: 6px 0 0;
+  }
+
   .open-editor-prompt {
     background: color-mix(in srgb, var(--accent) 8%, var(--panel-bg));
     border: 1px solid var(--accent);
@@ -1672,6 +1696,18 @@ export const STYLES = `
     padding: 7px 8px;
     cursor: default;
     user-select: none;
+    flex-wrap: wrap;
+  }
+  .ae-row-toggle {
+    background: none; border: none; cursor: pointer; padding: 0 2px; flex: 0 0 auto;
+    color: var(--secondary-text-color, #888); font-size: 12px;
+  }
+  .ae-row-desc { cursor: pointer; }
+  .ae-row-detail {
+    flex: 1 0 100%; min-width: 0; box-sizing: border-box; margin: 4px 0 0; padding: 6px 8px;
+    background: var(--card-background-color, #1c1c1c); border: 1px solid var(--border-color); border-radius: 4px;
+    font-family: monospace; font-size: 11px; white-space: pre; overflow-x: auto;
+    max-height: 260px; overflow-y: auto; user-select: text; cursor: text;
   }
   .ae-row.dragging { opacity: 0.4; }
   .ae-row.drag-over { border-color: var(--accent); border-style: dashed; background: color-mix(in srgb, var(--accent) 10%, var(--sidebar-bg)); }
@@ -1684,10 +1720,14 @@ export const STYLES = `
     padding: 1px 4px;
   }
   .ae-row-delete {
-    background: none; border: none; cursor: pointer; opacity: 0.4; font-size: 14px; padding: 2px;
-    flex: 0 0 auto;
+    background: none; border: none; cursor: pointer; padding: 2px; border-radius: 4px;
+    flex: 0 0 auto; display: inline-flex; align-items: center;
+    color: var(--secondary-text-color, #aaa);
   }
-  .ae-row-delete:hover { opacity: 1; }
+  .ae-row-delete:hover, .ae-row-delete:focus-visible {
+    color: var(--error-color, #db4437);
+    background: color-mix(in srgb, var(--error-color, #db4437) 15%, transparent);
+  }
   .ae-yaml-details {
     margin: 8px 0;
     font-size: 12px;
@@ -1707,7 +1747,7 @@ export const STYLES = `
     overflow-y: auto;
   }
   .ae-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
-  .ae-btn-expand, .ae-btn-test {
+  .ae-btn-expand, .ae-btn-test, .ae-btn-editor {
     padding: 6px 12px; background: transparent; color: var(--accent);
     border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; font-size: 12px;
   }
@@ -1722,6 +1762,7 @@ export const STYLES = `
   }
   .ae-result { margin-top: 6px; font-size: 12px; }
   .ae-result.error { color: var(--danger, #e53935); }
+  .ae-result.info { color: var(--accent); }
 
   /* Automation tester */
   .ae-tester {

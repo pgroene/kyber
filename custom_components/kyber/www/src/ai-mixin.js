@@ -258,11 +258,15 @@ export const AIMixin = (Base) => class extends Base {
     }
     // ─────────────────────────────────────────────────────────────
 
-    const yamlText = this._editor ? this._editor.state.doc.toString() : "";
+    // A closed editor keeps its last text; sending it would tell the model
+    // the editor is still open.
+    const editorOpen = !!this._editor
+      && !!this.shadowRoot.getElementById("editor-container")?.classList.contains("open");
+    const yamlText = editorOpen ? this._editor.state.doc.toString() : "";
 
     // Capture the current editor selection (if any non-empty text is selected)
     let editorSelection = null;
-    if (this._editor) {
+    if (editorOpen) {
       const sel = this._editor.state.selection.main;
       if (sel.from !== sel.to) {
         const selectedText = this._editor.state.sliceDoc(sel.from, sel.to);
@@ -1284,11 +1288,25 @@ export const AIMixin = (Base) => class extends Base {
         if (allToolCalls) {
           // Auto-execute read-only tool calls without showing proposal card.
           // Not repeated on reload: the reply text already carries the answer.
-          if (!restored) this._autoExecuteToolPlan(plan, promptInput);
+          if (!restored) this._autoExecuteToolPlan(plan);
         } else {
           history.appendChild(this._buildPlanCard(plan, planOpts));
         }
       }
+    }
+
+    // A plan block the backend could not parse is cut from the bubble above;
+    // say so instead of ending the reply on a dangling colon.
+    const unreadPlan = !plan && /```plan\s*([\s\S]+?)\s*```/i.exec(fullText || "");
+    if (unreadPlan) {
+      const note = document.createElement("div");
+      note.className = "plan-unreadable";
+      note.innerHTML = `
+        <div class="plan-unreadable-text">⚠ ${this._escapeHtml(t("ai_plan_unreadable"))}</div>
+        <details><summary>${this._escapeHtml(t("ai_plan_unreadable_raw"))}</summary><pre></pre></details>
+      `;
+      note.querySelector("pre").textContent = unreadPlan[1];
+      history.appendChild(note);
     }
 
     // Show memory suggestion card if the backend extracted a learned fact
@@ -1399,7 +1417,7 @@ export const AIMixin = (Base) => class extends Base {
   }
 
 
-  async _autoExecuteToolPlan(plan, _originalPrompt) {
+  async _autoExecuteToolPlan(plan) {
     const history = this.shadowRoot?.getElementById("chat-history");
     if (!history) return;
     const t = this._t || ((k) => k);

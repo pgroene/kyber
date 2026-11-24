@@ -86,6 +86,8 @@ export const EN = {
   ae_created:          "✓ Created",
   ae_error:            "Error:",
   ae_new_automation:   "New automation",
+  ae_open_editor:      "✎ Open in editor",
+  ae_in_editor:        "Opened in the editor as an unsaved draft – save it there.",
 
   // Cards restored from the persisted chat history after a page reload
   restored_card_note:  "From an earlier visit – check before running it again.",
@@ -178,6 +180,8 @@ export const EN = {
   ai_edit_automation: "Edit automation",
   ai_open_yaml_editor: "📝 Open YAML editor",
   ai_editor_opened: "✓ Editor opened",
+  ai_plan_unreadable: "Kyber wrote a proposal that could not be read, so no card can be shown. Please ask again, e.g. \"send the proposal again\".",
+  ai_plan_unreadable_raw: "Show raw proposal",
   ai_tool_fetching: "🔍 Fetching data…",
   ai_tool_fetch_failed_msg: "⚠ Tool fetch failed: {msg}",
   ai_tool_fetch_failed: "Tool fetch failed: {msg}",
@@ -715,6 +719,7 @@ export const EN = {
   ed_error_loading: "Error loading: {msg}",
   ed_saved_check: "Saved ✓",
   ed_draft_restored: "Restored unsaved draft — review and save to apply",
+  ed_proposal_loaded: "Proposal loaded, not saved yet – review and save to apply",
 
   // Slash commands (slash-commands-mixin)
   sc_help_autopilot: "Toggle auto-execution of AI proposals",
@@ -1114,6 +1119,8 @@ export const NL = {
   ae_created:          "✓ Aangemaakt",
   ae_error:            "Fout:",
   ae_new_automation:   "Nieuwe automatisering",
+  ae_open_editor:      "✎ Openen in editor",
+  ae_in_editor:        "Geopend in de editor als niet-opgeslagen concept – sla het daar op.",
 
   restored_card_note:  "Uit een eerder bezoek – controleer dit voordat je het opnieuw uitvoert.",
   restored_card_done:  "✓ Al uitgevoerd",
@@ -1205,6 +1212,8 @@ export const NL = {
   ai_edit_automation: "Automatisering bewerken",
   ai_open_yaml_editor: "📝 YAML-editor openen",
   ai_editor_opened: "✓ Editor geopend",
+  ai_plan_unreadable: "Kyber schreef een voorstel dat niet gelezen kon worden, daarom ontbreekt de kaart. Vraag het opnieuw, bijvoorbeeld „stuur het voorstel nog eens“.",
+  ai_plan_unreadable_raw: "Ruwe versie tonen",
   ai_tool_fetching: "🔍 Gegevens ophalen…",
   ai_tool_fetch_failed_msg: "⚠ Ophalen via tool mislukt: {msg}",
   ai_tool_fetch_failed: "Ophalen via tool mislukt: {msg}",
@@ -1742,6 +1751,7 @@ export const NL = {
   ed_error_loading: "Fout bij laden: {msg}",
   ed_saved_check: "Opgeslagen ✓",
   ed_draft_restored: "Niet-opgeslagen concept hersteld — controleer en sla op om toe te passen",
+  ed_proposal_loaded: "Voorstel geladen, nog niet opgeslagen – controleer en sla op om toe te passen",
 
   // Slash commands (slash-commands-mixin)
   sc_help_autopilot: "Automatisch uitvoeren van AI-voorstellen aan/uit",
@@ -2141,6 +2151,8 @@ export const DE = {
   ae_created:          "✓ Angelegt",
   ae_error:            "Fehler:",
   ae_new_automation:   "Neue Automatisierung",
+  ae_open_editor:      "✎ Im Editor öffnen",
+  ae_in_editor:        "Im Editor als ungespeicherter Entwurf geöffnet – dort speichern.",
 
   restored_card_note:  "Aus einem früheren Besuch – vor erneutem Ausführen prüfen.",
   restored_card_done:  "✓ Bereits ausgeführt",
@@ -2232,6 +2244,8 @@ export const DE = {
   ai_edit_automation: "Automatisierung bearbeiten",
   ai_open_yaml_editor: "📝 YAML-Editor öffnen",
   ai_editor_opened: "✓ Editor geöffnet",
+  ai_plan_unreadable: "Kyber hat einen Vorschlag geschrieben, der sich nicht lesen ließ, deshalb fehlt die Karte. Bitte noch einmal anfragen, etwa „Schick den Vorschlag bitte noch einmal“.",
+  ai_plan_unreadable_raw: "Rohfassung anzeigen",
   ai_tool_fetching: "🔍 Daten werden abgerufen …",
   ai_tool_fetch_failed_msg: "⚠ Abruf über Tool fehlgeschlagen: {msg}",
   ai_tool_fetch_failed: "Abruf über Tool fehlgeschlagen: {msg}",
@@ -2769,6 +2783,7 @@ export const DE = {
   ed_error_loading: "Fehler beim Laden: {msg}",
   ed_saved_check: "Gespeichert ✓",
   ed_draft_restored: "Ungespeicherter Entwurf wiederhergestellt – prüfen und speichern, um ihn zu übernehmen",
+  ed_proposal_loaded: "Vorschlag geladen, noch nicht gespeichert – prüfen und speichern, um ihn zu übernehmen",
 
   // Slash commands (slash-commands-mixin)
   sc_help_autopilot: "Automatische Ausführung von KI-Vorschlägen umschalten",
