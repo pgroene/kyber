@@ -165,6 +165,11 @@ Based on the [May 2026 narrator bench](docs/narrator-bench-report-2026-05.md) (1
 | `GET /api/kyber/debug/bug-report` | Download sanitised bug report ZIP |
 | `GET/POST /api/kyber/debug/mode` | Read or toggle debug-mode flag |
 
+## Contributors
+
+- [@pgroene](https://github.com/pgroene) — maintainer
+- [@mvdberge](https://github.com/mvdberge)
+
 ## License
 
 MIT — see [LICENSE](LICENSE)
