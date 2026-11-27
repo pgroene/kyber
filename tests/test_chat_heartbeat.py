@@ -12,7 +12,7 @@ import contextlib
 import json
 from unittest.mock import MagicMock, patch
 
-from aiohttp import web
+from aiohttp.web import Request, Response, StreamResponse, json_response
 from homeassistant.core import HomeAssistant
 import pytest
 
@@ -37,7 +37,7 @@ async def _client_for(hass, hass_client, work_factory):
         url = "/api/kyber_test/turn"
         name = "api:kyber_test:turn"
 
-        async def post(self, request: web.Request) -> web.StreamResponse:
+        async def post(self, request: Request) -> StreamResponse:
             return await _respond_with_heartbeat(request, work_factory())
 
     await async_setup_component(hass, "http", {})
@@ -47,7 +47,7 @@ async def _client_for(hass, hass_client, work_factory):
 
 async def test_quick_reply_keeps_its_status(hass: HomeAssistant, hass_client, short_heartbeat) -> None:
     async def work():
-        return web.json_response({"message": "Missing 'prompt' field"}, status=400)
+        return json_response({"message": "Missing 'prompt' field"}, status=400)
 
     client = await _client_for(hass, hass_client, work)
     resp = await client.post("/api/kyber_test/turn")
@@ -58,7 +58,7 @@ async def test_quick_reply_keeps_its_status(hass: HomeAssistant, hass_client, sh
 async def test_slow_reply_sends_spaces_then_the_document(hass: HomeAssistant, hass_client, short_heartbeat) -> None:
     async def work():
         await asyncio.sleep(0.3)
-        return web.json_response({"response": "It is 17 °C."})
+        return json_response({"response": "It is 17 °C."})
 
     client = await _client_for(hass, hass_client, work)
     resp = await client.post("/api/kyber_test/turn")
@@ -73,7 +73,7 @@ async def test_slow_reply_sends_spaces_then_the_document(hass: HomeAssistant, ha
 async def test_slow_error_carries_its_status_in_the_body(hass: HomeAssistant, hass_client, short_heartbeat) -> None:
     async def work():
         await asyncio.sleep(0.15)
-        return web.json_response({"message": "AI provider error: overloaded"}, status=503)
+        return json_response({"message": "AI provider error: overloaded"}, status=503)
 
     client = await _client_for(hass, hass_client, work)
     resp = await client.post("/api/kyber_test/turn")
@@ -87,7 +87,7 @@ async def test_slow_error_carries_its_status_in_the_body(hass: HomeAssistant, ha
 async def test_slow_plain_text_error_becomes_a_message(hass: HomeAssistant, hass_client, short_heartbeat) -> None:
     async def work():
         await asyncio.sleep(0.15)
-        return web.Response(text="upstream broke", status=502)
+        return Response(text="upstream broke", status=502)
 
     client = await _client_for(hass, hass_client, work)
     resp = await client.post("/api/kyber_test/turn")
