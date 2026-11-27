@@ -1,4 +1,5 @@
 """Pytest configuration and shared fixtures for kyber tests."""
+import contextlib
 import sys
 import threading
 
@@ -60,6 +61,8 @@ def pytest_configure(config):  # noqa: ARG001
 
 
 try:
+    import aiohttp as _aiohttp
+    import aiohttp.web as _aiohttp_web
     import homeassistant.components.http as _ha_http
     import homeassistant.core as _ha_core
     import homeassistant.exceptions as _ha_exc
@@ -91,6 +94,11 @@ try:
     from custom_components.kyber.const import DOMAIN
     from custom_components.kyber import async_setup_entry
 
+    # Stub files put an empty module in place of ai_task with setdefault, so load
+    # the real one first. It needs hassil, which older test environments lack.
+    with contextlib.suppress(ImportError):
+        import homeassistant.components.ai_task  # noqa: F401
+
     # ── Real HA attributes ────────────────────────────────────────────────────
     # Several test files overwrite HA module attributes at module scope:
     #   sys.modules["homeassistant.helpers.storage"].Store = _Stub
@@ -105,6 +113,8 @@ try:
         (_ha_device_reg,  "async_get",          _ha_device_reg.async_get),
         (_ha_entity_reg,  "async_get",          _ha_entity_reg.async_get),
         (_ha_label_reg,   "async_get",          _ha_label_reg.async_get),
+        # Not HA, but clobbered the same way: sys.modules["aiohttp"].web = ModuleType(...)
+        (_aiohttp,        "web",                _aiohttp_web),
     ]
 
     # ── Kyber modules fully replaced in sys.modules by stubs ─────────────────

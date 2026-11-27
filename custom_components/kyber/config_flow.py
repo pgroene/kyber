@@ -23,80 +23,80 @@ _SECTION_AREA = "area_assignment"
 _SECTION_DEVELOPER = "developer"
 
 from .const import (
-    CONF_AI_TASK_ENTITY_ID,
-    CONF_NARRATOR_AI_TASK_ENTITY_ID,
-    CONF_CLOUD_PROVIDER,
-    CONF_CLOUD_USE_FOR_CHAT,
-    CLOUD_PROVIDER_NONE,
-    CLOUD_PROVIDER_AZURE,
-    CLOUD_PROVIDER_OPENAI,
+    AREA_ASSIGNMENT_AUTO,
+    AREA_ASSIGNMENT_OFF,
+    AREA_ASSIGNMENT_SUGGEST,
     CLOUD_PROVIDER_ANTHROPIC,
-    DEFAULT_CLOUD_PROVIDER,
-    DEFAULT_CLOUD_USE_FOR_CHAT,
-    CONF_AZURE_ENDPOINT,
-    CONF_AZURE_API_KEY,
-    CONF_AZURE_DEPLOYMENT,
-    CONF_AZURE_API_VERSION,
-    DEFAULT_AZURE_API_VERSION,
-    CONF_OPENAI_API_KEY,
-    CONF_OPENAI_MODEL,
-    CONF_OPENAI_BASE_URL,
-    DEFAULT_OPENAI_MODEL,
+    CLOUD_PROVIDER_AZURE,
+    CLOUD_PROVIDER_NONE,
+    CLOUD_PROVIDER_OPENAI,
+    CONF_AI_TASK_ENTITY_ID,
+    CONF_ALLOW_THINKING,
     CONF_ANTHROPIC_API_KEY,
     CONF_ANTHROPIC_MODEL,
-    DEFAULT_ANTHROPIC_MODEL,
+    CONF_AREA_ASSIGNMENT_MODE,
+    CONF_AZURE_API_KEY,
+    CONF_AZURE_API_VERSION,
+    CONF_AZURE_DEPLOYMENT,
+    CONF_AZURE_ENDPOINT,
+    CONF_CHAT_TIMEOUT,
+    CONF_CLOUD_PROVIDER,
+    CONF_CLOUD_USE_FOR_CHAT,
+    CONF_DEEP_LEARNING_INTERVAL_DAYS,
+    CONF_DEEP_LEARNING_MAX_BATCH,
     CONF_ENABLE_DEBUG_VIEWS,
     CONF_ENABLE_MCP,
     CONF_ENABLE_MCP_IN_CHAT,
+    CONF_LABEL_ASSIGNMENT_MODE,
+    CONF_MAX_DAILY_TOKENS,
+    CONF_MAX_REQUESTS_PER_MINUTE,
+    CONF_MAX_TOKENS,
+    CONF_MAX_TOOL_ROUNDS,
     CONF_MCP_ALLOW_STATE_CHANGES,
     CONF_MCP_CLIENT_SERVERS,
-    CONF_INITIAL_DEEP_LEARNING_RUNS,
-    CONF_CHAT_TIMEOUT,
-    DEFAULT_CHAT_TIMEOUT,
-    MIN_CHAT_TIMEOUT,
-    MAX_CHAT_TIMEOUT,
-    CONF_MAX_TOOL_ROUNDS,
-    MIN_TOOL_ROUNDS,
-    MAX_TOOL_ROUNDS,
-    TOOL_CALL_MAX_ROUNDS,
-    CONF_MAX_DAILY_TOKENS,
-    CONF_MAX_TOKENS,
-    CONF_MAX_REQUESTS_PER_MINUTE,
+    CONF_NARRATOR_AI_TASK_ENTITY_ID,
     CONF_NARRATOR_ENABLED,
+    CONF_NARRATOR_INTERVAL_DAYS,
     CONF_NARRATOR_MAX_BATCH,
     CONF_NARRATOR_MAX_TOKENS,
-    CONF_NARRATOR_INTERVAL_DAYS,
-    CONF_DEEP_LEARNING_INTERVAL_DAYS,
-    CONF_DEEP_LEARNING_MAX_BATCH,
+    CONF_OPENAI_API_KEY,
+    CONF_OPENAI_BASE_URL,
+    CONF_OPENAI_MODEL,
     CONF_RUN_INITIAL_ANALYZE,
-    CONF_AREA_ASSIGNMENT_MODE,
-    CONF_LABEL_ASSIGNMENT_MODE,
+    DEFAULT_ALLOW_THINKING,
+    DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_AREA_ASSIGNMENT_MODE,
+    DEFAULT_AZURE_API_VERSION,
+    DEFAULT_CHAT_TIMEOUT,
+    DEFAULT_CLOUD_PROVIDER,
+    DEFAULT_CLOUD_USE_FOR_CHAT,
+    DEFAULT_DEEP_LEARNING_INTERVAL_DAYS,
+    DEFAULT_DEEP_LEARNING_MAX_BATCH,
     DEFAULT_ENABLE_DEBUG_VIEWS,
     DEFAULT_ENABLE_MCP,
     DEFAULT_ENABLE_MCP_IN_CHAT,
+    DEFAULT_LABEL_ASSIGNMENT_MODE,
+    DEFAULT_MAX_DAILY_TOKENS,
+    DEFAULT_MAX_REQUESTS_PER_MINUTE,
+    DEFAULT_MAX_TOKENS,
     DEFAULT_MCP_ALLOW_STATE_CHANGES,
     DEFAULT_MCP_CLIENT_SERVERS,
-    DEFAULT_INITIAL_DEEP_LEARNING_RUNS,
-    DEFAULT_MAX_DAILY_TOKENS,
-    DEFAULT_MAX_TOKENS,
-    DEFAULT_MAX_REQUESTS_PER_MINUTE,
     DEFAULT_NARRATOR_ENABLED,
+    DEFAULT_NARRATOR_INTERVAL_DAYS,
     DEFAULT_NARRATOR_MAX_BATCH,
     DEFAULT_NARRATOR_MAX_TOKENS,
-    DEFAULT_NARRATOR_INTERVAL_DAYS,
-    DEFAULT_DEEP_LEARNING_INTERVAL_DAYS,
-    DEFAULT_DEEP_LEARNING_MAX_BATCH,
+    DEFAULT_OPENAI_MODEL,
     DEFAULT_RUN_INITIAL_ANALYZE,
-    DEFAULT_AREA_ASSIGNMENT_MODE,
-    DEFAULT_LABEL_ASSIGNMENT_MODE,
-    AREA_ASSIGNMENT_OFF,
-    AREA_ASSIGNMENT_SUGGEST,
-    AREA_ASSIGNMENT_AUTO,
+    DOMAIN,
+    LABEL_ASSIGNMENT_AUTO,
     LABEL_ASSIGNMENT_OFF,
     LABEL_ASSIGNMENT_SUGGEST,
-    LABEL_ASSIGNMENT_AUTO,
-    DOMAIN,
+    MAX_CHAT_TIMEOUT,
+    MAX_TOOL_ROUNDS,
+    MIN_CHAT_TIMEOUT,
+    MIN_TOOL_ROUNDS,
     MODEL_CONTEXT_SIZES,
+    TOOL_CALL_MAX_ROUNDS,
 )
 
 
@@ -114,7 +114,8 @@ def _infer_max_tokens(hass: HomeAssistant, entity_id: str) -> int:
 
     Checks (in order):
       1. Direct attributes: max_tokens, context_window, context_length, num_ctx
-      2. Model name attribute matched against MODEL_CONTEXT_SIZES table
+      2. Model name attribute matched against MODEL_CONTEXT_SIZES table —
+         longest pattern wins, so "qwen3-coder" beats the generic "qwen"
       3. Falls back to DEFAULT_MAX_TOKENS
     """
     state = hass.states.get(entity_id)
@@ -142,17 +143,20 @@ def _infer_max_tokens(hass: HomeAssistant, entity_id: str) -> int:
         # Fall back: try to extract from entity_id itself (e.g. ai_task.ollama_llama3)
         model_name = entity_id.lower()
 
+    best_size = 0
+    best = DEFAULT_MAX_TOKENS
     for pattern, size in MODEL_CONTEXT_SIZES.items():
-        if pattern in model_name:
-            return size
+        if pattern in model_name and len(pattern) > best_size:
+            best_size = len(pattern)
+            best = size
 
-    return DEFAULT_MAX_TOKENS
+    return best
 
 
 def _build_setup_schema(
     hass: HomeAssistant,
     default_entity: str = "",
-    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_tokens: int | None = None,
     max_requests_per_minute: int = DEFAULT_MAX_REQUESTS_PER_MINUTE,
     max_daily_tokens: int = DEFAULT_MAX_DAILY_TOKENS,
     enable_debug: bool = DEFAULT_ENABLE_DEBUG_VIEWS,
@@ -182,6 +186,8 @@ def _build_setup_schema(
                 selector.EntitySelectorConfig(domain="ai_task")
             ),
             **_build_options_schema(
+                hass=hass,
+                ai_entity=default_entity,
                 max_tokens=max_tokens,
                 max_requests_per_minute=max_requests_per_minute,
                 max_daily_tokens=max_daily_tokens,
@@ -202,15 +208,16 @@ def _build_setup_schema(
 
 def _build_options_schema(
     *,
+    hass: HomeAssistant | None = None,
     ai_entity: str = "",
     include_entity: bool = False,
     collapsed: bool = False,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_tokens: int | None = None,
     max_requests_per_minute: int = DEFAULT_MAX_REQUESTS_PER_MINUTE,
     max_daily_tokens: int = DEFAULT_MAX_DAILY_TOKENS,
     chat_timeout: int = DEFAULT_CHAT_TIMEOUT,
     max_tool_rounds: int = TOOL_CALL_MAX_ROUNDS,
-    chat_max_limit: int = 2_000_000,
+    allow_thinking: bool = DEFAULT_ALLOW_THINKING,
     enable_debug: bool = DEFAULT_ENABLE_DEBUG_VIEWS,
     enable_mcp: bool = DEFAULT_ENABLE_MCP,
     run_initial_analyze: bool = DEFAULT_RUN_INITIAL_ANALYZE,
@@ -220,8 +227,7 @@ def _build_options_schema(
     narrator_max_batch: int = DEFAULT_NARRATOR_MAX_BATCH,
     narrator_interval_days: int = DEFAULT_NARRATOR_INTERVAL_DAYS,
     narrator_ai_entity: str = "",
-    narrator_max_tokens: int = DEFAULT_NARRATOR_MAX_TOKENS,
-    narrator_max_limit: int = 2_000_000,
+    narrator_max_tokens: int | None = None,
     area_assignment_mode: str = DEFAULT_AREA_ASSIGNMENT_MODE,
     label_assignment_mode: str = DEFAULT_LABEL_ASSIGNMENT_MODE,
     cloud_provider: str = DEFAULT_CLOUD_PROVIDER,
@@ -240,6 +246,16 @@ def _build_options_schema(
     mcp_client_servers: str = DEFAULT_MCP_CLIENT_SERVERS,
 ) -> vol.Schema:
     """Options schema grouped into sections."""
+    # A window that was not chosen by the user is pre-filled from the model
+    # entity, so a stored default never shadows a better inference.
+    if hass is not None:
+        if max_tokens is None or max_tokens == DEFAULT_MAX_TOKENS:
+            max_tokens = _infer_max_tokens(hass, ai_entity) if ai_entity else DEFAULT_MAX_TOKENS
+        narrator_ent = narrator_ai_entity or ai_entity
+        if narrator_max_tokens is None:
+            narrator_max_tokens = _infer_max_tokens(hass, narrator_ent) if narrator_ent else DEFAULT_NARRATOR_MAX_TOKENS
+    max_tokens = int(max_tokens or DEFAULT_MAX_TOKENS)
+    narrator_max_tokens = int(narrator_max_tokens or DEFAULT_NARRATOR_MAX_TOKENS)
     model_fields: dict = {}
     if include_entity:
         model_fields[vol.Optional(CONF_AI_TASK_ENTITY_ID, default=ai_entity)] = selector.EntitySelector(
@@ -247,7 +263,7 @@ def _build_options_schema(
         )
     model_fields[vol.Optional(CONF_MAX_TOKENS, default=max_tokens)] = selector.NumberSelector(
         selector.NumberSelectorConfig(
-            min=2_000, max=chat_max_limit, step=1, mode=selector.NumberSelectorMode.BOX
+            min=2_000, max=1_000_000, step=1, mode=selector.NumberSelectorMode.BOX
         )
     )
     model_fields[vol.Optional(CONF_MAX_DAILY_TOKENS, default=max_daily_tokens)] = selector.NumberSelector(
@@ -266,6 +282,7 @@ def _build_options_schema(
             min=MIN_TOOL_ROUNDS, max=MAX_TOOL_ROUNDS, step=1, mode=selector.NumberSelectorMode.BOX,
         )
     )
+    model_fields[vol.Optional(CONF_ALLOW_THINKING, default=allow_thinking)] = selector.BooleanSelector()
     narrator_key = (
         vol.Optional(CONF_NARRATOR_AI_TASK_ENTITY_ID, default=narrator_ai_entity)
         if narrator_ai_entity
@@ -276,7 +293,7 @@ def _build_options_schema(
     )
     model_fields[vol.Optional(CONF_NARRATOR_MAX_TOKENS, default=narrator_max_tokens)] = selector.NumberSelector(
         selector.NumberSelectorConfig(
-            min=2_000, max=narrator_max_limit, step=1, mode=selector.NumberSelectorMode.BOX
+            min=2_000, max=1_000_000, step=1, mode=selector.NumberSelectorMode.BOX
         )
     )
 
@@ -450,6 +467,7 @@ class KyberConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_MAX_DAILY_TOKENS: int(model.get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS)),
                         CONF_CHAT_TIMEOUT: int(model.get(CONF_CHAT_TIMEOUT, DEFAULT_CHAT_TIMEOUT)),
                         CONF_MAX_TOOL_ROUNDS: int(model.get(CONF_MAX_TOOL_ROUNDS, TOOL_CALL_MAX_ROUNDS)),
+                        CONF_ALLOW_THINKING: bool(model.get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING)),
                         CONF_NARRATOR_AI_TASK_ENTITY_ID: str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip(),
                         CONF_NARRATOR_MAX_TOKENS: int(model.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS)),
                         CONF_RUN_INITIAL_ANALYZE: bool(agents.get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),
@@ -544,6 +562,7 @@ class KyberOptionsFlow(OptionsFlow):
                 return self.async_show_form(
                     step_id="init",
                     data_schema=_build_options_schema(
+                        hass=self.hass,
                         ai_entity=new_entity_id,
                         include_entity=True,
                         max_tokens=int(model.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)),
@@ -551,6 +570,7 @@ class KyberOptionsFlow(OptionsFlow):
                         max_daily_tokens=int(model.get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS)),
                         chat_timeout=int(model.get(CONF_CHAT_TIMEOUT, DEFAULT_CHAT_TIMEOUT)),
                         max_tool_rounds=int(model.get(CONF_MAX_TOOL_ROUNDS, TOOL_CALL_MAX_ROUNDS)),
+                        allow_thinking=bool(model.get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING)),
                         narrator_ai_entity=str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")),
                         narrator_max_tokens=int(model.get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS)),
                     ),
@@ -576,6 +596,7 @@ class KyberOptionsFlow(OptionsFlow):
                 return self.async_show_form(
                     step_id="init",
                     data_schema=_build_options_schema(
+                        hass=self.hass,
                         ai_entity=_get(CONF_AI_TASK_ENTITY_ID, ""),
                         include_entity=True,
                         max_tokens=int(model.get(CONF_MAX_TOKENS, _get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS))),
@@ -583,6 +604,7 @@ class KyberOptionsFlow(OptionsFlow):
                         max_daily_tokens=int(model.get(CONF_MAX_DAILY_TOKENS, _get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS))),
                         chat_timeout=int(model.get(CONF_CHAT_TIMEOUT, _get(CONF_CHAT_TIMEOUT, DEFAULT_CHAT_TIMEOUT))),
                         max_tool_rounds=int(model.get(CONF_MAX_TOOL_ROUNDS, _get(CONF_MAX_TOOL_ROUNDS, TOOL_CALL_MAX_ROUNDS))),
+                        allow_thinking=bool(model.get(CONF_ALLOW_THINKING, _get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING))),
                         narrator_ai_entity=str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, _get(CONF_NARRATOR_AI_TASK_ENTITY_ID, ""))),
                         narrator_max_tokens=int(model.get(CONF_NARRATOR_MAX_TOKENS, _get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS))),
                         cloud_provider=selected_provider,
@@ -597,6 +619,7 @@ class KyberOptionsFlow(OptionsFlow):
                 CONF_MAX_DAILY_TOKENS: int(model.get(CONF_MAX_DAILY_TOKENS, _get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS))),
                 CONF_CHAT_TIMEOUT: int(model.get(CONF_CHAT_TIMEOUT, _get(CONF_CHAT_TIMEOUT, DEFAULT_CHAT_TIMEOUT))),
                 CONF_MAX_TOOL_ROUNDS: int(model.get(CONF_MAX_TOOL_ROUNDS, _get(CONF_MAX_TOOL_ROUNDS, TOOL_CALL_MAX_ROUNDS))),
+                CONF_ALLOW_THINKING: bool(model.get(CONF_ALLOW_THINKING, _get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING))),
                 CONF_NARRATOR_AI_TASK_ENTITY_ID: str(model.get(CONF_NARRATOR_AI_TASK_ENTITY_ID, _get(CONF_NARRATOR_AI_TASK_ENTITY_ID, ""))).strip(),
                 CONF_NARRATOR_MAX_TOKENS: int(model.get(CONF_NARRATOR_MAX_TOKENS, _get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS))),
                 CONF_RUN_INITIAL_ANALYZE: bool(agents.get(CONF_RUN_INITIAL_ANALYZE, _get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE))),
@@ -632,18 +655,8 @@ class KyberOptionsFlow(OptionsFlow):
         current_tokens = _get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)
         current_daily_tokens = _get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS)
 
-        # Always offer the inferred value when opening options — user can still override
-        if entity_id:
-            inferred = _infer_max_tokens(self.hass, entity_id)
-            if inferred != DEFAULT_MAX_TOKENS:
-                current_tokens = inferred
-
-        narrator_entity = str(_get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")).strip() or entity_id
-
-        chat_max_limit = _infer_max_tokens(self.hass, entity_id) if entity_id else 2_000_000
-        narrator_max_limit = _infer_max_tokens(self.hass, narrator_entity) if narrator_entity else 2_000_000
-
         schema = _build_options_schema(
+            hass=self.hass,
             ai_entity=entity_id,
             include_entity=True,
             collapsed=True,
@@ -652,7 +665,7 @@ class KyberOptionsFlow(OptionsFlow):
             max_daily_tokens=int(current_daily_tokens),
             chat_timeout=int(_get(CONF_CHAT_TIMEOUT, DEFAULT_CHAT_TIMEOUT)),
             max_tool_rounds=int(_get(CONF_MAX_TOOL_ROUNDS, TOOL_CALL_MAX_ROUNDS)),
-            chat_max_limit=chat_max_limit,
+            allow_thinking=bool(_get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING)),
             enable_debug=bool(_get(CONF_ENABLE_DEBUG_VIEWS, DEFAULT_ENABLE_DEBUG_VIEWS)),
             enable_mcp=bool(_get(CONF_ENABLE_MCP, DEFAULT_ENABLE_MCP)),
             run_initial_analyze=bool(_get(CONF_RUN_INITIAL_ANALYZE, DEFAULT_RUN_INITIAL_ANALYZE)),
@@ -663,7 +676,6 @@ class KyberOptionsFlow(OptionsFlow):
             narrator_interval_days=int(_get(CONF_NARRATOR_INTERVAL_DAYS, DEFAULT_NARRATOR_INTERVAL_DAYS)),
             narrator_ai_entity=str(_get(CONF_NARRATOR_AI_TASK_ENTITY_ID, "")),
             narrator_max_tokens=int(_get(CONF_NARRATOR_MAX_TOKENS, DEFAULT_NARRATOR_MAX_TOKENS)),
-            narrator_max_limit=narrator_max_limit,
             area_assignment_mode=str(_get(CONF_AREA_ASSIGNMENT_MODE, DEFAULT_AREA_ASSIGNMENT_MODE)),
             label_assignment_mode=str(_get(CONF_LABEL_ASSIGNMENT_MODE, DEFAULT_LABEL_ASSIGNMENT_MODE)),
             cloud_provider=str(_get(CONF_CLOUD_PROVIDER, DEFAULT_CLOUD_PROVIDER)),

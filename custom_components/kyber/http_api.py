@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections import deque
 import dataclasses
 import json
@@ -68,6 +69,8 @@ from .const import (
     LABEL_ASSIGNMENT_OFF,
     LABEL_ASSIGNMENT_AUTO,
     LOVELACE_CARDS_REFERENCE,
+    CONF_ALLOW_THINKING,
+    DEFAULT_ALLOW_THINKING,
     MAX_CHECK_ROUNDS,
     MAX_TOOL_RESULT_CHARS,
     SYSTEM_PROMPT_TEMPLATE,
@@ -93,11 +96,11 @@ from .response_processing import (
     _YAML_BLOCK_RE, _PLAN_BLOCK_RE, _CLARIFY_BLOCK_RE,
     _TOOL_RESULT_STRIP_RE, _TOOL_RESULT_ECHO_RE, _TOOL_CALL_MAX_ROUNDS,
     _BARE_FENCE_RE, _ACTION_TYPE_RE, _AUTOMATION_EDIT_RE,
-    _parse_tool_calls, _strip_tool_calls, _extract_yaml_blocks, _extract_plan_block,
+    _parse_tool_calls, _strip_tool_calls, _extract_yaml_blocks, _extract_plan_block, _plan_block_json_error,
     _rewrap_bare_action_fences, _normalize_json_plan_blocks, _NARRATION_PATTERNS, _BARE_JSON_TOOL_RESULT_RE,
     _strip_role_echo_prefix, _BRIGHTNESS_INTENT_RE, _DIM_INTENT_RE,
     _augment_brightness_intent, _extract_clarify_block, _strip_plan_block,
-    _lift_config_edit_plan,
+    _lift_config_edit_plan, _detect_truncated_tool_call,
 )
 from .intent_and_context import (
     _QUICK_CREATE_AREA_RE, _try_quick_intent,
@@ -118,7 +121,7 @@ from .session_and_storage import (
 )
 from .debug_and_diagnostics import (
     _KyberTurnLogHandler, _debug_attach_log_capture, _debug_detach_log_capture,
-    _debug_record_turn,
+    _debug_record_turn, _debug_record_aborted_turn,
     KyberDebugLastTurnView, KyberDebugToolHistoryView, KyberDebugStatusView,
     KyberDebugBundleView, KyberBugReportView, KyberDebugModeView,
     _build_redaction_map, _restore_kyber_version_in_bug_report, _build_redacted_bundle_summary,
@@ -150,6 +153,7 @@ from . import automation_check
 from .prompt_budget import ChatPrompt, PromptFit, ToolRound, prompt_char_limit
 from .rate_limiter import _rate_limiter
 from .token_budget import TokenReservation, get_budget_provider, get_store as get_token_budget_store
+from . import thinking_check
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -689,11 +693,71 @@ async def _check_plan(hass: HomeAssistant, plan: dict | None) -> list:
         return []
 
 
-async def _automation_check_feedback(hass: HomeAssistant, response_text: str) -> str:
-    """Correction request for the model when its proposal has errors, else ""."""
+def _complete_automation_plan(plan: dict | None, referenced: list[dict] | None) -> dict | None:
+    """Mark a plan with original/modified config as an edit and fill in which config it edits.
+
+    Measured 2026-10-22: a thinking model answered with summary, changes,
+    original_config and modified_config but no "edit_automation" and no ids.
+    Kyber then neither showed an apply card nor checked the config. The config
+    edited is the one named in the request: matched by id, or the only one.
+    """
+    if not isinstance(plan, dict) or plan.get("create_automation"):
+        return plan
+    modified = plan.get("modified_config")
+    if not plan.get("edit_automation") and not plan.get("edit_script") and not isinstance(modified, dict):
+        return plan
+    refs = referenced or []
+    config_id = str((modified or {}).get("id") or plan.get("automation_id") or "")
+    ref = next((r for r in refs if config_id and r.get("id") == config_id), None)
+    if ref is None and len(refs) == 1:
+        ref = refs[0]
+    if not plan.get("edit_automation") and not plan.get("edit_script"):
+        if ref is None:
+            return plan  # cannot tell which automation it means
+        plan = {**plan, "edit_script" if ref.get("kind") == "script" else "edit_automation": True}
+    if ref is not None:
+        plan = {**plan}
+        plan.setdefault("entity_id", ref["entity_id"])
+        plan.setdefault("automation_id", ref["id"])
+    return plan
+
+
+def _missing_plan_request(referenced: list[dict]) -> str:
+    names = ", ".join(f"`{r['entity_id']}` (Config ID `{r['id']}`)" for r in referenced)
+    return (
+        f"No plan block found. The user asked to change {names}. Emit the complete edit_automation "
+        "plan block now, with original_config and modified_config; an analysis alone does not change anything."
+    )
+
+
+def _unreadable_plan_request(error: str) -> str:
+    return (
+        f"Your plan block is not valid JSON ({error}), so the user gets no plan card. Emit the complete "
+        "plan block again as strict JSON. A Jinja template goes into one JSON string, line breaks as \\n "
+        "and quotes escaped; YAML block scalars (>-, |), comments and unquoted values are not JSON."
+    )
+
+
+async def _correction_request(
+    hass: HomeAssistant, response_text: str, referenced: list[dict] | None, intent: str,
+) -> str:
+    """What the model must fix in its answer before the user sees it; "" when nothing.
+
+    - a proposed automation/script with errors the check names,
+    - a plan block that is not JSON (measured: a YAML block scalar inside the
+      JSON); the user would get no card,
+    - no plan at all although the user asked to change a named automation
+      (measured: the model sometimes ended on an analysis without a plan).
+    """
     text = _normalize_json_plan_blocks(_rewrap_bare_action_fences(response_text))
-    findings = await _check_plan(hass, _extract_plan_block(text))
-    return automation_check.feedback_for_model(findings)
+    plan = _complete_automation_plan(_extract_plan_block(text), referenced)
+    if plan is None and (error := _plan_block_json_error(text)):
+        return _unreadable_plan_request(error)
+    if plan is None:
+        if referenced and intent == "action" and not _extract_clarify_block(text):
+            return _missing_plan_request(referenced)
+        return ""
+    return automation_check.feedback_for_model(await _check_plan(hass, plan))
 
 
 async def _attach_check_warnings(hass: HomeAssistant, plan: dict | None) -> dict | None:
@@ -1259,8 +1323,12 @@ async def _run_ai_loop(
     user_id: str | None = None,
     is_admin: bool = False,
     model_override: str | None = None,
+    referenced: list[dict] | None = None,
 ) -> tuple:
     """Run the AI tool-calling loop; return (response_text, tool_log, tool_exchange, executed_calls_cache, intent, loop_instructions, aliases_saved, token_usage).
+
+    ``referenced`` are the automations/scripts named in the request
+    (_load_referenced_configs); an edit request about them must end in a plan.
 
     Every round renders ``prompt`` plus the tool rounds so far into the chat
     model's context window (see prompt_budget). May raise HomeAssistantError
@@ -1320,7 +1388,11 @@ async def _run_ai_loop(
     }
 
     # Qwen3 thinking mode emits <think>…</think> blocks that break plan/tool parsing.
-    if "qwen3" in entity_id.lower():
+    # With allow_thinking the user switched thinking on in the integration on
+    # purpose (it makes automations far more often right); the soft switch
+    # would turn it off again on hybrid Qwen3 models. Newer Qwen models ignore it.
+    _allow_thinking = bool(_cfg.get(CONF_ALLOW_THINKING, DEFAULT_ALLOW_THINKING))
+    if "qwen3" in entity_id.lower() and not _allow_thinking:
         # A soft switch in the user's part, right before the question: at the
         # very start it would differ from other models' prompts for no gain and
         # Qwen3 reads it from the user message anyway.
@@ -1490,6 +1562,7 @@ async def _run_ai_loop(
     _seen_entity_scores: dict[str, float] = {}  # entity_id → best score shown so far
     response_text = ""
     _loop_redirect_given = False  # allow one redirect hint before falling back to synthesis
+    _truncation_resume_given = False  # allow one resume ask when a tool call was cut off by max_tokens
     _auto_plan_rescued = False    # set when call_service tool call is auto-converted to plan
     _check_rounds = 0  # correction rounds spent on a proposal the check rejected
     # Describe external MCP tools in the system part, ahead of the conversation.
@@ -1498,6 +1571,13 @@ async def _run_ai_loop(
         if _mcp_block:
             prompt = dataclasses.replace(prompt, core=prompt.core + _mcp_block + "\n\n")
     _use_cloud = _use_azure or _use_openai or _use_anthropic
+    # Every chat call is checked for traces of thinking (thinking_check), per
+    # AI task entity or cloud model.
+    _thinking_path = (
+        thinking_check.CLOUD_PATHS[_cloud_provider] if _use_cloud
+        else thinking_check.provider_domain(hass, entity_id)
+    )
+    _thinking_key = _model_name if _use_cloud else entity_id
     # Cloud providers get real roles (core as system part, history as messages);
     # the ai_task path gets one text and Home Assistant builds the roles.
     _render = prompt.render_messages if _use_cloud else prompt.render
@@ -1696,6 +1776,27 @@ async def _run_ai_loop(
         _token_usage["response_tokens"] += _call_usage["response_tokens"]
         _token_usage["total_tokens"] += _call_usage["total_tokens"]
         _record_model_call(hass, entity_id, _elapsed_ms, _call_usage["total_tokens"], success=True)
+        # Before the <think> blocks are stripped below: they are one of the traces.
+        _thinking = getattr(result, "thinking", None)
+        if not isinstance(_thinking, thinking_check.Observation):
+            _thinking = thinking_check.observe_ai_task(hass, result, _thinking_path)
+        _thinking_hint = thinking_check.record_observation(
+            hass,
+            key=_thinking_key,
+            model=_model_name,
+            path=_thinking_path,
+            observation=_thinking,
+            allow_thinking=_allow_thinking,
+        )
+        if _thinking_hint:
+            _thinking_msg = thinking_check.HINTS_EN[_thinking_hint].format(model=_model_name)
+            _LOGGER.warning("Kyber: thinking check: %s", _thinking_msg)
+            _progress_emit(hass, request_id, {
+                "type": "warning",
+                "message": _thinking_msg,
+                "key": _thinking_hint,
+                "params": {"model": _model_name},
+            })
         _LOGGER.info(
             "Kyber: AI call OK — entity=%s model=%s round=%d elapsed=%dms "
             "prompt_tokens~%d resp_tokens~%d total_tokens~%d",
@@ -1738,6 +1839,30 @@ async def _run_ai_loop(
             response_text = _re.sub(r"<think>.*?</think>", "", response_text, flags=_re.DOTALL).strip()
         tool_calls = _parse_tool_calls(response_text)
 
+        # The model hit max_tokens inside a tool call: the block is incomplete.
+        # Ask once for a short, deduplicated retry before executing anything —
+        # small models loop on giant query lists until the generation cuts off.
+        if tool_calls and _detect_truncated_tool_call(response_text) and not _truncation_resume_given:
+            _truncation_resume_given = True
+            _LOGGER.warning(
+                "Kyber: tool call was cut off by max_tokens (response ends mid-JSON, %d chars) — asking for a short retry",
+                len(response_text),
+            )
+            _progress_emit(hass, request_id, {
+                "type": "info",
+                "message": "Tool call was cut off mid-generation — asking the model for a shorter one.",
+                "key": "ev_truncated_tool_call",
+            })
+            tool_rounds.append(ToolRound(
+                response_text.strip(),
+                "\n[SYSTEM: Your previous tool call was cut off before it ended (max_tokens reached). "
+                "The list of queries was far too long and repeated itself. Do NOT execute that call. "
+                "Output ONE short [TOOL_CALL: ...] with at most 8 DISTINCT queries, each appearing once, "
+                "or answer from the tool results you already have.]",
+            ))
+            _progress_emit(hass, request_id, {"type": "thinking", "stage": "follow_up"})
+            continue
+
         # Also handle plan blocks where the AI put tool calls inside actions
         if not tool_calls:
             plan_for_tools = _extract_plan_block(response_text)
@@ -1761,7 +1886,7 @@ async def _run_ai_loop(
             # errors the check can name: at most MAX_CHECK_ROUNDS times, and
             # never in the last round, which must end in an answer.
             if _check_rounds < MAX_CHECK_ROUNDS and _round < _max_rounds - 1:
-                _feedback = await _automation_check_feedback(hass, response_text)
+                _feedback = await _correction_request(hass, response_text, referenced, intent)
                 if _feedback:
                     _check_rounds += 1
                     _LOGGER.info("Kyber: proposed config has errors, correction round %d", _check_rounds)
@@ -2482,7 +2607,12 @@ class _ChatTurn:
         self._busy = False
         self._request_id = ""
         self._log_handler: Any = None
+        self._log_sink: list[dict] | None = None
         self._reservation: TokenReservation | None = None
+        self._started_at = time.time()
+        # What the Debug tab gets if the turn ends before its answer
+        self.user_prompt = ""
+        self.instructions = ""
 
     def begin(self) -> None:
         """Mark the chat busy and ask background AI work to yield."""
@@ -2498,7 +2628,28 @@ class _ChatTurn:
         """Start log capture and progress reporting for ``request_id``; return the log sink."""
         self._request_id = request_id
         sink, self._log_handler = _debug_attach_log_capture(request_id)
+        self._log_sink = sink
         return sink
+
+    def record_abort(self, reason: str) -> None:
+        """Keep a Debug snapshot of a turn that ends before its answer (call before ``close``)."""
+        if not self._request_id:
+            return
+        progress = (self._hass.data.get(_PROGRESS_KEY) or {}).get(self._request_id) or {}
+        try:
+            _debug_record_aborted_turn(
+                self._hass,
+                request_id=self._request_id,
+                user_prompt=self.user_prompt,
+                expanded_prompt=self.instructions,
+                elapsed_ms=int((time.time() - self._started_at) * 1000),
+                reason=reason,
+                logs=list(self._log_sink or []),
+                progress_events=list(progress.get("events") or []),
+            )
+        except Exception:
+            # The turn is being torn down; a lost snapshot must not mask that.
+            _LOGGER.exception("Kyber: could not record the aborted turn")
 
     def hold(self, reservation: TokenReservation) -> None:
         """Release ``reservation`` on close unless it was settled before."""
@@ -2526,6 +2677,73 @@ class _ChatTurn:
         self.end_busy()
 
 
+# A reverse proxy in front of HA (nginx: proxy_read_timeout, 60 s by default)
+# gives up on a request that sends nothing for a while and answers 504 itself.
+# A chat turn against a slow model easily takes longer, so a turn that is not
+# done after the grace period gets its 200 at once and a space every interval;
+# the JSON document follows at the end (JSON allows leading whitespace).
+_HEARTBEAT_GRACE_SEC = 10.0
+_HEARTBEAT_INTERVAL_SEC = 15.0
+# Carries the real status of a streamed reply that is not a 200
+STREAMED_STATUS_KEY = "_http_status"
+
+
+async def _respond_with_heartbeat(request: web.Request, work: Any) -> web.StreamResponse:
+    """Await ``work`` (a coroutine returning a response) without going silent.
+
+    A reply ready within the grace period goes out unchanged, status included.
+    Later the status line is already sent, so a reply other than 200 travels
+    in the body: its JSON object plus ``STREAMED_STATUS_KEY``. ``work`` lives
+    exactly as long as the connection: a client that goes away cancels it.
+    """
+    task = asyncio.ensure_future(work)
+    try:
+        done, _ = await asyncio.wait({task}, timeout=_HEARTBEAT_GRACE_SEC)
+        if done:
+            return task.result()
+        stream = web.StreamResponse(
+            status=HTTPStatus.OK,
+            headers={
+                "Content-Type": "application/json",
+                "Cache-Control": "no-cache",
+                # nginx: pass the spaces on instead of collecting them
+                "X-Accel-Buffering": "no",
+            },
+        )
+        await stream.prepare(request)
+        while not done:
+            await stream.write(b" ")
+            done, _ = await asyncio.wait({task}, timeout=_HEARTBEAT_INTERVAL_SEC)
+        await stream.write(_streamed_body(task))
+        await stream.write_eof()
+        return stream
+    finally:
+        if not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+
+def _streamed_body(task: asyncio.Future) -> bytes:
+    """The JSON document that ends a streamed reply."""
+    try:
+        response = task.result()
+    except Exception:  # noqa: BLE001 - the status line is gone, the client still needs an answer
+        _LOGGER.exception("Kyber: chat turn failed after the reply had started")
+        return json.dumps({STREAMED_STATUS_KEY: 500, "message": "Internal error"}).encode()
+    body = response.body if isinstance(response, web.Response) else None
+    raw = body if isinstance(body, bytes) else b""
+    if response.status == HTTPStatus.OK:
+        return raw
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        payload = None
+    if not isinstance(payload, dict):
+        payload = {"message": raw.decode("utf-8", "replace")}
+    return json.dumps({**payload, STREAMED_STATUS_KEY: response.status}).encode()
+
+
 class KyberView(HomeAssistantView):
     """Handle POST /api/kyber/complete."""
 
@@ -2537,18 +2755,26 @@ class KyberView(HomeAssistantView):
         """Store config entry data."""
         self._config = config
 
-    async def post(self, request: web.Request) -> web.Response:
+    async def post(self, request: web.Request) -> web.StreamResponse:
         """Handle an AI completion request from the frontend panel.
 
         HA cancels the handler when the client goes away (Stop button, panel
         timeout), so the turn's shared state is released in ``finally``: a
-        CancelledError passes every ``except Exception``.
+        CancelledError passes every ``except Exception``. A long turn keeps
+        a reverse proxy in front of HA from timing out, see
+        ``_respond_with_heartbeat``.
         """
         hass: HomeAssistant = request.app["hass"]
         turn = _ChatTurn(hass)
         turn.begin()
         try:
-            return await self._async_complete(request, hass, turn)
+            return await _respond_with_heartbeat(
+                request, self._async_complete(request, hass, turn)
+            )
+        except (asyncio.CancelledError, ConnectionError):
+            # The client went away (panel timeout, Stop, closed tab): keep what the turn had.
+            turn.record_abort("client_gone")
+            raise
         finally:
             turn.close()
 
@@ -2584,6 +2810,7 @@ class KyberView(HomeAssistantView):
         model_override = body_fields.get("model_override") or None
         # Per-turn log capture for the Debug bundle download.
         _debug_log_sink = turn.track(request_id)
+        turn.user_prompt = user_prompt
 
         if not user_prompt:
             return self.json_message("Missing 'prompt' field", HTTPStatus.BAD_REQUEST)
@@ -2670,6 +2897,7 @@ class KyberView(HomeAssistantView):
             is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)),
         )
         instructions = prompt.render().text
+        turn.instructions = instructions
 
         budget_provider = get_budget_provider(_cfg)
         max_daily_tokens = int(_cfg.get(CONF_MAX_DAILY_TOKENS, DEFAULT_MAX_DAILY_TOKENS) or 0)
@@ -2705,7 +2933,8 @@ class KyberView(HomeAssistantView):
                 await _run_ai_loop(hass, entity_id, prompt, kstore, user_prompt, request_id, history, intent, config=_cfg,
                                    user_id=str(getattr(request.get("hass_user"), "id", "") or "") or None,
                                    is_admin=bool(getattr(request.get("hass_user"), "is_admin", False)),
-                                   model_override=model_override)
+                                   model_override=model_override,
+                                   referenced=body_fields.get("referenced_configs") or [])
         except HomeAssistantError as err:
             _LOGGER.warning("Kyber: AI provider error: %s", err)
             return self.json_message(
@@ -2728,6 +2957,7 @@ class KyberView(HomeAssistantView):
             return self.json_message("Internal error", HTTPStatus.INTERNAL_SERVER_ERROR)
 
         _progress_complete(hass, request_id)
+        plan_block = _complete_automation_plan(plan_block, body_fields.get("referenced_configs"))
         plan_block = _annotate_plan_approval(plan_block)
         plan_block = await _attach_check_warnings(hass, plan_block)
 

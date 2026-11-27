@@ -25,6 +25,7 @@ from .session_and_storage import (
     _migrate_user_to_sessions, _get_active_session, _sanitize_history,
     _CHAT_SUMMARY_MAX_CHARS,
 )
+from .thinking_check import Observation, observe_anthropic_payload, observe_openai_payload
 
 _LOGGER = logging.getLogger(__name__)
 _AI_LOG = logging.getLogger("custom_components.kyber.ai_calls")
@@ -130,12 +131,21 @@ async def async_ai_call(
 
 
 class _AzureAIResult:
-    """Minimal wrapper so Azure responses are compatible with async_ai_call callers."""
-    __slots__ = ("data", "usage")
+    """Minimal wrapper so Azure responses are compatible with async_ai_call callers.
 
-    def __init__(self, text: str, usage: dict[str, Any] | None = None) -> None:
+    ``thinking`` is what the raw response showed about thinking (thinking_check).
+    """
+    __slots__ = ("data", "usage", "thinking")
+
+    def __init__(
+        self,
+        text: str,
+        usage: dict[str, Any] | None = None,
+        thinking: Observation | None = None,
+    ) -> None:
         self.data = text
         self.usage = usage or {}
+        self.thinking = thinking
 
 
 def _chat_messages(instructions: str, system: str, messages: list[dict] | None) -> list[dict]:
@@ -248,7 +258,11 @@ async def async_azure_ai_call(
         "[Azure←] task=%s deployment=%s response_chars=%d",
         task_name, deployment, len(text),
     )
-    return _AzureAIResult(text, usage=data.get("usage") if isinstance(data, dict) else None)
+    return _AzureAIResult(
+        text,
+        usage=data.get("usage") if isinstance(data, dict) else None,
+        thinking=observe_openai_payload(data),
+    )
 
 
 async def async_openai_ai_call(
@@ -340,7 +354,11 @@ async def async_openai_ai_call(
         "[OpenAI←] task=%s model=%s response_chars=%d",
         task_name, model, len(text),
     )
-    return _AzureAIResult(text, usage=data.get("usage") if isinstance(data, dict) else None)
+    return _AzureAIResult(
+        text,
+        usage=data.get("usage") if isinstance(data, dict) else None,
+        thinking=observe_openai_payload(data),
+    )
 
 
 async def async_anthropic_ai_call(
@@ -440,7 +458,11 @@ async def async_anthropic_ai_call(
         "[Anthropic←] task=%s model=%s response_chars=%d",
         task_name, model, len(text),
     )
-    return _AzureAIResult(text, usage=data.get("usage") if isinstance(data, dict) else None)
+    return _AzureAIResult(
+        text,
+        usage=data.get("usage") if isinstance(data, dict) else None,
+        thinking=observe_anthropic_payload(data),
+    )
 
 
 def _progress_emit(hass: HomeAssistant, request_id: str, event: dict) -> None:

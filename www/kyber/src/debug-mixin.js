@@ -751,6 +751,7 @@ export const DebugMixin = (Base) => class extends Base {
         · ${t("dbg_lt_prompt")} ${t("dbg_chars_tokens", { chars: snap.char_count?.toLocaleString() ?? "?", tokens: snap.approx_tokens?.toLocaleString() ?? "?" })}
         · auto_rating: ${snap.auto_rating ? `⚠ ${snap.auto_rating}/5` : "—"}
       </div>
+      ${snap.aborted ? `<div class="debug-error dbg-aborted">${t("dbg_lt_aborted", { sec: Math.round((snap.aborted.after_ms || 0) / 1000) })}</div>` : ""}
       <details class="debug-section" data-sid="user-prompt" open>
         <summary><strong>${t("dbg_lt_user_prompt")}</strong></summary>
         <pre class="dbg-pre">${this._escapeHtml(snap.user_prompt || "")}</pre>
@@ -831,6 +832,32 @@ export const DebugMixin = (Base) => class extends Base {
     };
   }
 
+  /**
+   * Thinking check for the debug panel: the "Let the model think" setting
+   * against what the chat model's calls showed (thinking_check.py on the
+   * backend). Returns { setting, seen, counts, hint } as plain texts; counts
+   * and hint are "" when there is nothing to say. null without the field
+   * (older backend).
+   */
+  _thinkingStatusView(th) {
+    if (!th) return null;
+    const t = this._t || ((k) => k);
+    const setting = th.allow_thinking ? t("dbg_think_on") : t("dbg_think_off");
+    if (!th.model) return { setting, seen: t("dbg_think_no_call"), counts: "", hint: "" };
+    const c = th.counts || {};
+    const calls = (c.thinking ?? 0) + (c.not_thinking ?? 0) + (c.unknown ?? 0);
+    return {
+      setting,
+      seen: t("dbg_think_seen", {
+        state: t(`dbg_think_state_${th.observed}`),
+        source: t(`dbg_think_src_${th.source}`),
+        time: th.ts ? new Date(th.ts * 1000).toLocaleTimeString() : "—",
+      }),
+      counts: t("dbg_think_counts", { thinking: c.thinking ?? 0, calls }),
+      hint: th.hint ? t(th.hint, { model: th.model }) : "",
+    };
+  }
+
   async _renderDebugStatus(body) {
     const t = this._t || ((k) => k);
     const resp = await this._hass.fetchWithAuth("/api/kyber/debug/status");
@@ -880,6 +907,12 @@ export const DebugMixin = (Base) => class extends Base {
       ? `<progress value="${deepDone}" max="${deepTotal}" style="width:100%;margin-top:4px"></progress>` : "";
 
     const nsView = this._narratorStatusView(ns);
+    const thView = this._thinkingStatusView(data.thinking);
+    const esc = (s) => this._escapeHtml(s);
+    const thRows = thView ? `
+        <tr><th>${t("dbg_st_think_setting")}</th><td class="dbg-think-setting">${esc(thView.setting)}</td></tr>
+        <tr><th>${t("dbg_st_think_seen")}</th><td class="dbg-think-seen">${esc(thView.seen)}${thView.counts ? `<br><small>${esc(thView.counts)}</small>` : ""}</td></tr>
+        ${thView.hint ? `<tr><td colspan="2" class="dbg-think-hint" style="color:var(--warning-color,#ff9800)">⚠️ ${esc(thView.hint)}</td></tr>` : ""}` : "";
 
     // Helpers for storage/resource display
     const fmtBytes = (b) => {
@@ -897,6 +930,7 @@ export const DebugMixin = (Base) => class extends Base {
         ${(data.ai_task_info && data.ai_task_info.friendly_name && data.ai_task_info.friendly_name !== data.ai_task_entity) ? `<tr><th>${t("dbg_st_display_name")}</th><td>${this._escapeHtml(data.ai_task_info.friendly_name)}</td></tr>` : ""}
         ${data.ai_task_info && data.ai_task_info.model ? `<tr><th>${t("dbg_st_model")}</th><td><code>${this._escapeHtml(data.ai_task_info.model)}</code> <a href="https://github.com/pgroene/kyber#choosing-a-model" target="_blank" rel="noopener" style="font-size:0.8em;margin-left:6px;opacity:0.7" title="${t("dbg_st_choose_model_title")}">${t("dbg_st_choose_model")}</a></td></tr>` : ""}
         ${data.ai_task_info && data.ai_task_info.server ? `<tr><th>${t("dbg_st_server")}</th><td><code>${this._escapeHtml(data.ai_task_info.server)}</code></td></tr>` : ""}
+        ${thRows}
         <tr><th>${t("dbg_st_autopilot")}</th><td>${this._autopilot ? t("dbg_st_on") : t("dbg_st_off")}</td></tr>
         <tr><th>${t("dbg_st_session")}</th><td>${this._escapeHtml(this._sessionName || "—")}</td></tr>
         <tr><th>${t("dbg_st_tool_history_size")}</th><td>${data.tool_history_size}</td></tr>

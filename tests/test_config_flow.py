@@ -10,10 +10,9 @@ from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import mock_component
 
 from custom_components.kyber.const import DOMAIN
-
-from pytest_homeassistant_custom_component.common import mock_component
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +44,7 @@ async def test_form_shown(hass: HomeAssistant) -> None:
 
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "user"
-    schema_keys = [str(k) for k in result["data_schema"].schema.keys()]
+    schema_keys = [str(k) for k in result["data_schema"].schema]
     assert any("ai_task_entity_id" in k for k in schema_keys)
 
 
@@ -230,7 +229,7 @@ async def test_reconfigure_shows_entity_selector(hass: HomeAssistant) -> None:
     )
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "reconfigure"
-    schema_keys = [str(k) for k in result["data_schema"].schema.keys()]
+    schema_keys = [str(k) for k in result["data_schema"].schema]
     assert any("ai_task_entity_id" in k for k in schema_keys)
 
 
@@ -536,9 +535,13 @@ async def test_options_flow_preserves_cloud_credentials_when_cloud_section_missi
     to empty dicts instead of the existing stored config.
     """
     from pytest_homeassistant_custom_component.common import MockConfigEntry
+
     from custom_components.kyber.const import (
-        CONF_CLOUD_PROVIDER, CONF_CLOUD_USE_FOR_CHAT,
-        CONF_OPENAI_API_KEY, CONF_OPENAI_MODEL, CLOUD_PROVIDER_OPENAI,
+        CLOUD_PROVIDER_OPENAI,
+        CONF_CLOUD_PROVIDER,
+        CONF_CLOUD_USE_FOR_CHAT,
+        CONF_OPENAI_API_KEY,
+        CONF_OPENAI_MODEL,
     )
 
     entry = MockConfigEntry(
@@ -577,3 +580,98 @@ async def test_options_flow_preserves_cloud_credentials_when_cloud_section_missi
     assert saved.get(CONF_CLOUD_USE_FOR_CHAT) is True
     assert saved.get(CONF_OPENAI_API_KEY) == "sk-keep-this-key"
     assert saved.get(CONF_OPENAI_MODEL) == "gpt-4o"
+
+
+def _model_section_defaults(data_schema) -> dict:
+    """Defaults of the model_config section of an options-form schema.
+
+    HA renders a section as {Optional(key): section(field_schema, opts)} — the
+    section object sits in the dict VALUE and carries the field schema in
+    .schema.schema.
+    """
+    for key in data_schema.schema:
+        if str(key) == "model_config":
+            fields = data_schema.schema[key].schema.schema
+            break
+    else:
+        raise AssertionError("model_config section missing")
+    out: dict = {}
+    for k in fields:
+        default = getattr(k, "default", None)
+        if default is not None:
+            out[str(k)] = default() if callable(default) else default
+    return out
+
+
+async def test_infer_max_tokens_prefers_longest_pattern(hass: HomeAssistant) -> None:
+    """Regression: "qwen" matched first and shadowed the qwen3-family entries,
+    giving a 262k model the generic 32768 window."""
+    from custom_components.kyber.config_flow import _infer_max_tokens
+
+    hass.states.async_set(
+        "ai_task.local_qwen", "unknown", {"model_name": "qwen3.5-flash-next"}
+    )
+    assert _infer_max_tokens(hass, "ai_task.local_qwen") == 262_144
+
+    hass.states.async_set(
+        "ai_task.local_qwen", "unknown", {"model_name": "qwen38-flash-next"}
+    )
+    assert _infer_max_tokens(hass, "ai_task.local_qwen") == 262_144
+
+    hass.states.async_set(
+        "ai_task.local_qwen", "unknown", {"model_name": "qwen3.8-flash-next"}
+    )
+    assert _infer_max_tokens(hass, "ai_task.local_qwen") == 262_144
+
+    hass.states.async_set("ai_task.m_qwen3", "unknown", {"model_name": "qwen3:32b"})
+    assert _infer_max_tokens(hass, "ai_task.m_qwen3") == 131_072
+
+    hass.states.async_set("ai_task.m_plain_qwen", "unknown", {"model_name": "qwen:7b"})
+    assert _infer_max_tokens(hass, "ai_task.m_plain_qwen") == 32_768
+
+
+async def test_infer_max_tokens_direct_attribute_wins(hass: HomeAssistant) -> None:
+    """A context_window attribute on the entity beats any name inference."""
+    from custom_components.kyber.config_flow import _infer_max_tokens
+
+    hass.states.async_set(
+        "ai_task.my_model", "unknown", {"model_name": "qwen3.5-flash-next", "num_ctx": 250_000}
+    )
+    assert _infer_max_tokens(hass, "ai_task.my_model") == 250_000
+
+
+async def test_options_form_prefills_inferred_window_for_stored_default(hass: HomeAssistant) -> None:
+    """A stored max_tokens that equals the old default is re-inferred from the
+    model entity, so upgrading Kyber fixes the window of a qwen3.5 model."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.kyber.const import DEFAULT_MAX_TOKENS
+
+    hass.states.async_set("ai_task.qwen_flash", "unknown", {"model_name": "qwen3.5-flash-next"})
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"ai_task_entity_id": "ai_task.qwen_flash", "max_tokens": DEFAULT_MAX_TOKENS},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] == FlowResultType.FORM
+
+    section = _model_section_defaults(result["data_schema"])
+    assert section.get("max_tokens") == 262_144
+
+
+async def test_options_form_keeps_user_chosen_window(hass: HomeAssistant) -> None:
+    """A window the user chose deliberately is never overwritten by inference."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    hass.states.async_set("ai_task.qwen_flash", "unknown", {"model_name": "qwen3.5-flash-next"})
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"ai_task_entity_id": "ai_task.qwen_flash", "max_tokens": 16_000},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    section = _model_section_defaults(result["data_schema"])
+    assert section.get("max_tokens") == 16_000

@@ -167,6 +167,19 @@ on the plan card. Measured on the living room heating case against the
 local model: 3/13 behaviour checks without, 10–13/13 with entity data plus
 one correction round; the live run after the change passed 13/13.
 
+Two more answers count as needing a correction when the request names an
+automation or script (`referenced`): a plan that carries `original_config`
+and `modified_config` but no `edit_automation` flag is completed (flag, entity
+and config id from the named automation) and checked like any edit, and an
+action request that ends without any plan and without a clarify block gets
+one round asking for the plan block. Both share the `MAX_CHECK_ROUNDS` limit.
+
+A plan block that is not JSON, even after forgiving raw line breaks and
+trailing commas, goes back too, with or without a named automation: the
+round names the parser's message and the line it stopped at (measured: a
+YAML block scalar `>-` for a Jinja template inside the JSON). Without it the
+user would get the reply text but no plan card.
+
 `tests/test_heating_case.py` keeps the case as a behaviour test (generic
 names, data in `tests/heating_case.py` and `tests/fixtures/heating_case/`):
 it sets up each automation with Home Assistant's automation integration,
@@ -251,8 +264,16 @@ expanded_prompt, instructions_used,        # each up to 256 KB; a longer prompt 
 picked_knowledge (with id, score, source, …),
 tool_log, intent, response_text (8 KB cap),
 auto_rating, elapsed_ms, char_count, approx_tokens,
-logs, progress_events, session_meta
+logs, progress_events, session_meta,
+aborted                                    # only for a turn the client gave up on: {after_ms, reason}
 ```
+
+When the client goes away before the answer (panel chat timeout, Stop), HA
+cancels the handler and the turn never reaches the end. `KyberView.post` then
+records what the turn had (`_debug_record_aborted_turn`): the prompt built
+before the first model call, tool calls taken from the progress events, the
+progress events and the captured log lines. A turn already recorded under its
+`request_id` is not overwritten.
 
 The snapshot is stored:
 

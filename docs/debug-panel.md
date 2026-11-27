@@ -36,6 +36,10 @@ A detailed breakdown of the most recent AI turn.
 - **Tokens** — estimated input/output token counts if available
 - **Debug bundle** — download a ZIP containing the full turn snapshot for bug reports
 
+A turn the browser gave up on (chat timeout, Stop, closed tab) is shown too,
+with a notice how long it ran. It holds what the turn had by then: the prompt,
+the tool calls, progress and log lines, but no response.
+
 ---
 
 ### Status
@@ -46,6 +50,30 @@ An overview of the current integration state.
 - **Session info** — active session ID, number of turns, last compaction timestamp
 - **Narrator progress** — entities narrated vs total, current narrator version, any errors
 - **Entity explorer** — browse all entities with their stored aliases and descriptions; useful for verifying narrator output
+- **Thinking**: the "Let the model think" setting next to what the chat model's calls showed, with a hint when the two disagree (see below)
+
+#### Thinking check
+
+Thinking is switched on in the service behind Kyber, not in Kyber: "Let the
+model think" only tells Kyber that it is on. Kyber looks at every chat call for
+traces of thinking, without an extra model call, and shows the result in the
+Status tab. When setting and behaviour disagree (on, but the model does not
+think; off, but it does), the turn shows a warning once and the Status tab keeps
+the hint where to fix it until they agree again.
+
+| Path | Signal | Thinking seen | No thinking seen |
+|---|---|---|---|
+| AI task: Local OpenAI LLM (every server type, generic and llama.cpp included), Ollama, Anthropic | `thinking_content` in the chat log Home Assistant keeps for a few minutes after the call (Home Assistant 2025.9 or later) | thinks | does not think |
+| AI task: other integrations (OpenAI, Google, …) | same | thinks | unknown: OpenAI only logs reasoning summaries, which can be switched off |
+| AI task, any | `<think>` block left in the answer | thinks | (see the chat log) |
+| Kyber's own OpenAI-compatible call (OpenAI, Azure, llama.cpp, vLLM, …) | `reasoning_content`/`reasoning` in the message, `<think>` in the answer, `reasoning_tokens` in the usage | thinks | does not think |
+| Kyber's own Anthropic call | thinking blocks | thinks | does not think: Kyber does not ask Claude to think |
+
+Not used: response time and token counts. There is no baseline to compare them
+with, and AI task results carry no token usage. The integrations strip the
+thinking text from the answer, so its absence there proves nothing; the chat
+log is where it stays. The judgement uses the latest call that showed
+something and resets when Home Assistant restarts.
 
 ---
 

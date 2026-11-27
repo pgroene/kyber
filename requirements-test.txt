@@ -1,3 +1,14 @@
 pytest-homeassistant-custom-component~=0.13.0
 pytest-asyncio
 esprima>=4.0.1
+# Home Assistant's conversation and ai_task components, loaded by a contract
+# test, need these. Versions as in homeassistant/package_constraints.txt of the
+# Home Assistant release that pytest-homeassistant-custom-component installs:
+# 2026.2.3 on Python 3.13 (CI workflow), the current release on 3.14 (Tests).
+hassil==3.5.0; python_version < "3.14"
+home-assistant-intents==2026.1.28; python_version < "3.14"
+PyTurboJPEG==1.8.0; python_version < "3.14"
+hassil==3.12.1; python_version >= "3.14"
+home-assistant-intents==2026.10.6; python_version >= "3.14"
+gazetteer-matcher==1.1.0; python_version >= "3.14"
+PyTurboJPEG==1.8.3; python_version >= "3.14"

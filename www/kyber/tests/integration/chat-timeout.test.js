@@ -130,6 +130,44 @@ describe("_askAI — configurable timeout", () => {
     expect(element.shadowRoot.textContent).toContain("Request timed out (60s)");
   });
 
+  it("names the timeout when it strikes while a streamed reply is read", async () => {
+    // A long turn answers 200 at once and sends its body at the end; aborting then
+    // rejects the body read with the browser's generic AbortError, not with our reason.
+    vi.stubGlobal("fetch", vi.fn((url, opts = {}) => {
+      if (url === "/api/kyber/complete") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => new Promise((_resolve, reject) => {
+            opts.signal?.addEventListener("abort", () =>
+              reject(new DOMException("The operation was aborted.", "AbortError")));
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, text: async () => "", json: async () => ({}) });
+    }));
+    const { element } = makePanel();
+    element._chatTimeoutSec = 300;
+    element._chatSettingsTriedAt = Date.now();
+    const done = startAsk(element);
+    await vi.advanceTimersByTimeAsync(300_000);
+    await done;
+    expect(element.shadowRoot.textContent).toContain("Request timed out (300s)");
+    expect(element.shadowRoot.textContent).not.toContain("The operation was aborted.");
+  });
+
+  it("says the request was cancelled when the user stops it", async () => {
+    vi.stubGlobal("fetch", hangingFetch());
+    const { element } = makePanel();
+    element._chatTimeoutSec = 600;
+    element._chatSettingsTriedAt = Date.now();
+    const done = startAsk(element);
+    await vi.advanceTimersByTimeAsync(1_000);
+    element.shadowRoot.getElementById("kyber-thinking-cancel").click();
+    await done;
+    expect(element.shadowRoot.textContent).toContain("Request cancelled.");
+  });
+
   it("refreshes the setting after a request so option changes apply without reload", async () => {
     vi.stubGlobal("fetch", hangingFetch({ chat_timeout: 900 }));
     const { element } = makePanel();

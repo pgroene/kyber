@@ -2,6 +2,63 @@
 export const DEFAULT_CHAT_TIMEOUT_SEC = 180;
 // Re-read /api/kyber/chat_settings before a request when the last attempt is older than this
 export const CHAT_SETTINGS_MAX_AGE_MS = 30_000;
+// A long chat reply is streamed with status 200; this key carries its real status
+// (STREAMED_STATUS_KEY in http_api.py)
+export const STREAMED_STATUS_KEY = "_http_status";
+const CHAT_ERROR_MAX_CHARS = 250;
+
+/** A chat request that failed with an HTTP status; `body` is the response text. */
+export class ChatHttpError extends Error {
+  constructor(status, body) {
+    super(`${status}: ${body}`);
+    this.name = "ChatHttpError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
+/**
+ * The readable part of a failed chat response. Kyber answers with JSON
+ * (`message`); a proxy in front of HA answers with its own HTML page, of which
+ * only the title is worth showing. `fromKyber` tells the two apart.
+ */
+export function chatErrorDetail(body) {
+  const text = String(body ?? "").trim();
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed?.message === "string" && parsed.message) {
+      const msg = parsed.message.replace(/^AI provider error:\s*/i, "").replace(/^Internal error:\s*/i, "");
+      return { text: msg || parsed.message, fromKyber: true };
+    }
+  } catch { /* not JSON */ }
+  if (/^<(!doctype|html|head|body)\b/i.test(text)) {
+    const heading = text.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || text.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    // "504 Gateway Time-out" → "Gateway Time-out"; the status is shown separately
+    const title = (heading?.[1] || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim().replace(/^\d{3}\s*/, "");
+    return { text: title, fromKyber: false };
+  }
+  return { text, fromKyber: false };
+}
+
+/** The chat bubble text for a failed request (anything but a cancel). */
+export function chatErrorMessage(err, t) {
+  let detail;
+  if (err instanceof ChatHttpError) {
+    const parsed = chatErrorDetail(err.body);
+    if (!parsed.fromKyber) {
+      // A proxy gave up waiting for HA; Kyber itself never answers 504
+      if (err.status === 504) return t("ai_proxy_timeout");
+      const short = parsed.text.length > CHAT_ERROR_MAX_CHARS ? "" : parsed.text;
+      return t("ai_error_msg", { msg: short ? `HTTP ${err.status} (${short})` : `HTTP ${err.status}` });
+    }
+    detail = parsed.text;
+  } else {
+    detail = err?.message || "";
+  }
+  if (detail.length > CHAT_ERROR_MAX_CHARS) detail = detail.slice(0, CHAT_ERROR_MAX_CHARS) + "…";
+  if (/429|rate.?limit|too.?many.?request|⏳/i.test(detail)) return t("ai_azure_rate_limit");
+  return t("ai_error_msg", { msg: detail });
+}
 
 export const AIMixin = (Base) => class extends Base {
   async _downloadDebugBundle(requestId, btn) {
@@ -296,7 +353,9 @@ export const AIMixin = (Base) => class extends Base {
       await this._loadChatSettings();
     }
     const timeoutSec = this._chatTimeoutSec || DEFAULT_CHAT_TIMEOUT_SEC;
-    this._chatAbort = new AbortController();
+    // Kept locally: Stop clears this._chatAbort before the catch below reads the reason
+    const chatAbort = new AbortController();
+    this._chatAbort = chatAbort;
     const _chatTimeoutId = setTimeout(() => {
       if (this._chatAbort) this._chatAbort.abort(new Error(t("ai_request_timeout", { sec: timeoutSec })));
     }, timeoutSec * 1000);
@@ -379,12 +438,14 @@ export const AIMixin = (Base) => class extends Base {
         return;
       }
 
-      if (!resp.ok) {
-        const err = await resp.text();
-        throw new Error(`${resp.status}: ${err}`);
-      }
+      if (!resp.ok) throw new ChatHttpError(resp.status, await resp.text());
 
+      // A long turn arrives as 200 plus spaces; a failure then names its status inside
       const data = await resp.json();
+      if (data && data[STREAMED_STATUS_KEY]) {
+        const { [STREAMED_STATUS_KEY]: status, ...body } = data;
+        throw new ChatHttpError(status, JSON.stringify(body));
+      }
       this._hideThinking();
       this._clearWarningBanner(); // dismiss any prior "AI unavailable" banner on success
       this._updateTokenBadgeFromUsage?.(data.token_usage || this._tokenUsage);
@@ -462,27 +523,14 @@ export const AIMixin = (Base) => class extends Base {
     } catch (err) {
       this._hideThinking();
       let msg;
-      if (err.name === "AbortError") {
+      if (chatAbort.signal.aborted) {
+        // A long turn streams: an abort while its body is read surfaces as the browser's
+        // generic "The operation was aborted.", so the reason comes from the signal.
+        msg = chatAbort.signal.reason?.message || t("ai_request_cancelled");
+      } else if (err.name === "AbortError") {
         msg = err.message || t("ai_request_cancelled");
       } else {
-        // err.message is like "503: {"message":"AI provider error: ..."}"
-        // Try to extract a clean human-readable message from the JSON body
-        const rawMsg = err.message || "";
-        const jsonStart = rawMsg.indexOf("{");
-        let cleanMsg = rawMsg;
-        if (jsonStart !== -1) {
-          try {
-            const parsed = JSON.parse(rawMsg.slice(jsonStart));
-            const inner = (parsed.message || "").replace(/^AI provider error:\s*/i, "").replace(/^Internal error:\s*/i, "");
-            if (inner) cleanMsg = inner.length > 250 ? inner.slice(0, 250) + "…" : inner;
-          } catch { /* keep cleanMsg = rawMsg */ }
-        }
-        // Rate limit: show a friendly waiting message
-        if (/429|rate.?limit|too.?many.?request|⏳/i.test(cleanMsg)) {
-          msg = t("ai_azure_rate_limit");
-        } else {
-          msg = t("ai_error_msg", { msg: cleanMsg });
-        }
+        msg = chatErrorMessage(err, t);
       }
       // "AI Task entity not found" → show persistent banner instead of chat bubble
       if (/AI Task entity.*not found/i.test(msg) || (/503/.test(err.message || "") && /ai_task/i.test(err.message || ""))) {
@@ -1507,7 +1555,7 @@ export const AIMixin = (Base) => class extends Base {
     if (cancelBtn) {
       cancelBtn.addEventListener("click", () => {
         if (this._chatAbort) {
-          this._chatAbort.abort();
+          this._chatAbort.abort(new DOMException(t("ai_request_cancelled"), "AbortError"));
           this._chatAbort = null;
         }
       });

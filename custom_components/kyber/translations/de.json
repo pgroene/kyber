@@ -15,6 +15,7 @@
               "max_daily_tokens": "Tägliches Token-Budget (0 = unbegrenzt)",
               "chat_timeout": "Chat-Zeitlimit (Sekunden)",
               "max_tool_rounds": "Maximale Werkzeugrunden je Antwort",
+              "allow_thinking": "Modell darf denken (Reasoning)",
               "narrator_ai_task_entity_id": "Operationsmodell (optional)",
               "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)"
             },
@@ -22,6 +23,7 @@
               "max_daily_tokens": "Gilt für das Chat-Panel und MCP gemeinsam. Ist es aufgebraucht, werden Anfragen bis Mitternacht abgelehnt.",
               "chat_timeout": "Wie lange das Chat-Panel auf eine Antwort wartet, bevor es abbricht. Für langsame lokale Modelle (z. B. Ollama auf schwächerer Hardware) erhöhen.",
               "max_tool_rounds": "Wie oft das Chat-Modell etwas nachschlagen darf (Entitäten, Automatisierungen, Verlauf), bevor es antworten muss. Mehr Runden helfen bei Fragen mit mehreren Nachschlagen, machen Antworten aber langsamer, vor allem mit lokalen Modellen. Sind die Runden aufgebraucht, antwortet Kyber trotzdem aus dem bis dahin Gefundenen.",
+              "allow_thinking": "Einschalten, wenn das Denken für dein Modell aktiv ist, zum Beispiel „Enable thinking“ in der Integration hinter deiner KI-Aufgabe (llama.cpp mit Qwen3). Kyber hängt dann kein /no_think mehr an. Empfohlen: an, wenn dein Modell denken kann. In Kybers Messungen lieferte das Denken deutlich öfter korrekte Automatisierungen, bei rund 1,5 s mehr je Alltagsanfrage und rund 40 s je Automatisierung. Aus lassen, wenn dein Modell nicht denken kann.",
               "narrator_ai_task_entity_id": "Wird für Batch-Verarbeitung und kleine Aufgaben wie Entitätsbeschreibungen verwendet. Ein kleineres, günstigeres Modell funktioniert hier gut. Standardmäßig das Chat-Modell."
             }
           },
@@ -102,6 +104,7 @@
               "max_daily_tokens": "Tägliches Token-Budget (0 = unbegrenzt)",
               "chat_timeout": "Chat-Zeitlimit (Sekunden)",
               "max_tool_rounds": "Maximale Werkzeugrunden je Antwort",
+              "allow_thinking": "Modell darf denken (Reasoning)",
               "narrator_ai_task_entity_id": "Operationsmodell (optional)",
               "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)"
             },
@@ -109,6 +112,7 @@
               "max_daily_tokens": "Gilt für das Chat-Panel und MCP gemeinsam. Ist es aufgebraucht, werden Anfragen bis Mitternacht abgelehnt.",
               "chat_timeout": "Wie lange das Chat-Panel auf eine Antwort wartet, bevor es abbricht. Für langsame lokale Modelle (z. B. Ollama auf schwächerer Hardware) erhöhen.",
               "max_tool_rounds": "Wie oft das Chat-Modell etwas nachschlagen darf (Entitäten, Automatisierungen, Verlauf), bevor es antworten muss. Mehr Runden helfen bei Fragen mit mehreren Nachschlagen, machen Antworten aber langsamer, vor allem mit lokalen Modellen. Sind die Runden aufgebraucht, antwortet Kyber trotzdem aus dem bis dahin Gefundenen.",
+              "allow_thinking": "Einschalten, wenn das Denken für dein Modell aktiv ist, zum Beispiel „Enable thinking“ in der Integration hinter deiner KI-Aufgabe (llama.cpp mit Qwen3). Kyber hängt dann kein /no_think mehr an. Empfohlen: an, wenn dein Modell denken kann. In Kybers Messungen lieferte das Denken deutlich öfter korrekte Automatisierungen, bei rund 1,5 s mehr je Alltagsanfrage und rund 40 s je Automatisierung. Aus lassen, wenn dein Modell nicht denken kann.",
               "narrator_ai_task_entity_id": "Wird für Batch-Verarbeitung und kleine Aufgaben wie Entitätsbeschreibungen verwendet. Ein kleineres, günstigeres Modell funktioniert hier gut. Standardmäßig das Chat-Modell."
             }
           },
@@ -199,6 +203,7 @@
               "max_daily_tokens": "Tägliches Token-Budget (0 = unbegrenzt)",
               "chat_timeout": "Chat-Zeitlimit (Sekunden)",
               "max_tool_rounds": "Maximale Werkzeugrunden je Antwort",
+              "allow_thinking": "Modell darf denken (Reasoning)",
               "narrator_ai_task_entity_id": "Operationsmodell (optional)",
               "narrator_max_tokens": "Operationsmodell: Kontextfenster (Token)"
             },
@@ -207,6 +212,7 @@
               "max_daily_tokens": "Gilt für das Chat-Panel und MCP gemeinsam. Ist es aufgebraucht, werden Anfragen bis Mitternacht abgelehnt.",
               "chat_timeout": "Wie lange das Chat-Panel auf eine Antwort wartet, bevor es abbricht. Für langsame lokale Modelle (z. B. Ollama auf schwächerer Hardware) erhöhen.",
               "max_tool_rounds": "Wie oft das Chat-Modell etwas nachschlagen darf (Entitäten, Automatisierungen, Verlauf), bevor es antworten muss. Mehr Runden helfen bei Fragen mit mehreren Nachschlagen, machen Antworten aber langsamer, vor allem mit lokalen Modellen. Sind die Runden aufgebraucht, antwortet Kyber trotzdem aus dem bis dahin Gefundenen.",
+              "allow_thinking": "Einschalten, wenn das Denken für dein Modell aktiv ist, zum Beispiel „Enable thinking“ in der Integration hinter deiner KI-Aufgabe (llama.cpp mit Qwen3). Kyber hängt dann kein /no_think mehr an. Empfohlen: an, wenn dein Modell denken kann. In Kybers Messungen lieferte das Denken deutlich öfter korrekte Automatisierungen, bei rund 1,5 s mehr je Alltagsanfrage und rund 40 s je Automatisierung. Aus lassen, wenn dein Modell nicht denken kann.",
               "narrator_ai_task_entity_id": "Wird für Batch-Verarbeitung und kleine Aufgaben wie Entitätsbeschreibungen verwendet. Ein kleineres, günstigeres Modell funktioniert hier gut. Standardmäßig das Chat-Modell.",
               "narrator_max_tokens": "Aufrufe: {ops_calls} · Ø {ops_avg} s · Min. {ops_min} s · Max. {ops_max} s · ~{ops_tokens} Token · Fehler: {ops_errors}"
             }

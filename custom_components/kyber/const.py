@@ -73,6 +73,8 @@ CONF_MAX_REQUESTS_PER_MINUTE = "max_requests_per_minute"
 CONF_MAX_DAILY_TOKENS = "max_daily_tokens"
 CONF_CHAT_TIMEOUT = "chat_timeout"                 # int seconds — total time the panel waits for a chat reply
 CONF_MAX_TOOL_ROUNDS = "max_tool_rounds"           # int — tool-call rounds per chat turn before a final answer
+CONF_ALLOW_THINKING = "allow_thinking"             # bool: the model may think; Kyber then adds no /no_think
+DEFAULT_ALLOW_THINKING = False
 CONF_ENABLE_DEBUG_VIEWS = "enable_debug_views"
 CONF_ENABLE_MCP = "enable_mcp"
 CONF_ENABLE_MCP_IN_CHAT = "enable_mcp_in_chat"
@@ -246,6 +248,12 @@ MODEL_CONTEXT_SIZES: dict[str, int] = {
     "phi": 4096,
     "qwen2.5": 131072,
     "qwen2": 131072,
+    # Longest pattern wins (config_flow._infer_max_tokens), so these beat "qwen"
+    "qwen3-coder": 262144,
+    "qwen3.5": 262144,
+    "qwen3.8": 262144,
+    "qwen38": 262144,
+    "qwen3": 131072,
     "qwen": 32768,
     "deepseek-r1": 131072,
     "deepseek": 65536,

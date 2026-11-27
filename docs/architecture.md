@@ -70,6 +70,8 @@ When no editor is open, the chat sidebar fills the full width.
 **`_askAI()`**
 Handles slash commands (`/autopilot on|off`), then POSTs to `/api/kyber/complete` with the current prompt, chat history, editor content, dashboard list (from `hass.panels`), and installed Lovelace resources. On success, delegates to `_appendAIResponse`.
 
+A turn that takes longer than 10 s is answered with status 200 at once and a space every 15 s, followed by the JSON document. This keeps a reverse proxy in front of HA (nginx `proxy_read_timeout`, 60 s by default) from answering 504 while the model is still working. Because the status line is already sent, a late failure carries its real status in the document as `_http_status`; the panel treats it like a non-2xx response. A proxy's own error page (HTML) is never shown raw: a 504 gets an explanation, any other page only its status and title.
+
 **`_appendAIResponse(fullText, yamlBlocks, plan)`**
 Renders the AI response as a chat bubble. If `yamlBlocks` are present, attaches an "Apply to editor" button. If a `plan` is present, calls `_buildPlanCard`. In autopilot mode, applies YAML and executes plans automatically.
 

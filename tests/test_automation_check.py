@@ -378,7 +378,7 @@ async def test_an_entry_without_the_option_migrates_untouched(kyber, hass):
 
 
 async def test_feedback_is_built_from_a_model_answer(kyber, home):
-    feedback = await kyber.http_api._automation_check_feedback(home, _plan(BROKEN))
+    feedback = await kyber.http_api._correction_request(home, _plan(BROKEN), [], "action")
     assert "'Lower' is not a valid state" in feedback
 
 

@@ -15,6 +15,7 @@
               "max_daily_tokens": "Dagelijks tokenbudget (0 = onbeperkt)",
               "chat_timeout": "Chat-time-out (seconden)",
               "max_tool_rounds": "Maximaal aantal toolrondes per antwoord",
+              "allow_thinking": "Model mag nadenken (reasoning)",
               "narrator_ai_task_entity_id": "Operationeel model (optioneel)",
               "narrator_max_tokens": "Operationeel model: Contextvenster (tokens)"
             },
@@ -22,6 +23,7 @@
               "max_daily_tokens": "Gedeeld door het chatpaneel en MCP. Is het op, dan worden verzoeken tot middernacht geweigerd.",
               "chat_timeout": "Hoe lang het chatpaneel op een antwoord wacht voordat het stopt. Verhoog dit voor trage lokale modellen (bijv. Ollama op bescheiden hardware).",
               "max_tool_rounds": "Hoe vaak het chatmodel iets mag opzoeken (entiteiten, automatiseringen, geschiedenis) voordat het moet antwoorden. Meer rondes helpen bij vragen die meerdere zoekacties nodig hebben, maar maken antwoorden trager, vooral met lokale modellen. Zijn de rondes op, dan antwoordt Kyber toch met wat tot dan toe is gevonden.",
+              "allow_thinking": "Zet aan als nadenken voor je model actief is, bijvoorbeeld 'Enable thinking' in de integratie achter je AI-taak (llama.cpp met Qwen3). Kyber voegt dan geen /no_think meer toe. Aanbevolen: aan, als je model kan nadenken. In metingen van Kyber leverde nadenken veel vaker correcte automatiseringen op, met ongeveer 1,5 s extra per alledaags verzoek en ongeveer 40 s per automatisering. Laat uit als je model niet kan nadenken.",
               "narrator_ai_task_entity_id": "Gebruikt voor batchverwerking en kleine taken zoals entiteitsvertellingen. Een kleiner, goedkoper model werkt hier goed. Standaard het chatmodel."
             }
           },
@@ -102,6 +104,7 @@
               "max_daily_tokens": "Dagelijks tokenbudget (0 = onbeperkt)",
               "chat_timeout": "Chat-time-out (seconden)",
               "max_tool_rounds": "Maximaal aantal toolrondes per antwoord",
+              "allow_thinking": "Model mag nadenken (reasoning)",
               "narrator_ai_task_entity_id": "Operationeel model (optioneel)",
               "narrator_max_tokens": "Operationeel model: Contextvenster (tokens)"
             },
@@ -109,6 +112,7 @@
               "max_daily_tokens": "Gedeeld door het chatpaneel en MCP. Is het op, dan worden verzoeken tot middernacht geweigerd.",
               "chat_timeout": "Hoe lang het chatpaneel op een antwoord wacht voordat het stopt. Verhoog dit voor trage lokale modellen (bijv. Ollama op bescheiden hardware).",
               "max_tool_rounds": "Hoe vaak het chatmodel iets mag opzoeken (entiteiten, automatiseringen, geschiedenis) voordat het moet antwoorden. Meer rondes helpen bij vragen die meerdere zoekacties nodig hebben, maar maken antwoorden trager, vooral met lokale modellen. Zijn de rondes op, dan antwoordt Kyber toch met wat tot dan toe is gevonden.",
+              "allow_thinking": "Zet aan als nadenken voor je model actief is, bijvoorbeeld 'Enable thinking' in de integratie achter je AI-taak (llama.cpp met Qwen3). Kyber voegt dan geen /no_think meer toe. Aanbevolen: aan, als je model kan nadenken. In metingen van Kyber leverde nadenken veel vaker correcte automatiseringen op, met ongeveer 1,5 s extra per alledaags verzoek en ongeveer 40 s per automatisering. Laat uit als je model niet kan nadenken.",
               "narrator_ai_task_entity_id": "Gebruikt voor batchverwerking en kleine taken zoals entiteitsvertellingen. Een kleiner, goedkoper model werkt hier goed. Standaard het chatmodel."
             }
           },
@@ -199,6 +203,7 @@
               "max_daily_tokens": "Dagelijks tokenbudget (0 = onbeperkt)",
               "chat_timeout": "Chat-time-out (seconden)",
               "max_tool_rounds": "Maximaal aantal toolrondes per antwoord",
+              "allow_thinking": "Model mag nadenken (reasoning)",
               "narrator_ai_task_entity_id": "Operationeel model (optioneel)",
               "narrator_max_tokens": "Operationeel model: Contextvenster (tokens)"
             },
@@ -207,6 +212,7 @@
               "max_daily_tokens": "Gedeeld door het chatpaneel en MCP. Is het op, dan worden verzoeken tot middernacht geweigerd.",
               "chat_timeout": "Hoe lang het chatpaneel op een antwoord wacht voordat het stopt. Verhoog dit voor trage lokale modellen (bijv. Ollama op bescheiden hardware).",
               "max_tool_rounds": "Hoe vaak het chatmodel iets mag opzoeken (entiteiten, automatiseringen, geschiedenis) voordat het moet antwoorden. Meer rondes helpen bij vragen die meerdere zoekacties nodig hebben, maar maken antwoorden trager, vooral met lokale modellen. Zijn de rondes op, dan antwoordt Kyber toch met wat tot dan toe is gevonden.",
+              "allow_thinking": "Zet aan als nadenken voor je model actief is, bijvoorbeeld 'Enable thinking' in de integratie achter je AI-taak (llama.cpp met Qwen3). Kyber voegt dan geen /no_think meer toe. Aanbevolen: aan, als je model kan nadenken. In metingen van Kyber leverde nadenken veel vaker correcte automatiseringen op, met ongeveer 1,5 s extra per alledaags verzoek en ongeveer 40 s per automatisering. Laat uit als je model niet kan nadenken.",
               "narrator_ai_task_entity_id": "Gebruikt voor batchverwerking en kleine taken zoals entiteitsvertellingen. Een kleiner, goedkoper model werkt hier goed. Standaard het chatmodel.",
               "narrator_max_tokens": "Aanroepen: {ops_calls} · Gem. {ops_avg} s · Min. {ops_min} s · Max. {ops_max} s · ~{ops_tokens} tokens · Fouten: {ops_errors}"
             }

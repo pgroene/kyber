@@ -240,6 +240,30 @@ describe("_askAI — response handling", () => {
     expect(msgs[msgs.length - 1].textContent).toContain("503");
   });
 
+  it("explains a proxy's 504 page instead of showing its HTML", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 504,
+      text: async () => "<html>\n<head><title>504 Gateway Time-out</title></head>\n<body><center>nginx</center></body>\n</html>",
+    }));
+    const { element } = makePanel();
+    await askWithInput(element, "Test");
+    const msgs = element.shadowRoot.querySelectorAll(".chat-message.error");
+    const text = msgs[msgs.length - 1].textContent;
+    expect(text).toContain("proxy_read_timeout");
+    expect(text).not.toContain("<html>");
+  });
+
+  it("shows the error of a streamed reply that failed late", async () => {
+    // The backend sent 200 plus spaces; the real status sits in the document
+    vi.stubGlobal("fetch", mockFetch({ message: "AI provider error: model not loaded", _http_status: 503 }));
+    const { element } = makePanel();
+    await askWithInput(element, "Test");
+    const msgs = element.shadowRoot.querySelectorAll(".chat-message.error");
+    expect(msgs[msgs.length - 1].textContent).toContain("model not loaded");
+    expect(element.shadowRoot.querySelector(".chat-retry-btn")).not.toBeNull();
+  });
+
   it("shows a wait message on rate-limited responses", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false,
