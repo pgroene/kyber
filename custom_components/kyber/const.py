@@ -72,6 +72,7 @@ CONF_MAX_TOKENS = "max_tokens"
 CONF_MAX_REQUESTS_PER_MINUTE = "max_requests_per_minute"
 CONF_MAX_DAILY_TOKENS = "max_daily_tokens"
 CONF_CHAT_TIMEOUT = "chat_timeout"                 # int seconds — total time the panel waits for a chat reply
+CONF_MAX_TOOL_ROUNDS = "max_tool_rounds"           # int — tool-call rounds per chat turn before a final answer
 CONF_ENABLE_DEBUG_VIEWS = "enable_debug_views"
 CONF_ENABLE_MCP = "enable_mcp"
 CONF_ENABLE_MCP_IN_CHAT = "enable_mcp_in_chat"
@@ -149,6 +150,25 @@ def get_chat_timeout(config: dict | None) -> int:
         value = DEFAULT_CHAT_TIMEOUT
     return max(MIN_CHAT_TIMEOUT, min(MAX_CHAT_TIMEOUT, value))
 
+
+MIN_TOOL_ROUNDS = 1
+MAX_TOOL_ROUNDS = 15
+# The old default; a stored value equal to it was never chosen and is raised
+# to TOOL_CALL_MAX_ROUNDS on migration (config entry minor version 2).
+LEGACY_DEFAULT_TOOL_ROUNDS = 3
+# Correction rounds a rejected automation/script proposal may trigger; they
+# count against the tool rounds above.
+MAX_CHECK_ROUNDS = 2
+
+
+def get_max_tool_rounds(config: dict | None) -> int:
+    """Return the configured number of tool-call rounds, clamped to MIN..MAX_TOOL_ROUNDS."""
+    try:
+        value = int((config or {}).get(CONF_MAX_TOOL_ROUNDS, TOOL_CALL_MAX_ROUNDS))
+    except (TypeError, ValueError):
+        value = TOOL_CALL_MAX_ROUNDS
+    return max(MIN_TOOL_ROUNDS, min(MAX_TOOL_ROUNDS, value))
+
 _CREDENTIAL_PATTERNS = [
     r"(?i)bearer\s+\S{4,}",
     r"sk-[a-zA-Z0-9]{6,}",
@@ -207,7 +227,7 @@ PROMPT_CONTEXT_SHARE = 0.75
 KNOWLEDGE_BUDGET_SHARE = 0.10
 KNOWLEDGE_BUDGET_CHARS = 2_000  # floor for the knowledge slice
 MAX_TOOL_RESULT_CHARS = 4_000
-TOOL_CALL_MAX_ROUNDS = 3
+TOOL_CALL_MAX_ROUNDS = 6  # default for CONF_MAX_TOOL_ROUNDS, see get_max_tool_rounds()
 
 # Known model-family → typical max context window (tokens).
 # Used to pre-fill the max_tokens field in the config flow.
@@ -252,6 +272,13 @@ AUTOMATION_EDITOR_GUIDANCE = """\
 ⚠️ ONLY use this when the user explicitly wants to edit or create an automation or script.
 The automation entity MUST be an `automation.*` or `script.*` entity — NEVER a light, switch, sensor, or other device entity.
 
+#### Home Assistant __HA_VERSION__: write configurations in its current syntax
+- Top-level keys `triggers`, `conditions`, `actions` (plural); each trigger names its type with `trigger:` (e.g. `trigger: state`), not `platform:`.
+- Service calls use `action: <domain>.<service>` (not `service:`) with `target:` and `data:`; templates go straight into `data:`; `data_template` is deprecated.
+- Use only entity ids, option values, attribute names and attribute values that appear in the entity data or tool results; never invent them.
+- `climate.set_temperature` does not switch on a thermostat that is `off`: when the result must be heating, include `hvac_mode` (e.g. `heat`) in the same call.
+- Every proposal is checked against Home Assistant and the real entities; findings come back as a `check_configuration` result; fix all of them.
+
 #### Chat-driven edit (preferred — no YAML editor required)
 When the user wants to change/modify/update a specific automation:
 1. Call `get_automation(id=<automation_id or alias>)` to fetch the current config.
@@ -259,15 +286,15 @@ When the user wants to change/modify/update a specific automation:
 3. Emit an `edit_automation` plan block:
 
 ```plan
-{{
+{
   "edit_automation": true,
   "entity_id": "<automation.*|script.*>",
   "automation_id": "<HA config id, e.g. '1234567890'>",
   "summary": "Short human description of what changed",
   "changes": ["Trigger time: 07:30 → 07:00", "Added condition: Peter is home"],
-  "original_config": {{<original triggers/conditions/actions as JSON object>}},
-  "modified_config": {{<modified triggers/conditions/actions as JSON object>}}
-}}
+  "original_config": {<original triggers/conditions/actions as JSON object>},
+  "modified_config": {<modified triggers/conditions/actions as JSON object>}
+}
 ```
 
 The frontend renders the changes visually — no YAML needed. The user approves or refines.
@@ -277,39 +304,39 @@ The frontend renders the changes visually — no YAML needed. The user approves 
 When the user wants to create a new automation, confirm all entity_ids exist first, then:
 
 ```plan
-{{
+{
   "create_automation": true,
   "alias": "Short automation name",
   "summary": "Human description of what it does",
-  "config": {{
+  "config": {
     "alias": "Short automation name",
-    "trigger": [{{...}}],
-    "condition": [{{...}}],
-    "action": [{{...}}]
-  }}
-}}
+    "triggers": [{...}],
+    "conditions": [{...}],
+    "actions": [{...}]
+  }
+}
 ```
 
 #### Simulation with mocks
 When the user wants to test/simulate an automation with specific overridden state values:
 
 ```plan
-{{
+{
   "run_simulation": true,
   "automation_id": "<HA config id>",
-  "mocks": {{"person.peter": "not_home", "binary_sensor.voordeur": "open"}}
-}}
+  "mocks": {"person.peter": "not_home", "binary_sensor.voordeur": "open"}
+}
 ```
 
 #### Raw YAML editor (fallback)
 Only use `open_editor` when the user explicitly asks to "open the YAML editor" or "edit the YAML directly":
 
 ```plan
-{{
+{
   "open_editor": true,
   "automation_id": "<automation.*|script.*>",
   "summary": "Short description of what to change"
-}}
+}
 ```
 
 ⚠️ DO NOT use `open_editor` for turning lights on/off, controlling devices, or any service call. Those use `call_service` actions.
@@ -340,20 +367,20 @@ LOVELACE_CARDS_REFERENCE = """\
 - `grid` — `cards: [...]`, `columns: 2`
 
 **Logic:**
-- `conditional` — `conditions: [{{entity, state}}]`, `card: {{...}}`
-- `entity-filter` — `entities: [...]`, `conditions: [...]`, `card: {{...}}`
+- `conditional`: `conditions: [{entity, state}]`, `card: {...}`
+- `entity-filter`: `entities: [...]`, `conditions: [...]`, `card: {...}`
 
 **Display data:**
 - `sensor` — `entity: sensor.xxx`, optional `graph: line`, `hours_to_show`
 - `history-graph` — `entities: [sensor.xxx]`, `hours_to_show: 24`
 - `statistics-graph` — `entities: [sensor.xxx]`, `stat_types: [mean,min,max]`, `period: month`
-- `gauge` — `entity: sensor.xxx`, `min: 0`, `max: 100`, `severity: {{green: 0, yellow: 50, red: 80}}`
+- `gauge`: `entity: sensor.xxx`, `min: 0`, `max: 100`, `severity: {green: 0, yellow: 50, red: 80}`
 - `clock` — standalone clock card, no entity required
-- `markdown` — `content: "## Hello\\n{{{{ states('sensor.xxx') }}}}"` (Jinja2 supported)
+- `markdown`: `content: "## Hello\\n{{ states('sensor.xxx') }}"` (Jinja2 supported)
 - `iframe` — `url: https://example.com`, `aspect_ratio: 50%`
 
 **Control:**
-- `button` — `entity: switch.xxx`, `tap_action: {{action: toggle}}`
+- `button`: `entity: switch.xxx`, `tap_action: {action: toggle}`
 - `entity` — `entity: xxx`, shows state + controls
 - `shortcut` — quick shortcut button, `url` or `navigation_path`
 
@@ -375,7 +402,7 @@ Always check the custom card list before saying a card type doesn't exist.
 #### YAML rules for cards
 - Every card MUST have `type:` as the first key
 - Use exact `entity_id` values from the Entities list
-- For `entities` cards, list entity_ids as strings OR objects `{{entity: xxx, name: Override}}`
+- For `entities` cards, list entity_ids as strings OR objects `{entity: xxx, name: Override}`
 - Return the **complete dashboard YAML** (title + all views + all cards), not just the changed card
 """
 

@@ -1,0 +1,76 @@
+# Kyber's first attempt (before the automation check): invents the options Night/Day/Lower,
+# reads a schedule attribute 'temperature' that does not exist, sets no hvac_mode.
+alias: Kyber living room heating
+description: Controls the living room thermostat by schedule and manual mode.
+triggers:
+- entity_id: input_select.livingroom_heating_mode
+  to:
+  - 'Off'
+  - Night
+  - Day
+  - Auto
+  - Lower
+  trigger: state
+- entity_id: schedule.livingroom_heating_schedule
+  attribute: mode
+  to:
+  - 'Off'
+  - Night
+  - Day
+  - Auto
+  trigger: state
+conditions: []
+actions:
+- alias: Set the thermostat by mode
+  choose:
+  - conditions:
+    - condition: state
+      entity_id: input_select.livingroom_heating_mode
+      state: 'Off'
+    sequence:
+    - target:
+        entity_id: climate.livingroom_thermostat
+      action: climate.set_hvac_mode
+      data:
+        hvac_mode: 'off'
+  - conditions:
+    - condition: state
+      entity_id: input_select.livingroom_heating_mode
+      state: Lower
+    sequence:
+    - target:
+        entity_id: climate.livingroom_thermostat
+      data_template:
+        temperature: '{{ states(''input_number.livingroom_setback_temperature'') | float }}'
+      action: climate.set_temperature
+  - conditions:
+    - condition: state
+      entity_id: input_select.livingroom_heating_mode
+      state: Night
+    sequence:
+    - target:
+        entity_id: climate.livingroom_thermostat
+      data_template:
+        temperature: '{{ states(''input_number.livingroom_setback_temperature'') | float }}'
+      action: climate.set_temperature
+  - conditions:
+    - condition: state
+      entity_id: input_select.livingroom_heating_mode
+      state: Day
+    sequence:
+    - target:
+        entity_id: climate.livingroom_thermostat
+      data_template:
+        temperature: '{{ states(''input_number.livingroom_comfort_temperature'') | float }}'
+      action: climate.set_temperature
+  - conditions:
+    - condition: state
+      entity_id: input_select.livingroom_heating_mode
+      state: Auto
+    sequence:
+    - target:
+        entity_id: climate.livingroom_thermostat
+      data_template:
+        temperature: '{{ state_attr(''schedule.livingroom_heating_schedule'', ''temperature'') }}'
+      action: climate.set_temperature
+mode: single

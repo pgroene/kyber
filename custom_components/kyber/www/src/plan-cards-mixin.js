@@ -1655,6 +1655,25 @@ export const PlanCardsMixin = (Base) => class extends Base {
     resultEl.className = "ae-result info";
   }
 
+  /**
+   * Problems the backend check still found after its correction rounds
+   * (plan.check_warnings). Each finding carries a key for translation and the
+   * English text as fallback.
+   */
+  _checkWarningsHtml(plan) {
+    const warnings = Array.isArray(plan?.check_warnings) ? plan.check_warnings : [];
+    if (!warnings.length) return "";
+    const t = this._t || ((k) => k);
+    const items = warnings.map((w) => {
+      const params = {};
+      for (const [k, v] of Object.entries(w.params || {})) params[k] = Array.isArray(v) ? v.join(", ") : v;
+      const key = w.key === "bad_value" ? (params.attribute ? "ck_bad_attr_value" : "ck_bad_state") : `ck_${w.key}`;
+      const text = t(key, params);
+      return `<li>${this._escapeHtml(text === key ? (w.text || key) : text)}</li>`;
+    }).join("");
+    return `<div class="ae-check-warnings"><div class="ae-check-title">⚠ ${this._escapeHtml(t("ae_check_title"))}</div><ul>${items}</ul></div>`;
+  }
+
   _buildEditAutomationCard(plan, opts = {}) {
     const t = this._t || ((k) => k);
     const workingConfig = JSON.parse(JSON.stringify(plan.modified_config || plan.original_config || {}));
@@ -1675,6 +1694,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
         <span class="ae-badge">${t(kind === "script" ? "pc_kind_script" : "pc_kind_automation")}</span>
       </div>
       <div class="ae-summary">${this._escapeHtml(plan.summary || "")}</div>
+      ${this._checkWarningsHtml(plan)}
       ${(plan.changes || []).length ? `
         <ul class="ae-changes">${(plan.changes || []).map((c) => `<li>${this._escapeHtml(c)}</li>`).join("")}</ul>
       ` : ""}
@@ -1799,6 +1819,7 @@ export const PlanCardsMixin = (Base) => class extends Base {
         <span class="ae-badge">${t("pc_kind_automation")}</span>
       </div>
       <div class="ae-summary">${this._escapeHtml(plan.summary || "")}</div>
+      ${this._checkWarningsHtml(plan)}
       <div class="ae-sections" style="display:none"></div>
       <details class="ae-yaml-details" style="display:none">
         <summary>YAML</summary>

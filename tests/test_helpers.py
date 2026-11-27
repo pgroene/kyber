@@ -94,7 +94,9 @@ def test_tuning_constants_are_centralized_in_const_module():
     assert _const.KNOWLEDGE_BUDGET_SHARE == 0.10
     assert _const.KNOWLEDGE_BUDGET_CHARS == 2_000
     assert _const.MAX_TOOL_RESULT_CHARS == 4_000
-    assert _const.TOOL_CALL_MAX_ROUNDS == 3
+    assert _const.TOOL_CALL_MAX_ROUNDS == 6
+    assert _const.MAX_TOOL_ROUNDS == 15
+    assert _const.MAX_CHECK_ROUNDS == 2
     assert _http_api._MAX_TOOL_RESULT_CHARS == _const.MAX_TOOL_RESULT_CHARS
     assert _http_api._TOOL_CALL_MAX_ROUNDS == _const.TOOL_CALL_MAX_ROUNDS
 

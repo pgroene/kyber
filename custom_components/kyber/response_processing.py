@@ -276,13 +276,16 @@ _JSON_BLOCK_RE = re.compile(r"```json\s*([\s\S]+?)\s*```", re.IGNORECASE)
 _ACTION_TYPE_RE = re.compile(r'"(type|action)"\s*:\s*"(call_service|assign_area|rename_entity|create_\w+|update_\w+|delete_\w+|add_knowledge|update_knowledge|delete_knowledge|open_dashboard|open_editor)"')
 
 # Detect user intent to edit an automation/script YAML — used to lazy-load editor guidance.
+_EDIT_VERBS = (
+    r'(?:edit|modify|update|change|fix|bewerk|aanpas|aanpassen|wijzig|open|pas\s+aan'
+    # German stems (with and without umlauts), including separable "pass ... an"
+    r'|änder|aender|bearbeit|korrigier|reparier|anpass|pass\w*\s+an|erstell|umbau)'
+)
 _AUTOMATION_EDIT_RE = re.compile(
     r'(?:'
-    r'(?:edit|modify|update|change|bewerk|aanpas|aanpassen|wijzig|open|pas\s+aan)'
-    r'.{0,80}(?:automat|script|flow)'
+    rf'{_EDIT_VERBS}.{{0,80}}(?:automat|script|skript|flow)'
     r'|'
-    r'(?:automat|script|flow).{0,80}'
-    r'(?:edit|modify|update|change|bewerk|aanpas|aanpassen|wijzig|open|pas\s+aan)'
+    rf'(?:automat|script|skript|flow).{{0,80}}{_EDIT_VERBS}'
     r')',
     re.I | re.S,
 )

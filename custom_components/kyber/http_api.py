@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
+from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
@@ -67,6 +68,7 @@ from .const import (
     LABEL_ASSIGNMENT_OFF,
     LABEL_ASSIGNMENT_AUTO,
     LOVELACE_CARDS_REFERENCE,
+    MAX_CHECK_ROUNDS,
     MAX_TOOL_RESULT_CHARS,
     SYSTEM_PROMPT_TEMPLATE,
     DEFAULT_LABEL_ASSIGNMENT_MODE,
@@ -74,6 +76,7 @@ from .const import (
     MIN_AI_CALL_TIMEOUT,
     MIN_CLOUD_HTTP_TIMEOUT,
     get_chat_timeout,
+    get_max_tool_rounds,
     _sanitize_user_input,
 )
 from .knowledge import CATEGORIES as KNOWLEDGE_CATEGORIES, alias_entity_ids, get_store as get_knowledge_store
@@ -102,7 +105,7 @@ from .intent_and_context import (
     _classify_intent,
     _build_home_state_by_area, _build_context,
 )
-from .tool_execution import _tool_result_summary, _tool_result_summary_parts, _state_matches, _execute_tool, _async_execute_tool, _ASYNC_TOOLS, TOOL_ALIASES, resolve_tool_call
+from .tool_execution import _tool_result_summary, _tool_result_summary_parts, _state_matches, _execute_tool, _async_execute_tool, _ASYNC_TOOLS, TOOL_ALIASES, resolve_tool_call, find_config_item
 from .mcp_client import MCPClientManager, parse_servers_config, is_mcp_tool
 from .session_and_storage import (
     _CHAT_HISTORY_STORE_VERSION, _CHAT_HISTORY_STORE_KEY,
@@ -143,6 +146,7 @@ from .prompt_regression_api import (
     KyberPromptTestsCaptureView, KyberPromptTestsRegenerateView,
 )
 from .config_flow import _infer_max_tokens
+from . import automation_check
 from .prompt_budget import ChatPrompt, PromptFit, ToolRound, prompt_char_limit
 from .rate_limiter import _rate_limiter
 from .token_budget import TokenReservation, get_budget_provider, get_store as get_token_budget_store
@@ -238,6 +242,19 @@ _SYNTHESIS_INSTRUCTIONS = (
     "couldn't find the information and suggest trying a more specific search. "
     "Do NOT output any [TOOL_CALL:] blocks — only a prose answer. "
     "List EVERY item from the results; do not truncate with '...' or 'and X more'.]"
+)
+
+# Same situation for a change request: the answer may (and for an edit
+# should) be the plan block the main instructions describe.
+_FINAL_ANSWER_INSTRUCTIONS = (
+    "\n\n[SYSTEM: No more tool calls are possible in this turn. Answer now from "
+    "the tool results shown above, in the same language as the user's question. "
+    "If the user asked to create or change an automation or script and its "
+    "configuration is shown above, output the plan block (edit_automation or "
+    "create_automation) exactly as described in the instructions, with "
+    "original_config and modified_config. If something needed is missing, say "
+    "what is missing — do NOT invent entity names, IDs or values. "
+    "Do NOT output any [TOOL_CALL:] blocks.]"
 )
 
 
@@ -573,6 +590,121 @@ def _escape_fenced_block_content(text: str) -> str:
     return text.replace("```", "``\u200b`")
 
 
+# Major.minor only: the guidance sits early in the prompt and must not change
+# with every patch release (prompt cache).
+_HA_SHORT_VERSION = f"{MAJOR_VERSION}.{MINOR_VERSION}"
+_CONFIG_REF_RE = re.compile(r"\b(?:automation|script)\.[a-z0-9_]+\b", re.IGNORECASE)
+_MAX_REFERENCED_CONFIGS = 2
+_MAX_REFERENCED_CONFIG_CHARS = 8_000
+# Fields source.read_* derives from the config; not part of what HA stores.
+_DERIVED_CONFIG_KEYS = frozenset({"hash", "num_triggers", "num_actions", "num_steps"})
+
+
+async def _load_referenced_configs(hass: HomeAssistant, user_prompt: str) -> list[dict]:
+    """Configs of the automations and scripts the user names by entity_id.
+
+    "Fix automation.x" used to cost tool rounds (get_automation, often a
+    search first) before the model could even start on the edit; with three
+    rounds it regularly ran out and answered nothing. The named configs go
+    into the prompt instead, like an open editor's YAML. At most two, and
+    none that would crowd the prompt: those the model can still fetch.
+    """
+    names = list(dict.fromkeys(m.group(0).lower() for m in _CONFIG_REF_RE.finditer(user_prompt or "")))
+    out: list[dict] = []
+    loaded: dict[str, list[dict]] = {}
+    for eid in names[:_MAX_REFERENCED_CONFIGS]:
+        kind = eid.split(".", 1)[0]
+        if kind not in loaded:
+            reader = _src_read_automations if kind == "automation" else _src_read_scripts
+            try:
+                loaded[kind] = await hass.async_add_executor_job(reader, hass)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Kyber: could not read %s configs for %s: %s", kind, eid, err)
+                loaded[kind] = []
+        item = find_config_item(hass, kind, loaded[kind], eid)
+        if item is None:
+            continue
+        config_json = json.dumps(
+            {k: v for k, v in item.items() if k not in _DERIVED_CONFIG_KEYS},
+            ensure_ascii=False, indent=1, default=str,
+        )
+        if len(config_json) > _MAX_REFERENCED_CONFIG_CHARS:
+            _LOGGER.info("Kyber: %s is too large to preload (%d chars)", eid, len(config_json))
+            continue
+        out.append({"kind": kind, "entity_id": eid, "id": str(item.get("id", "")), "config_json": config_json})
+    return out
+
+
+def _referenced_configs_section(referenced: list[dict], editor_id: str) -> str:
+    """Prompt section for configs preloaded by _load_referenced_configs."""
+    parts = []
+    for ref in referenced:
+        if editor_id and ref["id"] == editor_id:
+            continue  # already shown as the open editor's YAML
+        kind = ref["kind"]
+        parts.append(
+            f"## {kind.upper()} NAMED IN THE REQUEST: `{ref['entity_id']}`\n"
+            f"Config ID: `{ref['id']}` (use it as `automation_id`).\n"
+            f"Its current configuration is shown below; do NOT call `get_{kind}` for it. "
+            f"The entities it uses follow with their real states, options and attributes; "
+            f"look up any other entity you need before you change it. "
+            f"**If the user asks to change it, emit an `edit_automation` plan block, with "
+            f"`original_config` = this configuration and `modified_config` = the changed one. "
+            f"It may be broken: rewrite what is wrong instead of keeping it.**\n"
+            f"```json\n{_escape_fenced_block_content(ref['config_json'])}\n```\n\n"
+        )
+    return "".join(parts)
+
+
+async def _config_entity_context(hass: HomeAssistant, body_fields: dict) -> str:
+    """Live data of the entities used by the named configs and the open editor's YAML.
+
+    The model invented options and schedule values and read attributes that do
+    not exist when it saw only the configuration; with the real values
+    next to it, it has no reason to guess.
+    """
+    sources = [ref.get("config_json", "") for ref in body_fields.get("referenced_configs") or []]
+    if body_fields.get("editor_mode") in ("automation", "script"):
+        sources.append(body_fields.get("user_yaml") or "")
+    entity_ids = automation_check.referenced_entity_ids(hass, "\n".join(s for s in sources if s))
+    if not entity_ids:
+        return ""
+    try:
+        schedule_values = await automation_check.collect_schedule_values(hass, entity_ids)
+        return await automation_check.entity_context(hass, entity_ids, schedule_values)
+    except Exception as err:  # noqa: BLE001 – context is a help, never a reason to fail the turn
+        _LOGGER.debug("Kyber: entity context for referenced configs failed: %s", err)
+        return ""
+
+
+async def _check_plan(hass: HomeAssistant, plan: dict | None) -> list:
+    """Findings for the automation/script a plan proposes; [] for other plans or on failure."""
+    config, kind = automation_check.plan_config(plan)
+    if config is None:
+        return []
+    try:
+        return await automation_check.check_config(hass, config, kind)
+    except Exception as err:  # noqa: BLE001 – a failing check must not cost the answer
+        _LOGGER.warning("Kyber: checking the proposed %s failed: %s", kind, err)
+        return []
+
+
+async def _automation_check_feedback(hass: HomeAssistant, response_text: str) -> str:
+    """Correction request for the model when its proposal has errors, else ""."""
+    text = _normalize_json_plan_blocks(_rewrap_bare_action_fences(response_text))
+    findings = await _check_plan(hass, _extract_plan_block(text))
+    return automation_check.feedback_for_model(findings)
+
+
+async def _attach_check_warnings(hass: HomeAssistant, plan: dict | None) -> dict | None:
+    """Put the errors the corrections did not fix on the plan, for the card to show."""
+    findings = await _check_plan(hass, plan)
+    errors = [f.as_dict() for f in findings if f.severity == automation_check.ERROR]
+    if errors and isinstance(plan, dict):
+        plan["check_warnings"] = errors
+    return plan
+
+
 def _build_prompt_sections(
     body_fields: dict, context: str, request: "web.Request", live_state: str = ""
 ) -> dict:
@@ -671,6 +803,9 @@ def _build_prompt_sections(
             if user_yaml.strip()
             else ""
         )
+    referenced = body_fields.get("referenced_configs") or []
+    yaml_section += _referenced_configs_section(referenced, editor_id)
+    yaml_section += body_fields.get("entity_context") or ""
 
     safe_compacted_summary = ""
     if compacted_summary:
@@ -700,8 +835,8 @@ def _build_prompt_sections(
 
     # Lazy-load sections: inject only when relevant to save prompt budget.
     automation_guidance = (
-        AUTOMATION_EDITOR_GUIDANCE
-        if user_yaml.strip() or editor_id or _AUTOMATION_EDIT_RE.search(user_prompt)
+        AUTOMATION_EDITOR_GUIDANCE.replace("__HA_VERSION__", _HA_SHORT_VERSION)
+        if user_yaml.strip() or editor_id or referenced or _AUTOMATION_EDIT_RE.search(user_prompt)
         else ""
     )
     lovelace_ref = LOVELACE_CARDS_REFERENCE if editor_mode == "dashboard" else ""
@@ -1347,7 +1482,7 @@ async def _run_ai_loop(
                 _LOGGER.warning('Kyber MCP client: failed to load tools: %s', _mcp_err)
 
     # Tool-calling loop — the AI may request live HA data via [TOOL_CALL: {...}]
-    # We execute tools and re-send up to _TOOL_CALL_MAX_ROUNDS times.
+    # We execute tools and re-send up to _max_rounds times (option max_tool_rounds).
     tool_rounds: list[ToolRound] = []  # tool call/result exchanges, one per round, oldest first
     tool_log: list = []  # summary of tool calls for UI feedback
     _aliases_saved: list[str] = []  # search aliases newly stored this turn
@@ -1356,6 +1491,7 @@ async def _run_ai_loop(
     response_text = ""
     _loop_redirect_given = False  # allow one redirect hint before falling back to synthesis
     _auto_plan_rescued = False    # set when call_service tool call is auto-converted to plan
+    _check_rounds = 0  # correction rounds spent on a proposal the check rejected
     # Describe external MCP tools in the system part, ahead of the conversation.
     if _mcp_tools and _mcp_client is not None:
         _mcp_block = _mcp_client.build_prompt_block(_mcp_tools)
@@ -1366,6 +1502,7 @@ async def _run_ai_loop(
     # the ai_task path gets one text and Home Assistant builds the roles.
     _render = prompt.render_messages if _use_cloud else prompt.render
     loop_instructions = _render(_prompt_limit).text  # default if the loop never runs
+    _max_rounds = get_max_tool_rounds(_cfg)
 
     async def _call_model(fit: PromptFit) -> Any:
         """Send one fitted prompt to the chat provider, within the call timeout."""
@@ -1408,6 +1545,51 @@ async def _run_ai_loop(
             )
         return await asyncio.wait_for(call, timeout=_AI_CALL_TIMEOUT)
 
+    async def _answer_from_tool_results() -> str:
+        """One model call on the collected tool results, without tools.
+
+        Used when the model repeats its tool calls or runs out of rounds.
+        An action may end in a plan block (an edit request needs one), a
+        question only in prose. Returns "" when the call fails or is empty.
+        """
+        answer_instructions = (
+            _FINAL_ANSWER_INSTRUCTIONS if intent == "action" else _SYNTHESIS_INSTRUCTIONS
+        )
+        synth_fit = _render(
+            _prompt_limit,
+            [*tool_rounds[:-1], tool_rounds[-1].with_note(answer_instructions)],
+        )
+        synth_prompt = synth_fit.text
+        try:
+            _progress_emit(hass, request_id, {"type": "thinking", "stage": "synthesize"})
+            _t_synth = time.monotonic()
+            # Route synthesis through the same provider as the main loop
+            synth_result = await _call_model(synth_fit)
+            _synth_ms = int((time.monotonic() - _t_synth) * 1000)
+            synth_text = (
+                synth_result.data
+                if isinstance(synth_result.data, str)
+                else (str(synth_result.data) if synth_result.data is not None else "")
+            )
+            _synth_usage = _extract_result_token_usage(
+                synth_result,
+                prompt_fallback=len(synth_prompt) // 4,
+                response_fallback=len(synth_text) // 4,
+            )
+            _token_usage["calls"] += 1
+            _token_usage["prompt_tokens"] += _synth_usage["prompt_tokens"]
+            _token_usage["response_tokens"] += _synth_usage["response_tokens"]
+            _token_usage["total_tokens"] += _synth_usage["total_tokens"]
+            synth_text = _strip_tool_calls(synth_text).strip()
+            _LOGGER.info(
+                "Kyber: synthesis pass OK — elapsed=%dms resp_tokens~%d",
+                _synth_ms, _synth_usage["response_tokens"],
+            )
+            return synth_text
+        except Exception as _synth_err:  # noqa: BLE001
+            _LOGGER.warning("Kyber: synthesis pass failed: %s", _synth_err)
+            return ""
+
     # ── Quick-intent shortcut — skip the AI for trivially parseable requests
     # like "create an area outside". Small local models loop on get_areas
     # because every action example in the prompt has an entity_id; bypassing
@@ -1426,7 +1608,7 @@ async def _run_ai_loop(
         intent = "action"  # quick intents are always actions; prevent informational guard from dropping the plan
         _skip_ai_loop = True
 
-    for _round in range(0 if _skip_ai_loop else _TOOL_CALL_MAX_ROUNDS):
+    for _round in range(0 if _skip_ai_loop else _max_rounds):
         # The prompt never exceeds _prompt_limit, which leaves the rest of the
         # window for the answer; when it had to be shortened, say what went.
         _fit = _render(_prompt_limit, tool_rounds)
@@ -1575,6 +1757,25 @@ async def _run_ai_loop(
                     response_text = _PLAN_BLOCK_RE.sub("", response_text).strip()
 
         if not tool_calls:
+            # A proposed automation/script goes back to the model while it has
+            # errors the check can name: at most MAX_CHECK_ROUNDS times, and
+            # never in the last round, which must end in an answer.
+            if _check_rounds < MAX_CHECK_ROUNDS and _round < _max_rounds - 1:
+                _feedback = await _automation_check_feedback(hass, response_text)
+                if _feedback:
+                    _check_rounds += 1
+                    _LOGGER.info("Kyber: proposed config has errors, correction round %d", _check_rounds)
+                    _progress_emit(hass, request_id, {
+                        "type": "info",
+                        "message": f"Checking the proposal found problems; asking for a correction ({_check_rounds})",
+                        "key": "ev_check_retry",
+                        "params": {"n": _check_rounds},
+                    })
+                    tool_rounds.append(ToolRound(
+                        response_text.strip(),
+                        f"\n[TOOL_RESULT: {json.dumps({'name': 'check_configuration'})}]\n{_feedback}\n",
+                    ))
+                    continue
             break  # no tool calls — final answer
 
         # Dedup: within this round and against prior rounds.
@@ -1853,52 +2054,29 @@ async def _run_ai_loop(
                 "message": "Model repeated previous tool calls \u2014 synthesizing answer from results.",
                 "key": "ev_repeated_calls",
             })
-            # The model looped instead of answering in prose. Do one final
-            # synthesis pass with no tool-calling instructions so it turns
-            # the collected data into a natural-language response.
+            # The model looped instead of answering. One call without tools
+            # turns the collected data into the answer.
             if not _strip_tool_calls(response_text).strip() and tool_rounds:
-                synth_fit = _render(
-                    _prompt_limit,
-                    [*tool_rounds[:-1], tool_rounds[-1].with_note(_SYNTHESIS_INSTRUCTIONS)],
-                )
-                synth_prompt = synth_fit.text
-                try:
-                    _progress_emit(hass, request_id, {"type": "thinking", "stage": "synthesize"})
-                    _t_synth = time.monotonic()
-                    # Route synthesis through the same provider as the main loop
-                    synth_result = await _call_model(synth_fit)
-                    _synth_ms = int((time.monotonic() - _t_synth) * 1000)
-                    synth_text = (
-                        synth_result.data
-                        if isinstance(synth_result.data, str)
-                        else (str(synth_result.data) if synth_result.data is not None else "")
-                    )
-                    _synth_usage = _extract_result_token_usage(
-                        synth_result,
-                        prompt_fallback=len(synth_prompt) // 4,
-                        response_fallback=len(synth_text) // 4,
-                    )
-                    _token_usage["calls"] += 1
-                    _token_usage["prompt_tokens"] += _synth_usage["prompt_tokens"]
-                    _token_usage["response_tokens"] += _synth_usage["response_tokens"]
-                    _token_usage["total_tokens"] += _synth_usage["total_tokens"]
-                    synth_text = _strip_tool_calls(synth_text).strip()
-                    _LOGGER.info(
-                        "Kyber: synthesis pass OK — elapsed=%dms resp_tokens~%d",
-                        _synth_ms, _synth_usage["response_tokens"],
-                    )
-                    if synth_text:
-                        response_text = synth_text
-                except Exception as _synth_err:  # noqa: BLE001
-                    _LOGGER.warning("Kyber: synthesis pass failed: %s", _synth_err)
+                synth_text = await _answer_from_tool_results()
+                if synth_text:
+                    response_text = synth_text
             # Final guard: if synthesis also produced nothing, show a helpful message.
             if not _strip_tool_calls(response_text).strip():
                 response_text = _no_answer_message(hass, user_prompt, "no_action")
             break
 
-    # Fallback: if the tool loop exhausted max rounds without producing a text
-    # response (e.g. AI kept making tool calls until the last round), ensure
-    # the user always gets a helpful message instead of an empty response.
+    # The rounds ran out while the model was still calling tools, typically
+    # when it needed a lookup before an edit. Ask once more without tools so
+    # it answers from what it collected (an edit becomes a plan block)
+    # instead of the "no answer" message.
+    if not _strip_tool_calls(response_text).strip() and tool_rounds:
+        _LOGGER.info("Kyber: %d tool rounds used up — asking for a final answer", _max_rounds)
+        final_text = await _answer_from_tool_results()
+        if final_text:
+            response_text = final_text
+
+    # Fallback: if even the final answer stayed empty, the user still gets a
+    # helpful message instead of an empty response.
     if not _strip_tool_calls(response_text).strip():
         _LOGGER.warning("Kyber: tool loop exhausted max rounds with no text response — returning fallback")
         response_text = _no_answer_message(hass, user_prompt, "no_answer")
@@ -2031,7 +2209,13 @@ def _extract_response_components(
     # (e.g. "what areas do I have" should never become "create_area outside").
     # Also drop empty-actions plans (AI returned plan JSON with summary but no
     # actions — it "summarised" the answer instead of writing it out).
-    if intent == "informational" and plan_block:
+    # Automation/script proposals are never dropped: they carry no "actions",
+    # so they looked like an empty plan, and they change nothing until the
+    # user applies the card. A misclassified edit request lost its card here.
+    is_config_proposal = bool(plan_block) and any(
+        plan_block.get(k) for k in ("edit_automation", "create_automation", "run_simulation")
+    )
+    if intent == "informational" and plan_block and not is_config_proposal:
         has_editor = plan_block.get("open_editor") or plan_block.get("open_dashboard")
         mutating_action_types = {
             "create_area", "delete_area", "rename_entity", "assign_area",
@@ -2257,10 +2441,12 @@ def _extract_response_components(
                 "climate", "cover", "media_player", "person",
                 "fan", "lock", "vacuum", "input_boolean",
             }
+            # Service names (climate.set_temperature) have the same shape but no state.
             fake_ids = [
                 eid for eid in dict.fromkeys(candidate_ids)  # deduplicate, preserve order
                 if eid.split(".")[0] in _CHECKABLE_DOMAINS
                 and not hass.states.get(eid)
+                and not hass.services.has_service(*eid.split(".", 1))
             ]
             if fake_ids:
                 _LOGGER.warning(
@@ -2465,6 +2651,8 @@ class KyberView(HomeAssistantView):
                 f"exhaustive.\n\n"
             )
 
+        body_fields["referenced_configs"] = await _load_referenced_configs(hass, user_prompt)
+        body_fields["entity_context"] = await _config_entity_context(hass, body_fields)
         sections = _build_prompt_sections(body_fields, context, request, live_state)
         prompt: ChatPrompt = sections["prompt"]
         intent = sections["intent"]
@@ -2541,6 +2729,7 @@ class KyberView(HomeAssistantView):
 
         _progress_complete(hass, request_id)
         plan_block = _annotate_plan_approval(plan_block)
+        plan_block = await _attach_check_warnings(hass, plan_block)
 
         # Post-turn fact extraction: if the user made a correction (e.g. "it's
         # called keuken") and the AI didn't already propose an add_knowledge

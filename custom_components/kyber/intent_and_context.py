@@ -158,6 +158,18 @@ _ACTION_RE_PATTERNS: tuple = (
         r"\s+(?:belongs?|goes?|is\s+placed?|is\s+located?)\s+in\b",
         re.IGNORECASE,
     ),  # EN "the X belongs in / is placed in"
+    # German change verbs by stem, spelled with and without umlauts, so every
+    # inflection counts (including the "ge-" participle). Without them a
+    # German request such as "Fixe die automation.x" was informational, and
+    # the answer's edit plan was dropped.
+    re.compile(
+        r"\b(?:ge)?(?:änder|aender|bearbeit|korrigier|fix|reparier|erstell|lösch|loesch"
+        r"|entfern|aktivier|deaktivier|verschieb|umbenenn|benenn(?:e|t|en)?\s+.{0,40}\bum"
+        r"|pass(?:e|t|en)?\s+.{0,40}\ban|leg(?:e|t|en)?\s+.{0,40}\ban"
+        r"|stell(?:e|t|en)?\s+.{0,40}\bein|schalt(?:e|t|en)?\s+.{0,40}\b(?:ein|aus|an|ab|um))",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bmach(?:e|t|en)?\s+.{0,30}\b(?:an|aus)\b", re.IGNORECASE),  # DE: mach X an/aus
 )
 
 
@@ -177,6 +189,9 @@ _INFORMATIONAL_PREFIX_RE = re.compile(
     r"|why"
     r"|when\s+(?:is|does|did|will|do)"
     r"|where\s+(?:is|are|can)"
+    # German questions ("Ist das Licht an?", "Was passiert, wenn …", "Zeig mir …")
+    r"|was|welche[rsmn]?|wie|wann|warum|wieso|weshalb|wo|wer"
+    r"|ist|sind|gibt\s+es|zeig(?:e)?(?:\s+mir)?"
     r")\b",
     re.IGNORECASE,
 )
