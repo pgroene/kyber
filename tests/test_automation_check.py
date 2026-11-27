@@ -10,6 +10,7 @@ lifted the result from 3/13 to 10-13/13 behaviour checks.
 from __future__ import annotations
 
 import json
+import re
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -229,8 +230,10 @@ async def test_a_rejected_trigger_is_located_and_fully_explained(kyber, home):
     config = {**FIXED, "triggers": [*FIXED["triggers"], {"platform": "homeassistant", "event_type": "start"}]}
     findings = await kyber.check.check_config(home, config)
     schema = next(f for f in findings if f.key == "schema")
-    assert "not a valid option at 'event_type' (in triggers[2])" in schema.text
-    assert "required key not provided at 'event'" in schema.text
+    # Home Assistant 2026.2 says "extra keys not allowed @ data['event_type']", newer
+    # releases "not a valid option at 'event_type'": check the location, not the wording.
+    assert re.search(r"'event_type'\]? \(in triggers\[2\]\)", schema.text), schema.text
+    assert re.search(r"required key not provided (@ data\['event'\]|at 'event')", schema.text), schema.text
     assert "never delete it" in kyber.check.feedback_for_model(findings)
 
 
